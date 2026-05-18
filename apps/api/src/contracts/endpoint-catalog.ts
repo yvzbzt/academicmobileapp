@@ -1,0 +1,57 @@
+import type { UserRole } from "../../../../packages/shared/src/contracts.js";
+
+export interface EndpointContract {
+  method: "GET" | "POST" | "PATCH" | "DELETE";
+  path: string;
+  authRequired: boolean;
+  roles: UserRole[] | "public";
+  rateLimit: "none" | "standard" | "strict" | "upload";
+}
+
+export const endpointCatalog: EndpointContract[] = [
+  { method: "POST", path: "/auth/register", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/verify-email", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "GET", path: "/auth/verify-email", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/login", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/logout", authRequired: true, roles: ["student", "content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/auth/refresh-token", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "GET", path: "/me", authRequired: true, roles: ["student", "content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "PATCH", path: "/me/university", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/universities", authRequired: false, roles: "public", rateLimit: "standard" },
+  { method: "GET", path: "/universities/:id", authRequired: false, roles: "public", rateLimit: "standard" },
+  { method: "GET", path: "/universities/:id/faculties", authRequired: false, roles: "public", rateLimit: "standard" },
+  { method: "GET", path: "/faculties/:id/departments", authRequired: false, roles: "public", rateLimit: "standard" },
+  { method: "GET", path: "/calendar/my", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/calendar/university/:universityId", authRequired: false, roles: "public", rateLimit: "standard" },
+  { method: "GET", path: "/calendar/events/:eventId", authRequired: false, roles: "public", rateLimit: "standard" },
+  { method: "GET", path: "/calendar/upcoming", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/calendar/events", authRequired: false, roles: "public", rateLimit: "standard" },
+  { method: "GET", path: "/announcements/my", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "POST", path: "/devices/register", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/notification-preferences", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "PATCH", path: "/notification-preferences", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/universities", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "PATCH", path: "/admin/universities/:id", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "DELETE", path: "/admin/universities/:id", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/universities/:id/faculties", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/universities/:universityId/faculties/:facultyId/departments", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/pdf-sources", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "upload" },
+  { method: "POST", path: "/admin/pdf-sources/:id/process", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "GET", path: "/admin/pdf-sources/:id", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "GET", path: "/admin/pdf-sources/:id/extracted-events", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "GET", path: "/admin/extracted-events", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "GET", path: "/admin/extracted-events/:id", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "PATCH", path: "/admin/extracted-events/:id", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/extracted-events/:id/approve", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/extracted-events/:id/reject", authRequired: true, roles: ["content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/calendars/:id/publish", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/calendars", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "PATCH", path: "/admin/calendars/:id", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/calendars/:id/rollback", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "GET", path: "/admin/audit-logs", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "GET", path: "/admin/audit-logs/export", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/notification-jobs/process-due", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "GET", path: "/admin/notification-jobs/failed", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "GET", path: "/admin/notification-jobs/deliveries", authRequired: true, roles: ["super_admin"], rateLimit: "standard" },
+  { method: "POST", path: "/admin/notification-jobs/retry", authRequired: true, roles: ["super_admin"], rateLimit: "standard" }
+];

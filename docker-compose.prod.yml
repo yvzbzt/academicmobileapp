@@ -1,0 +1,92 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    container_name: academic-calendar-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      REPOSITORY_MODE: mongo
+      QUEUE_MODE: bullmq
+      RATE_LIMIT_STORE: redis
+      MONGODB_URI: mongodb://mongodb:27017/akademik_takvim
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: http://localhost:8080,http://localhost:8081
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
+      BOOTSTRAP_SEED_ENABLED: ${BOOTSTRAP_SEED_ENABLED:-false}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-System Administrator}
+    ports:
+      - "3000:3000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health/ready"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  admin:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.admin
+      args:
+        VITE_API_BASE_URL: http://localhost:3000
+    container_name: academic-calendar-admin
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  mobile:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.mobile
+      args:
+        VITE_API_BASE_URL: http://localhost:3000
+    container_name: academic-calendar-mobile
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  mongodb:
+    image: mongo:7
+    container_name: academic-calendar-mongodb-prod
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: academic-calendar-redis-prod
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongodb_data:
+  redis_data:
