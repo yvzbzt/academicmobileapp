@@ -25,13 +25,24 @@ export class InMemoryAuthRepository implements AuthRepository {
     return user;
   }
 
+  async listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]> {
+    const search = input.search?.trim().toLocaleLowerCase("tr-TR");
+    return [...this.users.values()]
+      .filter((user) => !user.deletedAt)
+      .filter((user) => (input.status ? user.status === input.status : true))
+      .filter((user) => (search ? user.fullName.toLocaleLowerCase("tr-TR").includes(search) || user.email.includes(search) : true))
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(input.offset, input.offset + input.limit);
+  }
+
   async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
     const normalizedEmail = email.toLocaleLowerCase("tr-TR");
-    return [...this.users.values()].find((user) => user.email === normalizedEmail) ?? null;
+    return [...this.users.values()].find((user) => user.email === normalizedEmail && !user.deletedAt) ?? null;
   }
 
   async findUserById(id: string): Promise<AuthUserRecord | null> {
-    return this.users.get(id) ?? null;
+    const user = this.users.get(id);
+    return user && !user.deletedAt ? user : null;
   }
 
   async markUserEmailVerified(id: string, verifiedAt: Date): Promise<AuthUserRecord | null> {
@@ -45,6 +56,41 @@ export class InMemoryAuthRepository implements AuthRepository {
     };
     this.users.set(id, updated);
     return updated;
+  }
+
+  async updateUserGoogleIdentity(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "firebaseAuthUid" | "lastLoginAt">>
+  ): Promise<AuthUserRecord | null> {
+    const user = await this.findUserById(id);
+    if (!user) return null;
+    const updated: AuthUserRecord = {
+      ...user,
+      ...input,
+      updatedAt: new Date()
+    };
+    this.users.set(id, updated);
+    return updated;
+  }
+
+  async updateUserByAdmin(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "role" | "status" | "universityId" | "facultyId" | "departmentId" | "classLevel">>
+  ): Promise<AuthUserRecord | null> {
+    const user = await this.findUserById(id);
+    if (!user) return null;
+    const updated: AuthUserRecord = {
+      ...user,
+      ...input,
+      updatedAt: new Date()
+    };
+    this.users.set(id, updated);
+    return updated;
+  }
+
+  async deleteUserByAdmin(id: string): Promise<void> {
+    const user = this.users.get(id);
+    if (user) this.users.set(id, { ...user, status: "inactive", deletedAt: new Date(), updatedAt: new Date() });
   }
 
   async updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
@@ -90,6 +136,12 @@ export class InMemoryAuthRepository implements AuthRepository {
 
   async findEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationTokenRecord | null> {
     return [...this.emailVerificationTokens.values()].find((token) => token.tokenHash === tokenHash) ?? null;
+  }
+
+  async findLatestEmailVerificationTokenByUserId(userId: string): Promise<EmailVerificationTokenRecord | null> {
+    return [...this.emailVerificationTokens.values()]
+      .filter((token) => token.userId === userId && !token.consumedAt)
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0] ?? null;
   }
 
   async consumeEmailVerificationToken(id: string, consumedAt: Date): Promise<void> {

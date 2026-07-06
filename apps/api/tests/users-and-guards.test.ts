@@ -12,7 +12,10 @@ import { UsersService } from "../src/modules/users/users.service.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
 
 class FakeEmailVerificationSenderService extends EmailVerificationSenderService {
-  override async sendVerificationEmail(_input: SendVerificationEmailInput): Promise<void> {}
+  public readonly sent: SendVerificationEmailInput[] = [];
+  override async sendVerificationEmail(input: SendVerificationEmailInput): Promise<void> {
+    this.sent.push(input);
+  }
 }
 
 function createExecutionContext(request: Record<string, unknown>, requiredRoles?: string[]): ExecutionContext {
@@ -29,17 +32,15 @@ describe("JwtAuthGuard", () => {
   it("attaches authenticated user from bearer token", async () => {
     const authRepository = new InMemoryAuthRepository();
     const tokenService = new TokenService();
-    const authService = new AuthApplicationService(authRepository, new InMemoryCatalogRepository(), new PasswordHasher(), tokenService, new FakeEmailVerificationSenderService());
+    const sender = new FakeEmailVerificationSenderService();
+    const authService = new AuthApplicationService(authRepository, new PasswordHasher(), tokenService, sender);
     const registerResult = await authService.register({
-      fullName: "Guard User",
       email: "guard@campus.edu.tr",
       password: "StrongPass123!",
-      deviceId: "device-1",
-      universityId: "sample-university-1",
-      facultyId: "sample-faculty-1",
-      departmentId: "sample-department-1"
+      passwordConfirmation: "StrongPass123!"
     });
-    const session = await authService.verifyEmail({ token: registerResult.previewVerificationToken!, deviceId: "device-1" });
+    await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
+    const session = await authService.login({ email: registerResult.email, password: "StrongPass123!", deviceId: "device-1" });
     const request: Record<string, unknown> = { headers: { authorization: `Bearer ${session.accessToken}` } };
 
     const canActivate = new JwtAuthGuard(tokenService).canActivate(createExecutionContext(request));
@@ -73,34 +74,67 @@ describe("RolesGuard", () => {
 describe("UsersService", () => {
   it("returns and updates only the authenticated user's profile", async () => {
     const authRepository = new InMemoryAuthRepository();
-    const authService = new AuthApplicationService(authRepository, new InMemoryCatalogRepository(), new PasswordHasher(), new TokenService(), new FakeEmailVerificationSenderService());
-    const usersService = new UsersService(authRepository);
+    const catalogRepository = new InMemoryCatalogRepository();
+    const university = await catalogRepository.createUniversity({ name: "Test University", slug: "test-university", city: "Ankara", type: "state", status: "active" });
+    await catalogRepository.createFaculty({ universityId: university.id, name: "Test Faculty", slug: "test-faculty", status: "active" });
+    const [faculty] = await catalogRepository.listFaculties(university.id, "active");
+    await catalogRepository.createDepartment({ universityId: university.id, facultyId: faculty!.id, name: "Test Department", slug: "test-department", educationLevel: "bachelor", status: "active" });
+    const [department] = await catalogRepository.listDepartments(faculty!.id, "active");
+    const sender = new FakeEmailVerificationSenderService();
+    const authService = new AuthApplicationService(authRepository, new PasswordHasher(), new TokenService(), sender);
+    const usersService = new UsersService(authRepository, catalogRepository);
     const registerResult = await authService.register({
-      fullName: "Profile User",
       email: "profile@campus.edu.tr",
       password: "StrongPass123!",
-      deviceId: "device-1",
-      universityId: "sample-university-1",
-      facultyId: "sample-faculty-1",
-      departmentId: "sample-department-1"
+      passwordConfirmation: "StrongPass123!"
     });
-    const session = await authService.verifyEmail({ token: registerResult.previewVerificationToken!, deviceId: "device-1" });
+    await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
+    const session = await authService.login({ email: registerResult.email, password: "StrongPass123!", deviceId: "device-1" });
 
     const updated = await usersService.updateMyUniversity(session.user.id, {
-      universityId: "university-1",
-      facultyId: "faculty-1",
-      departmentId: "department-1",
+      universityId: university.id,
+      facultyId: faculty!.id,
+      departmentId: department!.id,
       classLevel: 2
     });
 
     expect(updated).toEqual(
       expect.objectContaining({
         id: session.user.id,
-        universityId: "university-1",
-        facultyId: "faculty-1",
-        departmentId: "department-1",
+        universityId: university.id,
+        facultyId: faculty!.id,
+        departmentId: department!.id,
         classLevel: 2
       })
     );
+  });
+
+  it("lists, updates and deletes users for admin management", async () => {
+    const authRepository = new InMemoryAuthRepository();
+    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository());
+    const createdUser = await authRepository.createUser({
+      fullName: "Managed User",
+      email: "managed@campus.edu.tr",
+      passwordHash: "hash",
+      role: "student",
+      universityId: "sample-university-1",
+      facultyId: "sample-faculty-1",
+      departmentId: "sample-department-1",
+      status: "active"
+    });
+
+    const listedUsers = await usersService.listUsers({ search: "managed", limit: 10, offset: 0 });
+    expect(listedUsers).toHaveLength(1);
+
+    const updatedUser = await usersService.updateUserByAdmin(createdUser.id, {
+      fullName: "Managed Editor",
+      role: "content_editor",
+      status: "locked"
+    });
+
+    expect(updatedUser).toEqual(expect.objectContaining({ fullName: "Managed Editor", role: "content_editor", status: "locked" }));
+
+    await usersService.deleteUserByAdmin(createdUser.id);
+    await expect(usersService.getMe(createdUser.id)).rejects.toThrow("User not found.");
   });
 });

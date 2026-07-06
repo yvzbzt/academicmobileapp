@@ -3,22 +3,16 @@ import type { AcademicTerm, NormalizedDateResult } from "./academic-event.types.
 const turkishMonths: Record<string, number> = {
   ocak: 1,
   subat: 2,
-  "şubat": 2,
   mart: 3,
   nisan: 4,
   mayis: 5,
-  "mayıs": 5,
   haziran: 6,
   temmuz: 7,
   agustos: 8,
-  "ağustos": 8,
   eylul: 9,
-  "eylül": 9,
   ekim: 10,
   kasim: 11,
-  "kasım": 11,
-  aralik: 12,
-  "aralık": 12
+  aralik: 12
 };
 
 function toIsoDate(year: number, month: number, day: number): string {
@@ -28,15 +22,19 @@ function toIsoDate(year: number, month: number, day: number): string {
 }
 
 function normalizeText(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("tr-TR");
+  return foldTurkish(value)
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
 }
 
 function detectTerm(value: string): AcademicTerm | undefined {
   const text = normalizeText(value);
-  if (/güz|guz|fall/.test(text)) return "fall";
+  if (/guz|fall/.test(text)) return "fall";
   if (/bahar|spring/.test(text)) return "spring";
   if (/yaz okulu|summer/.test(text)) return "summer";
-  if (/akademik yıl|akademik yil/.test(text)) return "full_year";
+  if (/akademik yil/.test(text)) return "full_year";
   return undefined;
 }
 
@@ -44,7 +42,7 @@ export function normalizeAcademicDate(input: string, defaultYear?: number): Norm
   const originalDateText = input.trim();
   const text = normalizeText(input);
   const warnings: string[] = [];
-  const academicYearMatch = text.match(/(20\d{2})\s*[-/]\s*(20\d{2})\s*akademik\s*y[ıi]l[ıi]/u);
+  const academicYearMatch = text.match(/(20\d{2})\s*[-/]\s*(20\d{2})\s*akademik\s*yili?/u);
 
   if (academicYearMatch?.[1] && academicYearMatch[2]) {
     return {
@@ -66,37 +64,62 @@ export function normalizeAcademicDate(input: string, defaultYear?: number): Norm
     };
   }
 
-  const numericRange = text.match(/(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\s*[-–]\s*(\d{1,2})[./-](\d{1,2})[./-](20\d{2})/u);
-  if (numericRange?.[1] && numericRange[2] && numericRange[3] && numericRange[4] && numericRange[5] && numericRange[6]) {
+  const numericRange = text.match(/(\d{1,2})[./-](\d{1,2})[./-](20\d{2})(?:\s*(?:saat\s*)?([01]?\d|2[0-3])[:.]([0-5]\d))?\s*-\s*(\d{1,2})[./-](\d{1,2})[./-](20\d{2})(?:\s*(?:saat\s*)?([01]?\d|2[0-3])[:.]([0-5]\d))?/u);
+  if (numericRange?.[1] && numericRange[2] && numericRange[3] && numericRange[6] && numericRange[7] && numericRange[8]) {
+    const startTime = normalizeTimeParts(numericRange[4], numericRange[5]);
+    const endTime = normalizeTimeParts(numericRange[9], numericRange[10]);
     return {
       originalDateText,
       startDate: toIsoDate(Number(numericRange[3]), Number(numericRange[2]), Number(numericRange[1])),
-      endDate: toIsoDate(Number(numericRange[6]), Number(numericRange[5]), Number(numericRange[4])),
+      endDate: toIsoDate(Number(numericRange[8]), Number(numericRange[7]), Number(numericRange[6])),
+      ...(startTime ? { startTime, hasExplicitTime: true } : {}),
+      ...(endTime ? { endTime, hasExplicitTime: true } : {}),
       datePrecision: "date_range",
       term: term ?? "unknown",
       warnings
     };
   }
 
-  const numericSingle = text.match(/\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b/u);
-  if (numericSingle?.[1] && numericSingle[2] && numericSingle[3]) {
+  const numericSingleTimeRange = text.match(/\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\s*(?:saat\s*)?([01]?\d|2[0-3])[:.]([0-5]\d)\s*-\s*(?:saat\s*)?([01]?\d|2[0-3])[:.]([0-5]\d)\b/u);
+  if (numericSingleTimeRange?.[1] && numericSingleTimeRange[2] && numericSingleTimeRange[3]) {
+    const isoDate = toIsoDate(Number(numericSingleTimeRange[3]), Number(numericSingleTimeRange[2]), Number(numericSingleTimeRange[1]));
+    const startTime = normalizeTimeParts(numericSingleTimeRange[4], numericSingleTimeRange[5]);
+    const endTime = normalizeTimeParts(numericSingleTimeRange[6], numericSingleTimeRange[7]);
     return {
       originalDateText,
-      startDate: toIsoDate(Number(numericSingle[3]), Number(numericSingle[2]), Number(numericSingle[1])),
+      startDate: isoDate,
+      endDate: isoDate,
+      ...(startTime ? { startTime, hasExplicitTime: true } : {}),
+      ...(endTime ? { endTime, hasExplicitTime: true } : {}),
       datePrecision: "day",
       term: term ?? "unknown",
       warnings
     };
   }
 
-  const textualSameMonthRange = text.match(/\b(\d{1,2})\s*[-–]\s*(\d{1,2})\s+([a-zçğıöşü]+)\s+(20\d{2})\b/u);
+  const numericSingle = text.match(/\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})(?:\s*(?:saat\s*)?([01]?\d|2[0-3])[:.]([0-5]\d))?\b/u);
+  if (numericSingle?.[1] && numericSingle[2] && numericSingle[3]) {
+    const startTime = normalizeTimeParts(numericSingle[4], numericSingle[5]);
+    return {
+      originalDateText,
+      startDate: toIsoDate(Number(numericSingle[3]), Number(numericSingle[2]), Number(numericSingle[1])),
+      ...(startTime ? { startTime, hasExplicitTime: true } : {}),
+      datePrecision: "day",
+      term: term ?? "unknown",
+      warnings
+    };
+  }
+
+  const textualSameMonthRange = text.match(/\b(\d{1,2})\s*-\s*(\d{1,2})\s+([a-z]+)\s+(20\d{2})(?:\s*(?:saat\s*)?([01]?\d|2[0-3])[:.]([0-5]\d))?\b/u);
   if (textualSameMonthRange?.[1] && textualSameMonthRange[2] && textualSameMonthRange[3] && textualSameMonthRange[4]) {
     const month = turkishMonths[textualSameMonthRange[3]];
     if (month) {
+      const startTime = normalizeTimeParts(textualSameMonthRange[5], textualSameMonthRange[6]);
       return {
         originalDateText,
         startDate: toIsoDate(Number(textualSameMonthRange[4]), month, Number(textualSameMonthRange[1])),
         endDate: toIsoDate(Number(textualSameMonthRange[4]), month, Number(textualSameMonthRange[2])),
+        ...(startTime ? { startTime, hasExplicitTime: true } : {}),
         datePrecision: "date_range",
         term: term ?? "unknown",
         warnings
@@ -104,15 +127,17 @@ export function normalizeAcademicDate(input: string, defaultYear?: number): Norm
     }
   }
 
-  const textualDifferentMonthRange = text.match(/\b(\d{1,2})\s+([a-zçğıöşü]+)\s*[-–]\s*(\d{1,2})\s+([a-zçğıöşü]+)\s+(20\d{2})\b/u);
+  const textualDifferentMonthRange = text.match(/\b(\d{1,2})\s+([a-z]+)\s*-\s*(\d{1,2})\s+([a-z]+)\s+(20\d{2})(?:\s*(?:saat\s*)?([01]?\d|2[0-3])[:.]([0-5]\d))?\b/u);
   if (textualDifferentMonthRange?.[1] && textualDifferentMonthRange[2] && textualDifferentMonthRange[3] && textualDifferentMonthRange[4] && textualDifferentMonthRange[5]) {
     const startMonth = turkishMonths[textualDifferentMonthRange[2]];
     const endMonth = turkishMonths[textualDifferentMonthRange[4]];
     if (startMonth && endMonth) {
+      const startTime = normalizeTimeParts(textualDifferentMonthRange[6], textualDifferentMonthRange[7]);
       return {
         originalDateText,
         startDate: toIsoDate(Number(textualDifferentMonthRange[5]), startMonth, Number(textualDifferentMonthRange[1])),
         endDate: toIsoDate(Number(textualDifferentMonthRange[5]), endMonth, Number(textualDifferentMonthRange[3])),
+        ...(startTime ? { startTime, hasExplicitTime: true } : {}),
         datePrecision: "date_range",
         term: term ?? "unknown",
         warnings
@@ -120,13 +145,15 @@ export function normalizeAcademicDate(input: string, defaultYear?: number): Norm
     }
   }
 
-  const textualSingle = text.match(/\b(\d{1,2})\s+([a-zçğıöşü]+)\s+(20\d{2})\b/u);
+  const textualSingle = text.match(/\b(\d{1,2})\s+([a-z]+)\s+(20\d{2})(?:\s*(?:saat\s*)?([01]?\d|2[0-3])[:.]([0-5]\d))?\b/u);
   if (textualSingle?.[1] && textualSingle[2] && textualSingle[3]) {
     const month = turkishMonths[textualSingle[2]];
     if (month) {
+      const startTime = normalizeTimeParts(textualSingle[4], textualSingle[5]);
       return {
         originalDateText,
         startDate: toIsoDate(Number(textualSingle[3]), month, Number(textualSingle[1])),
+        ...(startTime ? { startTime, hasExplicitTime: true } : {}),
         datePrecision: "day",
         term: term ?? "unknown",
         warnings
@@ -145,7 +172,7 @@ export function normalizeAcademicDate(input: string, defaultYear?: number): Norm
     };
   }
 
-  if (defaultYear && /dönem baş|donem bas|dönem son|donem son/.test(text)) {
+  if (defaultYear && /donem bas|donem son/.test(text)) {
     warnings.push("Relative term boundary requires approved academic calendar context.");
     return {
       originalDateText,
@@ -162,4 +189,30 @@ export function normalizeAcademicDate(input: string, defaultYear?: number): Norm
     term: term ?? "unknown",
     warnings
   };
+}
+
+function normalizeTimeParts(hour?: string, minute?: string): string | undefined {
+  if (!hour || !minute) return undefined;
+  const parsedHour = Number(hour);
+  const parsedMinute = Number(minute);
+  if (!Number.isInteger(parsedHour) || !Number.isInteger(parsedMinute) || parsedHour < 0 || parsedHour > 23 || parsedMinute < 0 || parsedMinute > 59) return undefined;
+  return `${String(parsedHour).padStart(2, "0")}:${String(parsedMinute).padStart(2, "0")}`;
+}
+
+function foldTurkish(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
+    .replace(/\u0130/g, "I")
+    .replace(/ğ/g, "g")
+    .replace(/Ğ/g, "G")
+    .replace(/ü/g, "u")
+    .replace(/Ü/g, "U")
+    .replace(/ş/g, "s")
+    .replace(/Ş/g, "S")
+    .replace(/ö/g, "o")
+    .replace(/Ö/g, "O")
+    .replace(/ç/g, "c")
+    .replace(/Ç/g, "C");
 }

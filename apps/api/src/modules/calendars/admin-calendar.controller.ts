@@ -5,17 +5,33 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { AdminCalendarService } from "./admin-calendar.service.js";
-import { CreateCalendarDraftDto, UpdateCalendarDto } from "./admin-calendar.dto.js";
+import { CalendarIngestionRequestDto, CreateCalendarDraftDto, CreateManualCalendarDto, UpdateCalendarDto } from "./admin-calendar.dto.js";
+import { CalendarIngestionService } from "./calendar-ingestion.service.js";
 
 @Controller("admin/calendars")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AdminCalendarController {
-  constructor(@Inject(AdminCalendarService) private readonly adminCalendarService: AdminCalendarService) {}
+  constructor(
+    @Inject(AdminCalendarService) private readonly adminCalendarService: AdminCalendarService,
+    @Inject(CalendarIngestionService) private readonly calendarIngestionService: CalendarIngestionService
+  ) {}
 
   @Post()
   @Roles("super_admin")
   createCalendarDraft(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateCalendarDraftDto) {
     return this.adminCalendarService.createDraftFromApprovedExtractedEvents({ ...body, createdBy: user.id });
+  }
+
+  @Post("manual")
+  @Roles("super_admin")
+  createManualCalendarDraft(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateManualCalendarDto) {
+    return this.adminCalendarService.createManualDraft({ ...body, createdBy: user.id });
+  }
+
+  @Post("ingest")
+  @Roles("super_admin")
+  ingestCalendars(@Body() body: CalendarIngestionRequestDto) {
+    return this.calendarIngestionService.runDiscoveryAndIngestion(body);
   }
 
   @Patch(":id")

@@ -11,7 +11,7 @@ export class MongoCalendarRepository implements CalendarRepository {
   async findPublishedCalendar(universityId: string, academicYear?: string): Promise<AcademicCalendarRecord | null> {
     const document = await (await this.model("AcademicCalendar", academicCalendarSchema))
       .findOne({ universityId, status: "published", ...(academicYear ? { academicYear } : {}) })
-      .sort({ version: -1 });
+      .sort({ academicYear: -1, version: -1 });
     return document ? toDomainRecord<AcademicCalendarRecord>(document) : null;
   }
 
@@ -51,7 +51,7 @@ export class MongoCalendarRepository implements CalendarRepository {
   }
 
   async listPublishedEvents(filters: CalendarEventFilters): Promise<AcademicEventRecord[]> {
-    const query: Record<string, unknown> = omitUndefined({ status: "published", universityId: filters.universityId, category: filters.category });
+    const query: Record<string, unknown> = omitUndefined({ status: "published", calendarId: filters.calendarId, universityId: filters.universityId, category: filters.category });
     Object.assign(query, buildScopeQuery(filters.facultyId, filters.departmentId));
     if (filters.startDate || filters.endDate) query.startDate = omitUndefined({ $gte: filters.startDate, $lte: filters.endDate });
     const documents = await (await this.model("AcademicEvent", academicEventSchema)).find(query).sort({ startDate: 1 }).skip(filters.offset).limit(filters.limit);

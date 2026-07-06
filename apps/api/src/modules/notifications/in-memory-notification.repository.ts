@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import type { DeviceTokenRecord, NotificationDeliveryRecord, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationRepository } from "./notification.types.js";
+import type { DeviceTokenRecord, NotificationDeliveryRecord, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
 
 @Injectable()
 export class InMemoryNotificationRepository implements NotificationRepository {
@@ -8,6 +8,7 @@ export class InMemoryNotificationRepository implements NotificationRepository {
   private readonly preferences = new Map<string, NotificationPreferenceRecord>();
   private readonly jobs = new Map<string, NotificationJobRecord>();
   private readonly deliveries = new Map<string, NotificationDeliveryRecord>();
+  private readonly studentAlarms = new Map<string, StudentAlarmRecord>();
 
   async upsertDeviceToken(input: Omit<DeviceTokenRecord, "id" | "createdAt" | "updatedAt" | "lastSeenAt" | "status">): Promise<DeviceTokenRecord> {
     const now = new Date();
@@ -38,6 +39,7 @@ export class InMemoryNotificationRepository implements NotificationRepository {
       enabled: input.enabled,
       categories: input.categories,
       reminderOffsets: [...new Set(input.reminderOffsets)].sort((left, right) => right - left),
+      ...(input.reminderRules ? { reminderRules: input.reminderRules } : {}),
       ...(input.quietHours ? { quietHours: input.quietHours } : {}),
       updatedAt: now
     };
@@ -49,13 +51,50 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     const now = new Date();
     const created: NotificationJobRecord[] = [];
     for (const jobInput of input) {
-      const existing = [...this.jobs.values()].find((job) => job.eventId === jobInput.eventId && job.offsetDays === jobInput.offsetDays && job.status !== "cancelled");
+      const existing = [...this.jobs.values()].find((job) => notificationJobIdentityKey(job) === notificationJobIdentityKey(jobInput) && notificationJobReminderKey(job) === notificationJobReminderKey(jobInput) && job.status !== "cancelled");
       if (existing) continue;
       const job: NotificationJobRecord = { ...jobInput, id: randomUUID(), createdAt: now, updatedAt: now };
       this.jobs.set(job.id, job);
       created.push(job);
     }
     return created;
+  }
+
+  async createStudentAlarm(input: Omit<StudentAlarmRecord, "id" | "createdAt" | "updatedAt">): Promise<StudentAlarmRecord> {
+    const now = new Date();
+    const existing = [...this.studentAlarms.values()].find((alarm) =>
+      alarm.userId === input.userId &&
+      alarm.targetId === input.targetId &&
+      alarm.eventType === input.eventType &&
+      alarm.trigger === input.trigger &&
+      alarm.amount === input.amount &&
+      alarm.unit === input.unit &&
+      alarm.status !== "cancelled"
+    );
+    const alarm: StudentAlarmRecord = {
+      ...(existing ?? { id: randomUUID(), createdAt: now }),
+      ...input,
+      updatedAt: now
+    };
+    this.studentAlarms.set(alarm.id, alarm);
+    return alarm;
+  }
+
+  async listStudentAlarmsByUser(userId: string): Promise<StudentAlarmRecord[]> {
+    return [...this.studentAlarms.values()]
+      .filter((alarm) => alarm.userId === userId)
+      .sort((left, right) => left.scheduledAt.getTime() - right.scheduledAt.getTime());
+  }
+
+  async cancelStudentAlarm(userId: string, alarmId: string): Promise<StudentAlarmRecord | null> {
+    const existing = this.studentAlarms.get(alarmId);
+    if (!existing || existing.userId !== userId) return null;
+    const updated: StudentAlarmRecord = { ...existing, status: "cancelled", updatedAt: new Date() };
+    this.studentAlarms.set(alarmId, updated);
+    for (const [jobId, job] of this.jobs.entries()) {
+      if (job.alarmId === alarmId) this.jobs.set(jobId, { ...job, status: "cancelled", updatedAt: new Date() });
+    }
+    return updated;
   }
 
   async listJobsByCalendar(calendarId: string): Promise<NotificationJobRecord[]> {
@@ -120,4 +159,12 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     this.deviceTokens.set(device.id, updated);
     return updated;
   }
+}
+
+function notificationJobReminderKey(job: Pick<NotificationJobRecord, "trigger" | "offsetDays" | "offsetHours">): string {
+  return `${job.trigger}:${job.offsetDays}:${job.offsetHours ?? 0}`;
+}
+
+function notificationJobIdentityKey(job: Pick<NotificationJobRecord, "userId" | "alarmId" | "eventId">): string {
+  return `${job.userId ?? "broadcast"}:${job.alarmId ?? "event"}:${job.eventId}`;
 }

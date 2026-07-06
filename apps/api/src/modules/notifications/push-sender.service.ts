@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
-import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { getMessaging } from "firebase-admin/messaging";
+import { FirebaseAdminService } from "../../database/firebase-admin.service.js";
 
 export interface PushMessageInput {
   token: string;
@@ -20,16 +20,12 @@ export interface PushSender {
 
 @Injectable()
 export class FirebasePushSender implements PushSender {
-  constructor() {
-    if (!getApps().length && process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-      initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)) });
-    }
-  }
+  constructor(@Optional() @Inject(FirebaseAdminService) private readonly firebaseAdmin?: FirebaseAdminService) {}
 
   async send(input: PushMessageInput): Promise<PushSendResult> {
-    if (!getApps().length) throw new Error("FIREBASE_NOT_CONFIGURED");
+    const app = (this.firebaseAdmin ?? new FirebaseAdminService()).getApp();
     try {
-      const providerMessageId = await getMessaging().send({
+      const providerMessageId = await getMessaging(app).send({
         token: input.token,
         notification: { title: input.title, body: input.body },
         ...(input.data ? { data: input.data } : {})

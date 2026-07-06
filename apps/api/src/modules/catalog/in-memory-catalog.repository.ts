@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
 import type { CatalogRepository, CatalogStatus, DepartmentRecord, FacultyRecord, UniversityRecord } from "./catalog.types.js";
 
 @Injectable()
@@ -8,47 +7,10 @@ export class InMemoryCatalogRepository implements CatalogRepository {
   private readonly faculties = new Map<string, FacultyRecord>();
   private readonly departments = new Map<string, DepartmentRecord>();
 
-  constructor() {
-    const now = new Date();
-    const university: UniversityRecord = {
-      id: "sample-university-1",
-      name: "Ankara Ornek Universitesi",
-      slug: "ankara-ornek-universitesi",
-      city: "Ankara",
-      type: "state",
-      status: "active",
-      createdAt: now,
-      updatedAt: now
-    };
-    const faculty: FacultyRecord = {
-      id: "sample-faculty-1",
-      universityId: university.id,
-      name: "Muhendislik Fakultesi",
-      slug: "muhendislik-fakultesi",
-      status: "active",
-      createdAt: now,
-      updatedAt: now
-    };
-    const department: DepartmentRecord = {
-      id: "sample-department-1",
-      universityId: university.id,
-      facultyId: faculty.id,
-      name: "Bilgisayar Muhendisligi",
-      slug: "bilgisayar-muhendisligi",
-      educationLevel: "bachelor",
-      status: "active",
-      createdAt: now,
-      updatedAt: now
-    };
-    this.universities.set(university.id, university);
-    this.faculties.set(faculty.id, faculty);
-    this.departments.set(department.id, department);
-  }
-
   async createUniversity(input: Omit<UniversityRecord, "id" | "createdAt" | "updatedAt">): Promise<UniversityRecord> {
     if ([...this.universities.values()].some((university) => university.slug === input.slug)) throw new Error("UNIVERSITY_SLUG_EXISTS");
     const now = new Date();
-    const university: UniversityRecord = { ...input, id: randomUUID(), createdAt: now, updatedAt: now };
+    const university: UniversityRecord = { ...input, id: input.slug, createdAt: now, updatedAt: now };
     this.universities.set(university.id, university);
     return university;
   }
@@ -78,12 +40,25 @@ export class InMemoryCatalogRepository implements CatalogRepository {
       .slice(input.offset, input.offset + input.limit);
   }
 
+  async findUniversityByEmailDomain(domain: string): Promise<UniversityRecord | null> {
+    const normalizedDomain = domain.trim().replace(/^@/, "").toLocaleLowerCase("en-US");
+    return [...this.universities.values()].find((university) => (university.emailDomains ?? []).includes(normalizedDomain)) ?? null;
+  }
+
   async createFaculty(input: Omit<FacultyRecord, "id" | "createdAt" | "updatedAt">): Promise<FacultyRecord> {
     if ([...this.faculties.values()].some((faculty) => faculty.universityId === input.universityId && faculty.slug === input.slug)) throw new Error("FACULTY_SLUG_EXISTS");
     const now = new Date();
-    const faculty: FacultyRecord = { ...input, id: randomUUID(), createdAt: now, updatedAt: now };
+    const faculty: FacultyRecord = { ...input, id: `${input.universityId}__${input.slug}`, createdAt: now, updatedAt: now };
     this.faculties.set(faculty.id, faculty);
     return faculty;
+  }
+
+  async updateFaculty(id: string, input: Partial<Omit<FacultyRecord, "id" | "createdAt" | "updatedAt">>): Promise<FacultyRecord | null> {
+    const faculty = this.faculties.get(id);
+    if (!faculty) return null;
+    const updated: FacultyRecord = { ...faculty, ...input, updatedAt: new Date() };
+    this.faculties.set(id, updated);
+    return updated;
   }
 
   async listFaculties(universityId: string, status?: CatalogStatus): Promise<FacultyRecord[]> {
@@ -96,9 +71,17 @@ export class InMemoryCatalogRepository implements CatalogRepository {
   async createDepartment(input: Omit<DepartmentRecord, "id" | "createdAt" | "updatedAt">): Promise<DepartmentRecord> {
     if ([...this.departments.values()].some((department) => department.facultyId === input.facultyId && department.slug === input.slug)) throw new Error("DEPARTMENT_SLUG_EXISTS");
     const now = new Date();
-    const department: DepartmentRecord = { ...input, id: randomUUID(), createdAt: now, updatedAt: now };
+    const department: DepartmentRecord = { ...input, id: `${input.facultyId}__${input.slug}`, createdAt: now, updatedAt: now };
     this.departments.set(department.id, department);
     return department;
+  }
+
+  async updateDepartment(id: string, input: Partial<Omit<DepartmentRecord, "id" | "createdAt" | "updatedAt">>): Promise<DepartmentRecord | null> {
+    const department = this.departments.get(id);
+    if (!department) return null;
+    const updated: DepartmentRecord = { ...department, ...input, updatedAt: new Date() };
+    this.departments.set(id, updated);
+    return updated;
   }
 
   async listDepartments(facultyId: string, status?: CatalogStatus): Promise<DepartmentRecord[]> {

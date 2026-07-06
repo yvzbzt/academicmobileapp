@@ -3,9 +3,12 @@ import type { PdfRepository } from "../pdf/pdf.types.js";
 import { AuditService } from "../audit/audit.service.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
+import type { AcademicEventCategory, AcademicTerm } from "../../domain/academic-event.types.js";
 
 export interface CreateCalendarDraftInput {
   universityId: string;
+  facultyId?: string;
+  departmentId?: string;
   academicYear: string;
   title: string;
   sourcePdfId: string;
@@ -54,6 +57,7 @@ export class AdminCalendarService {
       status: "draft",
       version: (publishedCalendar?.version ?? 0) + 1,
       sourcePdfId: input.sourcePdfId,
+      ...(source.url ? { sourceUrl: source.url } : {}),
       createdBy: input.createdBy
     });
 
@@ -61,6 +65,8 @@ export class AdminCalendarService {
       approvedExtractedEvents.map((event) => ({
         calendarId: calendar.id,
         universityId: event.universityId,
+        ...(input.facultyId ? { facultyId: input.facultyId } : {}),
+        ...(input.departmentId ? { departmentId: input.departmentId } : {}),
         academicYear: event.academicYear,
         term: event.term,
         category: event.normalizedCategory,
@@ -79,6 +85,56 @@ export class AdminCalendarService {
           { offsetDays: 1, enabled: true },
           { offsetDays: 0, enabled: true }
         ]
+      }))
+    );
+
+    return { calendar, events };
+  }
+
+  async createManualDraft(input: {
+    universityId: string;
+    academicYear: string;
+    title: string;
+    createdBy: string;
+    events: Array<{
+      title: string;
+      category: AcademicEventCategory;
+      term: AcademicTerm;
+      startDate: string;
+      endDate?: string;
+      facultyId?: string;
+      departmentId?: string;
+      description?: string;
+      notificationRules?: Array<{ offsetDays: number; offsetHours?: number; trigger?: "before" | "at_time" | "approaching"; enabled: boolean }>;
+    }>;
+  }): Promise<CalendarDraftResponse> {
+    if (input.events.length === 0) throw new BadRequestException("At least one event is required.");
+    const publishedCalendar = await this.calendarRepository.findPublishedCalendar(input.universityId, input.academicYear);
+    const calendar = await this.calendarRepository.createCalendar({
+      universityId: input.universityId,
+      academicYear: input.academicYear,
+      title: input.title.trim(),
+      status: "draft",
+      version: (publishedCalendar?.version ?? 0) + 1,
+      createdBy: input.createdBy
+    });
+
+    const events = await this.calendarRepository.createEvents(
+      input.events.map((event) => ({
+        calendarId: calendar.id,
+        universityId: input.universityId,
+        ...(event.facultyId ? { facultyId: event.facultyId } : {}),
+        ...(event.departmentId ? { departmentId: event.departmentId } : {}),
+        academicYear: input.academicYear,
+        term: event.term,
+        category: event.category,
+        title: event.title.trim(),
+        ...(event.description ? { description: event.description.trim() } : {}),
+        startDate: new Date(event.startDate),
+        ...(event.endDate ? { endDate: new Date(event.endDate) } : {}),
+        timezone: "Europe/Istanbul" as const,
+        status: "approved" as const,
+        notificationRules: event.notificationRules?.length ? event.notificationRules : [{ offsetDays: 7, enabled: true }, { offsetDays: 1, enabled: true }, { offsetDays: 0, trigger: "at_time" as const, enabled: true }]
       }))
     );
 

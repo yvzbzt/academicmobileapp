@@ -1,8 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { deviceTokenSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema } from "../../database/mongoose-schemas.js";
+import { deviceTokenSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, studentAlarmSchema } from "../../database/mongoose-schemas.js";
 import { getModel, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
-import type { DeviceTokenRecord, NotificationDeliveryRecord, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationRepository } from "./notification.types.js";
+import type { DeviceTokenRecord, NotificationDeliveryRecord, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
 
 @Injectable()
 export class MongoNotificationRepository implements NotificationRepository {
@@ -27,10 +27,39 @@ export class MongoNotificationRepository implements NotificationRepository {
     const model = await this.model("NotificationJob", notificationJobSchema);
     const documents = [];
     for (const job of input) {
-      const document = await model.findOneAndUpdate({ eventId: job.eventId, offsetDays: job.offsetDays }, job, { new: true, upsert: true });
+      const document = await model.findOneAndUpdate({ userId: job.userId, eventId: job.eventId, trigger: job.trigger, offsetDays: job.offsetDays, offsetHours: job.offsetHours ?? 0 }, job, { new: true, upsert: true });
       documents.push(document);
     }
     return documents.map((document) => toDomainRecord<NotificationJobRecord>(document));
+  }
+
+  async createStudentAlarm(input: Omit<StudentAlarmRecord, "id" | "createdAt" | "updatedAt">): Promise<StudentAlarmRecord> {
+    const document = await (await this.model("StudentAlarm", studentAlarmSchema)).findOneAndUpdate(
+      {
+        userId: input.userId,
+        targetId: input.targetId,
+        eventType: input.eventType,
+        trigger: input.trigger,
+        amount: input.amount,
+        unit: input.unit,
+        status: { $ne: "cancelled" }
+      },
+      input,
+      { new: true, upsert: true }
+    );
+    return toDomainRecord<StudentAlarmRecord>(document);
+  }
+
+  async listStudentAlarmsByUser(userId: string): Promise<StudentAlarmRecord[]> {
+    const documents = await (await this.model("StudentAlarm", studentAlarmSchema)).find({ userId }).sort({ scheduledAt: 1 });
+    return documents.map((document) => toDomainRecord<StudentAlarmRecord>(document));
+  }
+
+  async cancelStudentAlarm(userId: string, alarmId: string): Promise<StudentAlarmRecord | null> {
+    const document = await (await this.model("StudentAlarm", studentAlarmSchema)).findOneAndUpdate({ _id: alarmId, userId }, { status: "cancelled" }, { new: true });
+    if (!document) return null;
+    await (await this.model("NotificationJob", notificationJobSchema)).updateMany({ alarmId }, { status: "cancelled" });
+    return toDomainRecord<StudentAlarmRecord>(document);
   }
 
   async listJobsByCalendar(calendarId: string): Promise<NotificationJobRecord[]> {

@@ -1,7 +1,8 @@
-import { UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 import { AuthApplicationService } from "../src/modules/auth/auth-application.service.js";
 import { EmailVerificationSenderService, type SendVerificationEmailInput } from "../src/modules/auth/email-verification-sender.service.js";
+import type { GoogleIdentityVerifier, VerifiedGoogleIdentity } from "../src/modules/auth/firebase-google-identity.verifier.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
@@ -15,75 +16,120 @@ class FakeEmailVerificationSenderService extends EmailVerificationSenderService 
   }
 }
 
-function createAuthService(): AuthApplicationService {
-  return new AuthApplicationService(
-    new InMemoryAuthRepository(),
-    new InMemoryCatalogRepository(),
+class FakeGoogleIdentityVerifier implements GoogleIdentityVerifier {
+  constructor(private readonly identity: VerifiedGoogleIdentity) {}
+
+  async verifyIdToken(idToken: string): Promise<VerifiedGoogleIdentity> {
+    if (idToken === "invalid-google-token") throw new Error("INVALID_TOKEN");
+    return this.identity;
+  }
+}
+
+function createAuthService(googleIdentity?: VerifiedGoogleIdentity, catalogRepository?: InMemoryCatalogRepository) {
+  const sender = new FakeEmailVerificationSenderService();
+  const authRepository = new InMemoryAuthRepository();
+  const service = new AuthApplicationService(
+    authRepository,
     new PasswordHasher(),
     new TokenService(),
-    new FakeEmailVerificationSenderService()
+    sender,
+    googleIdentity ? new FakeGoogleIdentityVerifier(googleIdentity) : undefined,
+    catalogRepository
   );
+  return { service, sender, authRepository };
 }
 
 describe("AuthApplicationService", () => {
   it("registers a student and returns a verification-required response", async () => {
-    const authService = createAuthService();
+    const { service: authService, sender } = createAuthService();
 
     const registerResult = await authService.register({
-      fullName: "Ada Lovelace",
       email: "ada@ogr.example.edu.tr",
       password: "StrongPass123!",
-      deviceId: "device-1",
-      universityId: "sample-university-1",
-      facultyId: "sample-faculty-1",
-      departmentId: "sample-department-1"
+      passwordConfirmation: "StrongPass123!"
     });
 
     expect(registerResult.status).toBe("verification_required");
     expect(registerResult.email).toBe("ada@ogr.example.edu.tr");
     expect(registerResult.previewVerificationToken).toBeTruthy();
+    expect(registerResult.resendAvailableAt).toBeTruthy();
+    expect(sender.sent[0]?.code).toMatch(/^\d{4}$/);
 
-    const session = await authService.verifyEmail({
-      token: registerResult.previewVerificationToken!,
+    const verification = await authService.verifyEmail({
+      email: registerResult.email,
+      code: sender.sent[0]!.code,
       deviceId: "device-1"
     });
 
+    expect(verification).toEqual({ status: "verified", email: "ada@ogr.example.edu.tr" });
+    const session = await authService.login({ email: "ada@ogr.example.edu.tr", password: "StrongPass123!", deviceId: "device-1" });
     expect(session.user.email).toBe("ada@ogr.example.edu.tr");
     expect(session.user.role).toBe("student");
     expect(session.accessToken.length).toBeGreaterThan(20);
     expect(session.refreshToken.length).toBeGreaterThan(40);
   });
 
-  it("rejects non-student email domains during registration", async () => {
-    const authService = createAuthService();
+  it("registers non-university email domains", async () => {
+    const { service: authService } = createAuthService();
+    const registerResult = await authService.register({
+      email: "demo@example.com",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+
+    expect(registerResult.status).toBe("verification_required");
+    expect(registerResult.email).toBe("demo@example.com");
+  });
+
+  it("stores a valid university, faculty and department selected during registration", async () => {
+    const catalogRepository = new InMemoryCatalogRepository();
+    const university = await catalogRepository.createUniversity({ name: "Ankara Test Universitesi", slug: "ankara-test-universitesi", city: "ANKARA", type: "state", status: "active" });
+    const faculty = await catalogRepository.createFaculty({ universityId: university.id, name: "Muhendislik Fakultesi", slug: "muhendislik-fakultesi", status: "active" });
+    const department = await catalogRepository.createDepartment({ universityId: university.id, facultyId: faculty.id, name: "Bilgisayar Muhendisligi", slug: "bilgisayar-muhendisligi", educationLevel: "bachelor", status: "active" });
+    const { service: authService, authRepository } = createAuthService(undefined, catalogRepository);
+
+    const registerResult = await authService.register({
+      email: "catalog-student@example.com",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!",
+      universityId: university.id,
+      facultyId: faculty.id,
+      departmentId: department.id,
+      classLevel: 2
+    });
+
+    const user = await authRepository.findUserByEmail(registerResult.email);
+    expect(user).toEqual(expect.objectContaining({ universityId: university.id, facultyId: faculty.id, departmentId: department.id, classLevel: 2 }));
+  });
+
+  it("rejects registration with a faculty outside the selected university", async () => {
+    const catalogRepository = new InMemoryCatalogRepository();
+    const university = await catalogRepository.createUniversity({ name: "Ankara Test Universitesi", slug: "ankara-test-universitesi", city: "ANKARA", type: "state", status: "active" });
+    const otherUniversity = await catalogRepository.createUniversity({ name: "Izmir Test Universitesi", slug: "izmir-test-universitesi", city: "IZMIR", type: "state", status: "active" });
+    const otherFaculty = await catalogRepository.createFaculty({ universityId: otherUniversity.id, name: "Fen Fakultesi", slug: "fen-fakultesi", status: "active" });
+    const { service: authService } = createAuthService(undefined, catalogRepository);
 
     await expect(
       authService.register({
-        fullName: "Invalid Email User",
-        email: "user@example.com",
+        email: "invalid-catalog@example.com",
         password: "StrongPass123!",
-        deviceId: "device-1",
-        universityId: "sample-university-1",
-        facultyId: "sample-faculty-1",
-        departmentId: "sample-department-1"
+        passwordConfirmation: "StrongPass123!",
+        universityId: university.id,
+        facultyId: otherFaculty.id
       })
-    ).rejects.toThrow("Only student email addresses are accepted at this stage.");
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects invalid login credentials", async () => {
-    const authService = createAuthService();
+    const { service: authService, sender } = createAuthService();
 
     const registerResult = await authService.register({
-      fullName: "Student User",
       email: "student@campus.edu.tr",
       password: "StrongPass123!",
-      deviceId: "device-1",
-      universityId: "sample-university-1",
-      facultyId: "sample-faculty-1",
-      departmentId: "sample-department-1"
+      passwordConfirmation: "StrongPass123!"
     });
 
-    await authService.verifyEmail({ token: registerResult.previewVerificationToken!, deviceId: "device-1" });
+    await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
 
     await expect(
       authService.login({
@@ -94,20 +140,87 @@ describe("AuthApplicationService", () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it("rotates refresh tokens and rejects reuse", async () => {
-    const authService = createAuthService();
-
-    const registerResult = await authService.register({
-      fullName: "Rotation User",
-      email: "rotation@campus.edu.tr",
-      password: "StrongPass123!",
-      deviceId: "device-1",
-      universityId: "sample-university-1",
-      facultyId: "sample-faculty-1",
-      departmentId: "sample-department-1"
+  it("creates an active student session from a verified Google account", async () => {
+    const { service: authService, sender } = createAuthService({
+      uid: "firebase-google-user-1",
+      email: "google.student@example.com",
+      emailVerified: true,
+      signInProvider: "google.com",
+      fullName: "Google Student"
     });
 
-    const firstSession = await authService.verifyEmail({ token: registerResult.previewVerificationToken!, deviceId: "device-1" });
+    const session = await authService.loginWithGoogle({
+      idToken: "valid-google-token",
+      deviceId: "device-google"
+    });
+
+    expect(session.user.email).toBe("google.student@example.com");
+    expect(session.user.fullName).toBe("Google Student");
+    expect(session.user.role).toBe("student");
+    expect(session.accessToken.length).toBeGreaterThan(20);
+    expect(sender.sent).toHaveLength(0);
+
+    await expect(
+      authService.login({
+        email: "google.student@example.com",
+        password: "StrongPass123!",
+        deviceId: "device-google"
+      })
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("links Google sign-in to an existing inactive email account", async () => {
+    const { service: authService } = createAuthService({
+      uid: "firebase-google-user-2",
+      email: "pending.student@example.com",
+      emailVerified: true,
+      signInProvider: "google.com",
+      fullName: "Pending Student"
+    });
+
+    await authService.register({
+      email: "pending.student@example.com",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+
+    const session = await authService.loginWithGoogle({
+      idToken: "valid-google-token",
+      deviceId: "device-google"
+    });
+
+    expect(session.user.email).toBe("pending.student@example.com");
+    expect(session.user.role).toBe("student");
+  });
+
+  it("rejects Firebase tokens that were not issued by the Google provider", async () => {
+    const { service: authService } = createAuthService({
+      uid: "firebase-password-user",
+      email: "password.firebase@example.com",
+      emailVerified: true,
+      signInProvider: "password",
+      fullName: "Password Firebase"
+    });
+
+    await expect(
+      authService.loginWithGoogle({
+        idToken: "valid-but-not-google-token",
+        deviceId: "device-google"
+      })
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rotates refresh tokens and rejects reuse", async () => {
+    const { service: authService, sender } = createAuthService();
+
+    const registerResult = await authService.register({
+      email: "rotation@campus.edu.tr",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+
+    await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
+    const firstSession = await authService.login({ email: "rotation@campus.edu.tr", password: "StrongPass123!", deviceId: "device-1" });
 
     const secondSession = await authService.refresh({
       refreshToken: firstSession.refreshToken,
@@ -132,19 +245,16 @@ describe("AuthApplicationService", () => {
   });
 
   it("revokes refresh token on logout", async () => {
-    const authService = createAuthService();
+    const { service: authService, sender } = createAuthService();
 
     const registerResult = await authService.register({
-      fullName: "Logout User",
       email: "logout@campus.edu.tr",
       password: "StrongPass123!",
-      deviceId: "device-1",
-      universityId: "sample-university-1",
-      facultyId: "sample-faculty-1",
-      departmentId: "sample-department-1"
+      passwordConfirmation: "StrongPass123!"
     });
 
-    const session = await authService.verifyEmail({ token: registerResult.previewVerificationToken!, deviceId: "device-1" });
+    await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
+    const session = await authService.login({ email: "logout@campus.edu.tr", password: "StrongPass123!", deviceId: "device-1" });
 
     await authService.logout(session.refreshToken);
 

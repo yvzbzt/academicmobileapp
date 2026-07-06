@@ -1,4 +1,4 @@
-export type RepositoryMode = "memory" | "mongo";
+export type RepositoryMode = "memory" | "mongo" | "firestore";
 export type QueueMode = "memory" | "bullmq";
 export type RateLimitStoreMode = "memory" | "redis";
 
@@ -11,7 +11,7 @@ export interface RuntimeConfig {
 
 export function readRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   return {
-    repositoryMode: parseMode(env.REPOSITORY_MODE, ["memory", "mongo"], "memory"),
+    repositoryMode: parseMode(env.REPOSITORY_MODE, ["memory", "mongo", "firestore"], "memory"),
     queueMode: parseMode(env.QUEUE_MODE, ["memory", "bullmq"], "memory"),
     rateLimitStoreMode: parseMode(env.RATE_LIMIT_STORE, ["memory", "redis"], "memory"),
     ...(env.REDIS_URL ? { redisUrl: env.REDIS_URL } : {})

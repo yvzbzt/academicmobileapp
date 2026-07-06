@@ -43,6 +43,18 @@ class FakePushSender implements PushSender {
   }
 }
 
+class ThrowingPushSender implements PushSender {
+  async send(): Promise<never> {
+    throw new Error("FIREBASE_NOT_CONFIGURED");
+  }
+}
+
+const disabledOcrService = {
+  async extractText() {
+    return null;
+  }
+};
+
 async function createScheduledNotificationJob(repository: InMemoryNotificationRepository) {
   const [job] = await repository.createNotificationJobs([
     {
@@ -52,6 +64,7 @@ async function createScheduledNotificationJob(repository: InMemoryNotificationRe
       title: "Final Sinavlari",
       category: "final_exam",
       offsetDays: 1,
+      trigger: "before",
       scheduledAt: new Date("2027-01-01T00:00:00.000Z"),
       status: "scheduled"
     }
@@ -61,7 +74,7 @@ async function createScheduledNotificationJob(repository: InMemoryNotificationRe
 
 async function createPublishableCalendar(input: { auditService?: AuditService; notificationRepository?: InMemoryNotificationRepository } = {}) {
   const pdfRepository = new InMemoryPdfRepository();
-  const pdfService = new PdfProcessingService(pdfRepository);
+  const pdfService = new PdfProcessingService(pdfRepository, disabledOcrService);
   const source = await pdfService.createPdfSource({
     universityId: "sample-university-1",
     fileName: "operations-calendar.pdf",
@@ -187,6 +200,21 @@ describe("operation services", () => {
     expect(deliveries[0]).toEqual(expect.objectContaining({ status: "failed", failureReason: "invalid_token", userId: "user-1" }));
   });
 
+  it("records failed deliveries when the push provider is not configured", async () => {
+    const notificationRepository = new InMemoryNotificationRepository();
+    const device = await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1" });
+    const job = await createScheduledNotificationJob(notificationRepository);
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new ThrowingPushSender());
+
+    const result = await worker.sendToDevice({ job, token: device.token, body: "Yaklasan akademik etkinlik", device });
+    const deliveries = await notificationRepository.listDeliveriesByJob(job.id, 10, 0);
+    const failedJobs = await notificationRepository.listFailedJobs(10, 0);
+
+    expect(result.failed).toBe(1);
+    expect(failedJobs[0]?.id).toBe(job.id);
+    expect(deliveries[0]).toEqual(expect.objectContaining({ status: "failed", failureReason: "FIREBASE_NOT_CONFIGURED", userId: "user-1" }));
+  });
+
   it("fans out due notification jobs to eligible active devices", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
     await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1" });
@@ -302,19 +330,23 @@ describe("operation services", () => {
     expect(readiness.dependencies).toEqual(expect.arrayContaining([expect.objectContaining({ name: "mongodb", status: "skipped" }), expect.objectContaining({ name: "redis", status: "skipped" })]));
   });
 
-  it("seeds bootstrap catalog and admin user when explicitly invoked", async () => {
+  it("seeds only the bootstrap admin user when explicitly invoked", async () => {
     const authRepository = new InMemoryAuthRepository();
-    const catalogRepository = new InMemoryCatalogRepository();
-    const service = new BootstrapSeedService(authRepository, catalogRepository, new PasswordHasher());
+    const service = new BootstrapSeedService(authRepository, new InMemoryCatalogRepository(), new PasswordHasher());
     const previousPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+    const previousCatalogSeedEnabled = process.env.BOOTSTRAP_CATALOG_SEED_ENABLED;
     process.env.BOOTSTRAP_ADMIN_PASSWORD = "AdminPassword123!";
+    process.env.BOOTSTRAP_CATALOG_SEED_ENABLED = "false";
 
     const result = await service.seed();
     const admin = await authRepository.findUserByEmail("admin@example.com");
     if (previousPassword === undefined) delete process.env.BOOTSTRAP_ADMIN_PASSWORD;
     else process.env.BOOTSTRAP_ADMIN_PASSWORD = previousPassword;
+    if (previousCatalogSeedEnabled === undefined) delete process.env.BOOTSTRAP_CATALOG_SEED_ENABLED;
+    else process.env.BOOTSTRAP_CATALOG_SEED_ENABLED = previousCatalogSeedEnabled;
 
     expect(result.catalog.created).toBe(false);
+    expect(result.catalog.skippedReason).toContain("BOOTSTRAP_CATALOG_SEED_ENABLED=false");
     expect(result.admin.created).toBe(true);
     expect(admin?.role).toBe("super_admin");
   });

@@ -1,5 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -17,6 +19,8 @@ import {
   TextInput,
   View
 } from "react-native";
+
+WebBrowser.maybeCompleteAuthSession();
 
 type AuthMode = "login" | "register";
 type AlarmMode = "all_calendar" | "selected_fields";
@@ -100,6 +104,9 @@ type EventRecord = {
   category: string;
   startDate: string;
   endDate?: string;
+  universityId?: string;
+  facultyId?: string;
+  departmentId?: string;
 };
 
 type CalendarPayload = {
@@ -111,6 +118,12 @@ type NotificationPreferencePayload = {
   enabled: boolean;
   categories: Record<string, boolean>;
   reminderOffsets: number[];
+  reminderRules?: Array<{
+    trigger: "before" | "at_time" | "approaching";
+    amount: number;
+    unit: "days" | "hours";
+    enabled: boolean;
+  }>;
   quietHours?: {
     enabled: boolean;
     start: string;
@@ -128,7 +141,13 @@ type Loadable<T> = {
 const SESSION_STORAGE_KEY = "native_session";
 const DEVICE_ID_STORAGE_KEY = "native_device_id";
 const MANUAL_EXAMS_STORAGE_KEY = "native_manual_exams";
-const DEFAULT_REMINDER_OFFSETS = [7, 3, 1];
+const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
+const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
+  { trigger: "before", amount: 7, unit: "days", enabled: true },
+  { trigger: "before", amount: 1, unit: "days", enabled: true },
+  { trigger: "at_time", amount: 0, unit: "days", enabled: true },
+  { trigger: "approaching", amount: 0, unit: "days", enabled: true }
+];
 
 const DEFAULT_CATEGORY_OPTIONS = [
   "academic_year_start",
@@ -140,10 +159,12 @@ const DEFAULT_CATEGORY_OPTIONS = [
   "course_registration",
   "course_renewal",
   "course_add_drop",
+  "course_schedule",
   "midterm_exam",
   "final_exam",
   "makeup_exam",
   "single_course_exam",
+  "department_exam_schedule",
   "graduation_application",
   "tuition_payment",
   "horizontal_transfer",
@@ -156,29 +177,75 @@ const DEFAULT_CATEGORY_OPTIONS = [
 ];
 
 const CATEGORY_LABELS: Record<string, string> = {
-  academic_year_start: "Academic Year Start",
-  academic_year_end: "Academic Year End",
-  fall_term_start: "Fall Term Start",
-  fall_term_end: "Fall Term End",
-  spring_term_start: "Spring Term Start",
-  spring_term_end: "Spring Term End",
-  course_registration: "Course Registration",
-  course_renewal: "Course Renewal",
-  course_add_drop: "Add / Drop",
-  midterm_exam: "Midterm",
-  final_exam: "Final",
-  makeup_exam: "Makeup",
-  single_course_exam: "Single Course Exam",
-  graduation_application: "Graduation Application",
-  tuition_payment: "Tuition Payment",
-  horizontal_transfer: "Horizontal Transfer",
-  summer_school_registration: "Summer School Registration",
-  summer_school_start: "Summer School Start",
-  summer_school_end: "Summer School End",
-  holiday: "Holiday",
-  orientation: "Orientation",
-  custom_event: "Custom Event"
+  academic_year_start: "Akademik yıl başlangıcı",
+  academic_year_end: "Akademik yıl bitişi",
+  fall_term_start: "Güz dönemi başlangıcı",
+  fall_term_end: "Güz dönemi bitişi",
+  spring_term_start: "Bahar dönemi başlangıcı",
+  spring_term_end: "Bahar dönemi bitişi",
+  course_registration: "Ders kaydı",
+  course_renewal: "Kayıt yenileme",
+  course_add_drop: "Ekle-sil",
+  course_schedule: "Ders programı",
+  midterm_exam: "Ara sınav",
+  final_exam: "Final sınavı",
+  makeup_exam: "Bütünleme sınavı",
+  single_course_exam: "Tek ders sınavı",
+  department_exam_schedule: "Sınav programı",
+  graduation_application: "Mezuniyet başvurusu",
+  tuition_payment: "Harç ödemesi",
+  horizontal_transfer: "Yatay geçiş",
+  summer_school_registration: "Yaz okulu kaydı",
+  summer_school_start: "Yaz okulu başlangıcı",
+  summer_school_end: "Yaz okulu bitişi",
+  holiday: "Tatil",
+  orientation: "Oryantasyon",
+  custom_event: "Özel etkinlik"
 };
+
+const ROLE_LABELS: Record<string, string> = {
+  student: "Öğrenci",
+  content_editor: "İçerik Editörü",
+  university_admin: "Üniversite Yöneticisi",
+  super_admin: "Süper Yönetici"
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Taslak",
+  published: "Yayında",
+  archived: "Arşivlendi",
+  active: "Aktif",
+  inactive: "Pasif",
+  locked: "Kilitli"
+};
+
+const UNIVERSITY_TYPE_LABELS: Record<string, string> = {
+  state: "Devlet",
+  foundation: "Vakıf",
+  private: "Özel"
+};
+
+const GOOGLE_EXPO_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID);
+const GOOGLE_WEB_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) ?? GOOGLE_EXPO_CLIENT_ID;
+const GOOGLE_IOS_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID);
+const GOOGLE_ANDROID_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID);
+const GOOGLE_PLACEHOLDER_CLIENT_ID = "google-auth-not-configured.apps.googleusercontent.com";
+const GOOGLE_PLATFORM_CLIENT_ID = Platform.select({
+  android: GOOGLE_ANDROID_CLIENT_ID,
+  ios: GOOGLE_IOS_CLIENT_ID,
+  default: GOOGLE_WEB_CLIENT_ID
+});
+const GOOGLE_AUTH_CONFIGURED = Boolean(GOOGLE_PLATFORM_CLIENT_ID);
+const GOOGLE_AUTH_CONFIGURATION_MESSAGE = Platform.select({
+  android: "Google girişi için EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID değeri gerekiyor.",
+  ios: "Google girişi için EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID değeri gerekiyor.",
+  default: "Google girişi için EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID değeri gerekiyor."
+}) ?? "Google girişi için platform client ID değeri gerekiyor.";
+
+function cleanEnvValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
 
 function normalizeBaseUrl(input: string): string | null {
   const trimmed = input.trim();
@@ -224,25 +291,31 @@ function createLocalId(prefix: string): string {
 
 function formatRemainingDuration(targetIsoDate: string): string {
   const target = Date.parse(targetIsoDate);
-  if (Number.isNaN(target)) return "tarih hatali";
+  if (Number.isNaN(target)) return "tarih hatalı";
 
   const deltaMs = target - Date.now();
-  if (deltaMs <= 0) return "bugun";
+  if (deltaMs <= 0) return "bugün";
 
   const totalHours = Math.floor(deltaMs / (1000 * 60 * 60));
   const days = Math.floor(totalHours / 24);
   const hours = totalHours % 24;
 
-  if (days === 0) return `${hours}s kaldi`;
-  return `${days}g ${hours}s kaldi`;
+  if (days === 0) return `${hours} sa kaldı`;
+  return `${days} gün ${hours} sa kaldı`;
 }
 
 function toCategoryLabel(category: string): string {
   if (CATEGORY_LABELS[category]) return CATEGORY_LABELS[category];
-  return category
-    .split("_")
-    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
-    .join(" ");
+  return category.split("_").join(" ");
+}
+
+function isUniversityAcademicCalendarEvent(event: EventRecord): boolean {
+  if (event.facultyId || event.departmentId) return false;
+  return event.category !== "course_schedule" && event.category !== "department_exam_schedule";
+}
+
+function isUniversityAnnouncement(item: AnnouncementRecord): boolean {
+  return !item.scopeType || item.scopeType === "university";
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -315,6 +388,12 @@ export default function App() {
   const [authStage, setAuthStage] = useState<AuthStage>("auth");
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const apiBaseUrl = useMemo(() => resolveApiBaseUrl(), []);
+  const [googleRequest, , promptGoogleAuth] = Google.useIdTokenAuthRequest({
+    webClientId: GOOGLE_WEB_CLIENT_ID ?? GOOGLE_PLACEHOLDER_CLIENT_ID,
+    iosClientId: GOOGLE_IOS_CLIENT_ID ?? GOOGLE_PLACEHOLDER_CLIENT_ID,
+    androidClientId: GOOGLE_ANDROID_CLIENT_ID ?? GOOGLE_PLACEHOLDER_CLIENT_ID,
+    selectAccount: true
+  });
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -349,6 +428,7 @@ export default function App() {
   const [alarmMode, setAlarmMode] = useState<AlarmMode>("all_calendar");
   const [categoryDraft, setCategoryDraft] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: "info" | "success" | "error" } | null>(null);
 
   const accessToken = session?.accessToken;
@@ -424,8 +504,6 @@ export default function App() {
   }, [departments.data, departmentSearch]);
 
   const registerIdentityReady = Boolean(fullName.trim() && email.trim() && password.trim());
-  const registerAcademicReady = Boolean(registerUniversityId && registerFacultyId && registerDepartmentId);
-
   useEffect(() => {
     const initialize = async () => {
       await restoreDeviceId();
@@ -548,10 +626,16 @@ export default function App() {
 
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    const response = await fetch(`${apiBaseUrl}${path}`, {
-      ...options,
-      headers
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${apiBaseUrl}${path}`, {
+        ...options,
+        headers
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`API bağlantısı kurulamadı (${apiBaseUrl}). Telefon ve bilgisayarın aynı Wi-Fi ağında olduğundan ve 3000 portunun erişilebilir olduğundan emin ol. ${detail}`);
+    }
 
     if (!response.ok) {
       const body = await response.text();
@@ -595,11 +679,11 @@ export default function App() {
 
   async function handleAuth(): Promise<void> {
     if (!email.trim() || !password.trim()) {
-      Alert.alert("Eksik alan", "E-posta ve sifre zorunludur.");
+      Alert.alert("Eksik alan", "E-posta ve şifre zorunludur.");
       return;
     }
     if (!deviceId) {
-      Alert.alert("Hazirlaniyor", "Cihaz kimligi henuz hazir degil.");
+      Alert.alert("Hazırlanıyor", "Cihaz kimliği henüz hazır değil.");
       return;
     }
 
@@ -624,39 +708,34 @@ export default function App() {
         setSession(nextSession);
         await persistSession(nextSession);
         setActiveTab("home");
-        setMessage({ text: "Giris basarili.", tone: "success" });
+        setMessage({ text: "Giriş başarılı.", tone: "success" });
         await bootstrapAuthenticatedContext(nextSession.accessToken);
         return;
       }
 
-      if (!registerUniversityId || !registerFacultyId || !registerDepartmentId) {
-        setMessage({ text: "Universite, fakulte ve bolum secimi zorunludur.", tone: "error" });
-        return;
-      }
-
-      await apiRequest<RegisterResponse>(
+      const registerResult = await apiRequest<RegisterResponse>(
         "/auth/register",
         {
           method: "POST",
           body: JSON.stringify({
-            fullName: fullName.trim() || "Native Student",
+            fullName: fullName.trim() || "Mobil Öğrenci",
             email: email.trim().toLowerCase(),
             password: password.trim(),
-            deviceId,
-            universityId: registerUniversityId,
-            facultyId: registerFacultyId,
-            departmentId: registerDepartmentId
+            passwordConfirmation: password.trim()
           })
         }
       );
 
       setAuthStage("verify");
       setRegisterPicker("none");
-      setVerificationToken("");
-      setMessage({ text: "Dogrulama kodu e-postana gonderildi.", tone: "info" });
+      setVerificationToken(registerResult.previewVerificationToken ?? "");
+      setMessage({
+        text: registerResult.previewVerificationToken ? "Doğrulama kodu hazır. Devam etmek için doğrulamayı tamamla." : "Doğrulama kodu e-postana gönderildi.",
+        tone: "info"
+      });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Giris islemi tamamlanamadi",
+        text: error instanceof Error ? error.message : "Giriş işlemi tamamlanamadı",
         tone: "error"
       });
     } finally {
@@ -664,41 +743,98 @@ export default function App() {
     }
   }
 
+  async function handleGoogleAuth(): Promise<void> {
+    if (!GOOGLE_AUTH_CONFIGURED) {
+      setMessage({ text: GOOGLE_AUTH_CONFIGURATION_MESSAGE, tone: "error" });
+      return;
+    }
+    if (!googleRequest) {
+      setMessage({ text: "Google girişi hazırlanıyor. Birkaç saniye sonra tekrar dene.", tone: "info" });
+      return;
+    }
+    if (!deviceId) {
+      setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
+      return;
+    }
+
+    try {
+      setGoogleBusy(true);
+      const result = await promptGoogleAuth();
+      if (result.type === "cancel" || result.type === "dismiss") {
+        setMessage({ text: "Google girişi tamamlanmadan kapatıldı.", tone: "info" });
+        return;
+      }
+      if (result.type !== "success") {
+        setMessage({ text: "Google girişi tamamlanamadı.", tone: "error" });
+        return;
+      }
+
+      const idToken = result.params.id_token;
+      if (!idToken) {
+        setMessage({ text: "Google kimlik belirteci alınamadı.", tone: "error" });
+        return;
+      }
+
+      const nextSession = await apiRequest<SessionPayload>(
+        "/auth/google",
+        {
+          method: "POST",
+          body: JSON.stringify({ idToken, deviceId })
+        }
+      );
+
+      setAuthStage("auth");
+      setPendingVerifiedSession(null);
+      setSession(nextSession);
+      await persistSession(nextSession);
+      setActiveTab("home");
+      setMessage({ text: "Google ile giriş başarılı.", tone: "success" });
+      await bootstrapAuthenticatedContext(nextSession.accessToken);
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "Google girişi tamamlanamadı",
+        tone: "error"
+      });
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
+
   async function resendVerificationEmail(): Promise<void> {
-    if (!registerIdentityReady || !registerAcademicReady) {
-      setMessage({ text: "Kodu tekrar gondermek icin once kayit bilgilerini tamamla.", tone: "error" });
+    if (!registerIdentityReady) {
+      setMessage({ text: "Kodu tekrar göndermek için önce kayıt bilgilerini tamamla.", tone: "error" });
       setAuthStage("auth");
       return;
     }
 
     if (!deviceId) {
-      setMessage({ text: "Cihaz kimligi henuz hazir degil.", tone: "error" });
+      setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
       return;
     }
 
     try {
       setBusy(true);
-      await apiRequest<RegisterResponse>(
+      const registerResult = await apiRequest<RegisterResponse>(
         "/auth/register",
         {
           method: "POST",
           body: JSON.stringify({
-            fullName: fullName.trim() || "Native Student",
+            fullName: fullName.trim() || "Mobil Öğrenci",
             email: email.trim().toLowerCase(),
             password: password.trim(),
-            deviceId,
-            universityId: registerUniversityId,
-            facultyId: registerFacultyId,
-            departmentId: registerDepartmentId
+            passwordConfirmation: password.trim()
           })
         }
       );
 
-      setVerificationToken("");
-      setMessage({ text: "Dogrulama kodu tekrar gonderildi.", tone: "info" });
+      setVerificationToken(registerResult.previewVerificationToken ?? "");
+      setMessage({
+        text: registerResult.previewVerificationToken ? "Doğrulama kodu yenilendi ve dolduruldu." : "Doğrulama kodu tekrar gönderildi.",
+        tone: "info"
+      });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Kod tekrar gonderilemedi",
+        text: error instanceof Error ? error.message : "Kod tekrar gönderilemedi",
         tone: "error"
       });
     } finally {
@@ -708,31 +844,47 @@ export default function App() {
 
   async function handleVerifyEmail(): Promise<void> {
     if (!verificationToken.trim()) {
-      setMessage({ text: "Dogrulama kodu gereklidir.", tone: "error" });
+      setMessage({ text: "Doğrulama kodu gereklidir.", tone: "error" });
       return;
     }
 
     if (!deviceId) {
-      setMessage({ text: "Cihaz kimligi henuz hazir degil.", tone: "error" });
+      setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
       return;
     }
 
     try {
       setBusy(true);
-      const nextSession = await apiRequest<SessionPayload>(
+      await apiRequest<{ status: "verified"; email: string }>(
         "/auth/verify-email",
         {
           method: "POST",
-          body: JSON.stringify({ token: verificationToken.trim(), deviceId })
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            code: verificationToken.trim(),
+            deviceId
+          })
+        }
+      );
+
+      const nextSession = await apiRequest<SessionPayload>(
+        "/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            password: password.trim(),
+            deviceId
+          })
         }
       );
 
       setPendingVerifiedSession(nextSession);
       setAuthStage("profile_confirm");
-      setMessage({ text: "E-posta dogrulandi. Son adim: profilini onayla.", tone: "success" });
+      setMessage({ text: "E-posta doğrulandı. Son adım: profilini onayla.", tone: "success" });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "E-posta dogrulanamadi",
+        text: error instanceof Error ? error.message : "E-posta doğrulanamadı",
         tone: "error"
       });
     } finally {
@@ -742,7 +894,7 @@ export default function App() {
 
   async function confirmProfileAndStart(): Promise<void> {
     if (!pendingVerifiedSession) {
-      setMessage({ text: "Oturum hazir degil. Dogrulama adimini tekrarla.", tone: "error" });
+      setMessage({ text: "Oturum hazır değil. Doğrulama adımını tekrarla.", tone: "error" });
       setAuthStage("verify");
       return;
     }
@@ -755,7 +907,7 @@ export default function App() {
       setPendingVerifiedSession(null);
       setAuthStage("auth");
       setActiveTab("home");
-      setMessage({ text: "Profilin onaylandi. Uygulamayi kullanmaya baslayabilirsin.", tone: "success" });
+      setMessage({ text: "Profilin onaylandı. Uygulamayı kullanmaya başlayabilirsin.", tone: "success" });
       await bootstrapAuthenticatedContext(nextSession.accessToken);
     } finally {
       setBusy(false);
@@ -796,24 +948,13 @@ export default function App() {
       setAnnouncements({ loading: false });
       setPreferences({ loading: false });
       await persistSession(null);
-      setMessage({ text: "Cikis yapildi.", tone: "info" });
+      setMessage({ text: "Çıkış yapıldı.", tone: "info" });
     }
-  }
-
-  async function selectRegisterUniversity(universityId: string): Promise<void> {
-    setRegisterUniversityId(universityId);
-    setRegisterFacultyId("");
-    setRegisterDepartmentId("");
-    setFacultySearch("");
-    setDepartmentSearch("");
-    setDepartments({ loading: false, data: [] });
-    setRegisterPicker("faculty");
-    await loadFacultiesForRegistration(universityId);
   }
 
   async function loadUniversities(): Promise<void> {
     await withLoadable(setUniversities, () =>
-      apiRequest<UniversityRecord[]>("/universities?limit=100&offset=0")
+      apiRequest<UniversityRecord[]>("/universities?limit=500&offset=0")
     );
   }
 
@@ -841,7 +982,7 @@ export default function App() {
 
   async function selectUniversity(universityId: string): Promise<void> {
     if (!accessToken) {
-      setMessage({ text: "Universite baglamak icin once giris yapmalisin.", tone: "error" });
+      setMessage({ text: "Üniversite bağlamak için önce giriş yapmalısın.", tone: "error" });
       return;
     }
 
@@ -857,14 +998,95 @@ export default function App() {
       );
 
       setSelectedUniversityId(universityId);
+      setRegisterUniversityId(universityId);
+      setRegisterFacultyId("");
+      setRegisterDepartmentId("");
+      setFacultySearch("");
+      setDepartmentSearch("");
+      setDepartments({ loading: false, data: [] });
+      await loadFacultiesForRegistration(universityId);
       await loadMyCalendar(accessToken);
       await loadUpcoming(accessToken);
       await loadAnnouncements(accessToken);
       await loadPreferences(accessToken);
-      setMessage({ text: "Universite guncellendi.", tone: "success" });
+      setMessage({ text: "Üniversite güncellendi.", tone: "success" });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Universite secimi guncellenemedi",
+        text: error instanceof Error ? error.message : "Üniversite seçimi güncellenemedi",
+        tone: "error"
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectFaculty(facultyId: string): Promise<void> {
+    if (!accessToken || !registerUniversityId) {
+      setMessage({ text: "Fakülte seçmek için önce üniversite seçmelisin.", tone: "error" });
+      return;
+    }
+
+    try {
+      setBusy(true);
+      await apiRequest<UserProfile>(
+        "/me/university",
+        {
+          method: "PATCH",
+          body: JSON.stringify({ universityId: registerUniversityId, facultyId, classLevel: 2 })
+        },
+        accessToken
+      );
+
+      setRegisterFacultyId(facultyId);
+      setRegisterDepartmentId("");
+      setDepartmentSearch("");
+      setRegisterPicker("department");
+      await loadDepartmentsForRegistration(facultyId);
+      await loadMyCalendar(accessToken);
+      await loadUpcoming(accessToken);
+      await loadAnnouncements(accessToken);
+      setMessage({ text: "Fakülte güncellendi.", tone: "success" });
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "Fakülte seçimi güncellenemedi",
+        tone: "error"
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectDepartment(departmentId: string): Promise<void> {
+    if (!accessToken || !registerUniversityId || !registerFacultyId) {
+      setMessage({ text: "Bölüm seçmek için önce üniversite ve fakülte seçmelisin.", tone: "error" });
+      return;
+    }
+
+    try {
+      setBusy(true);
+      await apiRequest<UserProfile>(
+        "/me/university",
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            universityId: registerUniversityId,
+            facultyId: registerFacultyId,
+            departmentId,
+            classLevel: 2
+          })
+        },
+        accessToken
+      );
+
+      setRegisterDepartmentId(departmentId);
+      setRegisterPicker("none");
+      await loadMyCalendar(accessToken);
+      await loadUpcoming(accessToken);
+      await loadAnnouncements(accessToken);
+      setMessage({ text: "Bölüm güncellendi.", tone: "success" });
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "Bölüm seçimi güncellenemedi",
         tone: "error"
       });
     } finally {
@@ -918,7 +1140,7 @@ export default function App() {
 
   async function saveAlarmSettings(): Promise<void> {
     if (!accessToken) {
-      setMessage({ text: "Alarm ayarlari icin giris yapmalisin.", tone: "error" });
+      setMessage({ text: "Alarm ayarları için giriş yapmalısın.", tone: "error" });
       return;
     }
 
@@ -929,6 +1151,7 @@ export default function App() {
 
     const existing = preferences.data;
     const reminderOffsets = existing?.reminderOffsets.length ? existing.reminderOffsets : DEFAULT_REMINDER_OFFSETS;
+    const reminderRules = existing?.reminderRules?.length ? existing.reminderRules : DEFAULT_REMINDER_RULES;
 
     try {
       setBusy(true);
@@ -940,6 +1163,7 @@ export default function App() {
             enabled: alarmEnabled,
             categories: categoryPayload,
             reminderOffsets,
+            reminderRules,
             quietHours: existing?.quietHours ?? {
               enabled: true,
               start: "22:00",
@@ -952,10 +1176,10 @@ export default function App() {
       );
 
       setPreferences({ loading: false, data: updated });
-      setMessage({ text: "Alarm ayarlari kaydedildi.", tone: "success" });
+      setMessage({ text: "Alarm ayarları kaydedildi.", tone: "success" });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Alarm ayarlari kaydedilemedi",
+        text: error instanceof Error ? error.message : "Alarm ayarları kaydedilemedi",
         tone: "error"
       });
     } finally {
@@ -965,7 +1189,7 @@ export default function App() {
 
   async function registerDevice(): Promise<void> {
     if (!accessToken) {
-      setMessage({ text: "Cihaz kaydi icin giris yapmalisin.", tone: "error" });
+      setMessage({ text: "Cihaz kaydı için giriş yapmalısın.", tone: "error" });
       return;
     }
 
@@ -983,10 +1207,10 @@ export default function App() {
         accessToken
       );
 
-      setMessage({ text: "Cihaz bildirimi etkinlestirildi.", tone: "success" });
+      setMessage({ text: "Cihaz bildirimi etkinleştirildi.", tone: "success" });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Cihaz kaydi basarisiz",
+        text: error instanceof Error ? error.message : "Cihaz kaydı başarısız",
         tone: "error"
       });
     } finally {
@@ -997,7 +1221,7 @@ export default function App() {
   async function openAnnouncement(link: string): Promise<void> {
     const supported = await Linking.canOpenURL(link);
     if (!supported) {
-      setMessage({ text: "Bu baglanti cihazda acilamiyor.", tone: "error" });
+      setMessage({ text: "Bu bağlantı cihazda açılamıyor.", tone: "error" });
       return;
     }
     await Linking.openURL(link);
@@ -1005,13 +1229,13 @@ export default function App() {
 
   function addManualExam(): void {
     if (!manualExamTitle.trim() || !manualExamDate.trim()) {
-      setMessage({ text: "Sinav adi ve tarihi zorunludur.", tone: "error" });
+      setMessage({ text: "Sınav adı ve tarihi zorunludur.", tone: "error" });
       return;
     }
 
     const isoCandidate = new Date(manualExamDate.trim());
     if (Number.isNaN(isoCandidate.getTime())) {
-      setMessage({ text: "Sinav tarihi hatali. GG-AA-YYYY yerine YYYY-MM-DD kullan.", tone: "error" });
+      setMessage({ text: "Sınav tarihi hatalı. GG-AA-YYYY yerine YYYY-MM-DD kullan.", tone: "error" });
       return;
     }
 
@@ -1024,7 +1248,7 @@ export default function App() {
     setManualExams((previous) => [...previous, record]);
     setManualExamTitle("");
     setManualExamDate("");
-    setMessage({ text: "Sinav geri sayimina eklendi.", tone: "success" });
+    setMessage({ text: "Sınav geri sayımına eklendi.", tone: "success" });
   }
 
   return (
@@ -1034,8 +1258,8 @@ export default function App() {
         <ScrollView contentContainerStyle={[styles.container, session ? styles.containerWithNav : undefined]}>
           {!session && (
             <View style={styles.authHero}>
-              <Text style={styles.authHeroTitle}>Akademik Takvimine Hos Geldin</Text>
-              <Text style={styles.authHeroSubtitle}>Sinavlarini ve duyurularini tek yerden takip et, tarihler kacmasin.</Text>
+              <Text style={styles.authHeroTitle}>Akademik Takvimine Hoş Geldin</Text>
+              <Text style={styles.authHeroSubtitle}>Sınavlarını ve duyurularını tek yerden takip et, tarihler kaçmasın.</Text>
             </View>
           )}
 
@@ -1046,7 +1270,7 @@ export default function App() {
           )}
 
           {!session && authStage === "auth" && (
-            <Section title="Giris ve Kayit">
+            <Section title="Giriş ve Kayıt">
               <View style={styles.row}>
                 <Pressable
                   style={[styles.modeButton, authMode === "login" && styles.modeButtonActive]}
@@ -1055,7 +1279,7 @@ export default function App() {
                     setAuthStage("auth");
                   }}
                 >
-                  <Text style={[styles.modeButtonText, authMode === "login" && styles.modeButtonTextActive]}>Giris Yap</Text>
+                  <Text style={[styles.modeButtonText, authMode === "login" && styles.modeButtonTextActive]}>Giriş Yap</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.modeButton, authMode === "register" && styles.modeButtonActive]}
@@ -1064,9 +1288,21 @@ export default function App() {
                     setAuthStage("auth");
                   }}
                 >
-                  <Text style={[styles.modeButtonText, authMode === "register" && styles.modeButtonTextActive]}>Kayit Ol</Text>
+                  <Text style={[styles.modeButtonText, authMode === "register" && styles.modeButtonTextActive]}>Kayıt Ol</Text>
                 </Pressable>
               </View>
+
+              <Pressable
+                style={[styles.button, styles.googleButton, (busy || googleBusy || !GOOGLE_AUTH_CONFIGURED) && styles.buttonDisabled]}
+                onPress={() => void handleGoogleAuth()}
+                disabled={busy || googleBusy || !GOOGLE_AUTH_CONFIGURED}
+              >
+                <Ionicons name="logo-google" size={19} color="#1f2937" />
+                <Text style={styles.googleButtonText}>{googleBusy ? "Google açılıyor..." : "Google ile Devam Et"}</Text>
+              </Pressable>
+              {!GOOGLE_AUTH_CONFIGURED && (
+                <Text style={styles.caption}>{GOOGLE_AUTH_CONFIGURATION_MESSAGE}</Text>
+              )}
 
               {authMode === "register" ? (
                 <>
@@ -1074,11 +1310,8 @@ export default function App() {
                     <View style={[styles.progressChip, registerIdentityReady && styles.progressChipDone]}>
                       <Text style={[styles.progressChipText, registerIdentityReady && styles.progressChipTextDone]}>Profil</Text>
                     </View>
-                    <View style={[styles.progressChip, registerAcademicReady && styles.progressChipDone]}>
-                      <Text style={[styles.progressChipText, registerAcademicReady && styles.progressChipTextDone]}>Akademik Secim</Text>
-                    </View>
                     <View style={styles.progressChip}>
-                      <Text style={styles.progressChipText}>Dogrulama</Text>
+                      <Text style={styles.progressChipText}>Doğrulama</Text>
                     </View>
                   </View>
 
@@ -1091,7 +1324,7 @@ export default function App() {
                   <TextInput
                     value={email}
                     onChangeText={setEmail}
-                    placeholder="Ogrenci e-posta adresi"
+                    placeholder="Öğrenci e-posta adresi"
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -1100,137 +1333,28 @@ export default function App() {
                   <TextInput
                     value={password}
                     onChangeText={setPassword}
-                    placeholder="Sifre"
+                    placeholder="Şifre"
                     secureTextEntry
                     style={styles.input}
                   />
 
-                  <Text style={styles.helperText}>Kisa kayit: universite, fakulte ve bolum secimi yapip hesabi olustur.</Text>
-
-                  <View style={styles.selectorGroup}>
-                    <Pressable
-                      style={styles.selectorTrigger}
-                      onPress={() => {
-                        setRegisterPicker((prev) => (prev === "university" ? "none" : "university"));
-                        if (!(universities.data ?? []).length) void loadUniversities();
-                      }}
-                      disabled={busy}
-                    >
-                      <Text style={styles.selectorLabel}>Universite</Text>
-                      <Text style={styles.selectorValue}>{selectedUniversity?.name ?? "Secmek icin dokun"}</Text>
-                    </Pressable>
-
-                    {registerPicker === "university" && (
-                      <View style={styles.selectorPanel}>
-                        <TextInput
-                          value={universitySearch}
-                          onChangeText={setUniversitySearch}
-                          placeholder="Universite ara"
-                          style={styles.input}
-                        />
-                        {universities.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
-                        {universities.error && <Text style={styles.errorText}>{universities.error}</Text>}
-                        {filteredUniversities.map((university) => (
-                          <Pressable
-                            key={university.id}
-                            style={[styles.selectorOption, registerUniversityId === university.id && styles.selectorOptionSelected]}
-                            onPress={() => void selectRegisterUniversity(university.id)}
-                            disabled={busy}
-                          >
-                            <Text style={styles.universityName}>{university.name}</Text>
-                            <Text style={styles.universityMeta}>{university.city}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    )}
-
-                    <Pressable
-                      style={[styles.selectorTrigger, !registerUniversityId && styles.selectorTriggerDisabled]}
-                      onPress={() => setRegisterPicker((prev) => (prev === "faculty" ? "none" : "faculty"))}
-                      disabled={!registerUniversityId || busy}
-                    >
-                      <Text style={styles.selectorLabel}>Fakulte</Text>
-                      <Text style={styles.selectorValue}>{selectedFaculty?.name ?? "Secmek icin dokun"}</Text>
-                    </Pressable>
-
-                    {registerPicker === "faculty" && registerUniversityId && (
-                      <View style={styles.selectorPanel}>
-                        <TextInput
-                          value={facultySearch}
-                          onChangeText={setFacultySearch}
-                          placeholder="Fakulte ara"
-                          style={styles.input}
-                        />
-                        {faculties.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
-                        {filteredFaculties.map((faculty) => (
-                          <Pressable
-                            key={faculty.id}
-                            style={[styles.selectorOption, registerFacultyId === faculty.id && styles.selectorOptionSelected]}
-                            onPress={() => {
-                              setRegisterFacultyId(faculty.id);
-                              setRegisterDepartmentId("");
-                              setDepartmentSearch("");
-                              setRegisterPicker("department");
-                              void loadDepartmentsForRegistration(faculty.id);
-                            }}
-                            disabled={busy}
-                          >
-                            <Text style={styles.universityName}>{faculty.name}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    )}
-
-                    <Pressable
-                      style={[styles.selectorTrigger, !registerFacultyId && styles.selectorTriggerDisabled]}
-                      onPress={() => setRegisterPicker((prev) => (prev === "department" ? "none" : "department"))}
-                      disabled={!registerFacultyId || busy}
-                    >
-                      <Text style={styles.selectorLabel}>Bolum</Text>
-                      <Text style={styles.selectorValue}>{selectedDepartment?.name ?? "Secmek icin dokun"}</Text>
-                    </Pressable>
-
-                    {registerPicker === "department" && registerFacultyId && (
-                      <View style={styles.selectorPanel}>
-                        <TextInput
-                          value={departmentSearch}
-                          onChangeText={setDepartmentSearch}
-                          placeholder="Bolum ara"
-                          style={styles.input}
-                        />
-                        {departments.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
-                        {filteredDepartments.map((department) => (
-                          <Pressable
-                            key={department.id}
-                            style={[styles.selectorOption, registerDepartmentId === department.id && styles.selectorOptionSelected]}
-                            onPress={() => {
-                              setRegisterDepartmentId(department.id);
-                              setRegisterPicker("none");
-                            }}
-                            disabled={busy}
-                          >
-                            <Text style={styles.universityName}>{department.name}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    )}
-                  </View>
+                  <Text style={styles.helperText}>Kayıt yalnızca hesap bilgileriyle tamamlanır. Üniversite, fakülte ve bölümünü uygulama içinde seçebilirsin.</Text>
 
                   <Pressable
                     style={[
                       styles.button,
                       styles.primaryButton,
-                      (busy || !registerIdentityReady || !registerAcademicReady) && styles.buttonDisabled
+                      (busy || !registerIdentityReady) && styles.buttonDisabled
                     ]}
                     onPress={() => void handleAuth()}
-                    disabled={busy || !registerIdentityReady || !registerAcademicReady}
+                    disabled={busy || !registerIdentityReady}
                   >
-                    <Text style={styles.primaryButtonText}>Hesap Olustur</Text>
+                    <Text style={styles.primaryButtonText}>Hesap Oluştur</Text>
                   </Pressable>
 
                   <View style={styles.inlineInfoCard}>
-                    <Text style={styles.inlineInfoTitle}>Sonraki adim: E-posta dogrulama</Text>
-                    <Text style={styles.inlineInfoText}>Hesap olusturduktan sonra seni ayrica dogrulama ekranina yonlendirecegiz.</Text>
+                    <Text style={styles.inlineInfoTitle}>Sonraki adım: E-posta doğrulama</Text>
+                    <Text style={styles.inlineInfoText}>Hesap oluşturduktan sonra seni ayrıca doğrulama ekranına yönlendireceğiz.</Text>
                   </View>
                 </>
               ) : (
@@ -1238,7 +1362,7 @@ export default function App() {
                   <TextInput
                     value={email}
                     onChangeText={setEmail}
-                    placeholder="Ogrenci e-posta adresi"
+                    placeholder="Öğrenci e-posta adresi"
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -1248,13 +1372,13 @@ export default function App() {
                   <TextInput
                     value={password}
                     onChangeText={setPassword}
-                    placeholder="Sifre"
+                    placeholder="Şifre"
                     secureTextEntry
                     style={styles.input}
                   />
 
                   <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void handleAuth()} disabled={busy}>
-                    <Text style={styles.primaryButtonText}>Giris Yap</Text>
+                    <Text style={styles.primaryButtonText}>Giriş Yap</Text>
                   </Pressable>
                 </>
               )}
@@ -1262,42 +1386,39 @@ export default function App() {
           )}
 
           {!session && authStage === "verify" && (
-            <Section title="E-posta Dogrulama">
+            <Section title="E-posta Doğrulama">
               <View style={styles.progressRow}>
                 <View style={[styles.progressChip, styles.progressChipDone]}>
                   <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Profil</Text>
                 </View>
                 <View style={[styles.progressChip, styles.progressChipDone]}>
-                  <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Akademik Secim</Text>
-                </View>
-                <View style={[styles.progressChip, styles.progressChipDone]}>
-                  <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Dogrulama</Text>
+                  <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Doğrulama</Text>
                 </View>
               </View>
 
               <View style={styles.verificationCard}>
                 <Text style={styles.verificationTitle}>Kodunu Gir</Text>
-                <Text style={styles.verificationSubtitle}>{email.trim().toLowerCase()} adresine gonderilen kodu girerek devam et.</Text>
+                <Text style={styles.verificationSubtitle}>{email.trim().toLowerCase()} adresine gönderilen kodu girerek devam et.</Text>
 
                 <TextInput
                   value={verificationToken}
                   onChangeText={setVerificationToken}
-                  placeholder="Dogrulama kodu"
+                  placeholder="Doğrulama kodu"
                   autoCapitalize="none"
                   autoCorrect={false}
                   style={styles.input}
                 />
 
                 <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void handleVerifyEmail()} disabled={busy}>
-                  <Text style={styles.primaryButtonText}>Dogrulamayi Tamamla</Text>
+                  <Text style={styles.primaryButtonText}>Doğrulamayı Tamamla</Text>
                 </Pressable>
 
                 <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void resendVerificationEmail()} disabled={busy}>
-                  <Text style={styles.secondaryButtonText}>Kodu Tekrar Gonder</Text>
+                  <Text style={styles.secondaryButtonText}>Kodu Tekrar Gönder</Text>
                 </Pressable>
 
                 <Pressable style={styles.textActionButton} onPress={returnToRegisterForm} disabled={busy}>
-                  <Text style={styles.textActionText}>Kayit bilgilerimi duzenle</Text>
+                  <Text style={styles.textActionText}>Kayıt bilgilerimi düzenle</Text>
                 </Pressable>
               </View>
             </Section>
@@ -1310,14 +1431,11 @@ export default function App() {
                   <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Profil</Text>
                 </View>
                 <View style={[styles.progressChip, styles.progressChipDone]}>
-                  <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Akademik Secim</Text>
-                </View>
-                <View style={[styles.progressChip, styles.progressChipDone]}>
-                  <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Dogrulama</Text>
+                  <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Doğrulama</Text>
                 </View>
               </View>
 
-              <Text style={styles.helperText}>Hesabin hazir. Son bir kez bilgilerini kontrol edip onayla.</Text>
+              <Text style={styles.helperText}>Hesabın hazır. Akademik profilini giriş yaptıktan sonra içeride seçeceksin.</Text>
 
               <View style={styles.summaryCard}>
                 <View style={styles.summaryRow}>
@@ -1328,37 +1446,25 @@ export default function App() {
                   <Text style={styles.summaryKey}>E-posta</Text>
                   <Text style={styles.summaryValue}>{email.trim().toLowerCase() || "-"}</Text>
                 </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Universite</Text>
-                  <Text style={styles.summaryValue}>{selectedUniversity?.name ?? "-"}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Fakulte</Text>
-                  <Text style={styles.summaryValue}>{selectedFaculty?.name ?? "-"}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Bolum</Text>
-                  <Text style={styles.summaryValue}>{selectedDepartment?.name ?? "-"}</Text>
-                </View>
               </View>
 
               <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void confirmProfileAndStart()} disabled={busy}>
-                <Text style={styles.primaryButtonText}>Profili Onayla ve Basla</Text>
+                <Text style={styles.primaryButtonText}>Profili Onayla ve Başla</Text>
               </Pressable>
 
               <Pressable style={styles.textActionButton} onPress={returnToRegisterForm} disabled={busy}>
-                <Text style={styles.textActionText}>Bilgilerimi duzenle</Text>
+                <Text style={styles.textActionText}>Bilgilerimi düzenle</Text>
               </Pressable>
             </Section>
           )}
 
           {session && activeTab === "home" && (
             <>
-              <Section title="Sinav Geri Sayimi">
-                <Text style={styles.helperText}>Takvimindeki sinav tarihlerini takip et. Istersen manuel sinav da ekleyebilirsin.</Text>
+              <Section title="Sınav Geri Sayımı">
+                <Text style={styles.helperText}>Takvimindeki sınav tarihlerini takip et. İstersen manuel sınav da ekleyebilirsin.</Text>
 
                 {examCountdownItems.length === 0 && (
-                  <Text style={styles.caption}>Yaklasan sinav bulunamadi.</Text>
+                  <Text style={styles.caption}>Yaklaşan sınav bulunamadı.</Text>
                 )}
 
                 {examCountdownItems.map((exam) => (
@@ -1374,23 +1480,23 @@ export default function App() {
                 <TextInput
                   value={manualExamTitle}
                   onChangeText={setManualExamTitle}
-                  placeholder="Sinav adi"
+                  placeholder="Sınav adı"
                   style={styles.input}
                 />
                 <TextInput
                   value={manualExamDate}
                   onChangeText={setManualExamDate}
-                  placeholder="Sinav tarihi (YYYY-MM-DD)"
+                  placeholder="Sınav tarihi (YYYY-MM-DD)"
                   autoCapitalize="none"
                   autoCorrect={false}
                   style={styles.input}
                 />
                 <Pressable style={[styles.button, styles.secondaryButton]} onPress={addManualExam} disabled={busy}>
-                  <Text style={styles.secondaryButtonText}>Sinav Ekle</Text>
+                  <Text style={styles.secondaryButtonText}>Sınav Ekle</Text>
                 </Pressable>
               </Section>
 
-              <Section title="Yaklasan Etkinlikler">
+              <Section title="Yaklaşan Etkinlikler">
                 <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void loadUpcoming()} disabled={upcoming.loading || busy}>
                   <Text style={styles.secondaryButtonText}>Listeyi Yenile</Text>
                 </Pressable>
@@ -1411,7 +1517,7 @@ export default function App() {
           {session && activeTab === "calendar" && (
             <Section title="Akademik Takvim">
               <View style={styles.rowBetween}>
-                <Text style={styles.caption}>Durum: {calendar.data?.calendar.status ?? "yuklenmedi"}</Text>
+                <Text style={styles.caption}>Durum: {calendar.data?.calendar.status ? STATUS_LABELS[calendar.data.calendar.status] ?? calendar.data.calendar.status : "yüklenmedi"}</Text>
                 <Pressable style={[styles.buttonInline, styles.secondaryOutline]} onPress={() => void loadMyCalendar()} disabled={busy}>
                   <Text style={styles.secondaryOutlineText}>Yenile</Text>
                 </Pressable>
@@ -1421,10 +1527,11 @@ export default function App() {
               {calendar.data?.calendar && (
                 <View style={styles.cardMuted}>
                   <Text style={styles.cardTitle}>{calendar.data.calendar.title}</Text>
-                  <Text style={styles.caption}>Akademik Yil: {calendar.data.calendar.academicYear}</Text>
+                  <Text style={styles.caption}>Akademik Yıl: {calendar.data.calendar.academicYear}</Text>
                 </View>
               )}
-              {(calendar.data?.events ?? []).map((event) => (
+              <Text style={styles.helperText}>Seçili üniversitenin tek merkezi akademik takvimi gösterilir.</Text>
+              {(calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).map((event) => (
                 <View key={event.id} style={styles.eventCard}>
                   <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
                   <Text style={styles.eventTitle}>{event.title}</Text>
@@ -1436,26 +1543,26 @@ export default function App() {
 
           {session && activeTab === "announcements" && (
             <Section title="Duyurular">
-              <Text style={styles.helperText}>Universite, fakulte ve bolum kaynaklarindan duyurular listelenir.</Text>
+              <Text style={styles.helperText}>Seçili üniversitenin resmi duyuruları listelenir.</Text>
 
               <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void loadAnnouncements()} disabled={announcements.loading || busy}>
-                <Text style={styles.secondaryButtonText}>Duyurulari Yenile</Text>
+                <Text style={styles.secondaryButtonText}>Duyuruları Yenile</Text>
               </Pressable>
 
               {announcements.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
               {announcements.error && <Text style={styles.errorText}>{announcements.error}</Text>}
 
-              {(announcements.data ?? []).map((item) => (
+              {(announcements.data ?? []).filter(isUniversityAnnouncement).map((item) => (
                 <Pressable key={item.id} style={styles.eventCard} onPress={() => void openAnnouncement(item.link)}>
                   <Text style={styles.eventCategory}>{item.sourceName}</Text>
                   <Text style={styles.eventTitle}>{item.title}</Text>
                   {item.publishedAt && <Text style={styles.caption}>{new Date(item.publishedAt).toLocaleString()}</Text>}
-                  <Text style={styles.linkText}>Kaynagi Ac</Text>
+                  <Text style={styles.linkText}>Kaynağı Aç</Text>
                 </Pressable>
               ))}
 
-              {!announcements.loading && (announcements.data ?? []).length === 0 && (
-                <Text style={styles.caption}>Bu kapsamda duyuru bulunamadi.</Text>
+              {!announcements.loading && (announcements.data ?? []).filter(isUniversityAnnouncement).length === 0 && (
+                <Text style={styles.caption}>Bu üniversite için duyuru bulunamadı.</Text>
               )}
             </Section>
           )}
@@ -1465,40 +1572,141 @@ export default function App() {
               <Section title="Profilim">
                 <View style={styles.sessionInfo}>
                   <Text style={styles.sessionText}>E-posta: {session.user.email}</Text>
-                  <Text style={styles.sessionText}>Rol: {session.user.role}</Text>
-                  <Text style={styles.sessionText}>Cihaz: {deviceId || "hazirlaniyor..."}</Text>
+                  <Text style={styles.sessionText}>Rol: {ROLE_LABELS[session.user.role] ?? session.user.role}</Text>
+                  <Text style={styles.sessionText}>Cihaz: {deviceId || "hazırlanıyor..."}</Text>
                   <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void handleLogout()} disabled={busy}>
-                    <Text style={styles.secondaryButtonText}>Cikis Yap</Text>
+                    <Text style={styles.secondaryButtonText}>Çıkış Yap</Text>
                   </Pressable>
                 </View>
               </Section>
 
-              <Section title="Universite Secimi">
+              <Section title="Akademik Profil">
+                <View style={styles.summaryCard}>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryKey}>Üniversite</Text>
+                    <Text style={styles.summaryValue}>{selectedUniversity?.name ?? "Seçilmedi"}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryKey}>Fakülte</Text>
+                    <Text style={styles.summaryValue}>{selectedFaculty?.name ?? "Seçilmedi"}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryKey}>Bölüm</Text>
+                    <Text style={styles.summaryValue}>{selectedDepartment?.name ?? "Seçilmedi"}</Text>
+                  </View>
+                </View>
+
                 <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void loadUniversities()} disabled={universities.loading || busy}>
-                  <Text style={styles.secondaryButtonText}>Universiteleri Yenile</Text>
+                  <Text style={styles.secondaryButtonText}>Üniversiteleri Yenile</Text>
                 </Pressable>
 
                 {universities.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
                 {universities.error && <Text style={styles.errorText}>{universities.error}</Text>}
 
-                {(universities.data ?? []).map((university) => (
+                <View style={styles.selectorGroup}>
                   <Pressable
-                    key={university.id}
-                    style={[styles.universityCard, selectedUniversityId === university.id && styles.universityCardSelected]}
-                    onPress={() => void selectUniversity(university.id)}
+                    style={styles.selectorTrigger}
+                    onPress={() => {
+                      setRegisterPicker((prev) => (prev === "university" ? "none" : "university"));
+                      if (!(universities.data ?? []).length) void loadUniversities();
+                    }}
                     disabled={busy}
                   >
-                    <Text style={styles.universityName}>{university.name}</Text>
-                    <Text style={styles.universityMeta}>{university.city} | {university.type}</Text>
+                    <Text style={styles.selectorLabel}>Üniversite</Text>
+                    <Text style={styles.selectorValue}>{selectedUniversity?.name ?? "Seçmek için dokun"}</Text>
                   </Pressable>
-                ))}
+
+                  {registerPicker === "university" && (
+                    <View style={styles.selectorPanel}>
+                      <TextInput
+                        value={universitySearch}
+                        onChangeText={setUniversitySearch}
+                        placeholder="Üniversite ara"
+                        style={styles.input}
+                      />
+                      {filteredUniversities.map((university) => (
+                        <Pressable
+                          key={university.id}
+                          style={[styles.selectorOption, selectedUniversityId === university.id && styles.selectorOptionSelected]}
+                          onPress={() => void selectUniversity(university.id)}
+                          disabled={busy}
+                        >
+                          <Text style={styles.universityName}>{university.name}</Text>
+                          <Text style={styles.universityMeta}>{university.city} | {UNIVERSITY_TYPE_LABELS[university.type] ?? university.type}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  <Pressable
+                    style={[styles.selectorTrigger, !registerUniversityId && styles.selectorTriggerDisabled]}
+                    onPress={() => setRegisterPicker((prev) => (prev === "faculty" ? "none" : "faculty"))}
+                    disabled={!registerUniversityId || busy}
+                  >
+                    <Text style={styles.selectorLabel}>Fakülte</Text>
+                    <Text style={styles.selectorValue}>{selectedFaculty?.name ?? "Seçmek için dokun"}</Text>
+                  </Pressable>
+
+                  {registerPicker === "faculty" && registerUniversityId && (
+                    <View style={styles.selectorPanel}>
+                      <TextInput
+                        value={facultySearch}
+                        onChangeText={setFacultySearch}
+                        placeholder="Fakülte ara"
+                        style={styles.input}
+                      />
+                      {faculties.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+                      {filteredFaculties.map((faculty) => (
+                        <Pressable
+                          key={faculty.id}
+                          style={[styles.selectorOption, registerFacultyId === faculty.id && styles.selectorOptionSelected]}
+                          onPress={() => void selectFaculty(faculty.id)}
+                          disabled={busy}
+                        >
+                          <Text style={styles.universityName}>{faculty.name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  <Pressable
+                    style={[styles.selectorTrigger, !registerFacultyId && styles.selectorTriggerDisabled]}
+                    onPress={() => setRegisterPicker((prev) => (prev === "department" ? "none" : "department"))}
+                    disabled={!registerFacultyId || busy}
+                  >
+                    <Text style={styles.selectorLabel}>Bölüm</Text>
+                    <Text style={styles.selectorValue}>{selectedDepartment?.name ?? "Seçmek için dokun"}</Text>
+                  </Pressable>
+
+                  {registerPicker === "department" && registerFacultyId && (
+                    <View style={styles.selectorPanel}>
+                      <TextInput
+                        value={departmentSearch}
+                        onChangeText={setDepartmentSearch}
+                        placeholder="Bölüm ara"
+                        style={styles.input}
+                      />
+                      {departments.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+                      {filteredDepartments.map((department) => (
+                        <Pressable
+                          key={department.id}
+                          style={[styles.selectorOption, registerDepartmentId === department.id && styles.selectorOptionSelected]}
+                          onPress={() => void selectDepartment(department.id)}
+                          disabled={busy}
+                        >
+                          <Text style={styles.universityName}>{department.name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
               </Section>
 
-              <Section title="Alarm Ayarlari">
-                <Text style={styles.helperText}>Tum Takvim modu tum kategorilerde alarm acarken, Secili Alanlar sadece sectiklerin icin alarm acar.</Text>
+              <Section title="Alarm Ayarları">
+                <Text style={styles.helperText}>Tüm Takvim modu tüm kategorilerde alarm açarken, Seçili Alanlar sadece seçtiklerin için alarm açar.</Text>
 
                 <View style={styles.rowBetween}>
-                  <Text style={styles.label}>Alarmlari Etkinlestir</Text>
+                  <Text style={styles.label}>Alarmları Etkinleştir</Text>
                   <Switch value={alarmEnabled} onValueChange={setAlarmEnabled} />
                 </View>
 
@@ -1507,14 +1715,14 @@ export default function App() {
                     style={[styles.modeButton, alarmMode === "all_calendar" && styles.modeButtonActive]}
                     onPress={() => updateAlarmMode("all_calendar")}
                   >
-                    <Text style={[styles.modeButtonText, alarmMode === "all_calendar" && styles.modeButtonTextActive]}>Tum Takvim</Text>
+                    <Text style={[styles.modeButtonText, alarmMode === "all_calendar" && styles.modeButtonTextActive]}>Tüm Takvim</Text>
                   </Pressable>
 
                   <Pressable
                     style={[styles.modeButton, alarmMode === "selected_fields" && styles.modeButtonActive]}
                     onPress={() => updateAlarmMode("selected_fields")}
                   >
-                    <Text style={[styles.modeButtonText, alarmMode === "selected_fields" && styles.modeButtonTextActive]}>Secili Alanlar</Text>
+                    <Text style={[styles.modeButtonText, alarmMode === "selected_fields" && styles.modeButtonTextActive]}>Seçili Alanlar</Text>
                   </Pressable>
                 </View>
 
@@ -1529,13 +1737,13 @@ export default function App() {
                 ))}
 
                 <Pressable style={[styles.button, styles.primaryButton]} onPress={() => void saveAlarmSettings()} disabled={busy}>
-                  <Text style={styles.primaryButtonText}>Alarm Ayarlarini Kaydet</Text>
+                  <Text style={styles.primaryButtonText}>Alarm Ayarlarını Kaydet</Text>
                 </Pressable>
               </Section>
 
               <Section title="Cihaz Bildirimleri">
                 <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void registerDevice()} disabled={busy}>
-                  <Text style={styles.secondaryButtonText}>Cihazi Bildirim Icin Kaydet</Text>
+                  <Text style={styles.secondaryButtonText}>Cihazı Bildirim İçin Kaydet</Text>
                 </Pressable>
               </Section>
             </>
@@ -1688,6 +1896,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 15,
     letterSpacing: -0.1
+  },
+  googleButton: {
+    backgroundColor: "#ffffff",
+    borderColor: "#d1d5db",
+    borderWidth: 1.5,
+    flexDirection: "row",
+    gap: 8
+  },
+  googleButtonText: {
+    color: "#1f2937",
+    fontWeight: "800",
+    fontSize: 15
   },
   secondaryButton: {
     backgroundColor: "#ffffff",

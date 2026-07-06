@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Inject, Ip, Post, Query, Res, UseGuards
 import type { Response } from "express";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { AuthApplicationService } from "./auth-application.service.js";
-import { LoginDto, RefreshTokenDto, RegisterDto, VerifyEmailDto, VerifyEmailQueryDto } from "./auth.dto.js";
+import { GoogleLoginDto, LoginDto, RefreshTokenDto, RegisterDto, ResendVerificationCodeDto, VerifyEmailDto, VerifyEmailQueryDto } from "./auth.dto.js";
 
 @Controller("auth")
 export class AuthController {
@@ -18,19 +18,29 @@ export class AuthController {
     return this.authService.verifyEmail({ ...body, ipAddress, ...(userAgent ? { userAgent } : {}) });
   }
 
+  @Post("resend-verification-code")
+  resendVerificationCode(@Body() body: ResendVerificationCodeDto) {
+    return this.authService.resendVerificationCode(body.email);
+  }
+
   @Get("verify-email")
   async verifyEmailByLink(@Query() query: VerifyEmailQueryDto, @Res() response: Response): Promise<void> {
     try {
       await this.authService.verifyEmailByLink({ token: query.token });
-      response.status(200).type("text/html").send("<h1>Email verification successful</h1><p>You can now return to the app and sign in.</p>");
+      response.status(200).type("text/html").send("<h1>E-posta doğrulandı</h1><p>Uygulamaya dönüp giriş yapabilirsiniz.</p>");
     } catch {
-      response.status(400).type("text/html").send("<h1>Email verification failed</h1><p>The verification link is invalid or expired.</p>");
+      response.status(400).type("text/html").send("<h1>E-posta doğrulanamadı</h1><p>Doğrulama bağlantısı geçersiz veya süresi dolmuş.</p>");
     }
   }
 
   @Post("login")
   login(@Body() body: LoginDto, @Ip() ipAddress: string, @Headers("user-agent") userAgent?: string) {
     return this.authService.login({ ...body, ipAddress, ...(userAgent ? { userAgent } : {}) });
+  }
+
+  @Post("google")
+  googleLogin(@Body() body: GoogleLoginDto, @Ip() ipAddress: string, @Headers("user-agent") userAgent?: string) {
+    return this.authService.loginWithGoogle({ ...body, ipAddress, ...(userAgent ? { userAgent } : {}) });
   }
 
   @Post("refresh-token")

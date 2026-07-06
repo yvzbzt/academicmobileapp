@@ -8,10 +8,12 @@ export const academicEventCategories = [
   "course_registration",
   "course_renewal",
   "course_add_drop",
+  "course_schedule",
   "midterm_exam",
   "final_exam",
   "makeup_exam",
   "single_course_exam",
+  "department_exam_schedule",
   "graduation_application",
   "tuition_payment",
   "horizontal_transfer",
@@ -33,6 +35,9 @@ export interface NormalizedDateResult {
   originalDateText: string;
   startDate?: string;
   endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  hasExplicitTime?: boolean;
   datePrecision: DatePrecision;
   academicYear?: string;
   term?: AcademicTerm;
@@ -46,6 +51,9 @@ export interface ExtractedAcademicEventDraft {
   normalizedCategory: AcademicEventCategory;
   startDate?: string;
   endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  hasExplicitTime?: boolean;
   timezone: "Europe/Istanbul";
   datePrecision: DatePrecision;
   academicYear?: string;

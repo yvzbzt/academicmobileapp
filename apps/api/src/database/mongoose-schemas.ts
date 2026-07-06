@@ -6,6 +6,8 @@ export const userSchema = new Schema(
     email: { type: String, required: true, lowercase: true, trim: true, unique: true },
     emailVerifiedAt: { type: Date, required: false },
     passwordHash: { type: String, required: true, select: true },
+    authProvider: { type: String, required: false, enum: ["password", "google", "password_google"], default: "password" },
+    firebaseAuthUid: { type: String, required: false, index: true },
     role: {
       type: String,
       required: true,
@@ -15,7 +17,7 @@ export const userSchema = new Schema(
     universityId: { type: String, required: false, index: true },
     facultyId: { type: String, required: false },
     departmentId: { type: String, required: false },
-    classLevel: { type: Number, required: false, min: 1, max: 8 },
+    classLevel: { type: Number, required: false, min: 1, max: 6 },
     status: { type: String, required: true, enum: ["active", "inactive", "locked"], default: "active", index: true },
     lastLoginAt: { type: Date, required: false },
     deletedAt: { type: Date, required: false }
@@ -24,6 +26,7 @@ export const userSchema = new Schema(
 );
 
 userSchema.index({ email: 1 }, { unique: true, name: "users_email_unique" });
+userSchema.index({ firebaseAuthUid: 1 }, { sparse: true, name: "users_firebase_auth_uid" });
 userSchema.index({ universityId: 1, status: 1 }, { name: "users_university_status" });
 
 export const refreshTokenSchema = new Schema(
@@ -50,12 +53,14 @@ export const emailVerificationTokenSchema = new Schema(
     userId: { type: String, required: true, index: true },
     tokenHash: { type: String, required: true, unique: true },
     expiresAt: { type: Date, required: true, index: true },
+    resendAvailableAt: { type: Date, required: true },
     consumedAt: { type: Date, required: false }
   },
   { collection: "email_verification_tokens", timestamps: { createdAt: true, updatedAt: false } }
 );
 
 emailVerificationTokenSchema.index({ tokenHash: 1 }, { unique: true, name: "email_verification_tokens_hash_unique" });
+emailVerificationTokenSchema.index({ userId: 1, createdAt: -1 }, { name: "email_verification_tokens_user_latest" });
 emailVerificationTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "email_verification_tokens_expires_ttl" });
 
 export const universitySchema = new Schema(
@@ -65,8 +70,10 @@ export const universitySchema = new Schema(
     city: { type: String, required: true, trim: true, index: true },
     type: { type: String, required: true, enum: ["state", "foundation", "private"] },
     websiteUrl: { type: String, required: false },
+    announcementUrl: { type: String, required: false },
     academicCalendarUrl: { type: String, required: false },
     logoUrl: { type: String, required: false },
+    emailDomains: [{ type: String, lowercase: true, trim: true }],
     status: { type: String, required: true, enum: ["active", "inactive", "archived"], default: "active", index: true }
   },
   { collection: "universities", timestamps: true }
@@ -74,12 +81,15 @@ export const universitySchema = new Schema(
 
 universitySchema.index({ slug: 1 }, { unique: true, name: "universities_slug_unique" });
 universitySchema.index({ status: 1, name: 1 }, { name: "universities_status_name" });
+universitySchema.index({ emailDomains: 1 }, { name: "universities_email_domains" });
 
 export const facultySchema = new Schema(
   {
     universityId: { type: String, required: true, index: true },
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true },
+    websiteUrl: { type: String, required: false },
+    announcementUrl: { type: String, required: false },
     status: { type: String, required: true, enum: ["active", "inactive", "archived"], default: "active", index: true }
   },
   { collection: "faculties", timestamps: true }
@@ -94,6 +104,10 @@ export const departmentSchema = new Schema(
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true },
     educationLevel: { type: String, required: true, enum: ["associate", "bachelor", "master", "doctorate"] },
+    websiteUrl: { type: String, required: false },
+    announcementUrl: { type: String, required: false },
+    courseScheduleUrl: { type: String, required: false },
+    examScheduleUrl: { type: String, required: false },
     status: { type: String, required: true, enum: ["active", "inactive", "archived"], default: "active", index: true }
   },
   { collection: "departments", timestamps: true }
@@ -109,13 +123,39 @@ export const announcementSourceSchema = new Schema(
     sourceUrl: { type: String, required: true, trim: true },
     parser: { type: String, required: true, enum: ["auto", "rss", "html"], default: "auto" },
     priority: { type: Number, required: true, default: 10 },
-    status: { type: String, required: true, enum: ["active", "inactive"], default: "active", index: true }
+    status: { type: String, required: true, enum: ["active", "inactive"], default: "active", index: true },
+    homepageUrl: { type: String, required: false, trim: true },
+    discoveryMethod: { type: String, required: false, enum: ["catalog_website", "domain_candidate", "manual"] },
+    healthStatus: { type: String, required: false, enum: ["pending", "healthy", "degraded", "failed"], index: true },
+    lastCheckedAt: { type: Date, required: false },
+    lastSuccessAt: { type: Date, required: false },
+    lastError: { type: String, required: false, trim: true },
+    consecutiveFailures: { type: Number, required: false, min: 0 },
+    itemCount: { type: Number, required: false, min: 0 }
   },
   { collection: "announcement_sources", timestamps: true }
 );
 
 announcementSourceSchema.index({ scopeType: 1, scopeId: 1, status: 1 }, { name: "announcement_sources_scope_status" });
 announcementSourceSchema.index({ sourceUrl: 1, scopeType: 1, scopeId: 1 }, { unique: true, name: "announcement_sources_unique_scope_url" });
+
+export const announcementItemSchema = new Schema(
+  {
+    sourceId: { type: String, required: true, index: true },
+    sourceName: { type: String, required: true, trim: true },
+    scopeType: { type: String, required: true, enum: ["university", "faculty", "department"], index: true },
+    scopeId: { type: String, required: true, index: true },
+    title: { type: String, required: true, trim: true },
+    link: { type: String, required: true, trim: true },
+    publishedAt: { type: String, required: false },
+    summary: { type: String, required: false, trim: true },
+    fetchedAt: { type: String, required: false }
+  },
+  { collection: "announcement_items", timestamps: true }
+);
+
+announcementItemSchema.index({ sourceId: 1, link: 1 }, { unique: true, name: "announcement_items_source_link_unique" });
+announcementItemSchema.index({ scopeType: 1, scopeId: 1 }, { name: "announcement_items_scope" });
 
 export const academicCalendarSchema = new Schema(
   {
@@ -125,6 +165,7 @@ export const academicCalendarSchema = new Schema(
     status: { type: String, required: true, enum: ["draft", "published", "archived"], default: "draft", index: true },
     version: { type: Number, required: true, min: 1 },
     sourcePdfId: { type: String, required: false },
+    sourceUrl: { type: String, required: false },
     publishedAt: { type: Date, required: false },
     createdBy: { type: String, required: false },
     approvedBy: { type: String, required: false }
@@ -156,10 +197,12 @@ export const academicEventSchema = new Schema(
         "course_registration",
         "course_renewal",
         "course_add_drop",
+        "course_schedule",
         "midterm_exam",
         "final_exam",
         "makeup_exam",
         "single_course_exam",
+        "department_exam_schedule",
         "graduation_application",
         "tuition_payment",
         "horizontal_transfer",
@@ -186,6 +229,8 @@ export const academicEventSchema = new Schema(
     notificationRules: [
       {
         offsetDays: { type: Number, required: true },
+        offsetHours: { type: Number, required: false, min: 0, max: 720 },
+        trigger: { type: String, required: false, enum: ["before", "at_time", "approaching"] },
         enabled: { type: Boolean, required: true, default: true }
       }
     ]
@@ -214,6 +259,8 @@ export const pdfSourceSchema = new Schema(
     parseError: { type: String, required: false },
     uploadedBy: { type: String, required: true, index: true },
     rawText: { type: String, required: false },
+    ocrProvider: { type: String, required: false },
+    ocrProcessedAt: { type: Date, required: false },
     downloadedAt: { type: Date, required: false },
     processedAt: { type: Date, required: false }
   },
@@ -234,6 +281,9 @@ export const extractedEventSchema = new Schema(
     normalizedCategory: { type: String, required: true, index: true },
     startDate: { type: Date, required: false, index: true },
     endDate: { type: Date, required: false },
+    startTime: { type: String, required: false },
+    endTime: { type: String, required: false },
+    hasExplicitTime: { type: Boolean, required: false },
     timezone: { type: String, required: true, default: "Europe/Istanbul" },
     datePrecision: { type: String, required: true },
     term: { type: String, required: true },
@@ -269,6 +319,14 @@ export const notificationPreferenceSchema = new Schema(
     enabled: { type: Boolean, required: true, default: true },
     categories: { type: Map, of: Boolean, required: true, default: {} },
     reminderOffsets: [{ type: Number, required: true, min: 0, max: 30 }],
+    reminderRules: [
+      {
+        trigger: { type: String, required: true, enum: ["before", "at_time", "approaching"] },
+        amount: { type: Number, required: true, min: 0, max: 720 },
+        unit: { type: String, required: true, enum: ["days", "hours"] },
+        enabled: { type: Boolean, required: true, default: true }
+      }
+    ],
     quietHours: {
       enabled: { type: Boolean, required: false },
       start: { type: String, required: false },
@@ -285,10 +343,17 @@ export const notificationJobSchema = new Schema(
   {
     calendarId: { type: String, required: true, index: true },
     eventId: { type: String, required: true, index: true },
+    userId: { type: String, required: false, index: true },
+    alarmId: { type: String, required: false, index: true },
+    eventType: { type: String, required: false, enum: ["exam", "calendar_event", "announcement", "course"] },
     universityId: { type: String, required: true, index: true },
+    facultyId: { type: String, required: false, index: true },
+    departmentId: { type: String, required: false, index: true },
     title: { type: String, required: true, trim: true },
     category: { type: String, required: true, index: true },
     offsetDays: { type: Number, required: true, min: 0, max: 30 },
+    offsetHours: { type: Number, required: false, min: 0, max: 720, default: 0 },
+    trigger: { type: String, required: true, enum: ["before", "at_time", "approaching"], default: "before" },
     scheduledAt: { type: Date, required: true, index: true },
     status: { type: String, required: true, enum: ["scheduled", "sent", "failed", "cancelled"], default: "scheduled", index: true }
   },
@@ -296,7 +361,31 @@ export const notificationJobSchema = new Schema(
 );
 
 notificationJobSchema.index({ status: 1, scheduledAt: 1 }, { name: "notification_jobs_due" });
-notificationJobSchema.index({ eventId: 1, offsetDays: 1 }, { unique: true, name: "notification_jobs_event_offset_unique" });
+notificationJobSchema.index({ userId: 1, eventId: 1, trigger: 1, offsetDays: 1, offsetHours: 1 }, { unique: true, name: "notification_jobs_user_event_reminder_unique" });
+
+export const studentAlarmSchema = new Schema(
+  {
+    userId: { type: String, required: true, index: true },
+    eventType: { type: String, required: true, enum: ["exam", "calendar_event", "announcement", "course"], index: true },
+    targetId: { type: String, required: true, index: true },
+    title: { type: String, required: true, trim: true },
+    scheduledFor: { type: Date, required: true, index: true },
+    trigger: { type: String, required: true, enum: ["at_time", "before"] },
+    amount: { type: Number, required: true, min: 0, max: 720 },
+    unit: { type: String, required: true, enum: ["days", "hours"] },
+    scheduledAt: { type: Date, required: true, index: true },
+    timezone: { type: String, required: true, enum: ["Europe/Istanbul"], default: "Europe/Istanbul" },
+    universityId: { type: String, required: true, index: true },
+    facultyId: { type: String, required: false, index: true },
+    departmentId: { type: String, required: false, index: true },
+    sourceUrl: { type: String, required: false },
+    status: { type: String, required: true, enum: ["scheduled", "cancelled"], default: "scheduled", index: true }
+  },
+  { collection: "student_alarms", timestamps: true }
+);
+
+studentAlarmSchema.index({ userId: 1, scheduledAt: 1 }, { name: "student_alarms_user_due" });
+studentAlarmSchema.index({ userId: 1, targetId: 1, eventType: 1, trigger: 1, amount: 1, unit: 1 }, { unique: true, name: "student_alarms_user_target_unique" });
 
 export const notificationDeliverySchema = new Schema(
   {

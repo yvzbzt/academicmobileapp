@@ -6,20 +6,27 @@ export interface AuthUserRecord {
   email: string;
   emailVerifiedAt?: Date;
   passwordHash: string;
+  authProvider?: "password" | "google" | "password_google";
+  firebaseAuthUid?: string;
   role: UserRole;
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
   classLevel?: number;
   status: "active" | "inactive" | "locked";
+  lastLoginAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date;
 }
 
 export interface AuthenticatedUser {
   id: string;
   email: string;
   role: UserRole;
+  universityId?: string;
+  facultyId?: string;
+  departmentId?: string;
 }
 
 export interface RefreshTokenRecord {
@@ -48,6 +55,7 @@ export interface EmailVerificationTokenRecord {
   userId: string;
   tokenHash: string;
   expiresAt: Date;
+  resendAvailableAt: Date;
   consumedAt?: Date;
   createdAt: Date;
 }
@@ -56,17 +64,18 @@ export interface RegisterResult {
   status: "verification_required";
   email: string;
   verificationExpiresAt: string;
+  resendAvailableAt: string;
   previewVerificationToken?: string;
 }
 
 export interface RegisterInput {
-  fullName: string;
+  fullName?: string;
   email: string;
   password: string;
-  deviceId: string;
-  universityId: string;
-  facultyId: string;
-  departmentId: string;
+  passwordConfirmation: string;
+  universityId?: string;
+  facultyId?: string;
+  departmentId?: string;
   classLevel?: number;
   ipAddress?: string;
   userAgent?: string;
@@ -80,6 +89,13 @@ export interface LoginInput {
   userAgent?: string;
 }
 
+export interface GoogleLoginInput {
+  idToken: string;
+  deviceId: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
 export interface RefreshInput {
   refreshToken: string;
   deviceId: string;
@@ -88,7 +104,8 @@ export interface RefreshInput {
 }
 
 export interface VerifyEmailInput {
-  token: string;
+  email: string;
+  code: string;
   deviceId: string;
   ipAddress?: string;
   userAgent?: string;
@@ -100,9 +117,19 @@ export interface VerifyEmailByLinkInput {
 
 export interface AuthRepository {
   createUser(input: Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt">): Promise<AuthUserRecord>;
+  listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]>;
   findUserByEmail(email: string): Promise<AuthUserRecord | null>;
   findUserById(id: string): Promise<AuthUserRecord | null>;
   markUserEmailVerified(id: string, verifiedAt: Date): Promise<AuthUserRecord | null>;
+  updateUserGoogleIdentity(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "firebaseAuthUid" | "lastLoginAt">>
+  ): Promise<AuthUserRecord | null>;
+  updateUserByAdmin(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "role" | "status" | "universityId" | "facultyId" | "departmentId" | "classLevel">>
+  ): Promise<AuthUserRecord | null>;
+  deleteUserByAdmin(id: string): Promise<void>;
   updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null>;
   updateUserAcademicSelection(
     id: string,
@@ -110,6 +137,7 @@ export interface AuthRepository {
   ): Promise<AuthUserRecord | null>;
   createEmailVerificationToken(input: Omit<EmailVerificationTokenRecord, "id" | "createdAt">): Promise<EmailVerificationTokenRecord>;
   findEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationTokenRecord | null>;
+  findLatestEmailVerificationTokenByUserId(userId: string): Promise<EmailVerificationTokenRecord | null>;
   consumeEmailVerificationToken(id: string, consumedAt: Date): Promise<void>;
   createRefreshToken(input: Omit<RefreshTokenRecord, "id" | "createdAt">): Promise<RefreshTokenRecord>;
   findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null>;

@@ -11,14 +11,12 @@ Turkiye'deki universitelerin akademik takvimlerini PDF kaynaklardan isleyen, adm
 - Student mobile web: login/register, universite secimi, akademik takvim, upcoming events, notification preferences ve web device registration.
 - Student mobile native (React Native + Expo): register/login, university selection, calendar timeline, all-calendar vs selected-field alarms.
 
-## Student Registration Rules (Current Stage)
+## Student Registration Rules
 
-- Registration accepts student email domains only (default suffixes: `.edu.tr`, `.edu`).
+- Registration accepts any valid email address.
 - Email verification is mandatory before first login.
-- Registration requires academic selection fields:
-	- universityId
-	- facultyId
-	- departmentId
+- Students select their university, faculty and department after verification so the timeline can be scoped correctly.
+- Turkey university/faculty/department options are seeded from YOK Atlas on API startup unless `BOOTSTRAP_CATALOG_SEED_ENABLED=false`.
 - Student timeline endpoints (`/calendar/my`, `/calendar/upcoming`) are filtered by selected university/faculty/department scope.
 
 For local development without SMTP credentials, verification links are logged by the API and a preview verification token is returned in non-production mode.
@@ -112,3 +110,4 @@ npm run smoke:infra
 - [docs/12-ui-ux-optimization-scenarios.md](docs/12-ui-ux-optimization-scenarios.md)
 - [docs/13-pdf-ingestion-and-alarm-model.md](docs/13-pdf-ingestion-and-alarm-model.md)
 - [docs/14-announcement-scaling.md](docs/14-announcement-scaling.md)
+- [docs/15-firebase-deploy.md](docs/15-firebase-deploy.md)

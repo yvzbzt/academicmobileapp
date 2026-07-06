@@ -30,6 +30,27 @@ export class CalendarController {
     return this.calendarService.getUpcomingEvents(user.id, query.limit);
   }
 
+  @Get("my/course-schedules")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMyCourseSchedules(@CurrentUser() user: AuthenticatedUser) {
+    return this.calendarService.getMyCourseSchedules(user.id);
+  }
+
+  @Get("my/exam-schedules")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMyExamSchedules(@CurrentUser() user: AuthenticatedUser) {
+    return this.calendarService.getMyExamSchedules(user.id);
+  }
+
+  @Get("summer-school/my")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMySummerSchool(@CurrentUser() user: AuthenticatedUser) {
+    return this.calendarService.getMySummerSchool(user.id);
+  }
+
   @Get("events")
   searchEvents(@Query() query: SearchEventsQueryDto) {
     return this.calendarService.searchEvents({

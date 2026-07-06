@@ -1,6 +1,9 @@
 import { IsDateString, IsIn, IsInt, IsOptional, Max, Min } from "class-validator";
 import { academicEventCategories, type AcademicEventCategory } from "../../domain/academic-event.types.js";
 
+export const calendarScopeViews = ["university"] as const;
+export type CalendarScopeView = "university";
+
 export class UpcomingEventsQueryDto {
   @IsOptional()
   @IsInt()

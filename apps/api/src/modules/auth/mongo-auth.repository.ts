@@ -14,20 +14,52 @@ export class MongoAuthRepository implements AuthRepository {
     return toDomainRecord<AuthUserRecord>(document);
   }
 
+  async listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]> {
+    const model = await this.model("User", userSchema);
+    const query: Record<string, unknown> = { deletedAt: { $exists: false } };
+    if (input.status) query.status = input.status;
+    if (input.search?.trim()) {
+      const escapedSearch = input.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      query.$or = [{ fullName: { $regex: escapedSearch, $options: "i" } }, { email: { $regex: escapedSearch, $options: "i" } }];
+    }
+
+    const documents = await model.find(query).sort({ createdAt: -1 }).skip(input.offset).limit(input.limit);
+    return documents.map((document) => toDomainRecord<AuthUserRecord>(document));
+  }
+
   async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
-    const document = await model.findOne({ email: email.toLocaleLowerCase("tr-TR") });
+    const document = await model.findOne({ email: email.toLocaleLowerCase("tr-TR"), deletedAt: { $exists: false } });
     return document ? toDomainRecord<AuthUserRecord>(document) : null;
   }
 
   async findUserById(id: string): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
-    const document = await model.findById(id);
+    const document = await model.findOne({ _id: id, deletedAt: { $exists: false } });
     return document ? toDomainRecord<AuthUserRecord>(document) : null;
   }
 
   async markUserEmailVerified(id: string, verifiedAt: Date): Promise<AuthUserRecord | null> {
     return this.updateUser(id, { status: "active", emailVerifiedAt: verifiedAt });
+  }
+
+  updateUserGoogleIdentity(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "firebaseAuthUid" | "lastLoginAt">>
+  ): Promise<AuthUserRecord | null> {
+    return this.updateUser(id, input);
+  }
+
+  async updateUserByAdmin(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "role" | "status" | "universityId" | "facultyId" | "departmentId" | "classLevel">>
+  ): Promise<AuthUserRecord | null> {
+    return this.updateUser(id, input);
+  }
+
+  async deleteUserByAdmin(id: string): Promise<void> {
+    const model = await this.model("User", userSchema);
+    await model.findByIdAndUpdate(id, { status: "inactive", deletedAt: new Date() });
   }
 
   async updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
@@ -47,6 +79,12 @@ export class MongoAuthRepository implements AuthRepository {
   async findEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationTokenRecord | null> {
     const model = await this.model("EmailVerificationToken", emailVerificationTokenSchema);
     const document = await model.findOne({ tokenHash });
+    return document ? toDomainRecord<EmailVerificationTokenRecord>(document) : null;
+  }
+
+  async findLatestEmailVerificationTokenByUserId(userId: string): Promise<EmailVerificationTokenRecord | null> {
+    const model = await this.model("EmailVerificationToken", emailVerificationTokenSchema);
+    const document = await model.findOne({ userId, consumedAt: { $exists: false } }).sort({ createdAt: -1 });
     return document ? toDomainRecord<EmailVerificationTokenRecord>(document) : null;
   }
 
