@@ -22,6 +22,8 @@ export const endpointCatalog: EndpointContract[] = [
   { method: "GET", path: "/universities/:id/faculties", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/faculties/:id/departments", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/calendar/my", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/calendar/integrations", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/calendar/integrations/feed/:token.ics", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/calendar/my/course-schedules", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/calendar/my/exam-schedules", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/calendar/university/:universityId", authRequired: false, roles: "public", rateLimit: "standard" },

@@ -1,0 +1,39 @@
+name: anssoft-tenant-edge
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      MANAGER_TOKEN: ${MANAGER_TOKEN:?MANAGER_TOKEN is required}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./conf/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./tenant-routes:/etc/caddy/tenant-routes:ro
+      - ./custom-domains:/etc/caddy/custom-domains:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge:
+        gw_priority: 1
+      academic_edge:
+        gw_priority: -1
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  edge:
+    external: true
+  academic_edge:
+    name: anssoft-academic-edge
+    external: true

@@ -20,6 +20,9 @@ describe("mongoose schemas", () => {
     expect(universitySchema.get("collection")).toBe("universities");
     expect(facultySchema.get("collection")).toBe("faculties");
     expect(departmentSchema.get("collection")).toBe("departments");
+    expect(universitySchema.path("_id").instance).toBe("String");
+    expect(facultySchema.path("_id").instance).toBe("String");
+    expect(departmentSchema.path("_id").instance).toBe("String");
     expect(universitySchema.indexes()).toEqual(expect.arrayContaining([[{ slug: 1 }, expect.objectContaining({ unique: true })]]));
     expect(facultySchema.indexes()).toEqual(expect.arrayContaining([[{ universityId: 1, slug: 1 }, expect.objectContaining({ unique: true })]]));
     expect(departmentSchema.indexes()).toEqual(expect.arrayContaining([[{ facultyId: 1, slug: 1 }, expect.objectContaining({ unique: true })]]));

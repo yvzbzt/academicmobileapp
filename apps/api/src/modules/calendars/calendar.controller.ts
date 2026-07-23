@@ -1,4 +1,5 @@
-import { Controller, Get, Inject, Param, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Header, Inject, Param, Query, Req, Res, UseGuards } from "@nestjs/common";
+import type { Request, Response } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
@@ -16,6 +17,23 @@ export class CalendarController {
   @Roles("student")
   getMyCalendar(@CurrentUser() user: AuthenticatedUser) {
     return this.calendarService.getMyCalendar(user.id);
+  }
+
+  @Get("integrations")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMyCalendarIntegrations(@CurrentUser() user: AuthenticatedUser, @Req() request: Request) {
+    return this.calendarService.getMyCalendarIntegrationLinks(user.id, apiBaseUrlFromRequest(request));
+  }
+
+  @Get("integrations/feed/:token.ics")
+  @Header("Content-Type", "text/calendar; charset=utf-8")
+  @Header("Cache-Control", "private, max-age=300")
+  async getCalendarFeed(@Param("token") token: string, @Res() response: Response) {
+    const feed = await this.calendarService.getMyCalendarFeedByToken(token);
+    response.setHeader("Content-Type", feed.contentType);
+    response.setHeader("Content-Disposition", `inline; filename="${feed.fileName}"`);
+    response.send(feed.content);
   }
 
   @Get("university/:universityId")
@@ -66,4 +84,18 @@ export class CalendarController {
   getEventDetail(@Param("eventId") eventId: string) {
     return this.calendarService.getEventDetail(eventId);
   }
+}
+
+function apiBaseUrlFromRequest(request: Request): string {
+  const configured = process.env.PUBLIC_API_BASE_URL;
+  if (configured) return configured;
+
+  const proto = firstHeaderValue(request.headers["x-forwarded-proto"]) ?? request.protocol ?? "http";
+  const host = firstHeaderValue(request.headers["x-forwarded-host"]) ?? request.get("host") ?? "localhost:3000";
+  return `${proto}://${host}`;
+}
+
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
 }

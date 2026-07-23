@@ -1,9 +1,13 @@
 import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
-import * as Google from "expo-auth-session/providers/google";
-import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  GoogleSignin,
+  isCancelledResponse,
+  isErrorWithCode,
+  statusCodes
+} from "@react-native-google-signin/google-signin";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -19,12 +23,20 @@ import {
   TextInput,
   View
 } from "react-native";
-
-WebBrowser.maybeCompleteAuthSession();
+import {
+  GOOGLE_CALENDAR_EVENTS_SCOPE,
+  GoogleCalendarService,
+  GoogleCalendarSyncError,
+  type GoogleCalendarSyncResult
+} from "./src/google-calendar/google-calendar-sync";
 
 type AuthMode = "login" | "register";
 type AlarmMode = "all_calendar" | "selected_fields";
-type TabId = "profile" | "announcements" | "home" | "calendar";
+type TabId = "profile" | "announcements" | "home" | "calendar" | "summer" | "yok";
+type AcademicSelectionLevel = "university" | "faculty" | "department";
+type AnnouncementContentType = "announcement" | "news" | "event";
+type AnnouncementContentFilter = "all" | AnnouncementContentType;
+type AnnouncementScopeType = "university" | "faculty" | "department";
 type AuthStage = "auth" | "verify" | "profile_confirm";
 
 type SessionPayload = {
@@ -77,11 +89,13 @@ type AnnouncementRecord = {
   id: string;
   sourceId: string;
   sourceName: string;
-  scopeType: "university" | "faculty" | "department";
+  contentType?: AnnouncementContentType;
+  scopeType: AnnouncementScopeType;
   scopeId: string;
   title: string;
   link: string;
   publishedAt?: string;
+  fetchedAt?: string;
   summary?: string;
 };
 
@@ -114,6 +128,48 @@ type CalendarPayload = {
   events: EventRecord[];
 };
 
+type GoogleCalendarConnectionRecord = {
+  ownerId: string;
+  accountEmail: string;
+  lastSyncedAt: string;
+  result: GoogleCalendarSyncResult;
+  warnings?: string[];
+};
+
+type SummerSchoolPayload = {
+  profile: {
+    universityId: string;
+    universityName?: string;
+    facultyId?: string;
+    facultyName?: string;
+    departmentId?: string;
+    departmentName?: string;
+  };
+  requirements: Array<{
+    message: string;
+    date?: string;
+    sourceUrl?: string;
+    eventId?: string;
+  }>;
+  ownAnnouncements: AnnouncementRecord[];
+  sameDepartmentAnnouncements: AnnouncementRecord[];
+  sameDepartmentOptions: Array<{
+    universityId: string;
+    universityName: string;
+    academicYear: string;
+    sourceUrl?: string;
+    events: EventRecord[];
+    matchingDepartments?: Array<{
+      facultyId: string;
+      facultyName: string;
+      departmentId: string;
+      departmentName: string;
+      educationLevel: string;
+    }>;
+  }>;
+  generatedAt: string;
+};
+
 type NotificationPreferencePayload = {
   enabled: boolean;
   categories: Record<string, boolean>;
@@ -141,6 +197,7 @@ type Loadable<T> = {
 const SESSION_STORAGE_KEY = "native_session";
 const DEVICE_ID_STORAGE_KEY = "native_device_id";
 const MANUAL_EXAMS_STORAGE_KEY = "native_manual_exams";
+const GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -225,11 +282,14 @@ const UNIVERSITY_TYPE_LABELS: Record<string, string> = {
   private: "Özel"
 };
 
+const PRODUCTION_API_BASE_URL = "https://academic-api.anssoft.com.tr";
+const DEFAULT_GOOGLE_WEB_CLIENT_ID = "315186329318-785gu93pgok7un5rgtpup812rn00irfn.apps.googleusercontent.com";
+const DEFAULT_GOOGLE_ANDROID_CLIENT_ID = "315186329318-mbbpc4rjd1ipirfnsl3vdetjfi8ir2ff.apps.googleusercontent.com";
+
 const GOOGLE_EXPO_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID);
-const GOOGLE_WEB_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) ?? GOOGLE_EXPO_CLIENT_ID;
+const GOOGLE_WEB_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) ?? GOOGLE_EXPO_CLIENT_ID ?? DEFAULT_GOOGLE_WEB_CLIENT_ID;
 const GOOGLE_IOS_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID);
-const GOOGLE_ANDROID_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID);
-const GOOGLE_PLACEHOLDER_CLIENT_ID = "google-auth-not-configured.apps.googleusercontent.com";
+const GOOGLE_ANDROID_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID) ?? DEFAULT_GOOGLE_ANDROID_CLIENT_ID;
 const GOOGLE_PLATFORM_CLIENT_ID = Platform.select({
   android: GOOGLE_ANDROID_CLIENT_ID,
   ios: GOOGLE_IOS_CLIENT_ID,
@@ -237,14 +297,111 @@ const GOOGLE_PLATFORM_CLIENT_ID = Platform.select({
 });
 const GOOGLE_AUTH_CONFIGURED = Boolean(GOOGLE_PLATFORM_CLIENT_ID);
 const GOOGLE_AUTH_CONFIGURATION_MESSAGE = Platform.select({
-  android: "Google girişi için EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID değeri gerekiyor.",
-  ios: "Google girişi için EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID değeri gerekiyor.",
-  default: "Google girişi için EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID değeri gerekiyor."
-}) ?? "Google girişi için platform client ID değeri gerekiyor.";
+  android: "Bu APK Google Android OAuth Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.",
+  ios: "Bu iOS derlemesi Google iOS Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.",
+  default: "Bu derleme Google Web Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin."
+}) ?? "Bu derleme Google Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.";
+const GOOGLE_ID_TOKEN_CONFIGURATION_MESSAGE =
+  "Google oturumu tamamlanamadı. Lütfen tekrar dene veya e-posta ile giriş yap.";
+const AUTH_INPUT_PLACEHOLDER_COLOR = "#94a3b8";
 
 function cleanEnvValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
+function parseApiErrorMessage(body: string, fallback: string, status?: number): string {
+  const trimmed = body.trim();
+  if (!trimmed) return toUserFacingErrorMessage(fallback, status);
+
+  try {
+    const payload = JSON.parse(trimmed) as { message?: unknown; error?: unknown };
+    if (Array.isArray(payload.message)) return toUserFacingErrorMessage(payload.message.map(String).join(" "), status);
+    if (typeof payload.message === "string" && payload.message.trim()) return toUserFacingErrorMessage(payload.message.trim(), status);
+    if (typeof payload.error === "string" && payload.error.trim()) return toUserFacingErrorMessage(payload.error.trim(), status);
+  } catch {
+    // Fall back to raw text when the server returns non-JSON errors.
+  }
+
+  return toUserFacingErrorMessage(trimmed, status);
+}
+
+function toUserFacingErrorMessage(message: string, status?: number): string {
+  const normalized = message.toLocaleLowerCase("tr-TR");
+
+  if (status === 0 || normalized.includes("network request failed") || normalized.includes("failed to fetch")) {
+    return "Sunucuya ulaşılamadı. İnternet bağlantını kontrol edip tekrar dene.";
+  }
+  if (status === 401 || normalized.includes("unauthorized") || normalized.includes("token") || normalized.includes("jwt")) {
+    return "Oturum süren dolmuş olabilir. Lütfen tekrar giriş yap.";
+  }
+  if (status === 403 || normalized.includes("forbidden")) {
+    return "Bu işlem için yetkin yok.";
+  }
+  if (status === 404 || normalized.includes("not found")) {
+    return "İstenen bilgi bulunamadı.";
+  }
+  if (status === 429 || normalized.includes("rate limit") || normalized.includes("too many")) {
+    return "Çok sık denedin. Biraz bekleyip tekrar dene.";
+  }
+  if (status && status >= 500) {
+    return "Şu anda işlem tamamlanamadı. Biraz sonra tekrar dene.";
+  }
+  if (normalized.includes("user must select a university")) {
+    return "Devam etmek için önce Profil sekmesinden üniversiteni seçmelisin.";
+  }
+  if (normalized.includes("invalid") && normalized.includes("google")) {
+    return "Google oturumu doğrulanamadı. Lütfen tekrar dene.";
+  }
+  if (normalized.startsWith("{") || normalized.includes("statuscode") || normalized.includes("exception")) {
+    return "İşlem tamamlanamadı. Bilgileri kontrol edip tekrar dene.";
+  }
+
+  const cleaned = message.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "İşlem tamamlanamadı. Lütfen tekrar dene.";
+  return cleaned.length > 180 ? "İşlem tamamlanamadı. Lütfen tekrar dene." : cleaned;
+}
+
+function userMessageFromError(error: unknown, fallback: string): string {
+  if (error instanceof ApiRequestError) return error.message;
+  if (error instanceof Error) return toUserFacingErrorMessage(error.message);
+  if (typeof error === "string") return toUserFacingErrorMessage(error);
+  return fallback;
+}
+
+function googleCalendarUserMessage(error: unknown): string {
+  if (error instanceof GoogleCalendarSyncError) {
+    switch (error.code) {
+      case "GOOGLE_CALENDAR_AUTH_EXPIRED":
+        return "Google Takvim oturumunun süresi doldu. Hesabını yeniden seçip tekrar dene.";
+      case "GOOGLE_CALENDAR_PERMISSION_DENIED":
+        return "Takvime ekleme izni verilmedi. Google izin ekranında Takvim erişimine izin verip tekrar dene.";
+      case "GOOGLE_CALENDAR_API_UNAVAILABLE":
+        return "Google Takvim hizmeti şu anda bu uygulama için kullanılamıyor. Biraz sonra tekrar dene.";
+      case "GOOGLE_CALENDAR_NETWORK_ERROR":
+        return "Google Takvim'e ulaşılamadı. İnternet bağlantını kontrol edip tekrar dene.";
+      case "GOOGLE_CALENDAR_VERIFICATION_FAILED":
+        return "Tarihler gönderildi ancak Google Takvim'de doğrulanamadı. Tekrar eşitlemeyi dene.";
+      default:
+        return "Google Takvim eşitlemesi tamamlanamadı. Lütfen tekrar dene.";
+    }
+  }
+  return userMessageFromError(error, "Google Takvim eşitlemesi tamamlanamadı. Lütfen tekrar dene.");
+}
+
+async function clearGoogleAccountSelection(): Promise<void> {
+  try {
+    await GoogleSignin.signOut();
+  } catch {
+    // No cached account to clear.
+  }
 }
 
 function normalizeBaseUrl(input: string): string | null {
@@ -266,6 +423,8 @@ function normalizeBaseUrl(input: string): string | null {
 function resolveApiBaseUrl(): string {
   const fromEnv = normalizeBaseUrl(process.env.EXPO_PUBLIC_API_URL ?? "");
   if (fromEnv) return fromEnv;
+
+  if (!__DEV__) return PRODUCTION_API_BASE_URL;
 
   const scriptUrl =
     typeof NativeModules?.SourceCode?.scriptURL === "string"
@@ -314,8 +473,80 @@ function isUniversityAcademicCalendarEvent(event: EventRecord): boolean {
   return event.category !== "course_schedule" && event.category !== "department_exam_schedule";
 }
 
-function isUniversityAnnouncement(item: AnnouncementRecord): boolean {
-  return !item.scopeType || item.scopeType === "university";
+const ANNOUNCEMENT_CONTENT_ORDER: AnnouncementContentType[] = ["announcement", "news", "event"];
+const ANNOUNCEMENT_SCOPE_ORDER: AnnouncementScopeType[] = ["university", "faculty", "department"];
+const ANNOUNCEMENT_CONTENT_LABELS: Record<AnnouncementContentType, string> = {
+  announcement: "Duyurular",
+  news: "Haberler",
+  event: "Etkinlikler"
+};
+const ANNOUNCEMENT_SCOPE_LABELS: Record<AnnouncementScopeType, string> = {
+  university: "Üniversite",
+  faculty: "Fakülte",
+  department: "Bölüm"
+};
+const ANNOUNCEMENT_OPEN_LABELS: Record<AnnouncementContentType, string> = {
+  announcement: "Duyuruyu Aç",
+  news: "Haberi Aç",
+  event: "Etkinliği Aç"
+};
+const ANNOUNCEMENT_FILTER_OPTIONS: Array<{
+  value: AnnouncementContentFilter;
+  label: string;
+  icon: "apps-outline" | "megaphone-outline" | "newspaper-outline" | "calendar-outline";
+}> = [
+  { value: "all", label: "Tümü", icon: "apps-outline" },
+  { value: "announcement", label: "Duyurular", icon: "megaphone-outline" },
+  { value: "news", label: "Haberler", icon: "newspaper-outline" },
+  { value: "event", label: "Etkinlikler", icon: "calendar-outline" }
+];
+
+type AnnouncementSection = {
+  key: string;
+  title: string;
+  items: AnnouncementRecord[];
+};
+
+function normalizeAnnouncementContentType(item: AnnouncementRecord): AnnouncementContentType {
+  return item.contentType === "news" || item.contentType === "event" ? item.contentType : "announcement";
+}
+
+function normalizeAnnouncementScopeType(item: AnnouncementRecord): AnnouncementScopeType {
+  return item.scopeType === "faculty" || item.scopeType === "department" ? item.scopeType : "university";
+}
+
+function groupAnnouncementsForDisplay(items: AnnouncementRecord[]): AnnouncementSection[] {
+  const sections: AnnouncementSection[] = [];
+  for (const contentType of ANNOUNCEMENT_CONTENT_ORDER) {
+    for (const scopeType of ANNOUNCEMENT_SCOPE_ORDER) {
+      const scopedItems = items.filter((item) => normalizeAnnouncementContentType(item) === contentType && normalizeAnnouncementScopeType(item) === scopeType);
+      if (scopedItems.length === 0) continue;
+      sections.push({
+        key: `${scopeType}-${contentType}`,
+        title: `${ANNOUNCEMENT_SCOPE_LABELS[scopeType]} ${ANNOUNCEMENT_CONTENT_LABELS[contentType]}`,
+        items: scopedItems
+      });
+    }
+  }
+  return sections;
+}
+
+function announcementOpenLabel(item: AnnouncementRecord): string {
+  return ANNOUNCEMENT_OPEN_LABELS[normalizeAnnouncementContentType(item)];
+}
+
+function formatDateShort(value?: string): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "short" });
+}
+
+function formatDateTimeShort(value?: string): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -388,12 +619,6 @@ export default function App() {
   const [authStage, setAuthStage] = useState<AuthStage>("auth");
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const apiBaseUrl = useMemo(() => resolveApiBaseUrl(), []);
-  const [googleRequest, , promptGoogleAuth] = Google.useIdTokenAuthRequest({
-    webClientId: GOOGLE_WEB_CLIENT_ID ?? GOOGLE_PLACEHOLDER_CLIENT_ID,
-    iosClientId: GOOGLE_IOS_CLIENT_ID ?? GOOGLE_PLACEHOLDER_CLIENT_ID,
-    androidClientId: GOOGLE_ANDROID_CLIENT_ID ?? GOOGLE_PLACEHOLDER_CLIENT_ID,
-    selectAccount: true
-  });
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -418,6 +643,8 @@ export default function App() {
   const [calendar, setCalendar] = useState<Loadable<CalendarPayload>>({ loading: false });
   const [upcoming, setUpcoming] = useState<Loadable<EventRecord[]>>({ loading: false });
   const [announcements, setAnnouncements] = useState<Loadable<AnnouncementRecord[]>>({ loading: false });
+  const [yokAnnouncements, setYokAnnouncements] = useState<Loadable<AnnouncementRecord[]>>({ loading: false });
+  const [summerSchool, setSummerSchool] = useState<Loadable<SummerSchoolPayload>>({ loading: false });
   const [preferences, setPreferences] = useState<Loadable<NotificationPreferencePayload>>({ loading: false });
   const [manualExams, setManualExams] = useState<ManualExamRecord[]>([]);
   const [manualExamTitle, setManualExamTitle] = useState("");
@@ -428,10 +655,21 @@ export default function App() {
   const [alarmMode, setAlarmMode] = useState<AlarmMode>("all_calendar");
   const [categoryDraft, setCategoryDraft] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
+  const [academicSelectionPending, setAcademicSelectionPending] = useState<AcademicSelectionLevel | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: "info" | "success" | "error" } | null>(null);
+  const [googleCalendarBusy, setGoogleCalendarBusy] = useState(false);
+  const [googleCalendarIntegration, setGoogleCalendarIntegration] = useState<GoogleCalendarConnectionRecord | null>(null);
+  const [googleCalendarError, setGoogleCalendarError] = useState<string | null>(null);
+  const [academicProfileExpanded, setAcademicProfileExpanded] = useState(false);
+  const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
+  const [announcementContentFilter, setAnnouncementContentFilter] = useState<AnnouncementContentFilter>("all");
+  const sessionRef = useRef<SessionPayload | null>(null);
+  const refreshSessionPromiseRef = useRef<Promise<SessionPayload | null> | null>(null);
+  const academicSelectionPendingRef = useRef<AcademicSelectionLevel | null>(null);
 
   const accessToken = session?.accessToken;
+  const googleCalendarService = useMemo(() => new GoogleCalendarService(), []);
   const availableCategories = useMemo(() => {
     const keys = new Set<string>(DEFAULT_CATEGORY_OPTIONS);
     for (const event of calendar.data?.events ?? []) keys.add(event.category);
@@ -461,6 +699,60 @@ export default function App() {
       .filter((exam) => Date.parse(exam.examDate) >= Date.now())
       .sort((left, right) => Date.parse(left.examDate) - Date.parse(right.examDate));
   }, [calendar.data?.events, manualExams]);
+  const announcementFeed = useMemo(
+    () => announcements.data ?? [],
+    [announcements.data]
+  );
+  const announcementContentCounts = useMemo(() => ({
+    all: announcementFeed.length,
+    announcement: announcementFeed.filter((item) => normalizeAnnouncementContentType(item) === "announcement").length,
+    news: announcementFeed.filter((item) => normalizeAnnouncementContentType(item) === "news").length,
+    event: announcementFeed.filter((item) => normalizeAnnouncementContentType(item) === "event").length
+  }), [announcementFeed]);
+  const filteredAnnouncementFeed = useMemo(
+    () => announcementContentFilter === "all"
+      ? announcementFeed
+      : announcementFeed.filter((item) => normalizeAnnouncementContentType(item) === announcementContentFilter),
+    [announcementContentFilter, announcementFeed]
+  );
+  const announcementSections = useMemo(
+    () => groupAnnouncementsForDisplay(filteredAnnouncementFeed),
+    [filteredAnnouncementFeed]
+  );
+  const yokAnnouncementItems = useMemo(
+    () => yokAnnouncements.data ?? [],
+    [yokAnnouncements.data]
+  );
+  const summerSchoolEvents = useMemo(
+    () => (calendar.data?.events ?? []).filter((event) => event.category.startsWith("summer_school")),
+    [calendar.data?.events]
+  );
+  const summerSchoolAnnouncements = useMemo(
+    () => [
+      ...(summerSchool.data?.ownAnnouncements ?? []),
+      ...(summerSchool.data?.sameDepartmentAnnouncements ?? [])
+    ],
+    [summerSchool.data]
+  );
+  const nextUpcomingEvent = useMemo(() => {
+    return (upcoming.data ?? [])
+      .filter((event) => !Number.isNaN(Date.parse(event.startDate)))
+      .filter((event) => Date.parse(event.startDate) >= Date.now())
+      .sort((left, right) => Date.parse(left.startDate) - Date.parse(right.startDate))[0];
+  }, [upcoming.data]);
+  const todayEventCount = useMemo(() => {
+    const today = new Date();
+    return (calendar.data?.events ?? []).filter((event) => {
+      const eventDate = new Date(event.startDate);
+      return (
+        !Number.isNaN(eventDate.getTime()) &&
+        eventDate.getFullYear() === today.getFullYear() &&
+        eventDate.getMonth() === today.getMonth() &&
+        eventDate.getDate() === today.getDate()
+      );
+    }).length;
+  }, [calendar.data?.events]);
+  const nextExam = examCountdownItems[0];
 
   const selectedUniversity = useMemo(
     () => (universities.data ?? []).find((item) => item.id === registerUniversityId),
@@ -504,11 +796,13 @@ export default function App() {
   }, [departments.data, departmentSearch]);
 
   const registerIdentityReady = Boolean(fullName.trim() && email.trim() && password.trim());
+  const loginReady = Boolean(email.trim() && password.trim());
   useEffect(() => {
     const initialize = async () => {
       await restoreDeviceId();
       await restoreManualExams();
       const restoredSession = await restoreSession();
+      await restoreGoogleCalendarConnection(restoredSession?.user.id);
       await loadUniversities();
 
       if (restoredSession) {
@@ -528,6 +822,20 @@ export default function App() {
     const timer = setTimeout(() => setMessage(null), 3500);
     return () => clearTimeout(timer);
   }, [message]);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    if (!GOOGLE_AUTH_CONFIGURED) return;
+
+    GoogleSignin.configure({
+      scopes: ["email", "profile"],
+      ...(GOOGLE_WEB_CLIENT_ID ? { webClientId: GOOGLE_WEB_CLIENT_ID } : {}),
+      ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {})
+    });
+  }, []);
 
   useEffect(() => {
     if (!preferences.data) return;
@@ -554,6 +862,18 @@ export default function App() {
   }, [registerFacultyId]);
 
   useEffect(() => {
+    if (!session) return;
+
+    if (activeTab === "yok" && !yokAnnouncements.loading && !yokAnnouncements.data) {
+      void loadYokAnnouncements();
+    }
+
+    if (activeTab === "summer" && registerUniversityId && !summerSchool.loading && !summerSchool.data) {
+      void loadSummerSchool();
+    }
+  }, [activeTab, session?.user.id, registerUniversityId]);
+
+  useEffect(() => {
     if (authMode !== "register") {
       setAuthStage("auth");
       setRegisterPicker("none");
@@ -574,6 +894,7 @@ export default function App() {
       const stored = await getStoredValue(SESSION_STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored) as SessionPayload;
+      sessionRef.current = parsed;
       setSession(parsed);
       return parsed;
     } catch {
@@ -605,6 +926,31 @@ export default function App() {
     }
   }
 
+  async function restoreGoogleCalendarConnection(ownerId?: string): Promise<void> {
+    try {
+      const stored = await getStoredValue(GOOGLE_CALENDAR_STORAGE_KEY);
+      if (!stored || !ownerId) return;
+      const parsed = JSON.parse(stored) as GoogleCalendarConnectionRecord;
+      if (
+        parsed.ownerId !== ownerId
+        || typeof parsed.accountEmail !== "string"
+        || typeof parsed.lastSyncedAt !== "string"
+        || typeof parsed.result?.verified !== "number"
+      ) return;
+      setGoogleCalendarIntegration(parsed);
+    } catch {
+      setGoogleCalendarIntegration(null);
+    }
+  }
+
+  async function persistGoogleCalendarConnection(record: GoogleCalendarConnectionRecord | null): Promise<void> {
+    if (!record) {
+      await deleteStoredValue(GOOGLE_CALENDAR_STORAGE_KEY);
+      return;
+    }
+    await setStoredValue(GOOGLE_CALENDAR_STORAGE_KEY, JSON.stringify(record));
+  }
+
   async function persistSession(nextSession: SessionPayload | null): Promise<void> {
     if (!nextSession) {
       await deleteStoredValue(SESSION_STORAGE_KEY);
@@ -614,10 +960,59 @@ export default function App() {
     await setStoredValue(SESSION_STORAGE_KEY, JSON.stringify(nextSession));
   }
 
+  async function activateSession(nextSession: SessionPayload): Promise<void> {
+    sessionRef.current = nextSession;
+    setSession(nextSession);
+    await persistSession(nextSession);
+  }
+
+  async function clearExpiredSession(): Promise<void> {
+    sessionRef.current = null;
+    setSession(null);
+    setAuthStage("auth");
+    setActiveTab("home");
+    setSelectedUniversityId("");
+    await persistSession(null);
+  }
+
+  async function refreshAuthenticatedSession(expiredAccessToken?: string): Promise<SessionPayload | null> {
+    const currentSession = sessionRef.current;
+    if (!currentSession || !deviceId) return null;
+    if (expiredAccessToken && currentSession.accessToken !== expiredAccessToken) return currentSession;
+    if (refreshSessionPromiseRef.current) return refreshSessionPromiseRef.current;
+
+    refreshSessionPromiseRef.current = (async () => {
+      try {
+        const nextSession = await apiRequest<SessionPayload>(
+          "/auth/refresh-token",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              refreshToken: currentSession.refreshToken,
+              deviceId
+            })
+          },
+          undefined,
+          { skipAuthRefresh: true }
+        );
+        await activateSession(nextSession);
+        return nextSession;
+      } catch {
+        await clearExpiredSession();
+        return null;
+      } finally {
+        refreshSessionPromiseRef.current = null;
+      }
+    })();
+
+    return refreshSessionPromiseRef.current;
+  }
+
   async function apiRequest<T>(
     path: string,
     options: RequestInit = {},
-    token?: string
+    token?: string,
+    requestOptions: { skipAuthRefresh?: boolean } = {}
   ): Promise<T> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -632,14 +1027,19 @@ export default function App() {
         ...options,
         headers
       });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`API bağlantısı kurulamadı (${apiBaseUrl}). Telefon ve bilgisayarın aynı Wi-Fi ağında olduğundan ve 3000 portunun erişilebilir olduğundan emin ol. ${detail}`);
+    } catch {
+      throw new ApiRequestError("Sunucuya ulaşılamadı. İnternet bağlantını kontrol edip tekrar dene.", 0);
     }
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(body || `${response.status} ${response.statusText}`);
+      if (response.status === 401 && token && !requestOptions.skipAuthRefresh) {
+        const refreshedSession = await refreshAuthenticatedSession(token);
+        if (refreshedSession) {
+          return apiRequest<T>(path, options, refreshedSession.accessToken, { skipAuthRefresh: true });
+        }
+      }
+      throw new ApiRequestError(parseApiErrorMessage(body, `${response.status} ${response.statusText}`, response.status), response.status);
     }
 
     return (await response.json()) as T;
@@ -657,7 +1057,7 @@ export default function App() {
     } catch (error) {
       setter({
         loading: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: userMessageFromError(error, "İşlem tamamlanamadı. Lütfen tekrar dene.")
       });
       return null;
     }
@@ -666,7 +1066,7 @@ export default function App() {
   async function bootstrapAuthenticatedContext(token: string): Promise<void> {
     const profile = await apiRequest<UserProfile>("/me", {}, token).catch(() => null);
     await loadPreferences(token);
-    await loadAnnouncements(token);
+    const profileUniversityId = profile?.universityId ?? "";
     if (profile?.universityId) {
       setSelectedUniversityId(profile.universityId);
       setRegisterUniversityId(profile.universityId);
@@ -675,6 +1075,7 @@ export default function App() {
       await loadMyCalendar(token);
       await loadUpcoming(token);
     }
+    await loadAnnouncements(token, profileUniversityId);
   }
 
   async function handleAuth(): Promise<void> {
@@ -705,8 +1106,7 @@ export default function App() {
 
         setAuthStage("auth");
         setPendingVerifiedSession(null);
-        setSession(nextSession);
-        await persistSession(nextSession);
+        await activateSession(nextSession);
         setActiveTab("home");
         setMessage({ text: "Giriş başarılı.", tone: "success" });
         await bootstrapAuthenticatedContext(nextSession.accessToken);
@@ -735,7 +1135,7 @@ export default function App() {
       });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Giriş işlemi tamamlanamadı",
+        text: userMessageFromError(error, "Giriş işlemi tamamlanamadı"),
         tone: "error"
       });
     } finally {
@@ -748,10 +1148,6 @@ export default function App() {
       setMessage({ text: GOOGLE_AUTH_CONFIGURATION_MESSAGE, tone: "error" });
       return;
     }
-    if (!googleRequest) {
-      setMessage({ text: "Google girişi hazırlanıyor. Birkaç saniye sonra tekrar dene.", tone: "info" });
-      return;
-    }
     if (!deviceId) {
       setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
       return;
@@ -759,19 +1155,26 @@ export default function App() {
 
     try {
       setGoogleBusy(true);
-      const result = await promptGoogleAuth();
-      if (result.type === "cancel" || result.type === "dismiss") {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      await clearGoogleAccountSelection();
+
+      const result = await GoogleSignin.signIn();
+      if (isCancelledResponse(result)) {
         setMessage({ text: "Google girişi tamamlanmadan kapatıldı.", tone: "info" });
         return;
       }
-      if (result.type !== "success") {
-        setMessage({ text: "Google girişi tamamlanamadı.", tone: "error" });
-        return;
-      }
 
-      const idToken = result.params.id_token;
+      let idToken = result.data.idToken;
       if (!idToken) {
-        setMessage({ text: "Google kimlik belirteci alınamadı.", tone: "error" });
+        try {
+          idToken = (await GoogleSignin.getTokens()).idToken;
+        } catch {
+          idToken = null;
+        }
+      }
+      if (!idToken) {
+        await clearGoogleAccountSelection();
+        setMessage({ text: GOOGLE_ID_TOKEN_CONFIGURATION_MESSAGE, tone: "error" });
         return;
       }
 
@@ -785,14 +1188,35 @@ export default function App() {
 
       setAuthStage("auth");
       setPendingVerifiedSession(null);
-      setSession(nextSession);
-      await persistSession(nextSession);
+      await activateSession(nextSession);
       setActiveTab("home");
       setMessage({ text: "Google ile giriş başarılı.", tone: "success" });
       await bootstrapAuthenticatedContext(nextSession.accessToken);
     } catch (error) {
+      if (isErrorWithCode(error)) {
+        if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+          setMessage({ text: "Google Play Hizmetleri bu cihazda hazır değil veya güncellenmeli.", tone: "error" });
+          return;
+        }
+        if (error.code === statusCodes.IN_PROGRESS) {
+          setMessage({ text: "Google girişi zaten devam ediyor.", tone: "info" });
+          return;
+        }
+        if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+          setMessage({ text: "Google girişi tamamlanmadan kapatıldı.", tone: "info" });
+          return;
+        }
+      }
+      if (error instanceof ApiRequestError && error.status === 401) {
+        await clearGoogleAccountSelection();
+        setMessage({
+          text: "Google oturumu doğrulanamadı. Hesap seçimi sıfırlandı; tekrar deneyip farklı bir Google hesabı seçebilirsin.",
+          tone: "error"
+        });
+        return;
+      }
       setMessage({
-        text: error instanceof Error ? error.message : "Google girişi tamamlanamadı",
+        text: userMessageFromError(error, "Google girişi tamamlanamadı"),
         tone: "error"
       });
     } finally {
@@ -834,7 +1258,7 @@ export default function App() {
       });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Kod tekrar gönderilemedi",
+        text: userMessageFromError(error, "Kod tekrar gönderilemedi"),
         tone: "error"
       });
     } finally {
@@ -884,7 +1308,7 @@ export default function App() {
       setMessage({ text: "E-posta doğrulandı. Son adım: profilini onayla.", tone: "success" });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "E-posta doğrulanamadı",
+        text: userMessageFromError(error, "E-posta doğrulanamadı"),
         tone: "error"
       });
     } finally {
@@ -902,8 +1326,7 @@ export default function App() {
     try {
       setBusy(true);
       const nextSession = pendingVerifiedSession;
-      setSession(nextSession);
-      await persistSession(nextSession);
+      await activateSession(nextSession);
       setPendingVerifiedSession(null);
       setAuthStage("auth");
       setActiveTab("home");
@@ -933,12 +1356,14 @@ export default function App() {
           method: "POST",
           body: JSON.stringify({ refreshToken: session.refreshToken })
         },
-        session.accessToken
+        session.accessToken,
+        { skipAuthRefresh: true }
       );
     } catch {
       // Deliberately ignore logout network errors and continue local cleanup.
     } finally {
       setBusy(false);
+      sessionRef.current = null;
       setSession(null);
       setAuthStage("auth");
       setActiveTab("home");
@@ -946,8 +1371,20 @@ export default function App() {
       setCalendar({ loading: false });
       setUpcoming({ loading: false });
       setAnnouncements({ loading: false });
+      setYokAnnouncements({ loading: false });
+      setSummerSchool({ loading: false });
       setPreferences({ loading: false });
+      setGoogleCalendarIntegration(null);
+      setGoogleCalendarError(null);
+      if (GOOGLE_AUTH_CONFIGURED) {
+        try {
+          await GoogleSignin.signOut();
+        } catch {
+          // Ignore native Google sign-out failures during local cleanup.
+        }
+      }
       await persistSession(null);
+      await persistGoogleCalendarConnection(null);
       setMessage({ text: "Çıkış yapıldı.", tone: "info" });
     }
   }
@@ -985,9 +1422,11 @@ export default function App() {
       setMessage({ text: "Üniversite bağlamak için önce giriş yapmalısın.", tone: "error" });
       return;
     }
+    if (academicSelectionPendingRef.current) return;
 
     try {
-      setBusy(true);
+      academicSelectionPendingRef.current = "university";
+      setAcademicSelectionPending("university");
       await apiRequest<UserProfile>(
         "/me/university",
         {
@@ -1003,20 +1442,26 @@ export default function App() {
       setRegisterDepartmentId("");
       setFacultySearch("");
       setDepartmentSearch("");
+      setRegisterPicker("faculty");
+      setAcademicProfileExpanded(true);
       setDepartments({ loading: false, data: [] });
-      await loadFacultiesForRegistration(universityId);
-      await loadMyCalendar(accessToken);
-      await loadUpcoming(accessToken);
-      await loadAnnouncements(accessToken);
-      await loadPreferences(accessToken);
+      setSummerSchool({ loading: false });
       setMessage({ text: "Üniversite güncellendi.", tone: "success" });
+
+      void Promise.allSettled([
+        loadMyCalendar(accessToken),
+        loadUpcoming(accessToken),
+        loadAnnouncements(accessToken, universityId),
+        loadPreferences(accessToken)
+      ]);
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Üniversite seçimi güncellenemedi",
+        text: userMessageFromError(error, "Üniversite seçimi güncellenemedi"),
         tone: "error"
       });
     } finally {
-      setBusy(false);
+      academicSelectionPendingRef.current = null;
+      setAcademicSelectionPending(null);
     }
   }
 
@@ -1025,9 +1470,11 @@ export default function App() {
       setMessage({ text: "Fakülte seçmek için önce üniversite seçmelisin.", tone: "error" });
       return;
     }
+    if (academicSelectionPendingRef.current) return;
 
     try {
-      setBusy(true);
+      academicSelectionPendingRef.current = "faculty";
+      setAcademicSelectionPending("faculty");
       await apiRequest<UserProfile>(
         "/me/university",
         {
@@ -1041,18 +1488,19 @@ export default function App() {
       setRegisterDepartmentId("");
       setDepartmentSearch("");
       setRegisterPicker("department");
-      await loadDepartmentsForRegistration(facultyId);
-      await loadMyCalendar(accessToken);
-      await loadUpcoming(accessToken);
-      await loadAnnouncements(accessToken);
+      setAcademicProfileExpanded(true);
+      setSummerSchool({ loading: false });
       setMessage({ text: "Fakülte güncellendi.", tone: "success" });
+
+      void loadAnnouncements(accessToken, registerUniversityId);
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Fakülte seçimi güncellenemedi",
+        text: userMessageFromError(error, "Fakülte seçimi güncellenemedi"),
         tone: "error"
       });
     } finally {
-      setBusy(false);
+      academicSelectionPendingRef.current = null;
+      setAcademicSelectionPending(null);
     }
   }
 
@@ -1061,9 +1509,11 @@ export default function App() {
       setMessage({ text: "Bölüm seçmek için önce üniversite ve fakülte seçmelisin.", tone: "error" });
       return;
     }
+    if (academicSelectionPendingRef.current) return;
 
     try {
-      setBusy(true);
+      academicSelectionPendingRef.current = "department";
+      setAcademicSelectionPending("department");
       await apiRequest<UserProfile>(
         "/me/university",
         {
@@ -1080,17 +1530,18 @@ export default function App() {
 
       setRegisterDepartmentId(departmentId);
       setRegisterPicker("none");
-      await loadMyCalendar(accessToken);
-      await loadUpcoming(accessToken);
-      await loadAnnouncements(accessToken);
+      setSummerSchool({ loading: false });
       setMessage({ text: "Bölüm güncellendi.", tone: "success" });
+
+      void loadAnnouncements(accessToken, registerUniversityId);
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Bölüm seçimi güncellenemedi",
+        text: userMessageFromError(error, "Bölüm seçimi güncellenemedi"),
         tone: "error"
       });
     } finally {
-      setBusy(false);
+      academicSelectionPendingRef.current = null;
+      setAcademicSelectionPending(null);
     }
   }
 
@@ -1108,11 +1559,34 @@ export default function App() {
     await withLoadable(setUpcoming, () => apiRequest<EventRecord[]>("/calendar/upcoming?limit=10", {}, token));
   }
 
-  async function loadAnnouncements(tokenOverride?: string): Promise<void> {
+  async function loadAnnouncements(tokenOverride?: string, universityIdOverride?: string): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
-    await withLoadable(setAnnouncements, () => apiRequest<AnnouncementRecord[]>("/announcements/my?limit=20", {}, token));
+    const universityId = universityIdOverride ?? registerUniversityId;
+    if (!universityId) {
+      setAnnouncements({ loading: false, data: [] });
+      return;
+    }
+
+    await withLoadable(setAnnouncements, () => apiRequest<AnnouncementRecord[]>("/announcements/my?limit=60", {}, token));
+  }
+
+  async function loadYokAnnouncements(): Promise<void> {
+    await withLoadable(setYokAnnouncements, () => apiRequest<AnnouncementRecord[]>("/announcements/yok?limit=30"));
+  }
+
+  async function loadSummerSchool(tokenOverride?: string, universityIdOverride?: string): Promise<void> {
+    const token = tokenOverride ?? accessToken;
+    if (!token) return;
+
+    const universityId = universityIdOverride ?? registerUniversityId;
+    if (!universityId) {
+      setSummerSchool({ loading: false });
+      return;
+    }
+
+    await withLoadable(setSummerSchool, () => apiRequest<SummerSchoolPayload>("/calendar/summer-school/my", {}, token));
   }
 
   async function loadPreferences(tokenOverride?: string): Promise<void> {
@@ -1120,6 +1594,126 @@ export default function App() {
     if (!token) return;
 
     await withLoadable(setPreferences, () => apiRequest<NotificationPreferencePayload>("/notification-preferences", {}, token));
+  }
+
+  async function authorizeGoogleCalendar(forceAccountSelection: boolean): Promise<{ accessToken: string; accountEmail: string }> {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+
+    if (forceAccountSelection) await clearGoogleAccountSelection();
+    let currentUser = GoogleSignin.getCurrentUser();
+    if (!currentUser) {
+      const signInResult = await GoogleSignin.signIn();
+      if (isCancelledResponse(signInResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
+      currentUser = signInResult.data;
+    }
+
+    const scopeResult = await GoogleSignin.addScopes({
+      scopes: [GOOGLE_CALENDAR_EVENTS_SCOPE]
+    });
+    if (scopeResult && isCancelledResponse(scopeResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
+
+    const tokens = await GoogleSignin.getTokens();
+    const accountEmail = GoogleSignin.getCurrentUser()?.user.email ?? currentUser.user.email;
+    if (!tokens.accessToken || !accountEmail) throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
+    return { accessToken: tokens.accessToken, accountEmail };
+  }
+
+  async function syncGoogleCalendar(forceAccountSelection = false): Promise<void> {
+    const currentSession = sessionRef.current;
+    if (!currentSession?.accessToken) {
+      setGoogleCalendarError("Google Takvim bağlantısı için yeniden giriş yapmalısın.");
+      return;
+    }
+
+    setGoogleCalendarError(null);
+    setMessage(null);
+    setGoogleCalendarBusy(true);
+    let googleAccessToken: string | undefined;
+
+    try {
+      const authorization = await authorizeGoogleCalendar(forceAccountSelection);
+      googleAccessToken = authorization.accessToken;
+      const [calendarResult, announcementResult] = await Promise.allSettled([
+        apiRequest<CalendarPayload>("/calendar/my", {}, currentSession.accessToken),
+        apiRequest<AnnouncementRecord[]>("/announcements/my?limit=100", {}, currentSession.accessToken)
+      ]);
+      if (calendarResult.status === "rejected" && announcementResult.status === "rejected") {
+        throw calendarResult.reason;
+      }
+
+      const calendarEvents = calendarResult.status === "fulfilled" ? calendarResult.value.events : [];
+      const announcementItems = announcementResult.status === "fulfilled" ? announcementResult.value : [];
+      const replaceSourceTypes: Array<"academic_event" | "announcement" | "event"> = [];
+      const warnings: string[] = [];
+
+      if (calendarResult.status === "fulfilled") {
+        replaceSourceTypes.push("academic_event");
+        setCalendar({ loading: false, data: calendarResult.value });
+      } else {
+        warnings.push("Akademik takvim kaynağı bu eşitlemede alınamadı.");
+        setCalendar({
+          loading: false,
+          error: userMessageFromError(calendarResult.reason, "Akademik takvim şu anda alınamadı.")
+        });
+      }
+      if (announcementResult.status === "fulfilled") {
+        replaceSourceTypes.push("announcement", "event");
+        setAnnouncements({ loading: false, data: announcementResult.value });
+      } else {
+        warnings.push("Duyuru ve etkinlik kaynakları bu eşitlemede alınamadı.");
+        setAnnouncements({
+          loading: false,
+          error: userMessageFromError(announcementResult.reason, "Duyurular şu anda alınamadı.")
+        });
+      }
+
+      const result = await googleCalendarService.sync({
+        accessToken: authorization.accessToken,
+        ownerId: currentSession.user.id,
+        calendarEvents,
+        announcements: announcementItems,
+        replaceSourceTypes
+      });
+      const connection: GoogleCalendarConnectionRecord = {
+        ownerId: currentSession.user.id,
+        accountEmail: authorization.accountEmail,
+        lastSyncedAt: new Date().toISOString(),
+        result,
+        ...(warnings.length > 0 ? { warnings } : {})
+      };
+      setGoogleCalendarIntegration(connection);
+      await persistGoogleCalendarConnection(connection);
+
+      if (result.verified === 0) {
+        setGoogleCalendarError("Profiline ait aktarılabilir akademik tarih, duyuru veya etkinlik bulunamadı.");
+      } else {
+        setMessage({
+          text: `${result.verified} kayıt ${authorization.accountEmail} hesabının Google Takvimi'nde doğrulandı.`,
+          tone: "success"
+        });
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "GOOGLE_CALENDAR_CANCELLED") {
+        setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
+      } else if (isErrorWithCode(error) && error.code === statusCodes.SIGN_IN_CANCELLED) {
+        setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
+      } else if (isErrorWithCode(error) && error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setGoogleCalendarError("Google Play Hizmetleri bu cihazda hazır değil veya güncellenmeli.");
+      } else if (isErrorWithCode(error) && error.code === statusCodes.IN_PROGRESS) {
+        setGoogleCalendarError("Google hesabı seçimi zaten devam ediyor.");
+      } else {
+        if (
+          googleAccessToken
+          && error instanceof GoogleCalendarSyncError
+          && error.code === "GOOGLE_CALENDAR_AUTH_EXPIRED"
+        ) {
+          await GoogleSignin.clearCachedAccessToken(googleAccessToken).catch(() => null);
+        }
+        setGoogleCalendarError(googleCalendarUserMessage(error));
+      }
+    } finally {
+      setGoogleCalendarBusy(false);
+    }
   }
 
   function updateCategory(category: string, enabled: boolean): void {
@@ -1179,38 +1773,7 @@ export default function App() {
       setMessage({ text: "Alarm ayarları kaydedildi.", tone: "success" });
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : "Alarm ayarları kaydedilemedi",
-        tone: "error"
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function registerDevice(): Promise<void> {
-    if (!accessToken) {
-      setMessage({ text: "Cihaz kaydı için giriş yapmalısın.", tone: "error" });
-      return;
-    }
-
-    try {
-      setBusy(true);
-      const token = `rn-demo-${deviceId}-${Date.now()}`;
-      const platform = Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web";
-
-      await apiRequest<{ status: string }>(
-        "/devices/register",
-        {
-          method: "POST",
-          body: JSON.stringify({ platform, token })
-        },
-        accessToken
-      );
-
-      setMessage({ text: "Cihaz bildirimi etkinleştirildi.", tone: "success" });
-    } catch (error) {
-      setMessage({
-        text: error instanceof Error ? error.message : "Cihaz kaydı başarısız",
+        text: userMessageFromError(error, "Alarm ayarları kaydedilemedi"),
         tone: "error"
       });
     } finally {
@@ -1225,6 +1788,23 @@ export default function App() {
       return;
     }
     await Linking.openURL(link);
+  }
+
+  function renderAnnouncementCard(item: AnnouncementRecord) {
+    return (
+      <Pressable key={item.id} style={styles.announcementCard} onPress={() => void openAnnouncement(item.link)}>
+        <View style={styles.announcementTopRow}>
+          <Text style={styles.announcementSourcePill}>{item.sourceName}</Text>
+          <Text style={styles.announcementDate}>{formatDateTimeShort(item.publishedAt)}</Text>
+        </View>
+        <Text style={styles.announcementTitle}>{item.title}</Text>
+        {item.summary && <Text style={styles.announcementSummary}>{item.summary}</Text>}
+        <View style={styles.announcementActionRow}>
+          <Text style={styles.linkText}>{announcementOpenLabel(item)}</Text>
+          <Ionicons name="open-outline" size={16} color="#2563eb" />
+        </View>
+      </Pressable>
+    );
   }
 
   function addManualExam(): void {
@@ -1255,7 +1835,11 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
-        <ScrollView contentContainerStyle={[styles.container, session ? styles.containerWithNav : undefined]}>
+        <ScrollView
+          contentContainerStyle={[styles.container, session ? styles.containerWithNav : undefined]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        >
           {!session && (
             <View style={styles.authHero}>
               <Text style={styles.authHeroTitle}>Akademik Takvimine Hoş Geldin</Text>
@@ -1292,16 +1876,20 @@ export default function App() {
                 </Pressable>
               </View>
 
-              <Pressable
-                style={[styles.button, styles.googleButton, (busy || googleBusy || !GOOGLE_AUTH_CONFIGURED) && styles.buttonDisabled]}
-                onPress={() => void handleGoogleAuth()}
-                disabled={busy || googleBusy || !GOOGLE_AUTH_CONFIGURED}
-              >
-                <Ionicons name="logo-google" size={19} color="#1f2937" />
-                <Text style={styles.googleButtonText}>{googleBusy ? "Google açılıyor..." : "Google ile Devam Et"}</Text>
-              </Pressable>
-              {!GOOGLE_AUTH_CONFIGURED && (
-                <Text style={styles.caption}>{GOOGLE_AUTH_CONFIGURATION_MESSAGE}</Text>
+              {GOOGLE_AUTH_CONFIGURED ? (
+                <Pressable
+                  style={[styles.button, styles.googleButton, (busy || googleBusy) && styles.buttonDisabled]}
+                  onPress={() => void handleGoogleAuth()}
+                  disabled={busy || googleBusy}
+                >
+                  <Ionicons name="logo-google" size={19} color="#1f2937" />
+                  <Text style={styles.googleButtonText}>{googleBusy ? "Google açılıyor..." : "Google ile Devam Et"}</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.inlineInfoCard}>
+                  <Text style={styles.inlineInfoTitle}>Google ile giriş bu APK'da kapalı</Text>
+                  <Text style={styles.inlineInfoText}>{GOOGLE_AUTH_CONFIGURATION_MESSAGE}</Text>
+                </View>
               )}
 
               {authMode === "register" ? (
@@ -1315,28 +1903,48 @@ export default function App() {
                     </View>
                   </View>
 
-                  <TextInput
-                    value={fullName}
-                    onChangeText={setFullName}
-                    placeholder="Ad Soyad"
-                    style={styles.input}
-                  />
-                  <TextInput
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="Öğrenci e-posta adresi"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.input}
-                  />
-                  <TextInput
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="Şifre"
-                    secureTextEntry
-                    style={styles.input}
-                  />
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>Ad Soyad</Text>
+                    <TextInput
+                      value={fullName}
+                      onChangeText={setFullName}
+                      placeholder="Ad Soyad"
+                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                      textContentType="name"
+                      autoComplete="name"
+                      style={styles.input}
+                    />
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>E-posta adresi</Text>
+                    <TextInput
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="ornek@email.com"
+                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      textContentType="emailAddress"
+                      autoComplete="email"
+                      style={styles.input}
+                    />
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>Şifre</Text>
+                    <TextInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="En az 8 karakter önerilir"
+                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                      secureTextEntry
+                      textContentType="newPassword"
+                      autoComplete="new-password"
+                      style={styles.input}
+                    />
+                  </View>
 
                   <Text style={styles.helperText}>Kayıt yalnızca hesap bilgileriyle tamamlanır. Üniversite, fakülte ve bölümünü uygulama içinde seçebilirsin.</Text>
 
@@ -1351,6 +1959,9 @@ export default function App() {
                   >
                     <Text style={styles.primaryButtonText}>Hesap Oluştur</Text>
                   </Pressable>
+                  {!registerIdentityReady && (
+                    <Text style={styles.caption}>Devam etmek için ad soyad, e-posta ve şifre alanlarını doldur.</Text>
+                  )}
 
                   <View style={styles.inlineInfoCard}>
                     <Text style={styles.inlineInfoTitle}>Sonraki adım: E-posta doğrulama</Text>
@@ -1359,27 +1970,46 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <TextInput
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="Öğrenci e-posta adresi"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.input}
-                  />
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>E-posta adresi</Text>
+                    <TextInput
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="ornek@email.com"
+                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      textContentType="emailAddress"
+                      autoComplete="email"
+                      style={styles.input}
+                    />
+                  </View>
 
-                  <TextInput
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="Şifre"
-                    secureTextEntry
-                    style={styles.input}
-                  />
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.fieldLabel}>Şifre</Text>
+                    <TextInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="Şifreni gir"
+                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                      secureTextEntry
+                      textContentType="password"
+                      autoComplete="password"
+                      style={styles.input}
+                    />
+                  </View>
 
-                  <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void handleAuth()} disabled={busy}>
+                  <Pressable
+                    style={[styles.button, styles.primaryButton, (busy || !loginReady) && styles.buttonDisabled]}
+                    onPress={() => void handleAuth()}
+                    disabled={busy || !loginReady}
+                  >
                     <Text style={styles.primaryButtonText}>Giriş Yap</Text>
                   </Pressable>
+                  {!loginReady && (
+                    <Text style={styles.caption}>Giriş yapmak için e-posta ve şifre alanlarını doldur.</Text>
+                  )}
                 </>
               )}
             </Section>
@@ -1460,20 +2090,83 @@ export default function App() {
 
           {session && activeTab === "home" && (
             <>
-              <Section title="Sınav Geri Sayımı">
-                <Text style={styles.helperText}>Takvimindeki sınav tarihlerini takip et. İstersen manuel sınav da ekleyebilirsin.</Text>
+              <View style={styles.homeHero}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.homeHeroEyebrow}>Merhaba {session.user.fullName.split(" ")[0] || "öğrenci"}</Text>
+                    <Text style={styles.homeHeroTitle}>Bugün neyi kaçırmamalısın?</Text>
+                    <Text style={styles.homeHeroSubtitle}>
+                      Sınav, duyuru ve takvim bağlantılarını tek ekranda takip et.
+                    </Text>
+                  </View>
+                  <View style={styles.homeHeroIcon}>
+                    <Ionicons name="school-outline" size={28} color="#0f766e" />
+                  </View>
+                </View>
+                <View style={styles.homeStatsRow}>
+                  <View style={styles.homeStatItem}>
+                    <Text style={styles.homeStatValue}>{todayEventCount}</Text>
+                    <Text style={styles.homeStatLabel}>Bugün</Text>
+                  </View>
+                  <View style={styles.homeStatItem}>
+                    <Text style={styles.homeStatValue}>{examCountdownItems.length}</Text>
+                    <Text style={styles.homeStatLabel}>Sınav</Text>
+                  </View>
+                  <View style={styles.homeStatItem}>
+                    <Text style={styles.homeStatValue}>{announcementFeed.length}</Text>
+                    <Text style={styles.homeStatLabel}>Duyuru</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.quickActionGrid}>
+                <Pressable style={styles.quickActionCard} onPress={() => setActiveTab("calendar")}>
+                  <Ionicons name="calendar-outline" size={20} color="#2563eb" />
+                  <Text style={styles.quickActionTitle}>Takvimi aç</Text>
+                  <Text style={styles.quickActionText}>{googleCalendarIntegration ? `${googleCalendarIntegration.result.verified} kayıt eşitlendi` : "Google Takvim'e bağla"}</Text>
+                </Pressable>
+                <Pressable style={styles.quickActionCard} onPress={() => setActiveTab("announcements")}>
+                  <Ionicons name="notifications-outline" size={20} color="#b45309" />
+                  <Text style={styles.quickActionTitle}>Duyurular</Text>
+                  <Text style={styles.quickActionText}>Resmi kaynakları kontrol et</Text>
+                </Pressable>
+                <Pressable style={styles.quickActionCard} onPress={() => setActiveTab("summer")}>
+                  <Ionicons name="sunny-outline" size={20} color="#ea580c" />
+                  <Text style={styles.quickActionTitle}>Yaz Okulu</Text>
+                  <Text style={styles.quickActionText}>Başvuru ve ders alma fırsatları</Text>
+                </Pressable>
+                <Pressable style={styles.quickActionCard} onPress={() => setActiveTab("yok")}>
+                  <Ionicons name="newspaper-outline" size={20} color="#0f766e" />
+                  <Text style={styles.quickActionTitle}>YÖK</Text>
+                  <Text style={styles.quickActionText}>Ulusal duyuruları takip et</Text>
+                </Pressable>
+              </View>
+
+              <Section title="Sınav Odağı">
+                <Text style={styles.helperText}>Yaklaşan sınavlarını gör, kişisel sınavını ekle ve takvimini canlı tut.</Text>
 
                 {examCountdownItems.length === 0 && (
-                  <Text style={styles.caption}>Yaklaşan sınav bulunamadı.</Text>
+                  <View style={styles.emptyStatePanel}>
+                    <Ionicons name="checkmark-circle-outline" size={24} color="#16a34a" />
+                    <Text style={styles.emptyStateTitle}>Yaklaşan sınav görünmüyor</Text>
+                    <Text style={styles.caption}>Takvim yüklendiğinde sınavlar burada geri sayımla görünecek.</Text>
+                    </View>
                 )}
 
-                {examCountdownItems.map((exam) => (
+                {nextExam && (
+                  <View style={styles.focusCard}>
+                    <Text style={styles.eventCategory}>Sıradaki sınav</Text>
+                    <Text style={styles.eventTitle}>{nextExam.title}</Text>
+                    <Text style={styles.countdownBadge}>{formatRemainingDuration(nextExam.examDate)}</Text>
+                    <Text style={styles.caption}>{formatDateTimeShort(nextExam.examDate)}</Text>
+                  </View>
+                )}
+
+                {examCountdownItems.slice(nextExam ? 1 : 0, nextExam ? 4 : 3).map((exam) => (
                   <View key={exam.id} style={styles.eventCard}>
-                    <View style={styles.rowBetween}>
-                      <Text style={styles.eventTitle}>{exam.title}</Text>
-                      <Text style={styles.countdownBadge}>{formatRemainingDuration(exam.examDate)}</Text>
-                    </View>
-                    <Text style={styles.caption}>{new Date(exam.examDate).toLocaleString()}</Text>
+                    <Text style={styles.eventTitle}>{exam.title}</Text>
+                    <Text style={styles.countdownBadge}>{formatRemainingDuration(exam.examDate)}</Text>
+                    <Text style={styles.caption}>{formatDateTimeShort(exam.examDate)}</Text>
                   </View>
                 ))}
 
@@ -1497,17 +2190,34 @@ export default function App() {
               </Section>
 
               <Section title="Yaklaşan Etkinlikler">
-                <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void loadUpcoming()} disabled={upcoming.loading || busy}>
-                  <Text style={styles.secondaryButtonText}>Listeyi Yenile</Text>
-                </Pressable>
+                <View style={styles.rowBetween}>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.helperText}>Akademik takvimden yaklaşan kritik tarihleri takip et.</Text>
+                  </View>
+                  <Pressable style={[styles.iconButton, (upcoming.loading || busy) && styles.buttonDisabled]} onPress={() => void loadUpcoming()} disabled={upcoming.loading || busy}>
+                    <Ionicons name="refresh-outline" size={18} color="#1e293b" />
+                  </Pressable>
+                </View>
 
                 {upcoming.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
                 {upcoming.error && <Text style={styles.errorText}>{upcoming.error}</Text>}
 
-                {(upcoming.data ?? []).map((event) => (
+                {nextUpcomingEvent && (
+                  <View style={styles.eventHighlightRow}>
+                    <View style={styles.eventDateBadge}>
+                      <Text style={styles.eventDateBadgeText}>{formatDateShort(nextUpcomingEvent.startDate)}</Text>
+                    </View>
+                    <View style={styles.flexOne}>
+                      <Text style={styles.eventTitle}>{nextUpcomingEvent.title}</Text>
+                      <Text style={styles.caption}>{toCategoryLabel(nextUpcomingEvent.category)}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {(upcoming.data ?? []).filter((event) => event.id !== nextUpcomingEvent?.id).map((event) => (
                   <View key={event.id} style={styles.eventCard}>
                     <Text style={styles.eventTitle}>{event.title}</Text>
-                    <Text style={styles.caption}>{new Date(event.startDate).toLocaleDateString()}</Text>
+                    <Text style={styles.caption}>{formatDateShort(event.startDate)}</Text>
                   </View>
                 ))}
               </Section>
@@ -1515,93 +2225,447 @@ export default function App() {
           )}
 
           {session && activeTab === "calendar" && (
-            <Section title="Akademik Takvim">
-              <View style={styles.rowBetween}>
-                <Text style={styles.caption}>Durum: {calendar.data?.calendar.status ? STATUS_LABELS[calendar.data.calendar.status] ?? calendar.data.calendar.status : "yüklenmedi"}</Text>
-                <Pressable style={[styles.buttonInline, styles.secondaryOutline]} onPress={() => void loadMyCalendar()} disabled={busy}>
-                  <Text style={styles.secondaryOutlineText}>Yenile</Text>
+            <>
+              <Section title="Takvim Özeti">
+                <View style={styles.rowBetween}>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.cardTitle}>{calendar.data?.calendar?.title ?? "Akademik takvim"}</Text>
+                    <Text style={styles.caption}>
+                      {calendar.data?.calendar?.academicYear ? `Akademik yıl: ${calendar.data.calendar.academicYear}` : "Takvim henüz yüklenmedi"}
+                    </Text>
+                  </View>
+                  <Pressable style={[styles.iconButton, busy && styles.buttonDisabled]} onPress={() => void loadMyCalendar()} disabled={busy}>
+                    <Ionicons name="refresh-outline" size={18} color="#1e293b" />
+                  </Pressable>
+                </View>
+
+                {calendar.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+                {calendar.error && <Text style={styles.errorText}>{calendar.error}</Text>}
+
+                <View style={styles.calendarMiniGrid}>
+                  <View style={styles.calendarMiniCard}>
+                    <Text style={styles.calendarMiniValue}>{(calendar.data?.events ?? []).length}</Text>
+                    <Text style={styles.calendarMiniLabel}>Tarih</Text>
+                  </View>
+                  <View style={styles.calendarMiniCard}>
+                    <Text style={styles.calendarMiniValue}>{calendar.data?.calendar.status ? STATUS_LABELS[calendar.data.calendar.status] ?? calendar.data.calendar.status : "-"}</Text>
+                    <Text style={styles.calendarMiniLabel}>Durum</Text>
+                  </View>
+                </View>
+              </Section>
+
+              <Section title="Google Takvim">
+                <View style={styles.calendarConnectionHero}>
+                  <View style={styles.calendarPanelIcon}>
+                    <Ionicons name="logo-google" size={24} color="#2563eb" />
+                  </View>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.cardTitle}>Akademik bilgilerini Google Takvim'e eşitle</Text>
+                    <Text style={styles.caption}>
+                      {googleCalendarIntegration
+                        ? googleCalendarIntegration.accountEmail
+                        : "Takvim hesabını sen seçersin"}
+                    </Text>
+                  </View>
+                  <View style={[styles.statusPill, googleCalendarIntegration ? styles.statusPillSuccess : styles.statusPillNeutral]}>
+                    <Text style={[styles.statusPillText, googleCalendarIntegration ? styles.statusPillTextSuccess : styles.statusPillTextNeutral]}>
+                      {googleCalendarIntegration ? "Bağlı" : "Bağlı değil"}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.calendarConnectionNote}>
+                  Hedef: Seçtiğin Gmail hesabının birincil Google Takvimi. Uygulama yalnızca kendi eklediği kayıtları günceller veya kaldırır; kişisel etkinliklerine dokunmaz.
+                </Text>
+
+                {googleCalendarError && (
+                  <View style={styles.calendarErrorPanel}>
+                    <Ionicons name="alert-circle-outline" size={20} color="#be123c" />
+                    <Text style={styles.calendarErrorText}>{googleCalendarError}</Text>
+                  </View>
+                )}
+
+                <View style={styles.calendarExplainPanel}>
+                  <View style={styles.calendarExplainStep}>
+                    <Text style={styles.calendarExplainNumber}>1</Text>
+                    <Text style={styles.calendarExplainText}>Kullanmak istediğin Gmail hesabını seç.</Text>
+                  </View>
+                  <View style={styles.calendarExplainStep}>
+                    <Text style={styles.calendarExplainNumber}>2</Text>
+                    <Text style={styles.calendarExplainText}>Google Takvim'e etkinlik ekleme izni ver.</Text>
+                  </View>
+                  <View style={styles.calendarExplainStep}>
+                    <Text style={styles.calendarExplainNumber}>3</Text>
+                    <Text style={styles.calendarExplainText}>Akademik tarihler, duyurular ve etkinlikler gönderilip Google'da doğrulanır.</Text>
+                  </View>
+                </View>
+
+                {googleCalendarIntegration && (
+                  <View style={styles.calendarSyncSummary}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.calendarSyncSummaryLabel}>Google'da doğrulanan</Text>
+                      <Text style={styles.calendarSyncSummaryValue}>{googleCalendarIntegration.result.verified}</Text>
+                    </View>
+                    <Text style={styles.caption}>
+                      Son eşitleme: {formatDateTimeShort(googleCalendarIntegration.lastSyncedAt)}
+                    </Text>
+                    <Text style={styles.caption}>
+                      {googleCalendarIntegration.result.created} yeni, {googleCalendarIntegration.result.updated} güncellenen, {googleCalendarIntegration.result.deleted} kaldırılan
+                    </Text>
+                    {googleCalendarIntegration.warnings?.map((warning) => (
+                      <Text key={warning} style={styles.calendarSyncWarning}>{warning}</Text>
+                    ))}
+                  </View>
+                )}
+
+                <View style={styles.nativeCalendarActions}>
+                  <Pressable
+                    style={[styles.button, styles.primaryButton, googleCalendarBusy && styles.buttonDisabled]}
+                    onPress={() => void syncGoogleCalendar(!googleCalendarIntegration)}
+                    disabled={googleCalendarBusy}
+                  >
+                    {googleCalendarBusy ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <View style={styles.buttonContent}>
+                        <Ionicons name="logo-google" size={20} color="#ffffff" />
+                        <Text style={styles.primaryButtonText}>{googleCalendarIntegration ? "Şimdi Eşitle" : "Bağlan ve Eşitle"}</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                  {googleCalendarIntegration && (
+                    <Pressable
+                      style={[styles.button, styles.secondaryButton, googleCalendarBusy && styles.buttonDisabled]}
+                      onPress={() => void syncGoogleCalendar(true)}
+                      disabled={googleCalendarBusy}
+                    >
+                      <View style={styles.buttonContent}>
+                        <Ionicons name="swap-horizontal-outline" size={19} color="#1e293b" />
+                        <Text style={styles.secondaryButtonText}>Google Hesabını Değiştir</Text>
+                      </View>
+                    </Pressable>
+                  )}
+                </View>
+              </Section>
+
+              <Section title="Akademik Tarihler">
+                {(calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).slice(0, 8).map((event) => (
+                  <View key={event.id} style={styles.eventCard}>
+                    <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
+                    <Text style={styles.eventTitle}>{event.title}</Text>
+                    <Text style={styles.caption}>{formatDateShort(event.startDate)}</Text>
+                  </View>
+                ))}
+                {!calendar.loading && (calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).length === 0 && (
+                  <View style={styles.emptyStatePanel}>
+                    <Ionicons name="calendar-clear-outline" size={24} color="#2563eb" />
+                    <Text style={styles.emptyStateTitle}>Takvim tarihi bulunamadı</Text>
+                    <Text style={styles.caption}>Üniversite takvimi yüklendiğinde önemli tarihler burada görünecek.</Text>
+                  </View>
+                )}
+              </Section>
+            </>
+          )}
+
+          {session && activeTab === "summer" && (
+            <>
+              <Section title="Yaz Okulu">
+                <View style={styles.announcementHeader}>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.helperText}>Yaz okulu tarihlerini, başvuru duyurularını ve aynı bölümdeki fırsatları takip et.</Text>
+                    <Text style={styles.caption}>{selectedUniversity?.name ?? "Üniversite seçilmedi"}</Text>
+                  </View>
+                  <View style={styles.announcementCountBadge}>
+                    <Text style={styles.announcementCountValue}>
+                      {summerSchoolEvents.length + summerSchoolAnnouncements.length + (summerSchool.data?.sameDepartmentOptions.length ?? 0)}
+                    </Text>
+                    <Text style={styles.announcementCountLabel}>kayıt</Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  style={[
+                    styles.button,
+                    styles.secondaryButton,
+                    (!registerUniversityId || summerSchool.loading || busy) && styles.buttonDisabled
+                  ]}
+                  onPress={() => void loadSummerSchool()}
+                  disabled={!registerUniversityId || summerSchool.loading || busy}
+                >
+                  <Ionicons name="refresh-outline" size={18} color="#1e293b" />
+                  <Text style={styles.secondaryButtonText}>Yaz Okulunu Yenile</Text>
                 </Pressable>
+
+                {summerSchool.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+                {summerSchool.error && registerUniversityId && <Text style={styles.errorText}>{summerSchool.error}</Text>}
+
+                {!registerUniversityId && (
+                  <View style={styles.emptyStatePanel}>
+                    <Ionicons name="school-outline" size={24} color="#ea580c" />
+                    <Text style={styles.emptyStateTitle}>Üniversite seçildiğinde hazır</Text>
+                    <Text style={styles.caption}>Profil sekmesinden üniversiteni seçtiğinde yaz okulu bilgileri burada görünecek.</Text>
+                  </View>
+                )}
+              </Section>
+
+              {registerUniversityId && (
+                <>
+                  <Section title="Yaz Okulu Tarihleri">
+                    {summerSchoolEvents.map((event) => (
+                      <View key={event.id} style={styles.eventCard}>
+                        <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
+                        <Text style={styles.eventTitle}>{event.title}</Text>
+                        <Text style={styles.caption}>{formatDateShort(event.startDate)}</Text>
+                      </View>
+                    ))}
+
+                    {!calendar.loading && summerSchoolEvents.length === 0 && (
+                      <View style={styles.emptyStatePanel}>
+                        <Ionicons name="sunny-outline" size={24} color="#ea580c" />
+                        <Text style={styles.emptyStateTitle}>Henüz yaz okulu tarihi yok</Text>
+                        <Text style={styles.caption}>Üniversite takviminde yaz okulu tarihleri bulunduğunda burada listelenecek.</Text>
+                      </View>
+                    )}
+                  </Section>
+
+                  <Section title="Yaz Okulu Duyuruları">
+                    {(summerSchool.data?.requirements ?? []).map((item) => (
+                      <Pressable
+                        key={`${item.eventId ?? item.message}-${item.date ?? "date"}`}
+                        style={styles.announcementCard}
+                        onPress={() => item.sourceUrl ? void openAnnouncement(item.sourceUrl) : undefined}
+                      >
+                        <View style={styles.announcementTopRow}>
+                          <Text style={styles.announcementSourcePill}>Koşul</Text>
+                          <Text style={styles.announcementDate}>{formatDateShort(item.date)}</Text>
+                        </View>
+                        <Text style={styles.announcementTitle}>{item.message}</Text>
+                      </Pressable>
+                    ))}
+                    {summerSchoolAnnouncements.map(renderAnnouncementCard)}
+
+                    {!summerSchool.loading && (summerSchool.data?.requirements ?? []).length === 0 && summerSchoolAnnouncements.length === 0 && (
+                      <View style={styles.emptyStatePanel}>
+                        <Ionicons name="megaphone-outline" size={24} color="#b45309" />
+                        <Text style={styles.emptyStateTitle}>Henüz yaz okulu duyurusu yok</Text>
+                        <Text style={styles.caption}>Kaynaklar güncellendiğinde başvuru ve ders alma duyuruları burada görünecek.</Text>
+                      </View>
+                    )}
+                  </Section>
+
+                  <Section title="Aynı Bölümde Seçenekler">
+                    {(summerSchool.data?.sameDepartmentOptions ?? []).map((option) => (
+                      <Pressable
+                        key={`${option.universityId}-${option.academicYear}`}
+                        style={styles.announcementCard}
+                        onPress={() => option.sourceUrl ? void openAnnouncement(option.sourceUrl) : undefined}
+                      >
+                        <View style={styles.announcementTopRow}>
+                          <Text style={styles.announcementSourcePill}>{option.academicYear}</Text>
+                          <Text style={styles.announcementDate}>{option.events.length} tarih</Text>
+                        </View>
+                        <Text style={styles.announcementTitle}>{option.universityName}</Text>
+                        <Text style={styles.announcementSummary}>
+                          {(option.matchingDepartments ?? []).map((item) => item.departmentName).slice(0, 3).join(", ") || "Benzer bölüm bilgisi"}
+                        </Text>
+                      </Pressable>
+                    ))}
+
+                    {!summerSchool.loading && (summerSchool.data?.sameDepartmentOptions ?? []).length === 0 && (
+                      <View style={styles.emptyStatePanel}>
+                        <Ionicons name="search-outline" size={24} color="#2563eb" />
+                        <Text style={styles.emptyStateTitle}>Eşleşen bölüm bulunmadı</Text>
+                        <Text style={styles.caption}>Diğer üniversitelerde aynı bölümden yaz okulu fırsatı bulunduğunda burada listelenecek.</Text>
+                      </View>
+                    )}
+                  </Section>
+                </>
+              )}
+            </>
+          )}
+
+          {session && activeTab === "yok" && (
+            <Section title="YÖK Duyuruları">
+              <View style={styles.announcementHeader}>
+                <View style={styles.flexOne}>
+                  <Text style={styles.helperText}>Yükseköğretim Kurulu tarafından yayımlanan ulusal duyuruları takip et.</Text>
+                  <Text style={styles.caption}>YÖK resmi duyuru kaynağı</Text>
+                </View>
+                <View style={styles.announcementCountBadge}>
+                  <Text style={styles.announcementCountValue}>{yokAnnouncementItems.length}</Text>
+                  <Text style={styles.announcementCountLabel}>duyuru</Text>
+                </View>
               </View>
-              {calendar.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
-              {calendar.error && <Text style={styles.errorText}>{calendar.error}</Text>}
-              {calendar.data?.calendar && (
-                <View style={styles.cardMuted}>
-                  <Text style={styles.cardTitle}>{calendar.data.calendar.title}</Text>
-                  <Text style={styles.caption}>Akademik Yıl: {calendar.data.calendar.academicYear}</Text>
+
+              <Pressable
+                style={[styles.button, styles.secondaryButton, (yokAnnouncements.loading || busy) && styles.buttonDisabled]}
+                onPress={() => void loadYokAnnouncements()}
+                disabled={yokAnnouncements.loading || busy}
+              >
+                <Ionicons name="refresh-outline" size={18} color="#1e293b" />
+                <Text style={styles.secondaryButtonText}>YÖK Duyurularını Yenile</Text>
+              </Pressable>
+
+              {yokAnnouncements.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+              {yokAnnouncements.error && <Text style={styles.errorText}>{yokAnnouncements.error}</Text>}
+              {yokAnnouncementItems.map(renderAnnouncementCard)}
+
+              {!yokAnnouncements.loading && yokAnnouncementItems.length === 0 && (
+                <View style={styles.emptyStatePanel}>
+                  <Ionicons name="newspaper-outline" size={24} color="#0f766e" />
+                  <Text style={styles.emptyStateTitle}>YÖK duyurusu bulunamadı</Text>
+                  <Text style={styles.caption}>Resmi kaynak yanıt verdiğinde duyurular burada listelenecek.</Text>
                 </View>
               )}
-              <Text style={styles.helperText}>Seçili üniversitenin tek merkezi akademik takvimi gösterilir.</Text>
-              {(calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).map((event) => (
-                <View key={event.id} style={styles.eventCard}>
-                  <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
-                  <Text style={styles.eventTitle}>{event.title}</Text>
-                  <Text style={styles.caption}>{new Date(event.startDate).toLocaleDateString()}</Text>
-                </View>
-              ))}
             </Section>
           )}
 
           {session && activeTab === "announcements" && (
-            <Section title="Duyurular">
-              <Text style={styles.helperText}>Seçili üniversitenin resmi duyuruları listelenir.</Text>
+            <Section title="Duyurular, Haberler ve Etkinlikler">
+              <View style={styles.announcementHeader}>
+                <View style={styles.flexOne}>
+                  <Text style={styles.helperText}>Üniversite, fakülte ve bölüm kaynaklarından gelen içerikleri ayrı ayrı takip et.</Text>
+                  <Text style={styles.caption}>{selectedUniversity?.name ?? "Üniversite seçilmedi"}</Text>
+                </View>
+                <View style={styles.announcementCountBadge}>
+                  <Text style={styles.announcementCountValue}>{announcementFeed.length}</Text>
+                  <Text style={styles.announcementCountLabel}>kayıt</Text>
+                </View>
+              </View>
 
-              <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void loadAnnouncements()} disabled={announcements.loading || busy}>
-                <Text style={styles.secondaryButtonText}>Duyuruları Yenile</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.contentFilterRow}>
+                {ANNOUNCEMENT_FILTER_OPTIONS.map((option) => {
+                  const selected = announcementContentFilter === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      style={[styles.contentFilterOption, selected && styles.contentFilterOptionActive]}
+                      onPress={() => setAnnouncementContentFilter(option.value)}
+                    >
+                      <Ionicons name={option.icon} size={17} color={selected ? "#ffffff" : "#475569"} />
+                      <Text style={[styles.contentFilterText, selected && styles.contentFilterTextActive]}>{option.label}</Text>
+                      <Text style={[styles.contentFilterCount, selected && styles.contentFilterCountActive]}>
+                        {announcementContentCounts[option.value]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              <Pressable
+                style={[
+                  styles.button,
+                  styles.secondaryButton,
+                  (!registerUniversityId || announcements.loading || busy) && styles.buttonDisabled
+                ]}
+                onPress={() => void loadAnnouncements()}
+                disabled={!registerUniversityId || announcements.loading || busy}
+              >
+                <Ionicons name="refresh-outline" size={18} color="#1e293b" />
+                <Text style={styles.secondaryButtonText}>Kaynakları Yenile</Text>
               </Pressable>
 
               {announcements.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
-              {announcements.error && <Text style={styles.errorText}>{announcements.error}</Text>}
+              {announcements.error && registerUniversityId && <Text style={styles.errorText}>{announcements.error}</Text>}
 
-              {(announcements.data ?? []).filter(isUniversityAnnouncement).map((item) => (
-                <Pressable key={item.id} style={styles.eventCard} onPress={() => void openAnnouncement(item.link)}>
-                  <Text style={styles.eventCategory}>{item.sourceName}</Text>
-                  <Text style={styles.eventTitle}>{item.title}</Text>
-                  {item.publishedAt && <Text style={styles.caption}>{new Date(item.publishedAt).toLocaleString()}</Text>}
-                  <Text style={styles.linkText}>Kaynağı Aç</Text>
-                </Pressable>
+              {announcementSections.map((section) => (
+                <View key={section.key} style={styles.announcementGroup}>
+                  <View style={styles.announcementGroupHeader}>
+                    <Text style={styles.announcementGroupTitle}>{section.title}</Text>
+                    <Text style={styles.announcementGroupCount}>{section.items.length} kayıt</Text>
+                  </View>
+                  {section.items.map(renderAnnouncementCard)}
+                </View>
               ))}
 
-              {!announcements.loading && (announcements.data ?? []).filter(isUniversityAnnouncement).length === 0 && (
-                <Text style={styles.caption}>Bu üniversite için duyuru bulunamadı.</Text>
+              {!announcements.loading && filteredAnnouncementFeed.length === 0 && (
+                <View style={styles.emptyStatePanel}>
+                  <Ionicons
+                    name={announcementContentFilter === "news" ? "newspaper-outline" : announcementContentFilter === "event" ? "calendar-outline" : "megaphone-outline"}
+                    size={24}
+                    color="#b45309"
+                  />
+                  <Text style={styles.emptyStateTitle}>
+                    {!registerUniversityId
+                      ? "Üniversite seçildiğinde hazır"
+                      : announcementContentFilter === "news"
+                        ? "Henüz haber yok"
+                        : announcementContentFilter === "event"
+                          ? "Henüz etkinlik yok"
+                          : announcementContentFilter === "announcement"
+                            ? "Henüz duyuru yok"
+                            : "Henüz içerik yok"}
+                  </Text>
+                  <Text style={styles.caption}>
+                    {registerUniversityId
+                      ? "Resmi kaynaklar güncellendiğinde yeni içerikler burada listelenecek."
+                      : "Profil sekmesinden üniversiteni seçtiğinde içerikler burada listelenecek."}
+                  </Text>
+                </View>
               )}
             </Section>
           )}
 
           {session && activeTab === "profile" && (
             <>
-              <Section title="Profilim">
-                <View style={styles.sessionInfo}>
-                  <Text style={styles.sessionText}>E-posta: {session.user.email}</Text>
-                  <Text style={styles.sessionText}>Rol: {ROLE_LABELS[session.user.role] ?? session.user.role}</Text>
-                  <Text style={styles.sessionText}>Cihaz: {deviceId || "hazırlanıyor..."}</Text>
-                  <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void handleLogout()} disabled={busy}>
-                    <Text style={styles.secondaryButtonText}>Çıkış Yap</Text>
-                  </Pressable>
+              <Section title="Profil">
+                <View style={styles.profileSummaryPanel}>
+                  <View style={styles.profileAvatar}>
+                    <Ionicons name="person-outline" size={24} color="#0f766e" />
+                  </View>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.profileMetaLabel}>Hesap</Text>
+                    <Text style={styles.profileEmail}>{session.user.email}</Text>
+                    <Text style={styles.caption}>{selectedUniversity?.name ?? "Okul bilgisi seçilmedi"}</Text>
+                  </View>
                 </View>
+
+                <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void handleLogout()} disabled={busy}>
+                  <Ionicons name="log-out-outline" size={18} color="#1e293b" />
+                  <Text style={styles.secondaryButtonText}>Çıkış Yap</Text>
+                </Pressable>
               </Section>
 
-              <Section title="Akademik Profil">
-                <View style={styles.summaryCard}>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryKey}>Üniversite</Text>
-                    <Text style={styles.summaryValue}>{selectedUniversity?.name ?? "Seçilmedi"}</Text>
+              <Section title="Okul Bilgilerim">
+                <Pressable
+                  style={styles.academicCompactCard}
+                  onPress={() => {
+                    setAcademicProfileExpanded((previous) => !previous);
+                    if (!(universities.data ?? []).length) void loadUniversities();
+                  }}
+                  disabled={busy}
+                >
+                  <View style={styles.academicIcon}>
+                    <Ionicons name="school-outline" size={20} color="#2563eb" />
                   </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryKey}>Fakülte</Text>
-                    <Text style={styles.summaryValue}>{selectedFaculty?.name ?? "Seçilmedi"}</Text>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.academicCompactTitle}>{selectedUniversity?.name ?? "Üniversite seç"}</Text>
+                    <Text style={styles.caption}>
+                      {[selectedFaculty?.name, selectedDepartment?.name].filter(Boolean).join(" • ") || "Fakülte ve bölüm isteğe bağlı"}
+                    </Text>
                   </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryKey}>Bölüm</Text>
-                    <Text style={styles.summaryValue}>{selectedDepartment?.name ?? "Seçilmedi"}</Text>
-                  </View>
-                </View>
-
-                <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void loadUniversities()} disabled={universities.loading || busy}>
-                  <Text style={styles.secondaryButtonText}>Üniversiteleri Yenile</Text>
+                  <Ionicons name={academicProfileExpanded ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#64748b" />
                 </Pressable>
+
+                {academicProfileExpanded && (
+                  <View style={styles.profileEditorPanel}>
+                    <Pressable
+                      style={[styles.button, styles.secondaryButton, (universities.loading || academicSelectionPending) && styles.buttonDisabled]}
+                      onPress={() => void loadUniversities()}
+                      disabled={universities.loading || Boolean(academicSelectionPending)}
+                    >
+                      <Ionicons name="refresh-outline" size={18} color="#1e293b" />
+                      <Text style={styles.secondaryButtonText}>Üniversiteleri Yenile</Text>
+                    </Pressable>
 
                 {universities.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
                 {universities.error && <Text style={styles.errorText}>{universities.error}</Text>}
+                {academicSelectionPending && (
+                  <View style={styles.selectionSavingRow}>
+                    <ActivityIndicator size="small" color="#2563eb" />
+                    <Text style={styles.selectionSavingText}>Seçimin kaydediliyor...</Text>
+                  </View>
+                )}
 
                 <View style={styles.selectorGroup}>
                   <Pressable
@@ -1610,7 +2674,7 @@ export default function App() {
                       setRegisterPicker((prev) => (prev === "university" ? "none" : "university"));
                       if (!(universities.data ?? []).length) void loadUniversities();
                     }}
-                    disabled={busy}
+                    disabled={Boolean(academicSelectionPending)}
                   >
                     <Text style={styles.selectorLabel}>Üniversite</Text>
                     <Text style={styles.selectorValue}>{selectedUniversity?.name ?? "Seçmek için dokun"}</Text>
@@ -1629,7 +2693,7 @@ export default function App() {
                           key={university.id}
                           style={[styles.selectorOption, selectedUniversityId === university.id && styles.selectorOptionSelected]}
                           onPress={() => void selectUniversity(university.id)}
-                          disabled={busy}
+                          disabled={Boolean(academicSelectionPending)}
                         >
                           <Text style={styles.universityName}>{university.name}</Text>
                           <Text style={styles.universityMeta}>{university.city} | {UNIVERSITY_TYPE_LABELS[university.type] ?? university.type}</Text>
@@ -1641,7 +2705,7 @@ export default function App() {
                   <Pressable
                     style={[styles.selectorTrigger, !registerUniversityId && styles.selectorTriggerDisabled]}
                     onPress={() => setRegisterPicker((prev) => (prev === "faculty" ? "none" : "faculty"))}
-                    disabled={!registerUniversityId || busy}
+                    disabled={!registerUniversityId || Boolean(academicSelectionPending)}
                   >
                     <Text style={styles.selectorLabel}>Fakülte</Text>
                     <Text style={styles.selectorValue}>{selectedFaculty?.name ?? "Seçmek için dokun"}</Text>
@@ -1661,7 +2725,7 @@ export default function App() {
                           key={faculty.id}
                           style={[styles.selectorOption, registerFacultyId === faculty.id && styles.selectorOptionSelected]}
                           onPress={() => void selectFaculty(faculty.id)}
-                          disabled={busy}
+                          disabled={Boolean(academicSelectionPending)}
                         >
                           <Text style={styles.universityName}>{faculty.name}</Text>
                         </Pressable>
@@ -1672,7 +2736,7 @@ export default function App() {
                   <Pressable
                     style={[styles.selectorTrigger, !registerFacultyId && styles.selectorTriggerDisabled]}
                     onPress={() => setRegisterPicker((prev) => (prev === "department" ? "none" : "department"))}
-                    disabled={!registerFacultyId || busy}
+                    disabled={!registerFacultyId || Boolean(academicSelectionPending)}
                   >
                     <Text style={styles.selectorLabel}>Bölüm</Text>
                     <Text style={styles.selectorValue}>{selectedDepartment?.name ?? "Seçmek için dokun"}</Text>
@@ -1692,58 +2756,84 @@ export default function App() {
                           key={department.id}
                           style={[styles.selectorOption, registerDepartmentId === department.id && styles.selectorOptionSelected]}
                           onPress={() => void selectDepartment(department.id)}
-                          disabled={busy}
+                          disabled={Boolean(academicSelectionPending)}
                         >
                           <Text style={styles.universityName}>{department.name}</Text>
                         </Pressable>
                       ))}
                     </View>
                   )}
-                </View>
+                  </View>
+                  </View>
+                )}
               </Section>
 
-              <Section title="Alarm Ayarları">
-                <Text style={styles.helperText}>Tüm Takvim modu tüm kategorilerde alarm açarken, Seçili Alanlar sadece seçtiklerin için alarm açar.</Text>
-
-                <View style={styles.rowBetween}>
-                  <Text style={styles.label}>Alarmları Etkinleştir</Text>
+              <Section title="Bildirim Tercihleri">
+                <View style={styles.notificationStatusPanel}>
+                  <View style={styles.notificationIcon}>
+                    <Ionicons name="notifications-outline" size={22} color="#b45309" />
+                  </View>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.notificationTitle}>Akademik hatırlatmalar</Text>
+                    <Text style={styles.caption}>Sınav, kayıt ve önemli tarihleri kaçırmamak için bildirimleri aç.</Text>
+                  </View>
                   <Switch value={alarmEnabled} onValueChange={setAlarmEnabled} />
                 </View>
 
-                <View style={styles.row}>
+                <View style={styles.notificationModeGrid}>
                   <Pressable
-                    style={[styles.modeButton, alarmMode === "all_calendar" && styles.modeButtonActive]}
-                    onPress={() => updateAlarmMode("all_calendar")}
+                    style={[styles.notificationModeCard, alarmMode === "all_calendar" && styles.notificationModeCardActive]}
+                    onPress={() => {
+                      updateAlarmMode("all_calendar");
+                      setAlarmCategoriesExpanded(false);
+                    }}
                   >
-                    <Text style={[styles.modeButtonText, alarmMode === "all_calendar" && styles.modeButtonTextActive]}>Tüm Takvim</Text>
+                    <Ionicons name="calendar-outline" size={18} color={alarmMode === "all_calendar" ? "#ffffff" : "#2563eb"} />
+                    <Text style={[styles.notificationModeTitle, alarmMode === "all_calendar" && styles.notificationModeTitleActive]}>Tüm önemli tarihler</Text>
+                    <Text style={[styles.notificationModeText, alarmMode === "all_calendar" && styles.notificationModeTextActive]}>Takvimdeki her kategori</Text>
                   </Pressable>
 
                   <Pressable
-                    style={[styles.modeButton, alarmMode === "selected_fields" && styles.modeButtonActive]}
-                    onPress={() => updateAlarmMode("selected_fields")}
+                    style={[styles.notificationModeCard, alarmMode === "selected_fields" && styles.notificationModeCardActive]}
+                    onPress={() => {
+                      updateAlarmMode("selected_fields");
+                      setAlarmCategoriesExpanded(true);
+                    }}
                   >
-                    <Text style={[styles.modeButtonText, alarmMode === "selected_fields" && styles.modeButtonTextActive]}>Seçili Alanlar</Text>
+                    <Ionicons name="options-outline" size={18} color={alarmMode === "selected_fields" ? "#ffffff" : "#2563eb"} />
+                    <Text style={[styles.notificationModeTitle, alarmMode === "selected_fields" && styles.notificationModeTitleActive]}>Ben seçeyim</Text>
+                    <Text style={[styles.notificationModeText, alarmMode === "selected_fields" && styles.notificationModeTextActive]}>Sadece seçtiğin başlıklar</Text>
                   </Pressable>
                 </View>
 
-                {alarmMode === "selected_fields" && availableCategories.map((category) => (
-                  <View key={category} style={styles.rowBetween}>
-                    <Text style={styles.label}>{toCategoryLabel(category)}</Text>
-                    <Switch
-                      value={Boolean(categoryDraft[category])}
-                      onValueChange={(enabled) => updateCategory(category, enabled)}
-                    />
-                  </View>
-                ))}
+                {alarmMode === "selected_fields" && (
+                  <>
+                    <Pressable style={styles.dropdownHeader} onPress={() => setAlarmCategoriesExpanded((previous) => !previous)}>
+                      <View style={styles.flexOne}>
+                        <Text style={styles.dropdownTitle}>Bildirim kategorileri</Text>
+                        <Text style={styles.caption}>{availableCategories.filter((category) => Boolean(categoryDraft[category])).length} kategori seçili</Text>
+                      </View>
+                      <Ionicons name={alarmCategoriesExpanded ? "chevron-up-outline" : "chevron-down-outline"} size={20} color="#64748b" />
+                    </Pressable>
+
+                    {alarmCategoriesExpanded && (
+                      <View style={styles.categoryListPanel}>
+                        {availableCategories.map((category) => (
+                          <View key={category} style={styles.categoryToggleRow}>
+                            <Text style={styles.categoryToggleLabel}>{toCategoryLabel(category)}</Text>
+                            <Switch
+                              value={Boolean(categoryDraft[category])}
+                              onValueChange={(enabled) => updateCategory(category, enabled)}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </>
+                )}
 
                 <Pressable style={[styles.button, styles.primaryButton]} onPress={() => void saveAlarmSettings()} disabled={busy}>
-                  <Text style={styles.primaryButtonText}>Alarm Ayarlarını Kaydet</Text>
-                </Pressable>
-              </Section>
-
-              <Section title="Cihaz Bildirimleri">
-                <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void registerDevice()} disabled={busy}>
-                  <Text style={styles.secondaryButtonText}>Cihazı Bildirim İçin Kaydet</Text>
+                  <Text style={styles.primaryButtonText}>Bildirim Tercihlerini Kaydet</Text>
                 </Pressable>
               </Section>
             </>
@@ -1755,7 +2845,9 @@ export default function App() {
             {([
               { id: "home" as TabId, label: "Ana Sayfa", icon: "home" },
               { id: "calendar" as TabId, label: "Takvim", icon: "calendar" },
-              { id: "announcements" as TabId, label: "Duyurular", icon: "notifications" },
+              { id: "summer" as TabId, label: "Yaz Okulu", icon: "sunny" },
+              { id: "yok" as TabId, label: "YÖK", icon: "newspaper" },
+              { id: "announcements" as TabId, label: "Gündem", icon: "sparkles" },
               { id: "profile" as TabId, label: "Profil", icon: "person" },
             ]).map(({ id, label, icon }) => {
               const active = activeTab === id;
@@ -1795,7 +2887,7 @@ const styles = StyleSheet.create({
     gap: 14
   },
   containerWithNav: {
-    paddingBottom: 106
+    paddingBottom: 142
   },
   authHero: {
     marginTop: 8,
@@ -1810,12 +2902,95 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 26,
     fontWeight: "800",
-    letterSpacing: -0.5
+    letterSpacing: 0
   },
   authHeroSubtitle: {
     color: "rgba(255,255,255,0.75)",
     lineHeight: 20,
     fontWeight: "500"
+  },
+  homeHero: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#99f6e4",
+    backgroundColor: "#ecfdf5",
+    padding: 16,
+    gap: 14
+  },
+  homeHeroEyebrow: {
+    color: "#0f766e",
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  homeHeroTitle: {
+    color: "#0f172a",
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: 0
+  },
+  homeHeroSubtitle: {
+    color: "#334155",
+    lineHeight: 20,
+    marginTop: 4
+  },
+  homeHeroIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#ccfbf1",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  homeStatsRow: {
+    flexDirection: "row",
+    gap: 8
+  },
+  homeStatItem: {
+    flex: 1,
+    minHeight: 64,
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#d1fae5",
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    justifyContent: "center"
+  },
+  homeStatValue: {
+    color: "#0f766e",
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  homeStatLabel: {
+    color: "#475569",
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  quickActionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10
+  },
+  quickActionCard: {
+    flexGrow: 1,
+    width: "48%",
+    minHeight: 104,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    backgroundColor: "#ffffff",
+    padding: 14,
+    gap: 7,
+    justifyContent: "center"
+  },
+  quickActionTitle: {
+    color: "#111827",
+    fontWeight: "900"
+  },
+  quickActionText: {
+    color: "#64748b",
+    fontSize: 12,
+    lineHeight: 17
   },
   messageBox: {
     borderRadius: 14,
@@ -1848,7 +3023,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "800",
     color: "#111827",
-    letterSpacing: -0.3
+    letterSpacing: 0
   },
   helperText: {
     color: "#475569",
@@ -1865,7 +3040,16 @@ const styles = StyleSheet.create({
     fontWeight: "600"
   },
   caption: {
-    color: "#94a3b8"
+    color: "#64748b",
+    lineHeight: 19
+  },
+  fieldGroup: {
+    gap: 6
+  },
+  fieldLabel: {
+    color: "#1e293b",
+    fontSize: 13,
+    fontWeight: "800"
   },
   input: {
     borderColor: "#e2e8f0",
@@ -1882,7 +3066,15 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    gap: 8
+  },
+  buttonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8
   },
   buttonDisabled: {
     opacity: 0.5
@@ -1895,7 +3087,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "700",
     fontSize: 15,
-    letterSpacing: -0.1
+    letterSpacing: 0
   },
   googleButton: {
     backgroundColor: "#ffffff",
@@ -1956,6 +3148,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8
   },
+  flexOne: {
+    flex: 1
+  },
   modeButton: {
     flex: 1,
     borderRadius: 999,
@@ -1989,6 +3184,153 @@ const styles = StyleSheet.create({
   sessionText: {
     color: "#1e293b"
   },
+  profileSummaryPanel: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#d1fae5",
+    backgroundColor: "#ecfdf5",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  profileAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#ccfbf1",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  profileMetaLabel: {
+    color: "#0f766e",
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  profileEmail: {
+    color: "#0f172a",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  academicCompactCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    backgroundColor: "#eff6ff",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  academicIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#dbeafe",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  academicCompactTitle: {
+    color: "#111827",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  profileEditorPanel: {
+    gap: 10
+  },
+  notificationStatusPanel: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#fed7aa",
+    backgroundColor: "#fff7ed",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  notificationIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#ffedd5",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  notificationTitle: {
+    color: "#111827",
+    fontWeight: "900"
+  },
+  notificationModeGrid: {
+    flexDirection: "row",
+    gap: 10
+  },
+  notificationModeCard: {
+    flex: 1,
+    minHeight: 104,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: "#dbeafe",
+    backgroundColor: "#ffffff",
+    padding: 12,
+    gap: 7,
+    justifyContent: "center"
+  },
+  notificationModeCardActive: {
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb"
+  },
+  notificationModeTitle: {
+    color: "#111827",
+    fontWeight: "900",
+    fontSize: 13
+  },
+  notificationModeTitleActive: {
+    color: "#ffffff"
+  },
+  notificationModeText: {
+    color: "#64748b",
+    fontSize: 12,
+    lineHeight: 16
+  },
+  notificationModeTextActive: {
+    color: "#dbeafe"
+  },
+  dropdownHeader: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  dropdownTitle: {
+    color: "#111827",
+    fontWeight: "900"
+  },
+  categoryListPanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+    padding: 10,
+    gap: 8
+  },
+  categoryToggleRow: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  categoryToggleLabel: {
+    flex: 1,
+    color: "#1e293b",
+    fontWeight: "700",
+    lineHeight: 18
+  },
   loader: {
     marginVertical: 8
   },
@@ -2020,6 +3362,22 @@ const styles = StyleSheet.create({
   selectorGroup: {
     gap: 10
   },
+  selectionSavingRow: {
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9
+  },
+  selectionSavingText: {
+    color: "#1d4ed8",
+    fontSize: 13,
+    fontWeight: "800"
+  },
   selectorTrigger: {
     borderRadius: 14,
     borderWidth: 1.5,
@@ -2036,7 +3394,7 @@ const styles = StyleSheet.create({
     color: "#64748b",
     fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.5,
+    letterSpacing: 0,
     textTransform: "uppercase"
   },
   selectorValue: {
@@ -2064,6 +3422,26 @@ const styles = StyleSheet.create({
   selectorOptionSelected: {
     borderColor: "#5c6ef0",
     backgroundColor: "#eef0fd"
+  },
+  selectorCalendarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  selectAllCalendarsButton: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#99f6e4",
+    backgroundColor: "#f0fdfa",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10
+  },
+  selectAllCalendarsText: {
+    color: "#0f766e",
+    fontSize: 12,
+    fontWeight: "800"
   },
   inlineInfoCard: {
     borderRadius: 14,
@@ -2094,7 +3472,7 @@ const styles = StyleSheet.create({
     color: "#111827",
     fontSize: 18,
     fontWeight: "800",
-    letterSpacing: -0.3
+    letterSpacing: 0
   },
   verificationSubtitle: {
     color: "#475569",
@@ -2141,11 +3519,232 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 4
   },
+  calendarMiniGrid: {
+    flexDirection: "row",
+    gap: 10
+  },
+  calendarMiniCard: {
+    flex: 1,
+    minHeight: 72,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    backgroundColor: "#eff6ff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: "center"
+  },
+  calendarMiniValue: {
+    color: "#1d4ed8",
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  calendarMiniLabel: {
+    color: "#475569",
+    fontSize: 12,
+    fontWeight: "800"
+  },
   cardTitle: {
     fontSize: 16,
     fontWeight: "800",
     color: "#111827",
-    letterSpacing: -0.2
+    letterSpacing: 0
+  },
+  calendarConnectionHero: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+    backgroundColor: "#f0f9ff",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  calendarConnectionNote: {
+    color: "#475569",
+    fontSize: 13,
+    lineHeight: 19
+  },
+  calendarErrorPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#fecdd3",
+    backgroundColor: "#fff1f2",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8
+  },
+  calendarErrorText: {
+    flex: 1,
+    color: "#9f1239",
+    fontWeight: "700",
+    lineHeight: 19
+  },
+  calendarProviderGrid: {
+    gap: 8
+  },
+  calendarProviderCard: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4
+  },
+  calendarProviderCardConnected: {
+    borderColor: "#99f6e4",
+    backgroundColor: "#f0fdfa"
+  },
+  calendarProviderTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8
+  },
+  calendarProviderTitle: {
+    flex: 1,
+    color: "#1e293b",
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  calendarProviderDetail: {
+    color: "#64748b",
+    fontSize: 12,
+    lineHeight: 17
+  },
+  calendarDetailsPanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+    padding: 12,
+    gap: 12
+  },
+  nativeCalendarPanel: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+    backgroundColor: "#f0f9ff",
+    padding: 14,
+    gap: 12
+  },
+  calendarPanelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  calendarPanelIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ccfbf1",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  calendarExplainPanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+    backgroundColor: "#ffffff",
+    padding: 12,
+    gap: 10
+  },
+  calendarExplainStep: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10
+  },
+  calendarExplainNumber: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#0f766e",
+    color: "#ffffff",
+    textAlign: "center",
+    lineHeight: 24,
+    fontWeight: "900"
+  },
+  calendarExplainText: {
+    flex: 1,
+    color: "#334155",
+    lineHeight: 19
+  },
+  calendarSyncSummary: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+    backgroundColor: "#f0fdf4",
+    padding: 12,
+    gap: 5
+  },
+  calendarSyncSummaryLabel: {
+    color: "#166534",
+    fontWeight: "800"
+  },
+  calendarSyncSummaryValue: {
+    color: "#166534",
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  calendarSyncWarning: {
+    color: "#92400e",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700"
+  },
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5
+  },
+  statusPillSuccess: {
+    backgroundColor: "#dcfce7"
+  },
+  statusPillNeutral: {
+    backgroundColor: "#e2e8f0"
+  },
+  statusPillText: {
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  statusPillTextSuccess: {
+    color: "#166534"
+  },
+  statusPillTextNeutral: {
+    color: "#475569"
+  },
+  nativeCalendarActions: {
+    gap: 8
+  },
+  nativeCalendarReminderGroup: {
+    gap: 8
+  },
+  reminderOption: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8
+  },
+  reminderOptionActive: {
+    backgroundColor: "#5c6ef0",
+    borderColor: "#5c6ef0"
+  },
+  reminderOptionText: {
+    color: "#64748b",
+    fontWeight: "700",
+    fontSize: 12,
+    textAlign: "center"
+  },
+  reminderOptionTextActive: {
+    color: "#ffffff"
   },
   eventCard: {
     borderRadius: 14,
@@ -2157,30 +3756,221 @@ const styles = StyleSheet.create({
     padding: 13,
     gap: 5
   },
+  focusCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+    backgroundColor: "#f0fdf4",
+    padding: 14,
+    gap: 7
+  },
+  emptyStatePanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    padding: 14,
+    gap: 6,
+    alignItems: "flex-start"
+  },
+  emptyStateTitle: {
+    color: "#111827",
+    fontWeight: "900"
+  },
+  eventHighlightRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#fed7aa",
+    backgroundColor: "#fff7ed",
+    padding: 12
+  },
+  eventDateBadge: {
+    width: 58,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: "#ffedd5",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6
+  },
+  eventDateBadgeText: {
+    color: "#9a3412",
+    fontWeight: "900",
+    textAlign: "center",
+    fontSize: 12
+  },
   eventCategory: {
     color: "#5c6ef0",
     fontWeight: "700",
     fontSize: 11,
-    letterSpacing: 0.5,
+    letterSpacing: 0,
     textTransform: "uppercase"
   },
   eventTitle: {
     color: "#111827",
     fontSize: 15,
-    fontWeight: "700"
+    fontWeight: "700",
+    lineHeight: 21
   },
   countdownBadge: {
+    alignSelf: "flex-start",
     borderRadius: 999,
     backgroundColor: "#eef0fd",
     color: "#4554e0",
     fontWeight: "800",
+    fontSize: 13,
     paddingHorizontal: 10,
     paddingVertical: 4,
     overflow: "hidden"
   },
   linkText: {
-    color: "#5c6ef0",
+    color: "#2563eb",
     fontWeight: "800"
+  },
+  announcementHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  announcementCountBadge: {
+    minWidth: 76,
+    borderRadius: 14,
+    backgroundColor: "#fff7ed",
+    borderWidth: 1,
+    borderColor: "#fed7aa",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignItems: "center"
+  },
+  announcementCountValue: {
+    color: "#b45309",
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  announcementCountLabel: {
+    color: "#92400e",
+    fontSize: 11,
+    fontWeight: "700"
+  },
+  contentFilterRow: {
+    gap: 8,
+    paddingVertical: 2
+  },
+  contentFilterOption: {
+    minHeight: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 11
+  },
+  contentFilterOptionActive: {
+    borderColor: "#5c6ef0",
+    backgroundColor: "#5c6ef0"
+  },
+  contentFilterText: {
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  contentFilterTextActive: {
+    color: "#ffffff"
+  },
+  contentFilterCount: {
+    minWidth: 22,
+    borderRadius: 7,
+    backgroundColor: "#f1f5f9",
+    color: "#475569",
+    overflow: "hidden",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    textAlign: "center",
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  contentFilterCountActive: {
+    backgroundColor: "#ffffff",
+    color: "#4554e0"
+  },
+  announcementGroup: {
+    gap: 10,
+    marginTop: 16
+  },
+  announcementGroupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+    paddingBottom: 8
+  },
+  announcementGroupTitle: {
+    color: "#1e293b",
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  announcementGroupCount: {
+    flexShrink: 0,
+    borderRadius: 999,
+    backgroundColor: "#eef2ff",
+    color: "#3730a3",
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  announcementCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+    padding: 14,
+    gap: 8
+  },
+  announcementTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8
+  },
+  announcementSourcePill: {
+    flexShrink: 1,
+    borderRadius: 999,
+    backgroundColor: "#eef2ff",
+    color: "#3730a3",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  announcementDate: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  announcementTitle: {
+    color: "#111827",
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 22
+  },
+  announcementSummary: {
+    color: "#475569",
+    lineHeight: 20
+  },
+  announcementActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5
   },
   label: {
     color: "#1e293b",
@@ -2195,6 +3985,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 12
   },
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center"
+  },
   secondaryOutline: {
     borderWidth: 1.5,
     borderColor: "#e2e8f0"
@@ -2205,25 +4005,26 @@ const styles = StyleSheet.create({
   },
   bottomNavShell: {
     position: "absolute",
-    left: 12,
-    right: 12,
+    left: 8,
+    right: 8,
     bottom: 16,
-    borderRadius: 28,
+    borderRadius: 24,
     backgroundColor: "#ffffff",
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 6,
+    gap: 3,
+    paddingHorizontal: 5,
     paddingVertical: 6,
     elevation: 12
   },
   bottomNavItem: {
     flex: 1,
-    borderRadius: 20,
+    minHeight: 58,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 2,
     gap: 2
   },
   bottomNavItemActive: {
@@ -2231,10 +4032,11 @@ const styles = StyleSheet.create({
   },
   bottomNavLabel: {
     color: "#94a3b8",
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "600",
     textAlign: "center",
-    letterSpacing: 0.2
+    lineHeight: 11,
+    letterSpacing: 0
   },
   bottomNavLabelActive: {
     color: "#ffffff",

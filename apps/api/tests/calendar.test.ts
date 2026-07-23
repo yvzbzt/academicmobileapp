@@ -147,6 +147,33 @@ describe("CalendarService", () => {
     }));
   });
 
+  it("creates mobile calendar subscription links and a tokenized ICS feed", async () => {
+    const { authRepository, session } = await createStudentWithUniversity();
+    const calendarRepository = await createSeededCalendarRepository();
+    const service = new CalendarService(calendarRepository, authRepository);
+
+    const links = await service.getMyCalendarIntegrationLinks(session.user.id, "https://api.example.test/");
+    const token = links.feedUrl.match(/\/calendar\/integrations\/feed\/(.+)\.ics$/u)?.[1];
+
+    expect(links.feedUrl).toMatch(/^https:\/\/api\.example\.test\/calendar\/integrations\/feed\/.+\.ics$/u);
+    expect(links.webcalUrl).toBe(links.feedUrl.replace(/^https:/u, "webcal:"));
+    expect(links.appleSubscribeUrl).toBe(links.webcalUrl);
+    expect(links.googleSubscribeUrl).toContain(encodeURIComponent(links.feedUrl));
+    expect(token).toBeTruthy();
+
+    const feed = await service.getMyCalendarFeedByToken(token!);
+
+    expect(feed.contentType).toBe("text/calendar; charset=utf-8");
+    expect(feed.content).toContain("BEGIN:VCALENDAR");
+    expect(feed.content).toContain("BEGIN:VEVENT");
+    expect(feed.content).toContain("SUMMARY:Guz Donemi Ders Kayitlari");
+    expect(feed.content).toContain("SUMMARY:Bilgisayar Muhendisligi Ders Programi");
+    expect(feed.content).toContain("SUMMARY:Bilgisayar Muhendisligi Sinav Programi");
+    expect(feed.content).toContain("SUMMARY:Yaz Okulu");
+    expect(feed.content).not.toContain("Baska Bolum Ders Programi");
+    expect(feed.content).not.toContain("Diger Fakulteler Ara Sinav Takvimi");
+  });
+
   it("filters public event search by category", async () => {
     const calendarRepository = await createSeededCalendarRepository();
     const service = new CalendarService(calendarRepository, new InMemoryAuthRepository());
@@ -176,8 +203,31 @@ describe("CalendarService", () => {
         academicYear: otherCalendar.academicYear,
         term: "summer",
         category: "summer_school_registration",
-        title: "Bilgisayar Mühendisliği Yaz Okulu ders kayıtları",
+        title: "Yaz Okulu genel ders kayitlari",
         startDate: new Date("2026-07-08T00:00:00.000Z"),
+        timezone: "Europe/Istanbul",
+        confidenceScore: 92,
+        status: "published",
+        notificationRules: []
+      }
+    ]);
+    const otherDepartmentCalendar = await calendarRepository.createCalendar({
+      universityId: "sample-university-3",
+      academicYear: "2025-2026",
+      title: "2025-2026 Yaz Okulu Takvimi",
+      status: "published",
+      version: 1,
+      publishedAt: new Date()
+    });
+    await calendarRepository.createEvents([
+      {
+        calendarId: otherDepartmentCalendar.id,
+        universityId: otherDepartmentCalendar.universityId,
+        academicYear: otherDepartmentCalendar.academicYear,
+        term: "summer",
+        category: "summer_school_registration",
+        title: "Yaz Okulu genel ders kayitlari",
+        startDate: new Date("2026-07-09T00:00:00.000Z"),
         timezone: "Europe/Istanbul",
         confidenceScore: 92,
         status: "published",
@@ -256,10 +306,18 @@ describe("CalendarService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           universityId: "sample-university-2",
-          universityName: "Örnek Teknik Üniversitesi"
+          universityName: "Örnek Teknik Üniversitesi",
+          matchingDepartments: expect.arrayContaining([
+            expect.objectContaining({
+              departmentId: "sample-department-2",
+              departmentName: "Bilgisayar Muhendisligi",
+              facultyName: "Muhendislik Fakultesi"
+            })
+          ])
         })
       ])
     );
+    expect(response.sameDepartmentOptions.some((option) => option.universityId === "sample-university-3")).toBe(false);
   });
 });
 
@@ -425,6 +483,16 @@ function createCatalogRepository(): CatalogRepository {
       status: "active",
       createdAt: now,
       updatedAt: now
+    },
+    {
+      id: "sample-university-3",
+      name: "Baska Teknik Universitesi",
+      slug: "baska-teknik-universitesi",
+      city: "IZMIR",
+      type: "state",
+      status: "active",
+      createdAt: now,
+      updatedAt: now
     }
   ];
   const faculties: FacultyRecord[] = [
@@ -432,6 +500,24 @@ function createCatalogRepository(): CatalogRepository {
       id: "sample-faculty-1",
       universityId: "sample-university-1",
       name: "Mühendislik Fakültesi",
+      slug: "muhendislik-fakultesi",
+      status: "active",
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: "sample-faculty-2",
+      universityId: "sample-university-2",
+      name: "Muhendislik Fakultesi",
+      slug: "muhendislik-fakultesi",
+      status: "active",
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: "sample-faculty-3",
+      universityId: "sample-university-3",
+      name: "Muhendislik Fakultesi",
       slug: "muhendislik-fakultesi",
       status: "active",
       createdAt: now,
@@ -445,6 +531,28 @@ function createCatalogRepository(): CatalogRepository {
       facultyId: "sample-faculty-1",
       name: "Bilgisayar Mühendisliği",
       slug: "bilgisayar-muhendisligi",
+      educationLevel: "bachelor",
+      status: "active",
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: "sample-department-2",
+      universityId: "sample-university-2",
+      facultyId: "sample-faculty-2",
+      name: "Bilgisayar Muhendisligi",
+      slug: "bilgisayar-muhendisligi",
+      educationLevel: "bachelor",
+      status: "active",
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: "sample-department-3",
+      universityId: "sample-university-3",
+      facultyId: "sample-faculty-3",
+      name: "Makine Muhendisligi",
+      slug: "makine-muhendisligi",
       educationLevel: "bachelor",
       status: "active",
       createdAt: now,

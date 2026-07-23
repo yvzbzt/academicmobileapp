@@ -1,3 +1,4 @@
+import { Type } from "class-transformer";
 import { IsArray, IsBooleanString, IsEnum, IsInt, IsOptional, IsString, IsUrl, Matches, Max, Min, MinLength } from "class-validator";
 import type { CatalogStatus, EducationLevel, UniversityType } from "./catalog.types.js";
 
@@ -11,12 +12,14 @@ export class ListUniversitiesQueryDto {
   search?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(500)
   limit?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   offset?: number;

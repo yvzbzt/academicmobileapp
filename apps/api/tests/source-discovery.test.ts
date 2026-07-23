@@ -14,8 +14,8 @@ describe("AcademicSourceDiscoveryService", () => {
 
     expect(sources.length).toBeGreaterThan(0);
     expect(acibadem).toEqual(expect.objectContaining({
-      announcementUrl: "https://acibadem.edu.tr/duyurular",
-      calendarUrl: expect.stringContaining(".pdf")
+      announcementUrl: "https://www.acibadem.edu.tr/duyurular",
+      calendarUrl: "https://www.acibadem.edu.tr/ogrenci/ogrenci-isleri/akademik-takvim"
     }));
     expect(agri?.calendarUrl).toContain("2025-2026");
     expect(ankara).toEqual(expect.objectContaining({

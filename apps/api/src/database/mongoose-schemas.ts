@@ -65,6 +65,7 @@ emailVerificationTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, na
 
 export const universitySchema = new Schema(
   {
+    _id: { type: String, required: true },
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, trim: true },
     city: { type: String, required: true, trim: true, index: true },
@@ -85,6 +86,7 @@ universitySchema.index({ emailDomains: 1 }, { name: "universities_email_domains"
 
 export const facultySchema = new Schema(
   {
+    _id: { type: String, required: true },
     universityId: { type: String, required: true, index: true },
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true },
@@ -99,6 +101,7 @@ facultySchema.index({ universityId: 1, slug: 1 }, { unique: true, name: "faculti
 
 export const departmentSchema = new Schema(
   {
+    _id: { type: String, required: true },
     universityId: { type: String, required: true, index: true },
     facultyId: { type: String, required: true, index: true },
     name: { type: String, required: true, trim: true },
@@ -121,6 +124,7 @@ export const announcementSourceSchema = new Schema(
     scopeId: { type: String, required: true, index: true },
     sourceName: { type: String, required: true, trim: true },
     sourceUrl: { type: String, required: true, trim: true },
+    contentType: { type: String, required: false, enum: ["announcement", "news", "event"], default: "announcement", index: true },
     parser: { type: String, required: true, enum: ["auto", "rss", "html"], default: "auto" },
     priority: { type: Number, required: true, default: 10 },
     status: { type: String, required: true, enum: ["active", "inactive"], default: "active", index: true },
@@ -143,6 +147,7 @@ export const announcementItemSchema = new Schema(
   {
     sourceId: { type: String, required: true, index: true },
     sourceName: { type: String, required: true, trim: true },
+    contentType: { type: String, required: false, enum: ["announcement", "news", "event"], default: "announcement", index: true },
     scopeType: { type: String, required: true, enum: ["university", "faculty", "department"], index: true },
     scopeId: { type: String, required: true, index: true },
     title: { type: String, required: true, trim: true },

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity } from "../src/modules/announcements/announcement-ingestion.service.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
-import { parseHtmlAnchors } from "../src/modules/announcements/announcement-parser.js";
+import { fetchSourceItems, parseHtmlAnchors } from "../src/modules/announcements/announcement-parser.js";
 import { AnnouncementsService } from "../src/modules/announcements/announcements.service.js";
 import type { AuthRepository, AuthUserRecord } from "../src/modules/auth/auth.types.js";
 import type { CatalogRepository, UniversityRecord } from "../src/modules/catalog/catalog.types.js";
@@ -59,7 +59,39 @@ describe("announcement discovery and ingestion", () => {
     expect(items[0]).toEqual(expect.objectContaining({ sourceId: source.id, title: "Yeni öğrenci duyurusu" }));
   });
 
-  it("returns only university announcements in the student announcement feed", async () => {
+  it("loads ATU hash-route announcements from the university OData service", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      if (url.pathname.endsWith("/Siteler")) {
+        expect(url.searchParams.get("$filter")).toContain("AlanAdi eq 'www'");
+        return Response.json({ d: [{ ID: 1 }] });
+      }
+      if (url.pathname.endsWith("/V_GuncelIcerik")) {
+        expect(url.searchParams.get("$filter")).toContain("GrupTipi eq 2");
+        return Response.json({
+          d: [{
+            GuID: "ede0278f-9f26-4b6a-96e5-ee10c516ba27",
+            Baslik: "2026-2027 Egitim-Ogretim Yili Yatay Gecis Duyurusu",
+            AltBaslik: "Basvurular acildi.",
+            HTMLicerik: '<a href="https://ogrenci.atu.edu.tr/#!/duyuru/d98b041b-e0f2-4704-bd22-b51944c1ea47">Detay</a>',
+            BaslamaTarihi: "/Date(1783641600000)/"
+          }]
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }));
+
+    const items = await fetchSourceItems("https://www.atu.edu.tr/#!/TR/duyurular/", "auto", 1000);
+
+    expect(items).toEqual([expect.objectContaining({
+      title: "2026-2027 Egitim-Ogretim Yili Yatay Gecis Duyurusu",
+      link: "https://ogrenci.atu.edu.tr/#!/duyuru/d98b041b-e0f2-4704-bd22-b51944c1ea47",
+      summary: "Basvurular acildi.",
+      publishedAt: new Date(1783641600000)
+    })]);
+  });
+
+  it("returns university, faculty, and department announcements in the student announcement feed", async () => {
     const repository = new InMemoryAnnouncementRepository();
     const fetchedAt = new Date().toISOString();
     const universitySource = await repository.upsertSource({
@@ -125,12 +157,24 @@ describe("announcement discovery and ingestion", () => {
 
     const result = await service.getMyAnnouncements("student-1", 10);
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual(expect.objectContaining({
-      scopeType: "university",
-      scopeId: sampleUniversity.id,
-      title: "University registration announcement"
-    }));
+    expect(result).toHaveLength(3);
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scopeType: "university",
+        scopeId: sampleUniversity.id,
+        title: "University registration announcement"
+      }),
+      expect.objectContaining({
+        scopeType: "faculty",
+        scopeId: "faculty-1",
+        title: "Faculty orientation announcement"
+      }),
+      expect.objectContaining({
+        scopeType: "department",
+        scopeId: "department-1",
+        title: "Department exam announcement"
+      })
+    ]));
   });
 
   it("prefers leading listing dates over later deadline dates", () => {

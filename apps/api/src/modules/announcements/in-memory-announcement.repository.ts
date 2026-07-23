@@ -52,7 +52,7 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
   }
 
   async replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[]): Promise<void> {
-    this.items.set(source.id, items.map((item) => ({ ...item, sourceId: source.id, sourceName: source.sourceName, scopeType: source.scopeType, scopeId: source.scopeId })));
+    this.items.set(source.id, items.map((item) => ({ ...item, sourceId: source.id, sourceName: source.sourceName, contentType: item.contentType ?? source.contentType ?? "announcement", scopeType: source.scopeType, scopeId: source.scopeId })));
   }
 
   async listItemsByScope(input: { universityId: string; facultyId?: string; departmentId?: string; limit: number }): Promise<AnnouncementItem[]> {

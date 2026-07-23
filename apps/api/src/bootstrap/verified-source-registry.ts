@@ -5,6 +5,8 @@ export interface VerifiedUniversitySource {
   universityName: string;
   city?: string;
   announcementUrl?: string;
+  newsUrl?: string;
+  eventUrl?: string;
   calendarUrl?: string;
   summerSchoolUrl?: string;
 }
@@ -19,6 +21,8 @@ export interface VerifiedAcademicUnitSource {
   departmentName?: string;
   websiteUrl?: string;
   announcementUrl?: string;
+  newsUrl?: string;
+  eventUrl?: string;
   courseScheduleUrl?: string;
   examScheduleUrl?: string;
 }
@@ -28,6 +32,8 @@ interface RawVerifiedUniversitySource {
   universityName?: unknown;
   city?: unknown;
   announcementUrl?: unknown;
+  newsUrl?: unknown;
+  eventUrl?: unknown;
   calendarUrl?: unknown;
   summerSchoolUrl?: unknown;
 }
@@ -42,6 +48,8 @@ interface RawVerifiedAcademicUnitSource {
   departmentName?: unknown;
   websiteUrl?: unknown;
   announcementUrl?: unknown;
+  newsUrl?: unknown;
+  eventUrl?: unknown;
   courseScheduleUrl?: unknown;
   examScheduleUrl?: unknown;
 }
@@ -127,6 +135,8 @@ function normalizeVerifiedSource(input: RawVerifiedUniversitySource): VerifiedUn
   const universityName = readString(input.universityName) ?? universityId;
   const city = readString(input.city);
   const announcementUrl = readUrl(input.announcementUrl);
+  const newsUrl = readUrl(input.newsUrl);
+  const eventUrl = readUrl(input.eventUrl);
   const calendarUrl = readUrl(input.calendarUrl);
   const summerSchoolUrl = readUrl(input.summerSchoolUrl);
 
@@ -135,6 +145,8 @@ function normalizeVerifiedSource(input: RawVerifiedUniversitySource): VerifiedUn
     universityName,
     ...(city ? { city } : {}),
     ...(announcementUrl ? { announcementUrl } : {}),
+    ...(newsUrl ? { newsUrl } : {}),
+    ...(eventUrl ? { eventUrl } : {}),
     ...(calendarUrl ? { calendarUrl } : {}),
     ...(summerSchoolUrl ? { summerSchoolUrl } : {})
   };
@@ -154,9 +166,11 @@ function normalizeAcademicUnitSource(input: RawVerifiedAcademicUnitSource): Veri
   const departmentName = readString(input.departmentName);
   const websiteUrl = readUrl(input.websiteUrl);
   const announcementUrl = readUrl(input.announcementUrl);
+  const newsUrl = readUrl(input.newsUrl);
+  const eventUrl = readUrl(input.eventUrl);
   const courseScheduleUrl = scopeType === "department" ? readUrl(input.courseScheduleUrl) : undefined;
   const examScheduleUrl = scopeType === "department" ? readUrl(input.examScheduleUrl) : undefined;
-  if (!websiteUrl && !announcementUrl && !courseScheduleUrl && !examScheduleUrl) return null;
+  if (!websiteUrl && !announcementUrl && !newsUrl && !eventUrl && !courseScheduleUrl && !examScheduleUrl) return null;
 
   return {
     scopeType,
@@ -168,6 +182,8 @@ function normalizeAcademicUnitSource(input: RawVerifiedAcademicUnitSource): Veri
     ...(departmentName ? { departmentName } : {}),
     ...(websiteUrl ? { websiteUrl } : {}),
     ...(announcementUrl ? { announcementUrl } : {}),
+    ...(newsUrl ? { newsUrl } : {}),
+    ...(eventUrl ? { eventUrl } : {}),
     ...(courseScheduleUrl ? { courseScheduleUrl } : {}),
     ...(examScheduleUrl ? { examScheduleUrl } : {})
   };

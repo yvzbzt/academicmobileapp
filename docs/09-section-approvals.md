@@ -42,8 +42,8 @@ Tests: 17 passed
 Covered scenarios:
 
 - Numeric date normalization: `01.10.2026`, `01/10/2026`, `01-10-2026`.
-- Turkish textual date normalization: `1 Ekim 2026`.
-- Date range normalization: `01-05 Ekim 2026`, `30 Eylül - 04 Ekim 2026`.
+- Turkish textual date normalization: source text equivalent to `1 October 2026`.
+- Date range normalization: `01-05 October 2026`, `30 September - 04 October 2026`.
 - Academic year and term detection.
 - Category mapping for course registration, midterm, final and makeup exams.
 - Confidence band behavior for high and low quality events.

@@ -517,6 +517,18 @@ select:focus-visible {
   background: var(--surface-0);
 }
 
+.calendarIntegrationGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.calendarIntegrationGrid .btn {
+  width: 100%;
+  padding-inline: 12px;
+}
+
 /* ── Event items ────────────────────────────────────────────── */
 .eventItem {
   display: grid;
@@ -597,6 +609,46 @@ select:focus-visible {
 
 .announcementItem {
   align-items: start;
+}
+
+.announcementGroupedList {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.announcementGroup {
+  display: grid;
+  gap: 10px;
+}
+
+.announcementGroup .eventList {
+  margin-top: 0;
+}
+
+.announcementGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--ink-100);
+  padding-bottom: 8px;
+}
+
+.announcementGroupHeader strong {
+  color: var(--ink-800);
+  font-size: 14px;
+}
+
+.announcementGroupHeader span {
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: var(--surface-dim);
+  color: var(--brand-700);
+  border: 1px solid var(--brand-100);
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .announcementItem p {
@@ -854,7 +906,7 @@ select:focus-visible {
   .settingsGrid { grid-template-columns: 1fr; }
   .decisionGrid { grid-template-columns: 1fr; }
   .studentNav { grid-template-columns: 1fr 1fr; border-radius: var(--r-md); }
-  .actionGrid, .profileStrip { grid-template-columns: 1fr; }
+  .actionGrid, .profileStrip, .calendarIntegrationGrid { grid-template-columns: 1fr; }
   .eventItem, .announcementItem { grid-template-columns: 4px 1fr; }
   .eventItem time, .announcementItem time, .announcementItem .sourceLink { grid-column: 2; grid-row: auto; justify-self: start; text-align: left; }
   .sectionTitle { flex-wrap: wrap; }

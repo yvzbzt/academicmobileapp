@@ -1,4 +1,5 @@
 export type AnnouncementScopeType = "university" | "faculty" | "department";
+export type AnnouncementContentType = "announcement" | "news" | "event";
 export type AnnouncementSourceParser = "auto" | "rss" | "html";
 export type AnnouncementSourceStatus = "active" | "inactive";
 export type AnnouncementSourceHealthStatus = "pending" | "healthy" | "degraded" | "failed";
@@ -16,6 +17,7 @@ export interface AnnouncementSourceRecord {
   scopeId: string;
   sourceName: string;
   sourceUrl: string;
+  contentType?: AnnouncementContentType;
   parser: AnnouncementSourceParser;
   priority: number;
   status: AnnouncementSourceStatus;
@@ -36,6 +38,7 @@ export interface AnnouncementItem {
   id: string;
   sourceId: string;
   sourceName: string;
+  contentType?: AnnouncementContentType;
   scopeType: AnnouncementScopeType;
   scopeId: string;
   title: string;

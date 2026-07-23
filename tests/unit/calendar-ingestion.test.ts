@@ -1,7 +1,19 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { mapAcademicEventCategory } from "../../apps/api/src/domain/category-mapper.js";
 import { normalizeAcademicDate } from "../../apps/api/src/domain/date-normalizer.js";
-import { CalendarIngestionService, inferAcademicYear, isAcceptableAcademicYear } from "../../apps/api/src/modules/calendars/calendar-ingestion.service.js";
+import {
+  CalendarIngestionService,
+  buildYearAwareAcademicCalendarCandidates,
+  inferAcademicYear,
+  isAcceptableAcademicYear,
+  selectAtuAcademicCalendarPdf
+} from "../../apps/api/src/modules/calendars/calendar-ingestion.service.js";
+import {
+  extractAcademicScheduleLinks,
+  extractDepartmentMenuLinks,
+  extractModalPopupExamScheduleLinks,
+  selectCurrentAcademicScheduleLinks
+} from "../../apps/api/src/modules/calendars/academic-unit-schedule-discovery.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "../../apps/api/src/modules/calendars/calendar.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../../apps/api/src/modules/catalog/catalog.types.js";
 import { PdfProcessingService } from "../../apps/api/src/modules/pdf/pdf-processing.service.js";
@@ -119,6 +131,13 @@ describe("CalendarIngestionService", () => {
     expect(isAcceptableAcademicYear("2027-2028", new Date("2026-07-02T00:00:00.000Z"))).toBe(false);
   });
 
+  it("builds the AKU calendar page from the active academic year", () => {
+    expect(buildYearAwareAcademicCalendarCandidates(
+      { slug: "afyon-kocatepe-universitesi-afyonkarahisar" },
+      new Date("2026-07-16T00:00:00.000Z")
+    )).toEqual(["https://ogrenci.aku.edu.tr/2026-2027/"]);
+  });
+
   it("publishes Adana ATU OData calendar rows when no calendar exists", async () => {
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
       d: [
@@ -155,6 +174,67 @@ describe("CalendarIngestionService", () => {
       startDate: new Date("2025-09-01T00:00:00.000Z"),
       endDate: new Date("2025-09-05T00:00:00.000Z")
     });
+  });
+
+  it("selects ATU's current general undergraduate PDF from page content", () => {
+    const html = `
+      <a href="/Upload/2026-lisansustu.pdf">2026-2027 Lisansüstü Akademik Takvimi</a>
+      <a href="/Upload/2025-lisans.pdf">2025-2026 Ön Lisans - Lisans Akademik Takvimi</a>
+      <a href="/Upload/2026-yadyo.pdf">2026-2027 YADYO Akademik Takvimi</a>
+      <a href="/Upload/2026-lisans.pdf">2026-2027 Ön Lisans - Lisans Akademik Takvimi</a>
+    `;
+
+    expect(selectAtuAcademicCalendarPdf(html, "2026-2027")).toEqual({
+      sourceUrl: "https://www.atu.edu.tr/Upload/2026-lisans.pdf",
+      title: "2026-2027 Ön Lisans - Lisans Akademik Takvimi"
+    });
+  });
+});
+
+describe("AKU academic-unit schedule discovery", () => {
+  it("reads an academic year concatenated to a department name in a schedule filename", () => {
+    const links = extractAcademicScheduleLinks(
+      '<a href="/uploads/Antrenorluk-Bolumu2026-2027-Guz-Donemi-Ders-Programi.pdf">Ders Programi</a>',
+      "https://sbf.aku.edu.tr/"
+    );
+    expect(links[0]).toMatchObject({ academicYear: "2026-2027", term: "fall", type: "course_schedule" });
+  });
+
+  it("extracts and selects current exam PDFs from the SBF modal popup", () => {
+    const html = `
+      <div class="modalpopup-content">
+        <span class="modalpopup-close">x</span>
+        <div>
+          <p><a href="/files/2025-2026-Bahar-Butunleme-Sinav-Programi.pdf">2025-2026 Bahar Butunleme Sinav Programi</a></p>
+          <p><a href="/files/2026-2027-Guz-Vize-Sinav-Programi.pdf">2026-2027 Guz Vize Sinav Programi</a></p>
+        </div>
+      </div>`;
+    const links = extractModalPopupExamScheduleLinks(html, "https://sbf.aku.edu.tr/");
+    const selected = selectCurrentAcademicScheduleLinks(links, "2026-2027", "fall");
+
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toMatchObject({
+      sourceUrl: "https://sbf.aku.edu.tr/files/2026-2027-Guz-Vize-Sinav-Programi.pdf",
+      type: "exam_schedule",
+      academicYear: "2026-2027",
+      term: "fall",
+      discoveryArea: "modal_popup"
+    });
+  });
+
+  it("finds SBF department pages below the Bolumler dropdown", () => {
+    const html = `
+      <nav><ul><li class="drop-down"><a href="#">Bolumler</a><ul>
+        <li><a href="/beden-egitimi-ve-spor-ogretmenligi/">Beden Egitimi ve Spor Ogretmenligi</a></li>
+        <li><a href="/antrenorluk-bolumu/">Antrenorluk Bolumu</a></li>
+        <li><a href="/rekreasyon-bolumu/">Rekreasyon Bolumu</a></li>
+      </ul></li></ul></nav>`;
+
+    expect(extractDepartmentMenuLinks(html, "https://sbf.aku.edu.tr/")).toEqual([
+      { sourceUrl: "https://sbf.aku.edu.tr/beden-egitimi-ve-spor-ogretmenligi/", title: "Beden Egitimi ve Spor Ogretmenligi" },
+      { sourceUrl: "https://sbf.aku.edu.tr/antrenorluk-bolumu/", title: "Antrenorluk Bolumu" },
+      { sourceUrl: "https://sbf.aku.edu.tr/rekreasyon-bolumu/", title: "Rekreasyon Bolumu" }
+    ]);
   });
 });
 

@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { createHmac } from "node:crypto";
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional, UnauthorizedException } from "@nestjs/common";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
 import { findVerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
 import type { AnnouncementItem, AnnouncementRepository } from "../announcements/announcements.types.js";
@@ -39,6 +40,15 @@ export interface SummerSchoolUniversityOption {
   academicYear: string;
   sourceUrl?: string;
   events: AcademicEventRecord[];
+  matchingDepartments?: SummerSchoolDepartmentMatch[];
+}
+
+export interface SummerSchoolDepartmentMatch {
+  facultyId: string;
+  facultyName: string;
+  departmentId: string;
+  departmentName: string;
+  educationLevel: DepartmentRecord["educationLevel"];
 }
 
 export interface MySummerSchoolResponse {
@@ -55,6 +65,20 @@ export interface MySummerSchoolResponse {
   sameDepartmentAnnouncements: AnnouncementItem[];
   sameDepartmentOptions: SummerSchoolUniversityOption[];
   generatedAt: Date;
+}
+
+export interface CalendarIntegrationLinksResponse {
+  feedUrl: string;
+  webcalUrl: string;
+  appleSubscribeUrl: string;
+  googleSubscribeUrl: string;
+  generatedAt: Date;
+}
+
+export interface CalendarFeedResponse {
+  fileName: string;
+  contentType: "text/calendar; charset=utf-8";
+  content: string;
 }
 
 const summerSchoolCategories: AcademicEventCategory[] = ["summer_school_registration", "summer_school_start", "summer_school_end"];
@@ -199,6 +223,62 @@ export class CalendarService {
     };
   }
 
+  async getMyCalendarIntegrationLinks(userId: string, apiBaseUrl: string): Promise<CalendarIntegrationLinksResponse> {
+    const user = await this.authRepository.findUserById(userId);
+    if (!user) throw new NotFoundException("User not found.");
+    if (!user.universityId) throw new BadRequestException("User must select a university first.");
+
+    const token = signCalendarFeedToken(user.id);
+    const normalizedBaseUrl = apiBaseUrl.replace(/\/+$/u, "");
+    const feedUrl = `${normalizedBaseUrl}/calendar/integrations/feed/${encodeURIComponent(token)}.ics`;
+    const webcalUrl = feedUrl.replace(/^https?:/iu, "webcal:");
+    return {
+      feedUrl,
+      webcalUrl,
+      appleSubscribeUrl: webcalUrl,
+      googleSubscribeUrl: `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(feedUrl)}`,
+      generatedAt: new Date()
+    };
+  }
+
+  async getMyCalendarFeedByToken(token: string): Promise<CalendarFeedResponse> {
+    const userId = verifyCalendarFeedToken(token);
+    const user = await this.authRepository.findUserById(userId);
+    if (!user) throw new NotFoundException("User not found.");
+    if (!user.universityId) throw new BadRequestException("User must select a university first.");
+
+    const [calendarResponse, courseSchedules, examSchedules, summerSchool, summerEvents] = await Promise.all([
+      this.getMyCalendar(userId),
+      this.getMyCourseSchedules(userId),
+      this.getMyExamSchedules(userId),
+      this.getMySummerSchool(userId),
+      this.listSummerSchoolEvents({
+        universityId: user.universityId,
+        ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+        ...(user.departmentId ? { departmentId: user.departmentId } : {}),
+        limit: 300
+      })
+    ]);
+    const events = dedupeCalendarEvents([
+      ...calendarResponse.events,
+      ...courseSchedules.events,
+      ...examSchedules.events,
+      ...summerEvents
+    ]);
+    const universityName = summerSchool.profile.universityName ?? user.universityId;
+    const calendarName = `${universityName} Akademik Takvim`;
+
+    return {
+      fileName: "academic-mobile-calendar.ics",
+      contentType: "text/calendar; charset=utf-8",
+      content: renderIcsCalendar({
+        name: calendarName,
+        description: "Academic Mobile App akademik takvim aboneligi",
+        events
+      })
+    };
+  }
+
   private async getMyDepartmentSchedules(userId: string, categories: AcademicEventCategory[], sourceField: "courseScheduleUrl" | "examScheduleUrl"): Promise<DepartmentScheduleResponse> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
@@ -306,9 +386,22 @@ export class CalendarService {
   private async findSameDepartmentSummerSchoolOptions(department: DepartmentRecord, selectedUniversityId: string): Promise<SummerSchoolUniversityOption[]> {
     const departmentName = foldForMatch(department.name);
     const allSummerEvents = await this.listSummerSchoolEvents({ limit: 900 });
+    const eventsOutsideSelectedUniversity = allSummerEvents.filter((event) => event.universityId !== selectedUniversityId);
+    const matchingDepartmentsByUniversity = await this.findMatchingDepartmentsBySummerEventUniversity(department, eventsOutsideSelectedUniversity);
     const matchedEvents = allSummerEvents.filter((event) => {
       if (event.universityId === selectedUniversityId) return false;
-      if (event.departmentId === department.id) return true;
+      const matchingDepartments = matchingDepartmentsByUniversity.get(event.universityId) ?? [];
+      if (event.departmentId) {
+        if (matchingDepartments.some((match) => match.departmentId === event.departmentId)) return true;
+        const searchable = foldForMatch(`${event.title} ${event.description ?? ""} ${event.originalText ?? ""}`);
+        return departmentName.length > 2 && searchable.includes(departmentName);
+      }
+      if (event.facultyId) {
+        if (matchingDepartments.some((match) => match.facultyId === event.facultyId)) return true;
+        const searchable = foldForMatch(`${event.title} ${event.description ?? ""} ${event.originalText ?? ""}`);
+        return departmentName.length > 2 && searchable.includes(departmentName);
+      }
+      if (matchingDepartments.length > 0) return true;
       const searchable = foldForMatch(`${event.title} ${event.description ?? ""} ${event.originalText ?? ""}`);
       return departmentName.length > 2 && searchable.includes(departmentName);
     });
@@ -319,16 +412,49 @@ export class CalendarService {
       const [universityId, academicYear] = key.split("::");
       if (!universityId || !academicYear) continue;
       const university = await this.catalogRepository?.findUniversityById(universityId);
+      const sourceUrl = sourceUrlFromEvent(events[0]!, university ?? null) ?? university?.academicCalendarUrl;
+      const matchingDepartments = matchingDepartmentsByUniversity.get(universityId) ?? [];
       options.push({
         universityId,
         universityName: university?.name ?? universityId,
         academicYear,
-        ...(university?.academicCalendarUrl ? { sourceUrl: university.academicCalendarUrl } : {}),
-        events
+        ...(sourceUrl ? { sourceUrl } : {}),
+        events,
+        ...(matchingDepartments.length ? { matchingDepartments } : {})
       });
     }
 
     return options.sort((left, right) => left.universityName.localeCompare(right.universityName, "tr-TR"));
+  }
+
+  private async findMatchingDepartmentsBySummerEventUniversity(department: DepartmentRecord, events: AcademicEventRecord[]): Promise<Map<string, SummerSchoolDepartmentMatch[]>> {
+    if (!this.catalogRepository) return new Map();
+    const summerUniversityIds = new Set(events.map((event) => event.universityId).filter((universityId) => universityId !== department.universityId));
+    if (summerUniversityIds.size === 0) return new Map();
+
+    const matchesByUniversity = new Map<string, SummerSchoolDepartmentMatch[]>();
+    const targetKeys = departmentMatchKeys(department);
+    for (const universityId of summerUniversityIds) {
+      const faculties = await this.catalogRepository.listFaculties(universityId, "active");
+      for (const faculty of faculties) {
+        const departments = await this.catalogRepository.listDepartments(faculty.id, "active");
+        for (const candidate of departments) {
+          if (!departmentsMatch(candidate, targetKeys)) continue;
+          matchesByUniversity.set(universityId, [
+            ...(matchesByUniversity.get(universityId) ?? []),
+            {
+              facultyId: faculty.id,
+              facultyName: faculty.name,
+              departmentId: candidate.id,
+              departmentName: candidate.name,
+              educationLevel: candidate.educationLevel
+            }
+          ]);
+        }
+      }
+    }
+
+    return matchesByUniversity;
   }
 
   private async findOwnSummerSchoolAnnouncements(input: { universityId: string; facultyId?: string; departmentId?: string }): Promise<AnnouncementItem[]> {
@@ -374,6 +500,131 @@ function groupEventsByUniversityAndYear(events: AcademicEventRecord[]): Map<stri
   return grouped;
 }
 
+function signCalendarFeedToken(userId: string): string {
+  const payload = Buffer.from(JSON.stringify({
+    v: 1,
+    sub: userId,
+    iat: Math.floor(Date.now() / 1000)
+  }), "utf8").toString("base64url");
+  const signature = signCalendarFeedPayload(payload);
+  return `${payload}.${signature}`;
+}
+
+function verifyCalendarFeedToken(token: string): string {
+  const [payload, signature] = decodeURIComponent(token).split(".");
+  if (!payload || !signature) throw new UnauthorizedException("Invalid calendar feed token.");
+  if (signature !== signCalendarFeedPayload(payload)) throw new UnauthorizedException("Invalid calendar feed token.");
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    if (parsed.v !== 1 || typeof parsed.sub !== "string" || !parsed.sub) throw new Error("INVALID_CALENDAR_FEED_TOKEN_PAYLOAD");
+    return parsed.sub;
+  } catch {
+    throw new UnauthorizedException("Invalid calendar feed token.");
+  }
+}
+
+function signCalendarFeedPayload(payload: string): string {
+  return createHmac("sha256", calendarFeedSecret()).update(payload).digest("base64url");
+}
+
+function calendarFeedSecret(): string {
+  return process.env.CALENDAR_FEED_SECRET ?? process.env.JWT_ACCESS_SECRET ?? "development-calendar-feed-secret-change-me-32-chars";
+}
+
+function dedupeCalendarEvents(events: AcademicEventRecord[]): AcademicEventRecord[] {
+  const unique = new Map<string, AcademicEventRecord>();
+  for (const event of events) {
+    if (event.status !== "published") continue;
+    const existing = unique.get(event.id);
+    if (!existing || event.updatedAt.getTime() > existing.updatedAt.getTime()) unique.set(event.id, event);
+  }
+  return [...unique.values()].sort((left, right) => left.startDate.getTime() - right.startDate.getTime() || left.title.localeCompare(right.title, "tr-TR"));
+}
+
+function renderIcsCalendar(input: { name: string; description: string; events: AcademicEventRecord[] }): string {
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Academic Mobile App//Academic Calendar//TR",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "X-WR-TIMEZONE:Europe/Istanbul",
+    `X-WR-CALNAME:${escapeIcsText(input.name)}`,
+    `X-WR-CALDESC:${escapeIcsText(input.description)}`
+  ];
+
+  for (const event of input.events) {
+    lines.push(...renderIcsEvent(event));
+  }
+
+  lines.push("END:VCALENDAR");
+  return `${lines.flatMap(foldIcsLine).join("\r\n")}\r\n`;
+}
+
+function renderIcsEvent(event: AcademicEventRecord): string[] {
+  const startDate = icsDate(event.startDate);
+  const endDate = icsDate(addDays(event.endDate ?? event.startDate, 1));
+  const description = [
+    event.description,
+    `Kategori: ${event.category}`,
+    `Akademik yil: ${event.academicYear}`,
+    event.originalDateText ? `Kaynak tarih: ${event.originalDateText}` : undefined
+  ].filter((value): value is string => Boolean(value));
+
+  return [
+    "BEGIN:VEVENT",
+    `UID:${event.id}@academic-mobile-app-7629`,
+    `DTSTAMP:${icsTimestamp(new Date())}`,
+    `LAST-MODIFIED:${icsTimestamp(event.updatedAt)}`,
+    `SUMMARY:${escapeIcsText(event.title)}`,
+    `DESCRIPTION:${escapeIcsText(description.join("\n"))}`,
+    `CATEGORIES:${escapeIcsText(event.category)}`,
+    `DTSTART;VALUE=DATE:${startDate}`,
+    `DTEND;VALUE=DATE:${endDate}`,
+    "TRANSP:TRANSPARENT",
+    "END:VEVENT"
+  ];
+}
+
+function icsDate(date: Date): string {
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0")
+  ].join("");
+}
+
+function icsTimestamp(date: Date): string {
+  return `${icsDate(date)}T${String(date.getUTCHours()).padStart(2, "0")}${String(date.getUTCMinutes()).padStart(2, "0")}${String(date.getUTCSeconds()).padStart(2, "0")}Z`;
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/gu, "\\\\")
+    .replace(/;/gu, "\\;")
+    .replace(/,/gu, "\\,")
+    .replace(/\r?\n/gu, "\\n");
+}
+
+function foldIcsLine(line: string): string[] {
+  if (line.length <= 74) return [line];
+  const chunks: string[] = [];
+  let remaining = line;
+  while (remaining.length > 74) {
+    chunks.push(chunks.length === 0 ? remaining.slice(0, 74) : ` ${remaining.slice(0, 73)}`);
+    remaining = chunks.length === 1 ? remaining.slice(74) : remaining.slice(73);
+  }
+  chunks.push(chunks.length === 0 ? remaining : ` ${remaining}`);
+  return chunks;
+}
+
 function foldForMatch(value: string): string {
   return value
     .normalize("NFD")
@@ -394,6 +645,27 @@ function foldForMatch(value: string): string {
     .replace(/\s+/gu, " ")
     .trim()
     .toLocaleLowerCase("en-US");
+}
+
+function departmentMatchKeys(department: DepartmentRecord): Set<string> {
+  return new Set([
+    foldForMatch(department.name),
+    foldForMatch(department.slug.replace(/-/gu, " ")),
+    canonicalDepartmentKey(department.name),
+    canonicalDepartmentKey(department.slug.replace(/-/gu, " "))
+  ].filter((value) => value.length > 2));
+}
+
+function departmentsMatch(candidate: DepartmentRecord, targetKeys: Set<string>): boolean {
+  return [...departmentMatchKeys(candidate)].some((key) => targetKeys.has(key));
+}
+
+function canonicalDepartmentKey(value: string): string {
+  return foldForMatch(value)
+    .split(" ")
+    .filter((token) => token.length > 1)
+    .filter((token) => !["bolumu", "programi", "anabilim", "dali", "ana", "bilim", "dal"].includes(token))
+    .join(" ");
 }
 
 function sourceUrlFromEvent(event: AcademicEventRecord, university: UniversityRecord | null): string | undefined {

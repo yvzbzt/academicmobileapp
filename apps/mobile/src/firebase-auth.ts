@@ -45,8 +45,8 @@ export function formatGoogleAuthError(error: unknown): string {
   const code = getFirebaseErrorCode(error);
   if (code === "auth/popup-closed-by-user") return "Google ile giriş tamamlanmadan kapatıldı.";
   if (code === "auth/popup-blocked") return "Tarayıcınız Google giriş penceresini engelledi.";
-  if (code === "auth/unauthorized-domain") return "Bu alan adı Firebase'de Google girişi için yetkilendirilmemiş.";
-  if (code === "auth/network-request-failed") return "Google girişi Firebase'e ulaşamadı. Bağlantıyı kontrol edip tekrar deneyin.";
+  if (code === "auth/unauthorized-domain") return "Bu adres Google ile giriş için henüz yetkilendirilmemiş. Lütfen daha sonra tekrar deneyin.";
+  if (code === "auth/network-request-failed") return "Google girişine şu anda ulaşılamıyor. Bağlantıyı kontrol edip tekrar deneyin.";
   return error instanceof Error ? error.message : "Google ile giriş tamamlanamadı.";
 }
 

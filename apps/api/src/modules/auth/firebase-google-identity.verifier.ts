@@ -83,5 +83,5 @@ function readAllowedGoogleClientIds(): string[] {
     process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
   ];
 
-  return [...new Set(values.flatMap((value) => (value ?? "").split(",")).map((value) => value.trim()).filter(Boolean))];
+  return [...new Set(values.flatMap((value) => (value ?? "").split(/[,\s]+/)).map((value) => value.trim()).filter(Boolean))];
 }

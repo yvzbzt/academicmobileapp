@@ -1,25 +1,27 @@
 {
   "expo": {
-    "name": "Akademik Takvim Mobil",
+    "name": "Akademik Takvim",
     "slug": "academic-pulse-native",
     "scheme": "academicpulse",
-    "version": "1.0.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#2478b0"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.anssoft.akademiktakvim",
+      "versionCode": 12,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#2478b0"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -27,9 +29,6 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      "expo-web-browser",
-      "expo-font"
-    ]
+    "plugins": ["expo-font"]
   }
 }

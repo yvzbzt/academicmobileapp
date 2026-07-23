@@ -1,3 +1,4 @@
+import { Type } from "class-transformer";
 import { IsDateString, IsIn, IsInt, IsOptional, Max, Min } from "class-validator";
 import { academicEventCategories, type AcademicEventCategory } from "../../domain/academic-event.types.js";
 
@@ -6,6 +7,7 @@ export type CalendarScopeView = "university";
 
 export class UpcomingEventsQueryDto {
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(50)
@@ -31,12 +33,14 @@ export class SearchEventsQueryDto {
   endDate?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
   limit?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   offset?: number;

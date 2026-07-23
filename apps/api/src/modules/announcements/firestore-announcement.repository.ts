@@ -47,7 +47,10 @@ export class FirestoreAnnouncementRepository implements AnnouncementRepository {
     const existingItems = await getAllFirestoreRecords<AnnouncementItem>(this.items.where("sourceId", "==", source.id));
     const batch = this.firestore.getDb().batch();
     for (const item of existingItems) batch.delete(this.items.doc(item.id));
-    for (const item of items) batch.set(this.items.doc(item.id), cleanFirestoreData(item as unknown as Record<string, unknown>));
+    for (const item of items) {
+      const normalizedItem = { ...item, sourceId: source.id, sourceName: source.sourceName, contentType: item.contentType ?? source.contentType ?? "announcement", scopeType: source.scopeType, scopeId: source.scopeId };
+      batch.set(this.items.doc(item.id), cleanFirestoreData(normalizedItem as unknown as Record<string, unknown>));
+    }
     await batch.commit();
   }
 

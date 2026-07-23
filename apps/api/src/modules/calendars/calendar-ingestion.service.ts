@@ -82,6 +82,17 @@ interface AtuCalendarRow {
   Durum?: number | boolean;
 }
 
+interface AtuCalendarPagePayload {
+  d?: {
+    HTMLicerik?: string;
+    MetinIcerik?: string;
+  };
+}
+
+const atuCalendarPageApiUrl = "https://odata.atu.edu.tr/odata/DataService.svc/Icerik(2061)?$format=json";
+const atuCalendarPageUrl = "https://www.atu.edu.tr/#!/sayfa/2061/51/f4d5eeb2-c7bf-4f04-b8d6-720c00de186f/";
+const atuCalendarODataUrl = "https://odata.atu.edu.tr/odata/DataService.svc/V_AkademikTakvim?$format=json";
+
 @Injectable()
 export class CalendarIngestionService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(CalendarIngestionService.name);
@@ -210,7 +221,7 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
 
     try {
       if (university.slug === "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi") {
-        return await this.ingestAtuODataCalendar(university, academicYear);
+        return await this.ingestAtuCalendar(university, academicYear);
       }
 
       const pdf = await discoverAcademicCalendarPdf(university, readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000));
@@ -290,8 +301,34 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     return published ?? draft;
   }
 
+  private async ingestAtuCalendar(university: UniversityRecord, requestedAcademicYear?: string): Promise<CalendarIngestionResult> {
+    let pageError: unknown;
+    try {
+      const pdf = await discoverAtuAcademicCalendarPdf(
+        requestedAcademicYear,
+        readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000)
+      );
+      if (pdf) return await this.ingestPdfCalendar(university, pdf, requestedAcademicYear);
+    } catch (error) {
+      pageError = error;
+      this.logger.warn(`ATU calendar page ingestion failed; trying OData fallback: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+      const odataResult = await this.ingestAtuODataCalendar(university, requestedAcademicYear);
+      if (odataResult.status !== "no_events" || !pageError) return odataResult;
+    } catch (odataError) {
+      if (!pageError) throw odataError;
+      throw new Error(
+        `ATU_CALENDAR_SOURCES_FAILED:${pageError instanceof Error ? pageError.message : String(pageError)};${odataError instanceof Error ? odataError.message : String(odataError)}`
+      );
+    }
+
+    throw pageError;
+  }
+
   private async ingestAtuODataCalendar(university: UniversityRecord, requestedAcademicYear?: string): Promise<CalendarIngestionResult> {
-    const sourceUrl = "https://odata.atu.edu.tr/odata/DataService.svc/V_AkademikTakvim?$format=json";
+    const sourceUrl = atuCalendarODataUrl;
     const response = await fetch(sourceUrl, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000)) });
     if (!response.ok) throw new Error(`ATU_CALENDAR_FETCH_FAILED:${response.status}`);
     const payload = await response.json() as { d?: AtuCalendarRow[] };
@@ -388,16 +425,66 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
   }
 }
 
+export async function discoverAtuAcademicCalendarPdf(
+  requestedAcademicYear?: string,
+  timeoutMs = 12000
+): Promise<DiscoveredCalendarPdf | null> {
+  const response = await fetch(atuCalendarPageApiUrl, {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.6",
+      "User-Agent": "AcademicCalendarPdfCrawler/1.0"
+    },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  if (!response.ok) throw new Error(`ATU_CALENDAR_PAGE_FETCH_FAILED:${response.status}`);
+
+  const payload = await response.json() as AtuCalendarPagePayload;
+  const html = payload.d?.HTMLicerik ?? payload.d?.MetinIcerik;
+  if (!html) return null;
+
+  return selectAtuAcademicCalendarPdf(html, requestedAcademicYear);
+}
+
+export function selectAtuAcademicCalendarPdf(
+  html: string,
+  requestedAcademicYear?: string
+): DiscoveredCalendarPdf | null {
+  const targetAcademicYears = requestedAcademicYear
+    ? [requestedAcademicYear]
+    : [currentAcademicYear(), previousAcademicYear()];
+  const candidates = extractAcademicCalendarLinks(html, atuCalendarPageUrl)
+    .filter(isAcceptableCalendarSource)
+    .filter(isGeneralUndergraduateCalendar);
+
+  for (const academicYear of targetAcademicYears) {
+    const candidate = candidates.find((item) => inferAcademicYear([item.title, item.sourceUrl]) === academicYear);
+    if (candidate) return candidate;
+  }
+
+  return candidates[0] ?? null;
+}
+
 export async function discoverAcademicCalendarPdf(university: UniversityRecord, timeoutMs = 12000): Promise<DiscoveredCalendarPdf | null> {
-  const checked = new Set<string>();
   const verified = await findVerifiedUniversitySource(university.id);
-  const explicitCalendarUrls = new Set([university.academicCalendarUrl, verified?.calendarUrl].filter((url): url is string => Boolean(url)));
-  const homepageCandidates = [
+  const yearAwareCandidates = buildYearAwareAcademicCalendarCandidates(university);
+  const explicitCalendarUrls = new Set([
+    ...yearAwareCandidates,
+    university.academicCalendarUrl,
+    verified?.calendarUrl
+  ].filter((url): url is string => Boolean(url)));
+  const homepageCandidates = uniqueUrls([
+    ...yearAwareCandidates,
     ...(verified?.calendarUrl ? [verified.calendarUrl] : []),
     ...(university.academicCalendarUrl ? [university.academicCalendarUrl] : []),
     ...buildHomepageCandidates(university)
-  ].slice(0, 16);
+  ]).slice(0, 16);
   return discoverAcademicCalendarPdfFromHomepages(university, homepageCandidates, timeoutMs, explicitCalendarUrls, (page) => isLikelyUniversityHomepage(page.text, page.finalUrl, university));
+}
+
+export function buildYearAwareAcademicCalendarCandidates(university: Pick<UniversityRecord, "slug">, date = new Date()): string[] {
+  if (university.slug !== "afyon-kocatepe-universitesi-afyonkarahisar") return [];
+  return [`https://ogrenci.aku.edu.tr/${currentAcademicYear(date)}/`];
 }
 
 async function discoverAcademicCalendarPdfFromHomepages(
@@ -564,6 +651,12 @@ function scoreCalendarSource(source: DiscoveredCalendarPdf): number {
   return score;
 }
 
+function isGeneralUndergraduateCalendar(source: DiscoveredCalendarPdf): boolean {
+  const text = foldText(`${source.title} ${source.sourceUrl}`);
+  if (/\b(lisansustu|yadyo|yabanci diller|hazirlik)\b/u.test(text)) return false;
+  return /\b(on lisans|onlisans|lisans)\b/u.test(text);
+}
+
 function isAcceptableCalendarSource(source: DiscoveredCalendarPdf): boolean {
   const academicYear = inferAcademicYear([source.title, source.sourceUrl]);
   return (!academicYear || isAcceptableAcademicYear(academicYear))
@@ -678,6 +771,10 @@ function decodeUrlSafe(input: string): string {
   } catch {
     return input;
   }
+}
+
+function uniqueUrls(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function foldText(value: string): string {

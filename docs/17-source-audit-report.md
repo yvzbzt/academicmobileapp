@@ -1,6 +1,6 @@
 # Source Audit Report - 2026-07-01
 
-## PDF calendar row issue
+## PDF Calendar Row Issue
 
 The duplicate-looking academic calendar rows were caused by line-based PDF parsing. Some PDFs expose a table row as separate text-layer lines, for example:
 
@@ -8,36 +8,36 @@ The duplicate-looking academic calendar rows were caused by line-based PDF parsi
 - date
 - full title
 - date
-- trailing fragment such as `günü`
+- trailing fragment such as a standalone "day" suffix
 - date
 
-The old parser treated every line containing a date as a standalone event. The parser now first builds logical candidate rows from adjacent lines, joins title/date-only rows, rejects dangling fragments such as `günü`, and deduplicates same-date contained titles.
+The old parser treated every line containing a date as a standalone event. The parser now first builds logical candidate rows from adjacent lines, joins title/date-only rows, rejects dangling suffix fragments, and deduplicates same-date contained titles.
 
 Regression coverage was added for the exact `24.07.2026` split-row case.
 
-## Implemented changes
+## Implemented Changes
 
 - Fixed real-time announcement refresh:
   - student announcement requests now discover a university source on miss,
   - cached announcement items are refreshed after `ANNOUNCEMENT_CACHE_TTL_MS`,
-  - scheduled ingestion no longer treats the static YÖK source as proof that university sources already exist.
+  - scheduled ingestion no longer treats the static YOK source as proof that university sources already exist.
 - Added a Node HTTP fallback, production `NODE_OPTIONS=--use-system-ca`, and the missing `Sectigo Public Server Authentication CA DV R36` intermediate certificate for public `.edu.tr` sites where Node cannot build the default certificate chain but browsers can.
-- Filtered social/share anchors such as WhatsApp before source URLs containing `duyuru` can make them look like real announcement items.
+- Filtered social/share anchors such as WhatsApp before source URLs containing announcement keywords can make them look like real announcement items.
 - Announcement discovery now keeps searching after a weak/no-item homepage and avoids selecting individual detail pages as source pages.
-- Added a bundled YÖK Atlas catalog seed fallback with 205 universities, 2,924 faculties, and 14,424 departments for memory-mode Cloud Run restarts when the live YÖK Atlas bootstrap call fails or returns empty.
+- Added a bundled YOK Atlas catalog seed fallback with 205 universities, 2,924 faculties, and 14,424 departments for memory-mode Cloud Run restarts when the live YOK Atlas bootstrap call fails or returns empty.
 - Made memory-mode catalog IDs deterministic from slugs so Cloud Run instances do not return random per-instance university/faculty/department IDs.
 - Calendar scheduled discovery checks all active universities by default instead of only the first 25.
-- Reintroduced a student-facing Yaz Okulu screen in the mobile app.
+- Reintroduced a student-facing summer school screen in the mobile app.
 - Added `GET /calendar/summer-school/my`.
 - The endpoint returns:
   - the student's selected university/faculty/department profile,
   - summer-school requirement rows found in published academic calendar events,
   - same-department summer-school options only when the source text explicitly matches the selected department name.
 - Expanded academic-calendar discovery paths and embedded-link/PDF extraction.
-- Improved category mapping for `Yaz Okulu başvuru/kayıt/ders seçimi`.
+- Improved category mapping for summer school application, registration, and course-selection text.
 - Added `npm run verify:sources` for all-university source auditing.
 
-## Live audit result
+## Live Audit Result
 
 Command:
 
@@ -61,9 +61,9 @@ Summary:
 
 The JSON report contains one row per university with announcement, calendar, and summer-school discovery status.
 
-## Selcuk University status
+## Selcuk University Status
 
-`SELÇUK ÜNİVERSİTESİ (KONYA)` now resolves correctly in the crawler.
+Selcuk University now resolves correctly in the crawler.
 
 Observed result:
 
@@ -75,7 +75,7 @@ Observed result:
 Why it was not appearing:
 
 - The crawler's Node `fetch` failed on Selcuk's site with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, while the site was reachable through a normal browser/PowerShell request. Selcuk serves the leaf certificate without the intermediate `Sectigo Public Server Authentication CA DV R36`, so the API container now includes that intermediate CA and keeps invalid TLS disabled.
-- The scheduler could skip source discovery because the static YÖK source already existed.
+- The scheduler could skip source discovery because the static YOK source already existed.
 - The student endpoint returned cached data immediately and did not refresh on demand.
 - Source ranking could choose a homepage/detail page instead of the real student announcements listing.
 
@@ -86,9 +86,9 @@ Deployed verification:
 - Catalog record ID: `selcuk-universitesi-konya`
 - `GET /calendar/university/selcuk-universitesi-konya` now publishes the 2025-2026 calendar from the official Selcuk PDF with 111 events.
 
-## ATÜ status
+## ATU Status
 
-`ADANA ALPARSLAN TÜRKEŞ BİLİM VE TEKNOLOJİ ÜNİVERSİTESİ` still does not have a current discoverable academic calendar in the crawler result.
+Adana Alparslan Turkes Science and Technology University still does not have a current discoverable academic calendar in the crawler result.
 
 Observed result:
 
@@ -97,9 +97,9 @@ Observed result:
 - Calendar discovery: `source_not_found`.
 - Summer-school discovery: fetch failed.
 
-The live homepage returns client-rendered Angular placeholders such as `{{Dilliste.USTYAZI}}`, so the crawler cannot read navigation/calendar links from the static HTML. The previous ATÜ OData calendar adapter also exposes stale rows only, so current-year ingestion correctly refuses to publish old 2024-2025/older data.
+The live homepage returns client-rendered Angular placeholders such as `{{Dilliste.USTYAZI}}`, so the crawler cannot read navigation/calendar links from the static HTML. The previous ATU OData calendar adapter also exposes stale rows only, so current-year ingestion correctly refuses to publish old 2024-2025 or older data.
 
-## Remaining blocker
+## Remaining Blocker
 
 The application is now safer: it does not publish stale or empty calendars and it no longer displays broken PDF fragments as events. The deployed memory-mode API also has a deterministic catalog fallback after restarts. However, it is not yet complete for all universities because 85 academic calendar sources were not discoverable from public pages using the current crawler.
 

@@ -58,8 +58,8 @@ interface AdminUserRecord {
   createdAt?: string;
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
-const mainAppUrl = import.meta.env.VITE_MAIN_APP_URL ?? "https://fir-8868b.web.app/";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://academic-api.anssoft.com.tr";
+const mainAppUrl = import.meta.env.VITE_MAIN_APP_URL ?? "https://academic-mobile-app-7629.web.app";
 const adminRoles = new Set(["content_editor", "university_admin", "super_admin"]);
 const adminSessionStorageKey = "academic-calendar-admin-session";
 

@@ -16,3 +16,29 @@ test-results/
 .next/
 uploads/
 storage/
+
+# Local mobile build artifacts
+*.apk
+*.aab
+*.jks
+*.keystore
+release-signing.properties
+
+# Local validation reports, screenshots, and logs
+ANDROID_*_BUILD_REPORT.md
+FIREBASE_LIVE_APP_VISUAL_REPORT.md
+NATIVE_CALENDAR_INTEGRATION_PREVIEW.png
+firebase-live-app-visuals/
+artifacts/
+docs/university-source-coverage-report.md
+docs/native-calendar-device-test-checklist.md
+docs/vps-web-login-and-smtp.md
+docs/hetzner-web-auth-migration-handoff.md
+data/university-source-coverage-report.json
+expo-native*.log
+expo-native*.err.log
+*.tmp
+
+# One-off raw/source files used during data cleanup
+YÖK Üniversiteler.txt
+svgviewer-png-output.png

@@ -7,6 +7,7 @@ import { assertValidEnvironment } from "./config/environment-validation.js";
 async function bootstrap(): Promise<void> {
   assertValidEnvironment();
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.enableShutdownHooks();
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

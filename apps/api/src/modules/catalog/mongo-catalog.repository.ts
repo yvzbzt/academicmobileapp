@@ -9,7 +9,7 @@ export class MongoCatalogRepository implements CatalogRepository {
   constructor(@Inject(MongoConnectionService) private readonly mongo: MongoConnectionService) {}
 
   async createUniversity(input: Omit<UniversityRecord, "id" | "createdAt" | "updatedAt">): Promise<UniversityRecord> {
-    const document = await (await this.model("University", universitySchema)).create(input);
+    const document = await (await this.model("University", universitySchema)).create({ ...input, _id: input.slug });
     return toDomainRecord<UniversityRecord>(document);
   }
 
@@ -41,7 +41,7 @@ export class MongoCatalogRepository implements CatalogRepository {
   }
 
   async createFaculty(input: Omit<FacultyRecord, "id" | "createdAt" | "updatedAt">): Promise<FacultyRecord> {
-    const document = await (await this.model("Faculty", facultySchema)).create(input);
+    const document = await (await this.model("Faculty", facultySchema)).create({ ...input, _id: `${input.universityId}__${input.slug}` });
     return toDomainRecord<FacultyRecord>(document);
   }
 
@@ -56,7 +56,7 @@ export class MongoCatalogRepository implements CatalogRepository {
   }
 
   async createDepartment(input: Omit<DepartmentRecord, "id" | "createdAt" | "updatedAt">): Promise<DepartmentRecord> {
-    const document = await (await this.model("Department", departmentSchema)).create(input);
+    const document = await (await this.model("Department", departmentSchema)).create({ ...input, _id: `${input.facultyId}__${input.slug}` });
     return toDomainRecord<DepartmentRecord>(document);
   }
 

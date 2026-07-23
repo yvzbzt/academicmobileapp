@@ -1,6 +1,3 @@
-substitutions:
-  _IMAGE: europe-west1-docker.pkg.dev/$PROJECT_ID/academic-calendar/academic-calendar-api
-
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
@@ -8,12 +5,12 @@ steps:
       - -f
       - deploy/Dockerfile.api
       - -t
-      - ${_IMAGE}
+      - europe-west1-docker.pkg.dev/${PROJECT_ID}/academic-calendar/academic-calendar-api
       - .
   - name: gcr.io/cloud-builders/docker
     args:
       - push
-      - ${_IMAGE}
+      - europe-west1-docker.pkg.dev/${PROJECT_ID}/academic-calendar/academic-calendar-api
 
 images:
-  - ${_IMAGE}
+  - europe-west1-docker.pkg.dev/${PROJECT_ID}/academic-calendar/academic-calendar-api

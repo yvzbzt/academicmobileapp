@@ -15,6 +15,9 @@ export interface ParsedAnnouncementItem {
 }
 
 export async function fetchSourceItems(sourceUrl: string, parser: AnnouncementSourceParser, timeoutMs = 7000): Promise<ParsedAnnouncementItem[]> {
+  const atuItems = await fetchAtuContentItems(sourceUrl, timeoutMs);
+  if (atuItems) return atuItems.slice(0, 30);
+
   const body = await fetchText(sourceUrl, timeoutMs, { accept: "text/html,application/json,application/rss+xml,application/xml;q=0.9,*/*;q=0.8" });
   if (parser === "auto" && looksLikeJson(body.text)) return parseJsonAnnouncements(body.text, body.finalUrl).slice(0, 30);
   const resolvedParser = parser === "auto" ? (looksLikeXmlFeed(body.text) ? "rss" : "html") : parser;
@@ -64,6 +67,7 @@ export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItem
       id: createAnnouncementId(source.id, item.link, item.title),
       sourceId: source.id,
       sourceName: source.sourceName,
+      contentType: source.contentType ?? "announcement",
       scopeType: source.scopeType,
       scopeId: source.scopeId,
       title: item.title,
@@ -98,7 +102,7 @@ export function parseHtmlAnchors(input: string, sourceUrl: string): ParsedAnnoun
 
 export function containsAnnouncementHint(title: string, link: string): boolean {
   const haystack = `${title} ${link}`.toLocaleLowerCase("tr-TR");
-  return ["duyuru", "duyurular", "announcement", "announcements", "ilan", "haber", "news", "notice", "exam", "sinav", "sınav"].some((hint) => haystack.includes(hint));
+  return ["duyuru", "duyurular", "announcement", "announcements", "ilan", "haber", "news", "notice", "etkinlik", "etkinlikler", "event", "events", "exam", "sinav", "sınav"].some((hint) => haystack.includes(hint));
 }
 
 export function createAnnouncementId(sourceId: string, link: string, title: string): string {
@@ -141,6 +145,125 @@ export function parseJsonAnnouncements(input: string, sourceUrl: string): Parsed
 }
 
 const crawlerUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36 AcademicCalendarAnnouncementCrawler/1.0";
+const atuODataBaseUrl = "https://odata.atu.edu.tr/odata/DataService.svc";
+
+interface AtuContentDescriptor {
+  groupType: 1 | 2 | 4;
+  routeName: "haber" | "duyuru" | "etkinlik";
+  siteAlias: string;
+  sourceUrl: URL;
+}
+
+interface AtuContentRow {
+  GuID?: string;
+  Baslik?: string;
+  AltBaslik?: string;
+  HTMLicerik?: string;
+  MetinIcerik?: string;
+  BaslamaTarihi?: string;
+  EklenmeTarihi?: string;
+}
+
+async function fetchAtuContentItems(sourceUrl: string, timeoutMs: number): Promise<ParsedAnnouncementItem[] | null> {
+  const descriptor = describeAtuContentSource(sourceUrl);
+  if (!descriptor) return null;
+
+  const siteUrl = buildAtuODataUrl("Siteler", {
+    "$format": "json",
+    "$filter": `AlanAdi eq '${descriptor.siteAlias}' and Durum eq 1`,
+    "$top": "1"
+  });
+  const sitePayload = parseAtuODataPayload<{ ID?: number }>((await fetchText(siteUrl, timeoutMs, { accept: "application/json" })).text);
+  const siteId = sitePayload[0]?.ID;
+  if (!Number.isInteger(siteId)) throw new Error("ATU_CONTENT_SITE_NOT_FOUND");
+
+  const contentUrl = buildAtuODataUrl("V_GuncelIcerik", {
+    "$format": "json",
+    "$filter": `SiteID eq ${siteId} and Durum eq 1 and GrupTipi eq ${descriptor.groupType} and DilKodu eq 'TR'`,
+    "$orderby": "BaslamaTarihi desc",
+    "$top": "40"
+  });
+  const rows = parseAtuODataPayload<AtuContentRow>((await fetchText(contentUrl, timeoutMs, { accept: "application/json" })).text);
+
+  return dedupeParsedItems(rows.flatMap((row) => {
+    const title = cleanText(row.Baslik);
+    if (!title) return [];
+
+    const embeddedLink = firstHtmlLink(row.HTMLicerik ?? row.MetinIcerik, descriptor.sourceUrl.toString());
+    const guid = cleanText(row.GuID);
+    const generatedLink = guid
+      ? `${descriptor.sourceUrl.origin}/#!/${descriptor.routeName}/${encodeURIComponent(guid)}`
+      : undefined;
+    const link = embeddedLink ?? generatedLink;
+    if (!link) return [];
+
+    const publishedAt = firstPlausibleAtuDate(row.BaslamaTarihi, row.EklenmeTarihi);
+    const summary = cleanText(row.AltBaslik);
+    return [{
+      title,
+      link,
+      ...(publishedAt ? { publishedAt } : {}),
+      ...(summary && summary !== "-" ? { summary } : {})
+    }];
+  }));
+}
+
+function describeAtuContentSource(sourceUrl: string): AtuContentDescriptor | null {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return null;
+  }
+
+  if (url.hostname !== "atu.edu.tr" && !url.hostname.endsWith(".atu.edu.tr")) return null;
+  const route = decodeURIComponent(url.hash).toLocaleLowerCase("tr-TR");
+  const type = route.includes("/duyurular")
+    ? { groupType: 2 as const, routeName: "duyuru" as const }
+    : route.includes("/haberler")
+      ? { groupType: 1 as const, routeName: "haber" as const }
+      : route.includes("/etkinlikler")
+        ? { groupType: 4 as const, routeName: "etkinlik" as const }
+        : null;
+  if (!type) return null;
+
+  const firstLabel = url.hostname.split(".")[0]?.toLocaleLowerCase("en-US");
+  const siteAlias = !firstLabel || firstLabel === "atu" ? "www" : firstLabel;
+  return { ...type, siteAlias, sourceUrl: url };
+}
+
+function buildAtuODataUrl(entity: string, parameters: Record<string, string>): string {
+  const url = new URL(`${atuODataBaseUrl}/${entity}`);
+  for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value);
+  return url.toString();
+}
+
+function parseAtuODataPayload<T>(input: string): T[] {
+  try {
+    const payload = JSON.parse(input) as { d?: unknown };
+    return Array.isArray(payload.d) ? payload.d as T[] : [];
+  } catch {
+    throw new Error("ATU_CONTENT_RESPONSE_INVALID");
+  }
+}
+
+function firstHtmlLink(input: string | undefined, sourceUrl: string): string | undefined {
+  if (!input) return undefined;
+  const href = input.match(/<a\b[^>]*href=["']([^"']+)["']/iu)?.[1];
+  return href ? toAbsoluteUrl(cleanText(href), sourceUrl) ?? undefined : undefined;
+}
+
+function firstPlausibleAtuDate(...values: Array<string | undefined>): Date | undefined {
+  const maximum = Date.now() + 3 * 365 * 24 * 60 * 60 * 1000;
+  for (const value of values) {
+    if (!value) continue;
+    const milliseconds = Number(value.match(/\/Date\((-?\d+)/u)?.[1]);
+    if (!Number.isFinite(milliseconds) || milliseconds <= 0 || milliseconds > maximum) continue;
+    const date = new Date(milliseconds);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return undefined;
+}
 
 function looksLikeXmlFeed(input: string): boolean {
   const text = input.toLocaleLowerCase("en-US");

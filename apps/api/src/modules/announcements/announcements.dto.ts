@@ -1,7 +1,9 @@
+import { Type } from "class-transformer";
 import { IsBoolean, IsIn, IsInt, IsOptional, Max, Min } from "class-validator";
 
 export class MyAnnouncementsQueryDto {
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
@@ -57,12 +59,14 @@ export class AnnouncementSourcesQueryDto {
   status?: "active" | "inactive";
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(1000)
   limit?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   offset?: number;

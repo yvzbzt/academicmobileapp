@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
-import { discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
+import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
 import { fetchSourceItems as fetchParsedAnnouncementItems, toAnnouncementItems } from "./announcement-parser.js";
 import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
 
@@ -19,7 +19,8 @@ export class AnnouncementsService {
   constructor(
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
-    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository
+    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
+    @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService
   ) {}
 
   async getMyAnnouncements(userId: string, limit = 20): Promise<AnnouncementItem[]> {
@@ -27,9 +28,14 @@ export class AnnouncementsService {
     if (!user) throw new NotFoundException("User not found.");
     if (!user.universityId) throw new BadRequestException("User must select a university first.");
 
-    const scopeInput = { universityId: user.universityId };
+    const scopeInput = {
+      universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {})
+    };
 
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
+    await this.announcementIngestionService?.ensureStaticAnnouncementSources();
     let sources = await this.announcementRepository.listSourcesByScope(scopeInput);
 
     if (sources.length === 0) {
@@ -37,17 +43,17 @@ export class AnnouncementsService {
       sources = await this.announcementRepository.listSourcesByScope(scopeInput);
     }
 
-    const universitySources = sources.filter((source) => source.scopeType === "university" && source.scopeId === user.universityId);
-    const cachedItems = (await this.announcementRepository.listItemsByScope({ ...scopeInput, limit: boundedLimit }))
-      .filter((item) => item.scopeType === "university" && item.scopeId === user.universityId);
-    if (cachedItems.length > 0 && areAnnouncementItemsFresh(cachedItems)) return cachedItems;
+    const cachedItems = await this.announcementRepository.listItemsByScope({ ...scopeInput, limit: boundedLimit });
+    const cachedSourceIds = new Set(cachedItems.map((item) => item.sourceId));
+    const hasUncachedSources = sources.some((source) => !cachedSourceIds.has(source.id));
+    if (!hasUncachedSources && cachedItems.length > 0 && areAnnouncementItemsFresh(cachedItems)) return cachedItems;
 
-    if (universitySources.length === 0) return cachedItems;
+    if (sources.length === 0) return cachedItems;
 
-    const refreshedItems = await this.refreshSources(universitySources);
+    const refreshedItems = await this.refreshSources(sources);
     const merged = refreshedItems.length > 0 ? refreshedItems : cachedItems;
 
-    const deduped = dedupeAnnouncements(merged.filter((item) => item.scopeType === "university" && item.scopeId === user.universityId));
+    const deduped = dedupeAnnouncements(merged);
     deduped.sort(compareAnnouncementItems);
 
     return deduped.slice(0, boundedLimit);
@@ -59,6 +65,7 @@ export class AnnouncementsService {
       scopeId: YOK_ANNOUNCEMENT_SCOPE_ID,
       sourceName: "YÖK Duyuruları",
       sourceUrl: YOK_ANNOUNCEMENT_SOURCE_URL,
+      contentType: "announcement",
       parser: "auto",
       priority: 100,
       status: "active",
@@ -100,6 +107,7 @@ export class AnnouncementsService {
       scopeId: university.id,
       sourceName: `${university.name} Duyurular`,
       sourceUrl: result.sourceUrl,
+      contentType: "announcement",
       parser: result.parser ?? "auto",
       priority: 20,
       status: "active",
@@ -159,6 +167,7 @@ function fallbackItemsForSource(source: AnnouncementSourceRecord, fetchedAt: Dat
     id: createAnnouncementId(source.id, item.link, item.title),
     sourceId: source.id,
     sourceName: source.sourceName,
+    contentType: source.contentType ?? "announcement",
     scopeType: source.scopeType,
     scopeId: source.scopeId,
     title: item.title,

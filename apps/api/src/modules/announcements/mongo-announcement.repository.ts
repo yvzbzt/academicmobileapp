@@ -50,7 +50,9 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
   async replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[]): Promise<void> {
     const model = await this.model("AnnouncementItem", announcementItemSchema);
     await model.deleteMany({ sourceId: source.id });
-    if (items.length > 0) await model.insertMany(items);
+    if (items.length > 0) {
+      await model.insertMany(items.map((item) => ({ ...item, sourceId: source.id, sourceName: source.sourceName, contentType: item.contentType ?? source.contentType ?? "announcement", scopeType: source.scopeType, scopeId: source.scopeId })));
+    }
   }
 
   async listItemsByScope(input: { universityId: string; facultyId?: string; departmentId?: string; limit: number }): Promise<AnnouncementItem[]> {

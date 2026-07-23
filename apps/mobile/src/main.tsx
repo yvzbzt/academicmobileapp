@@ -32,6 +32,8 @@ type RegisterResponse = { status: "verification_required"; email: string; verifi
 type ApiState<T> = { loading: boolean; data?: T; error?: string };
 type AuthNotice = { kind: "success" | "error" | "info"; text: string };
 type StudentPage = "landing" | "calendar" | "announcements" | "summer" | "yok" | "settings";
+type AnnouncementContentType = "announcement" | "news" | "event";
+type AnnouncementScopeType = "university" | "faculty" | "department";
 
 interface UniversityRecord { id: string; name: string; city: string; type: string; }
 interface FacultyRecord { id: string; name: string; websiteUrl?: string; announcementUrl?: string; }
@@ -40,9 +42,10 @@ interface CalendarRecord { id: string; title: string; academicYear: string; stat
 interface EventRecord { id: string; title: string; category: string; startDate: string; endDate?: string; universityId?: string; facultyId?: string; departmentId?: string; description?: string; }
 interface CalendarPayload { calendar: CalendarRecord; events: EventRecord[]; scope?: "university"; sourceStatus?: "parsed" | "source_only"; }
 interface DepartmentSchedulePayload { profile: { universityId: string; facultyId?: string; departmentId?: string }; events: EventRecord[]; sourceUrl?: string; sourceStatus?: "parsed" | "source_only" | "missing"; }
-interface AnnouncementRecord { id: string; sourceName: string; scopeType?: "university" | "faculty" | "department"; scopeId?: string; title: string; link: string; publishedAt?: string; summary?: string; fetchedAt?: string; }
+interface AnnouncementRecord { id: string; sourceName: string; contentType?: AnnouncementContentType; scopeType?: AnnouncementScopeType; scopeId?: string; title: string; link: string; publishedAt?: string; summary?: string; fetchedAt?: string; }
 interface SummerSchoolRequirementRecord { message: string; date?: string; sourceUrl?: string; eventId?: string; }
-interface SummerSchoolUniversityOption { universityId: string; universityName: string; academicYear: string; sourceUrl?: string; events: EventRecord[]; }
+interface SummerSchoolDepartmentMatch { facultyId: string; facultyName: string; departmentId: string; departmentName: string; educationLevel?: EducationLevel; }
+interface SummerSchoolUniversityOption { universityId: string; universityName: string; academicYear: string; sourceUrl?: string; events: EventRecord[]; matchingDepartments?: SummerSchoolDepartmentMatch[]; }
 interface SummerSchoolPayload {
   profile: { universityId: string; universityName?: string; facultyId?: string; facultyName?: string; departmentId?: string; departmentName?: string; };
   requirements: SummerSchoolRequirementRecord[];
@@ -51,12 +54,13 @@ interface SummerSchoolPayload {
   sameDepartmentOptions: SummerSchoolUniversityOption[];
   generatedAt: string;
 }
+interface CalendarIntegrationPayload { feedUrl: string; webcalUrl: string; appleSubscribeUrl: string; googleSubscribeUrl: string; generatedAt: string; }
 interface PreferencesPayload { enabled: boolean; categories: Record<string, boolean>; reminderOffsets: number[]; reminderRules?: Array<{ trigger: "before" | "at_time" | "approaching"; amount: number; unit: "days" | "hours"; enabled: boolean }>; quietHours?: { enabled: boolean; start: string; end: string; timezone: string }; }
 interface ProfilePayload { id: string; fullName: string; email: string; role: UserRole; universityId?: string; facultyId?: string; departmentId?: string; classLevel?: number; status: string; emailVerifiedAt?: string; }
 interface AffiliationOptionsPayload { emailDomain?: string; university?: UniversityRecord | null; faculties: FacultyRecord[]; departments: DepartmentRecord[]; classLevelOptions?: number[]; needsUniversityReview: boolean; }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
-const adminDashboardUrl = import.meta.env.VITE_ADMIN_DASHBOARD_URL ?? "https://academic-mobile-app-7629-admin.web.app/";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://academic-api.anssoft.com.tr";
+const adminDashboardUrl = import.meta.env.VITE_ADMIN_DASHBOARD_URL ?? "https://academic-api.anssoft.com.tr/admin/";
 const calendarListPreviewLimit = 5;
 const categoryLabels: Record<string, string> = {
   academic_year_start: "Akademik yıl başlangıcı",
@@ -229,8 +233,62 @@ function announcementTimestamp(item: AnnouncementRecord): number {
   return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 
-function isUniversityAnnouncement(item: AnnouncementRecord): boolean {
-  return !item.scopeType || item.scopeType === "university";
+const announcementContentOrder: AnnouncementContentType[] = ["announcement", "news", "event"];
+const announcementScopeOrder: AnnouncementScopeType[] = ["university", "faculty", "department"];
+const announcementContentLabels: Record<AnnouncementContentType, string> = {
+  announcement: "Duyurular",
+  news: "Haberler",
+  event: "Etkinlikler"
+};
+const announcementScopeLabels: Record<AnnouncementScopeType, string> = {
+  university: "Üniversite",
+  faculty: "Fakülte",
+  department: "Bölüm"
+};
+const announcementOpenLabels: Record<AnnouncementContentType, string> = {
+  announcement: "Duyuruyu Aç",
+  news: "Haberi Aç",
+  event: "Etkinliği Aç"
+};
+
+interface AnnouncementSection {
+  key: string;
+  title: string;
+  items: AnnouncementRecord[];
+  visibleItems: AnnouncementRecord[];
+  hiddenOlderCount: number;
+}
+
+function normalizeAnnouncementContentType(item: AnnouncementRecord): AnnouncementContentType {
+  return item.contentType === "news" || item.contentType === "event" ? item.contentType : "announcement";
+}
+
+function normalizeAnnouncementScopeType(item: AnnouncementRecord): AnnouncementScopeType {
+  return item.scopeType === "faculty" || item.scopeType === "department" ? item.scopeType : "university";
+}
+
+function groupAnnouncementsForDisplay(items: AnnouncementRecord[], showOlder: boolean): AnnouncementSection[] {
+  const sections: AnnouncementSection[] = [];
+  for (const contentType of announcementContentOrder) {
+    for (const scopeType of announcementScopeOrder) {
+      const scopedItems = items.filter((item) => normalizeAnnouncementContentType(item) === contentType && normalizeAnnouncementScopeType(item) === scopeType);
+      if (scopedItems.length === 0) continue;
+      const freshness = splitAnnouncementsByFreshness(scopedItems);
+      const visibleItems = showOlder ? [...freshness.recent, ...freshness.older] : freshness.recent;
+      sections.push({
+        key: `${scopeType}-${contentType}`,
+        title: `${announcementScopeLabels[scopeType]} ${announcementContentLabels[contentType]}`,
+        items: scopedItems,
+        visibleItems,
+        hiddenOlderCount: freshness.older.length
+      });
+    }
+  }
+  return sections;
+}
+
+function announcementOpenLabel(item: AnnouncementRecord): string {
+  return announcementOpenLabels[normalizeAnnouncementContentType(item)];
 }
 
 function formatApiError(status: number, body: string): string {
@@ -254,6 +312,7 @@ function formatApiError(status: number, body: string): string {
   if (status === 429) return "Yeni doğrulama kodu istemeden önce lütfen bekleyin.";
   if (status === 401) return "E-posta veya şifre doğru değil.";
   if (status === 409) return "Bu e-posta zaten kayıtlı. Giriş sekmesine geçin veya farklı bir e-posta kullanın.";
+  if (status === 503 && serverMessage.includes("Email delivery")) return "Doğrulama e-postası şu anda gönderilemiyor. Lütfen daha sonra tekrar deneyin.";
   if (status >= 500) return "Servis geçici olarak kullanılamıyor. Birazdan tekrar deneyin.";
   return serverMessage || fallback;
 }
@@ -265,9 +324,6 @@ function App() {
   const [showAdminDecision, setShowAdminDecision] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register" | "verify">("login");
   const [selectedUniversityId, setSelectedUniversityId] = useState("");
-  const [registerUniversityId, setRegisterUniversityId] = useState("");
-  const [registerFacultyId, setRegisterFacultyId] = useState("");
-  const [registerDepartmentId, setRegisterDepartmentId] = useState("");
   const [profileUniversityId, setProfileUniversityId] = useState("");
   const [affiliationFacultyId, setAffiliationFacultyId] = useState("");
   const [affiliationDepartmentId, setAffiliationDepartmentId] = useState("");
@@ -277,8 +333,6 @@ function App() {
   const [resendAvailableAt, setResendAvailableAt] = useState("");
   const [clockNow, setClockNow] = useState(Date.now());
   const [universities, setUniversities] = useState<ApiState<UniversityRecord[]>>({ loading: false });
-  const [registerFaculties, setRegisterFaculties] = useState<ApiState<FacultyRecord[]>>({ loading: false });
-  const [registerDepartments, setRegisterDepartments] = useState<ApiState<DepartmentRecord[]>>({ loading: false });
   const [profileFaculties, setProfileFaculties] = useState<ApiState<FacultyRecord[]>>({ loading: false });
   const [profileDepartments, setProfileDepartments] = useState<ApiState<DepartmentRecord[]>>({ loading: false });
   const [calendar, setCalendar] = useState<ApiState<CalendarPayload>>({ loading: false });
@@ -287,6 +341,7 @@ function App() {
   const [announcements, setAnnouncements] = useState<ApiState<AnnouncementRecord[]>>({ loading: false });
   const [yokAnnouncements, setYokAnnouncements] = useState<ApiState<AnnouncementRecord[]>>({ loading: false });
   const [summerSchool, setSummerSchool] = useState<ApiState<SummerSchoolPayload>>({ loading: false });
+  const [calendarIntegrations, setCalendarIntegrations] = useState<ApiState<CalendarIntegrationPayload>>({ loading: false });
   const [upcoming, setUpcoming] = useState<ApiState<EventRecord[]>>({ loading: false });
   const [preferences, setPreferences] = useState<ApiState<PreferencesPayload>>({ loading: false });
   const [profile, setProfile] = useState<ApiState<ProfilePayload>>({ loading: false });
@@ -356,13 +411,6 @@ function App() {
   useEffect(() => {
     setAuthNotice(null);
     if (authMode !== "verify") setRegisteredEmail("");
-    if (authMode !== "register") {
-      setRegisterUniversityId("");
-      setRegisterFacultyId("");
-      setRegisterDepartmentId("");
-      setRegisterFaculties({ loading: false, data: [] });
-      setRegisterDepartments({ loading: false, data: [] });
-    }
   }, [authMode]);
 
   useEffect(() => {
@@ -459,11 +507,7 @@ function App() {
         body: JSON.stringify({
           email: values.email,
           password: values.password,
-          passwordConfirmation: values.passwordConfirmation,
-          universityId: registerUniversityId || undefined,
-          facultyId: registerFacultyId || undefined,
-          departmentId: registerDepartmentId || undefined,
-          classLevel: values.classLevel ? Number(values.classLevel) : undefined
+          passwordConfirmation: values.passwordConfirmation
         })
       });
 
@@ -581,22 +625,6 @@ function App() {
     await runAction(setUniversities, () => request<UniversityRecord[]>("/universities?limit=500&offset=0"));
   }
 
-  async function loadRegisterFaculties(universityId: string) {
-    if (!universityId) {
-      setRegisterFaculties({ loading: false, data: [] });
-      return;
-    }
-    await runAction(setRegisterFaculties, () => request<FacultyRecord[]>(`/universities/${universityId}/faculties`));
-  }
-
-  async function loadRegisterDepartments(facultyId: string) {
-    if (!facultyId) {
-      setRegisterDepartments({ loading: false, data: [] });
-      return;
-    }
-    await runAction(setRegisterDepartments, () => request<DepartmentRecord[]>(`/faculties/${facultyId}/departments`));
-  }
-
   async function loadProfileFaculties(universityId: string) {
     if (!universityId) {
       setProfileFaculties({ loading: false, data: [] });
@@ -663,6 +691,11 @@ function App() {
   async function loadSummerSchool() {
     if (!ensureSession()) return;
     await runAction(setSummerSchool, () => request<SummerSchoolPayload>("/calendar/summer-school/my"));
+  }
+
+  async function loadCalendarIntegrations() {
+    if (!ensureSession()) return;
+    await runAction(setCalendarIntegrations, () => request<CalendarIntegrationPayload>("/calendar/integrations"));
   }
 
   async function loadPreferences() {
@@ -792,6 +825,7 @@ function App() {
     setAnnouncements({ loading: false });
     setYokAnnouncements({ loading: false });
     setSummerSchool({ loading: false });
+    setCalendarIntegrations({ loading: false });
     setUpcoming({ loading: false });
     setPreferences({ loading: false });
     setProfile({ loading: false });
@@ -812,18 +846,12 @@ function App() {
 
   function facultyName(id?: string, fallback = "Fakülte ayarlı değil") {
     if (!id) return fallback;
-    return [
-      ...(profileFaculties.data ?? []),
-      ...(registerFaculties.data ?? [])
-    ].find((faculty) => faculty.id === id)?.name ?? "Fakülte bilgisi yükleniyor";
+    return (profileFaculties.data ?? []).find((faculty) => faculty.id === id)?.name ?? "Fakülte bilgisi yükleniyor";
   }
 
   function departmentName(id?: string, fallback = "Bölüm ayarlı değil") {
     if (!id) return fallback;
-    return [
-      ...(profileDepartments.data ?? []),
-      ...(registerDepartments.data ?? [])
-    ].find((department) => department.id === id)?.name ?? "Bölüm bilgisi yükleniyor";
+    return (profileDepartments.data ?? []).find((department) => department.id === id)?.name ?? "Bölüm bilgisi yükleniyor";
   }
 
   function openStudentPage(page: StudentPage) {
@@ -834,6 +862,7 @@ function App() {
       void loadMyCalendar();
       void loadCourseSchedules();
       void loadExamSchedules();
+      void loadCalendarIntegrations();
     }
     if (page === "announcements") {
       void loadProfile();
@@ -890,9 +919,10 @@ function App() {
   const hiddenCalendarEventCount = Math.max(0, displayableCalendarEvents.length - visibleCalendarEvents.length);
   const hiddenCourseScheduleEventCount = Math.max(0, courseScheduleEvents.length - visibleCourseScheduleEvents.length);
   const hiddenExamScheduleEventCount = Math.max(0, examScheduleEvents.length - visibleExamScheduleEvents.length);
-  const universityAnnouncements = (announcements.data ?? []).filter(isUniversityAnnouncement);
-  const announcementGroups = splitAnnouncementsByFreshness(universityAnnouncements);
-  const visibleAnnouncements = showOlderAnnouncements ? [...announcementGroups.recent, ...announcementGroups.older] : announcementGroups.recent;
+  const announcementFeed = announcements.data ?? [];
+  const announcementSections = groupAnnouncementsForDisplay(announcementFeed, showOlderAnnouncements);
+  const hasVisibleAnnouncements = announcementSections.some((section) => section.visibleItems.length > 0);
+  const hiddenOlderAnnouncementCount = announcementSections.reduce((total, section) => total + section.hiddenOlderCount, 0);
   const yokAnnouncementGroups = splitAnnouncementsByFreshness(yokAnnouncements.data ?? []);
   const visibleYokAnnouncements = showOlderYokAnnouncements ? [...yokAnnouncementGroups.recent, ...yokAnnouncementGroups.older] : yokAnnouncementGroups.recent;
   const summerRequirements = summerSchool.data?.requirements ?? [];
@@ -901,11 +931,9 @@ function App() {
   const summerOptions = summerSchool.data?.sameDepartmentOptions ?? [];
   const hasSummerSchoolContent = summerRequirements.length > 0 || summerOwnAnnouncements.length > 0 || summerSameDepartmentAnnouncements.length > 0 || summerOptions.length > 0;
   const knownDepartments = [
-    ...(registerDepartments.data ?? []),
     ...(profileDepartments.data ?? []),
     ...(affiliationOptions.data?.departments ?? [])
   ];
-  const registerClassLevelOptions = classLevelOptionsForDepartment(findDepartmentById(registerDepartments.data ?? [], registerDepartmentId));
   const profileClassLevelOptions = classLevelOptionsForDepartment(findDepartmentById(knownDepartments, profile.data?.departmentId));
   const affiliationClassLevelOptions = classLevelOptionsForDepartment(findDepartmentById(knownDepartments, affiliationDepartmentId || profile.data?.departmentId));
   const activeReminderRule = preferences.data?.reminderRules?.find((rule) => rule.enabled) ?? preferences.data?.reminderRules?.[0];
@@ -953,51 +981,7 @@ function App() {
                 {authMode === "register" && (
                   <>
                     <input name="passwordConfirmation" type="password" placeholder="Şifreyi doğrula" required aria-label="Şifreyi doğrula" />
-                    <select
-                      name="universityId"
-                      value={registerUniversityId}
-                      onChange={(event) => {
-                        const universityId = event.target.value;
-                        setRegisterUniversityId(universityId);
-                        setRegisterFacultyId("");
-                        setRegisterDepartmentId("");
-                        setRegisterDepartments({ loading: false, data: [] });
-                        void loadRegisterFaculties(universityId);
-                      }}
-                      required
-                      aria-label="Üniversite"
-                    >
-                      <option value="">Üniversite seçin</option>
-                      {(universities.data ?? []).map((university) => <option key={university.id} value={university.id}>{university.name}</option>)}
-                    </select>
-                    <select
-                      name="facultyId"
-                      value={registerFacultyId}
-                      onChange={(event) => {
-                        const facultyId = event.target.value;
-                        setRegisterFacultyId(facultyId);
-                        setRegisterDepartmentId("");
-                        void loadRegisterDepartments(facultyId);
-                      }}
-                      disabled={!registerUniversityId || registerFaculties.loading}
-                      required
-                      aria-label="Fakülte"
-                    >
-                      <option value="">{registerFaculties.loading ? "Fakülteler yükleniyor" : "Fakülte seçin"}</option>
-                      {(registerFaculties.data ?? []).map((faculty) => <option key={faculty.id} value={faculty.id}>{faculty.name}</option>)}
-                    </select>
-                    <select
-                      name="departmentId"
-                      value={registerDepartmentId}
-                      onChange={(event) => setRegisterDepartmentId(event.target.value)}
-                      disabled={!registerFacultyId || registerDepartments.loading}
-                      required
-                      aria-label="Bölüm"
-                    >
-                      <option value="">{registerDepartments.loading ? "Bölümler yükleniyor" : "Bölüm seçin"}</option>
-                      {(registerDepartments.data ?? []).map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-                    </select>
-                    <ClassLevelSelect options={registerClassLevelOptions} />
+                    <p className="sectionHint">Okul, fakülte ve bölüm bilgilerini hesabını oluşturduktan sonra profilinden seçebilirsin.</p>
                   </>
                 )}
 
@@ -1277,6 +1261,18 @@ function App() {
         {studentPage === "calendar" && (
           <section className="pageStack">
             <section className="panel">
+              <div className="sectionTitle"><Smartphone size={18} /><h2>Mobil Takvim</h2><button className="btn btn-secondary" type="button" onClick={loadCalendarIntegrations} disabled={calendarIntegrations.loading}><RefreshCcw size={16} /> Yenile</button></div>
+              {calendarIntegrations.loading && <PanelState kind="loading" text="Takvim baglantilari hazirlaniyor..." />}
+              {calendarIntegrations.error && <PanelState kind="error" text={calendarIntegrations.error} />}
+              {calendarIntegrations.data && (
+                <div className="calendarIntegrationGrid">
+                  <a className="btn btn-primary" href={calendarIntegrations.data.appleSubscribeUrl}><Smartphone size={16} /> Apple Calendar</a>
+                  <a className="btn btn-secondary" href={calendarIntegrations.data.googleSubscribeUrl} target="_blank" rel="noreferrer"><CalendarDays size={16} /> Google Calendar</a>
+                  <a className="btn btn-secondary" href={calendarIntegrations.data.feedUrl} target="_blank" rel="noreferrer"><ExternalLink size={16} /> ICS</a>
+                </div>
+              )}
+            </section>
+            <section className="panel">
               <div className="sectionTitle"><CalendarDays size={18} /><h2>Akademik Takvimim</h2><button className="btn btn-secondary" type="button" onClick={() => { void loadMyCalendar(); void loadCourseSchedules(); void loadExamSchedules(); }} disabled={calendar.loading || courseSchedules.loading || examSchedules.loading}><RefreshCcw size={16} /> Yenile</button></div>
               <p className="sectionHint">Bu tarihler, seçili üniversitenin tek merkezi akademik takviminden gelir.</p>
               {profile.data && <div className="profileStrip"><span>{universityName(profile.data.universityId)}</span></div>}
@@ -1354,29 +1350,36 @@ function App() {
         {studentPage === "announcements" && (
           <section className="pageStack">
             <section className="panel">
-              <div className="sectionTitle"><Megaphone size={18} /><h2>Üniversite Duyuruları</h2><button className="btn btn-secondary" type="button" onClick={() => loadMyAnnouncements()} disabled={announcements.loading}><RefreshCcw size={16} /> Yenile</button></div>
-              <p className="sectionHint">Seçtiğiniz üniversitenin resmi duyuru kaynaklarından alınan en güncel bağlantılar.</p>
+              <div className="sectionTitle"><Megaphone size={18} /><h2>Duyurular, Haberler ve Etkinlikler</h2><button className="btn btn-secondary" type="button" onClick={() => loadMyAnnouncements()} disabled={announcements.loading}><RefreshCcw size={16} /> Yenile</button></div>
+              <p className="sectionHint">Üniversite, fakülte ve bölüm kaynaklarından gelen içerikler ayrı başlıklar altında gösterilir.</p>
               {profile.data && <div className="profileStrip"><span>{universityName(profile.data.universityId)}</span></div>}
               {announcements.loading && <PanelState kind="loading" text="Duyurular yükleniyor..." />}
               {announcements.error && <PanelState kind="error" text={announcements.error} />}
-              {!announcements.loading && !announcements.error && universityAnnouncements.length === 0 && <PanelState kind="empty" text="Bu üniversite için henüz duyuru bulunamadı." />}
-              {!announcements.loading && !announcements.error && universityAnnouncements.length > 0 && visibleAnnouncements.length === 0 && <PanelState kind="empty" text="Son bir haftada yeni duyuru yok. Eski duyurular için daha fazla gösterin." />}
-              <div className="eventList">
-                {visibleAnnouncements.map((announcement) => (
-                  <article className="eventItem announcementItem" key={announcement.id}>
-                    <span>{announcement.sourceName}</span>
-                    <strong>{announcement.title}</strong>
-                    {announcement.summary && <p>{announcement.summary}</p>}
-                    {(announcement.publishedAt ?? announcement.fetchedAt) && <time>{new Date(announcement.publishedAt ?? announcement.fetchedAt ?? "").toLocaleDateString("tr-TR")}</time>}
-                    <a className="sourceLink" href={announcement.link} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Duyuruyu Aç</a>
-                    <div className="alarmActions">
-                      <button className="btn btn-secondary" type="button" onClick={() => createStudentAlarm({ eventType: "announcement", targetId: announcement.id, title: announcement.title, scheduledFor: nextAnnouncementReminderIso(), trigger: "at_time", amount: 0, unit: "days", sourceUrl: announcement.link })}><Bell size={14} /> Hatırlat</button>
+              {!announcements.loading && !announcements.error && announcementFeed.length === 0 && <PanelState kind="empty" text="Bu profil için henüz duyuru, haber veya etkinlik bulunamadı." />}
+              {!announcements.loading && !announcements.error && announcementFeed.length > 0 && !hasVisibleAnnouncements && <PanelState kind="empty" text="Son bir haftada yeni içerik yok. Eski kayıtlar için daha fazla gösterin." />}
+              <div className="announcementGroupedList">
+                {announcementSections.map((section) => (
+                  <section className="announcementGroup" key={section.key}>
+                    <div className="announcementGroupHeader"><strong>{section.title}</strong><span>{section.items.length} kayıt</span></div>
+                    <div className="eventList">
+                      {section.visibleItems.map((announcement) => (
+                        <article className="eventItem announcementItem" key={announcement.id}>
+                          <span>{announcement.sourceName}</span>
+                          <strong>{announcement.title}</strong>
+                          {announcement.summary && <p>{announcement.summary}</p>}
+                          {(announcement.publishedAt ?? announcement.fetchedAt) && <time>{new Date(announcement.publishedAt ?? announcement.fetchedAt ?? "").toLocaleDateString("tr-TR")}</time>}
+                          <a className="sourceLink" href={announcement.link} target="_blank" rel="noreferrer"><ExternalLink size={14} /> {announcementOpenLabel(announcement)}</a>
+                          <div className="alarmActions">
+                            <button className="btn btn-secondary" type="button" onClick={() => createStudentAlarm({ eventType: "announcement", targetId: announcement.id, title: announcement.title, scheduledFor: nextAnnouncementReminderIso(), trigger: "at_time", amount: 0, unit: "days", sourceUrl: announcement.link })}><Bell size={14} /> Hatırlat</button>
+                          </div>
+                        </article>
+                      ))}
                     </div>
-                  </article>
+                  </section>
                 ))}
               </div>
-              {!announcements.loading && !announcements.error && announcementGroups.older.length > 0 && !showOlderAnnouncements && (
-                <button className="btn btn-secondary fullWidth" type="button" onClick={() => setShowOlderAnnouncements(true)}>Daha fazla göster</button>
+              {!announcements.loading && !announcements.error && hiddenOlderAnnouncementCount > 0 && !showOlderAnnouncements && (
+                <button className="btn btn-secondary fullWidth" type="button" onClick={() => setShowOlderAnnouncements(true)}>Daha fazla göster ({hiddenOlderAnnouncementCount})</button>
               )}
             </section>
           </section>
@@ -1455,6 +1458,9 @@ function App() {
                     <article className="eventItem announcementItem" key={`${option.universityId}-${option.academicYear}`}>
                       <span>{option.academicYear}</span>
                       <strong>{option.universityName}</strong>
+                      {(option.matchingDepartments?.length ?? 0) > 0 && (
+                        <p>{option.matchingDepartments?.map((match) => `${match.departmentName} - ${match.facultyName}`).join(" · ")}</p>
+                      )}
                       <p>{option.events.map((event) => `${categoryLabels[event.category] ?? event.category}: ${new Date(event.startDate).toLocaleDateString("tr-TR")}`).join(" · ")}</p>
                       {option.sourceUrl && <a className="sourceLink" href={option.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Başvuru / Kaynak</a>}
                     </article>

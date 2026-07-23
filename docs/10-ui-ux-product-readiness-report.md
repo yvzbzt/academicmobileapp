@@ -1,61 +1,61 @@
 # UI/UX Product Readiness Report (Web + Mobile)
 
-## 1. Hedef
+## 1. Purpose
 
-Bu raporun amaci, mevcut admin web ve student mobile web arayuzlerini MVP seviyesinden production seviyesine tasimak icin net tasarim ilkeleri, tasarim sistemi standartlari ve uygulanabilir UX kararlarini tanimlamaktir.
+This report defines the design principles, design-system standards, and practical UX decisions needed to move the current admin web and student mobile web interfaces from MVP quality to production quality.
 
-Kapsam:
+Scope:
 
-- Admin web operasyon deneyimi
-- Student mobile web deneyimi
-- CTA stratejisi
-- Renk sistemi
-- Vektor ve ikon standardi
-- Erisilebilirlik
-- Performans ve algilanan hiz iyilestirmeleri
+- Admin web operations experience
+- Student mobile web experience
+- CTA strategy
+- Color system
+- Vector and icon standards
+- Accessibility
+- Performance and perceived-speed improvements
 
-## 2. Mevcut Durum Ozeti
+## 2. Current State Summary
 
-Gozlenen guclu yonler:
+Observed strengths:
 
-- Is akislari calisiyor: katalog, PDF, review, publish, notification, audit.
-- Mobil tarafta temel onboarding ve takvim akislarinin tamamlanmis olmasi.
-- Tutarli temel CSS ve responsive kirilimlarin varligi.
+- Core workflows are functional: catalog, PDF, review, publish, notification, and audit.
+- The mobile side has completed baseline onboarding and calendar flows.
+- Basic CSS and responsive breakpoints are reasonably consistent.
 
-Gozlenen kritik bosluklar:
+Observed critical gaps:
 
-- Tasarim token mimarisi resmi olarak tanimli degil (renk, spacing, radius, state).
-- CTA hiyerarsisi tek tip buton gorunumu ile sinirli.
-- Tipografi karakteri ve marka kimligi yeterince ayrismiyor.
-- Durum ekranlari (empty/error/loading/success) standardize degil.
-- Gorsel varlik (SVG, ilustrasyon, animasyon) pipeline standartlari yok.
-- Performans butceleri ve UI kalite gate metrikleri resmi degil.
+- The design-token architecture is not formally defined for color, spacing, radius, and state.
+- CTA hierarchy is still limited to a mostly uniform button appearance.
+- Typography and brand identity do not yet feel distinct enough.
+- Empty, error, loading, and success states are not standardized.
+- Visual asset standards for SVG, illustration, and animation are missing.
+- Performance budgets and UI quality-gate metrics are not yet formalized.
 
-## 3. Hedeflenen UX Sonucu
+## 3. Target UX Outcome
 
-Urun deneyimi asagidaki 4 ilke etrafinda standardize edilir:
+The product experience should be standardized around four principles:
 
-1. Clarity: Her ekranda birincil gorev tek bakista anlasilir.
-2. Confidence: Kritik aksiyonlarda hataya dayanikli ve geri alinabilir akislar sunulur.
-3. Speed: Ozellikle mobilde dusuk cihazlarda da akici etkileisim saglanir.
-4. Trust: Renk, metin, geri bildirim ve erisilebilirlik tutarlidir.
+1. Clarity: The primary task is clear at a glance on every screen.
+2. Confidence: Critical actions are resilient, recoverable, and easy to verify.
+3. Speed: Interactions remain smooth on lower-end mobile devices.
+4. Trust: Color, copy, feedback, and accessibility are consistent.
 
-## 4. Design System V1.0 Kararlari
+## 4. Design System V1.0 Decisions
 
-### 4.1 Token Katmanlari
+### 4.1 Token Layers
 
-- Primitive tokens: ham renk, spacing, radius, shadow, type degerleri.
-- Semantic tokens: `surface.default`, `text.primary`, `cta.primary.bg` gibi anlamli isimler.
-- Component tokens: `button.primary.bg`, `input.error.border`, `badge.warning.bg`.
+- Primitive tokens: raw color, spacing, radius, shadow, and type values.
+- Semantic tokens: meaningful names such as `surface.default`, `text.primary`, and `cta.primary.bg`.
+- Component tokens: component-specific names such as `button.primary.bg`, `input.error.border`, and `badge.warning.bg`.
 
-### 4.2 Tipografi
+### 4.2 Typography
 
-Onerilen font stratejisi:
+Recommended font strategy:
 
-- Admin web: "Manrope Variable" + fallback "Noto Sans".
-- Mobile web: "Plus Jakarta Sans Variable" + fallback "Noto Sans".
+- Admin web: "Manrope Variable" with "Noto Sans" fallback.
+- Mobile web: "Plus Jakarta Sans Variable" with "Noto Sans" fallback.
 
-Tipografi olcegi:
+Typography scale:
 
 - Display: 40/48
 - H1: 32/40
@@ -66,46 +66,46 @@ Tipografi olcegi:
 - Body S: 14/20
 - Caption: 12/16
 
-### 4.3 Spacing ve Grid
+### 4.3 Spacing And Grid
 
-- 8pt spacing sistemi (4, 8, 12, 16, 24, 32, 40, 48, 64).
-- Admin web: 12 kolon desktop grid + 24px gutter.
-- Mobile web: 4 kolon fluid grid + 16px yatay padding.
+- 8pt spacing system: 4, 8, 12, 16, 24, 32, 40, 48, 64.
+- Admin web: 12-column desktop grid with 24px gutters.
+- Mobile web: 4-column fluid grid with 16px horizontal padding.
 
 ### 4.4 Radius, Border, Shadow
 
 - Radius: 6, 10, 14, 20.
-- Border: 1px neutral-300 default, 2px focus state.
-- Shadow katmanlari: elevation-1, elevation-2, elevation-3.
+- Border: 1px neutral-300 by default, 2px for focus states.
+- Shadow layers: elevation-1, elevation-2, elevation-3.
 
-## 5. CTA Stratejisi
+## 5. CTA Strategy
 
-### 5.1 CTA Seviyeleri
+### 5.1 CTA Levels
 
-1. Primary CTA: Tek bir ekranin ana hedefi.
-2. Secondary CTA: Ana hedefi destekleyen islemler.
-3. Tertiary CTA: Dusuk oncelikli, metin agirlikli islemler.
-4. Destructive CTA: Silme, arsivleme, geri alinmasi zor islemler.
+1. Primary CTA: The main goal of a screen.
+2. Secondary CTA: Actions that support the main goal.
+3. Tertiary CTA: Low-priority, text-weight actions.
+4. Destructive CTA: Delete, archive, or hard-to-undo actions.
 
-### 5.2 CTA Renk ve Durum Kurali
+### 5.2 CTA Color And State Rules
 
-- Primary: brand-600 arkaplan + beyaz metin.
-- Secondary: beyaz arkaplan + brand-700 border/metin.
-- Tertiary: text-link stili.
-- Destructive: danger-600 arkaplan + beyaz metin.
+- Primary: brand-600 background with white text.
+- Secondary: white background with brand-700 border/text.
+- Tertiary: text-link style.
+- Destructive: danger-600 background with white text.
 
-Her CTA icin zorunlu state seti:
+Required states for every CTA:
 
 - default
-- hover (web)
+- hover on web
 - pressed
 - focus-visible
 - disabled
 - loading
 
-### 5.3 Ekran Bazli CTA Haritasi
+### 5.3 Screen-Level CTA Map
 
-Admin web kritik CTA:
+Critical admin web CTAs:
 
 - Publish Calendar: Primary
 - Approve Extracted Event: Primary
@@ -114,7 +114,7 @@ Admin web kritik CTA:
 - Archive University: Destructive
 - Export Audit: Secondary
 
-Mobile web kritik CTA:
+Critical mobile web CTAs:
 
 - Continue Login/Register: Primary
 - Select University: Primary
@@ -122,15 +122,15 @@ Mobile web kritik CTA:
 - Register Device: Secondary
 - Refresh Upcoming: Tertiary
 
-### 5.4 CTA Metin Kurali
+### 5.4 CTA Copy Rules
 
-- Fiil + nesne formati kullan: "Takvimi Yayinla", "Etkinligi Onayla".
-- 2-4 kelime ideal uzunluk.
-- Teknik jargon yerine sonuc odakli ifade kullan.
+- Use a verb + object pattern, such as "Publish Calendar" or "Approve Event".
+- Keep the ideal length to 2-4 words.
+- Prefer outcome-focused copy over technical jargon.
 
-## 6. Renk Sistemi (AA Uyumlu)
+## 6. Color System (AA Compatible)
 
-### 6.1 Onerilen Temel Palet
+### 6.1 Proposed Base Palette
 
 Brand:
 
@@ -158,7 +158,7 @@ State:
 - danger-600: #B42318
 - info-600: #0C5DD6
 
-### 6.2 Semantic Esleme
+### 6.2 Semantic Mapping
 
 - canvas.bg -> neutral-50
 - surface.bg -> #FFFFFF
@@ -170,56 +170,56 @@ State:
 - cta.destructive.bg -> danger-600
 - focus.ring -> info-600
 
-### 6.3 Kontrast Kurallari
+### 6.3 Contrast Rules
 
-- Normal metin kontrasti en az 4.5:1
-- Buyuk metin kontrasti en az 3:1
-- Kritik metin ve veri tablolarinda hedef 7:1
-- Salt renge bagli durum anlatimi yasak (ikon/metin destekli)
+- Normal text contrast must be at least 4.5:1.
+- Large text contrast must be at least 3:1.
+- Critical text and data tables should target 7:1.
+- State communication must not rely on color alone; support it with text or icons.
 
-## 7. Vektor, Ikon ve Ilustrasyon Standarti
+## 7. Vector, Icon, And Illustration Standards
 
-### 7.1 Ikon Sistemi
+### 7.1 Icon System
 
-- Ana ikon kutuphanesi: Lucide.
-- Stroke width: 1.75 standardize.
-- Boyutlar: 16, 20, 24.
-- Ikon + metin arasi min 8px bosluk.
+- Primary icon library: Lucide.
+- Stroke width: standardized at 1.75.
+- Sizes: 16, 20, 24.
+- Minimum spacing between icon and text: 8px.
 
-### 7.2 SVG Uretim Kurali
+### 7.2 SVG Production Rules
 
-- Tum custom ikonlar SVG olarak saklanir.
-- SVGO ile otomatik optimize edilir.
-- Fill yerine stroke tabanli, sade geometri tercih edilir.
-- Inline SVG veya sprite kullanilir; base64 icon embed edilmez.
+- All custom icons are stored as SVG.
+- SVG files are automatically optimized with SVGO.
+- Prefer stroke-based, simple geometry instead of heavy fill shapes.
+- Use inline SVG or sprites; do not embed base64 icons.
 
-### 7.3 Ilustrasyon ve Mikro Animasyon
+### 7.3 Illustration And Micro-Animation
 
-- Empty state ve onboarding icin hafif vektor ilustrasyonlar.
-- Lottie sadece yuksek degerli noktalarda (or. onboarding success).
-- Tek animasyon dosyasi ust sinir: 80KB gzip.
-- `prefers-reduced-motion` ile animasyon azaltma zorunlu.
+- Use lightweight vector illustrations for empty states and onboarding.
+- Use Lottie only in high-value moments, such as onboarding success.
+- Maximum single animation file size: 80KB gzip.
+- Reduced animation through `prefers-reduced-motion` is required.
 
-## 8. UX Akis ve Etkilesim Standartlari
+## 8. UX Flow And Interaction Standards
 
 ### 8.1 Form UX
 
-- Inline validasyon + alan bazli hata metni.
-- Submit oncesi zorunlu alan ozeti.
-- Submit sonrasi optimistic feedback + geri alma imkani (uygunsa).
+- Inline validation with field-level error text.
+- Required-field summary before submit.
+- Optimistic feedback after submit with undo when appropriate.
 
-### 8.2 Durum Ekranlari
+### 8.2 State Screens
 
-Her kritik bolumde su 4 durum icin reusable desen olusturulur:
+Each critical section needs reusable patterns for these four states:
 
-- Loading: skeleton + context label
-- Empty: acik yonlendirme metni + CTA
-- Error: neden + cozum adimi + retry CTA
-- Success: sonuc metni + sonraki adim CTA
+- Loading: skeleton with a contextual label
+- Empty: clear guidance text with a CTA
+- Error: reason, recovery step, and retry CTA
+- Success: result copy and next-step CTA
 
-### 8.3 Bilgi Mimarisi
+### 8.3 Information Architecture
 
-Admin bilgi mimarisi:
+Admin information architecture:
 
 - Catalog
 - PDF Operations
@@ -228,7 +228,7 @@ Admin bilgi mimarisi:
 - Notifications
 - Audit
 
-Mobile bilgi mimarisi:
+Mobile information architecture:
 
 - Auth
 - University Selection
@@ -236,55 +236,55 @@ Mobile bilgi mimarisi:
 - Upcoming
 - Preferences
 
-## 9. Erisilebilirlik Standardi
+## 9. Accessibility Standard
 
-Hedef standart: WCAG 2.2 AA.
+Target standard: WCAG 2.2 AA.
 
-Zorunlu maddeler:
+Required items:
 
-- Klavye ile tam gezinme
-- Gorunur focus ring
-- Min dokunma alani 44x44
-- Landmark ve dogru heading hiyerarsisi
-- Formlarda `label` ve `aria-describedby` baglantilari
-- Error mesajlarinda ekran okuyucu dostu duyurular
+- Full keyboard navigation
+- Visible focus ring
+- Minimum touch target of 44x44
+- Landmarks and correct heading hierarchy
+- Correct `label` and `aria-describedby` relationships in forms
+- Screen-reader-friendly error announcements
 
-## 10. Basari Metrikleri (UX KPI)
+## 10. Success Metrics (UX KPI)
 
 Admin KPI:
 
-- Calendar publish task completion >= %95
-- Publish islemi ortalama sure <= 3 dakika
-- Kritik form hata orani <= %2
+- Calendar publish task completion >= 95%
+- Average publish time <= 3 minutes
+- Critical form error rate <= 2%
 
 Mobile KPI:
 
-- Login + university selection completion >= %90
-- Upcoming events first paint <= 2.5 sn (4G)
-- Preferences save success >= %98
+- Login + university selection completion >= 90%
+- Upcoming events first paint <= 2.5 seconds on 4G
+- Preferences save success >= 98%
 
-Genel kalite KPI:
+General quality KPI:
 
 - Lighthouse Performance >= 90
 - Lighthouse Accessibility >= 95
 - INP < 200ms
 - CLS < 0.1
 
-## 11. Cikis Artefaktlari
+## 11. Output Artifacts
 
-Bu rapora bagli uretilmesi gereken artefaktlar:
+Artifacts that should be produced from this report:
 
-- Design token JSON/CSS degisken seti
-- UI component spec dosyalari (button, input, table, card, toast, modal)
+- Design-token JSON/CSS variable set
+- UI component spec files for button, input, table, card, toast, and modal
 - CTA copy guideline
-- Icon ve SVG governance dokumani
+- Icon and SVG governance document
 - UX acceptance checklist
 
-## 12. Onay Kriteri
+## 12. Approval Criteria
 
-Bu plan asagidaki durumlarda "production-ready UI/UX baseline" kabul edilir:
+This plan can be considered the production-ready UI/UX baseline when:
 
-- Tum kritik ekranlar design system tokenlari ile refactor edilir.
-- CTA hiyerarsisi tum ekranlarda tek standarda gecer.
-- Erisilebilirlik checklisti ve performans butceleri CI gate haline gelir.
-- Admin ve mobile task-based usability testlerinde hedef KPI'lar yakalanir.
+- All critical screens are refactored with design-system tokens.
+- CTA hierarchy follows one standard across all screens.
+- Accessibility checklist and performance budgets become CI gates.
+- Target KPIs are met in admin and mobile task-based usability tests.

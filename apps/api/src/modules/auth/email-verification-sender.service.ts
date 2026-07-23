@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import nodemailer from "nodemailer";
 
 export interface SendVerificationEmailInput {
@@ -21,6 +21,9 @@ export class EmailVerificationSenderService {
     const from = process.env.MAIL_FROM ?? "noreply@akademik-takvim.local";
 
     if (!host || !user || !pass) {
+      if (process.env.NODE_ENV === "production") {
+        throw new ServiceUnavailableException("Email delivery is not configured.");
+      }
       this.logger.warn("SMTP is not configured. Verification code is logged for development use.");
       this.logger.log(`VERIFY_EMAIL_CODE ${input.email} ${input.code}`);
       return;

@@ -2,7 +2,7 @@ import { Inject, Injectable, OnApplicationBootstrap, OnModuleDestroy } from "@ne
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchSourceItems, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
-import type { AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
+import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
 
 export interface AnnouncementDiscoveryResult {
   universityId: string;
@@ -67,6 +67,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
         scopeId: university.id,
         sourceName: `${university.name} Duyurular`,
         sourceUrl: result.sourceUrl,
+        contentType: "announcement",
         parser: result.parser ?? "auto",
         priority: 20,
         status: "active",
@@ -125,6 +126,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       scopeId: YOK_ANNOUNCEMENT_SCOPE_ID,
       sourceName: "YÖK Duyuruları",
       sourceUrl: YOK_ANNOUNCEMENT_SOURCE_URL,
+      contentType: "announcement",
       parser: "auto",
       priority: 100,
       status: "active",
@@ -136,46 +138,50 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     });
 
     const verifiedSources = await listVerifiedUniversitySources();
-    await Promise.all(verifiedSources.map((source) => {
-      if (!source.announcementUrl) return Promise.resolve(null);
-      const homepageUrl = homepageFromUrl(source.announcementUrl);
-      return this.announcementRepository.upsertSource({
-        scopeType: "university",
-        scopeId: source.universityId,
-        sourceName: `${source.universityName} Duyurular`,
-        sourceUrl: source.announcementUrl,
-        parser: "auto",
-        priority: 30,
-        status: "active",
-        ...(homepageUrl ? { homepageUrl } : {}),
-        discoveryMethod: "manual",
-        healthStatus: "pending",
-        consecutiveFailures: 0,
-        itemCount: 0
+    await Promise.all(verifiedSources.flatMap((source) => {
+      return verifiedContentSourceDefinitions(source).map((definition) => {
+        const homepageUrl = homepageFromUrl(definition.url);
+        return this.announcementRepository.upsertSource({
+          scopeType: "university",
+          scopeId: source.universityId,
+          sourceName: `${source.universityName} ${definition.label}`,
+          sourceUrl: definition.url,
+          contentType: definition.contentType,
+          parser: "auto",
+          priority: definition.priority,
+          status: "active",
+          ...(homepageUrl ? { homepageUrl } : {}),
+          discoveryMethod: "manual",
+          healthStatus: "pending",
+          consecutiveFailures: 0,
+          itemCount: 0
+        });
       });
     }));
 
-    const verifiedAcademicUnitSources = (await listVerifiedAcademicUnitSources()).filter((source) => source.announcementUrl);
-    await Promise.all(verifiedAcademicUnitSources.map((source) => {
+    const verifiedAcademicUnitSources = await listVerifiedAcademicUnitSources();
+    await Promise.all(verifiedAcademicUnitSources.flatMap((source) => {
       const scopeId = source.scopeType === "department" ? source.departmentId : source.facultyId;
-      if (!source.announcementUrl || !scopeId) return Promise.resolve(null);
-      const sourceName = source.scopeType === "department"
-        ? `${source.universityName ?? source.universityId} ${source.departmentName ?? "Bölüm"} Duyurular`
-        : `${source.universityName ?? source.universityId} ${source.facultyName ?? "Fakülte"} Duyurular`;
-      const homepageUrl = homepageFromUrl(source.announcementUrl);
-      return this.announcementRepository.upsertSource({
-        scopeType: source.scopeType,
-        scopeId,
-        sourceName,
-        sourceUrl: source.announcementUrl,
-        parser: "auto",
-        priority: source.scopeType === "department" ? 45 : 40,
-        status: "active",
-        ...(homepageUrl ? { homepageUrl } : {}),
-        discoveryMethod: "manual",
-        healthStatus: "pending",
-        consecutiveFailures: 0,
-        itemCount: 0
+      if (!scopeId) return [];
+      return verifiedContentSourceDefinitions(source).map((definition) => {
+        const unitName = source.scopeType === "department" ? source.departmentName ?? "Bölüm" : source.facultyName ?? "Fakülte";
+        const sourceName = `${source.universityName ?? source.universityId} ${unitName} ${definition.label}`;
+        const homepageUrl = homepageFromUrl(definition.url);
+        return this.announcementRepository.upsertSource({
+          scopeType: source.scopeType,
+          scopeId,
+          sourceName,
+          sourceUrl: definition.url,
+          contentType: definition.contentType,
+          parser: "auto",
+          priority: definition.priority + (source.scopeType === "department" ? 15 : 10),
+          status: "active",
+          ...(homepageUrl ? { homepageUrl } : {}),
+          discoveryMethod: "manual",
+          healthStatus: "pending",
+          consecutiveFailures: 0,
+          itemCount: 0
+        });
       });
     }));
   }
@@ -444,6 +450,14 @@ function homepageFromUrl(input: string): string | undefined {
   }
 }
 
+function verifiedContentSourceDefinitions(source: { announcementUrl?: string; newsUrl?: string; eventUrl?: string }): Array<{ contentType: AnnouncementContentType; label: string; url: string; priority: number }> {
+  return [
+    source.announcementUrl ? { contentType: "announcement" as const, label: "Duyurular", url: source.announcementUrl, priority: 30 } : null,
+    source.newsUrl ? { contentType: "news" as const, label: "Haberler", url: source.newsUrl, priority: 25 } : null,
+    source.eventUrl ? { contentType: "event" as const, label: "Etkinlikler", url: source.eventUrl, priority: 24 } : null
+  ].filter((definition): definition is { contentType: AnnouncementContentType; label: string; url: string; priority: number } => Boolean(definition));
+}
+
 export function isLikelyAcademicScopePage(html: string, finalUrl: string, university: UniversityRecord, scope: { faculty?: FacultyRecord; department?: DepartmentRecord }): boolean {
   const text = foldText(`${finalUrl} ${html.slice(0, 80000)}`);
   const tokens = academicScopeTokens(scope);
@@ -597,6 +611,14 @@ function buildAnnouncementSourceCandidates(homepageUrl: string, homepageHtml: st
     "/haberler/",
     "/tr/haberler",
     "/news",
+    "/news/",
+    "/tr/news",
+    "/etkinlikler",
+    "/etkinlikler/",
+    "/tr/etkinlikler",
+    "/events",
+    "/events/",
+    "/tr/events",
     "/notices",
     "/tr-tr/duyurular/Pages/default.aspx"
   ]) {
@@ -628,19 +650,19 @@ function addEmbeddedLinkSourceCandidates(candidates: Map<string, number>, homepa
     .replace(/\\u0026/g, "&")
     .replace(/\\\//g, "/");
 
-  for (const match of normalized.matchAll(/"(?:announcementsLink|newsLink|link|href|url)"\s*:\s*"([^"]+)"/gi)) {
+  for (const match of normalized.matchAll(/"(?:announcementsLink|newsLink|eventsLink|eventLink|link|href|url)"\s*:\s*"([^"]+)"/gi)) {
     const href = cleanText(match[1]);
     if (!href || !containsAnnouncementHint("", href)) continue;
     try {
       const url = new URL(href, homepageUrl).toString();
       if (looksLikeAnnouncementDetailUrl(url)) continue;
-      addSourceCandidate(candidates, url, href.includes("duyuru") || href.includes("announcement") ? 90 : 40);
+      addSourceCandidate(candidates, url, href.includes("duyuru") || href.includes("announcement") ? 90 : href.includes("etkinlik") || href.includes("event") ? 55 : 40);
     } catch {
       continue;
     }
   }
 
-  for (const match of normalized.matchAll(/(?:href|src)=["']([^"']*(?:duyuru|announcement|haber|news)[^"']*)["']/gi)) {
+  for (const match of normalized.matchAll(/(?:href|src)=["']([^"']*(?:duyuru|announcement|haber|news|etkinlik|event)[^"']*)["']/gi)) {
     const href = cleanText(match[1]);
     if (!href) continue;
     try {
@@ -658,9 +680,9 @@ function looksLikeAnnouncementDetailUrl(input: string): boolean {
   const path = url.pathname.toLocaleLowerCase("tr-TR");
   const segments = path.split("/").filter(Boolean);
   if (url.searchParams.has("announcementId") || url.searchParams.has("announcementdetail")) return true;
-  if (/(duyurudetay|duyuru-detay|announcement-detail|haber-detay|news-detail)/u.test(path)) return true;
-  if (segments.some((segment, index) => ["duyuru", "haber", "announcement", "news"].includes(segment) && Boolean(segments[index + 1]) && (/^\d{3,}$/u.test(segments[index + 1] ?? "") || Boolean(segments[index + 2])))) return true;
-  return segments.some((segment, index) => ["duyuru", "duyurular", "announcement", "announcements", "haber", "haberler", "news"].includes(segment) && (segments[index + 1]?.length ?? 0) > 10);
+  if (/(duyurudetay|duyuru-detay|announcement-detail|haber-detay|news-detail|etkinlik-detay|event-detail)/u.test(path)) return true;
+  if (segments.some((segment, index) => ["duyuru", "haber", "etkinlik", "announcement", "news", "event"].includes(segment) && Boolean(segments[index + 1]) && (/^\d{3,}$/u.test(segments[index + 1] ?? "") || Boolean(segments[index + 2])))) return true;
+  return segments.some((segment, index) => ["duyuru", "duyurular", "announcement", "announcements", "haber", "haberler", "news", "etkinlik", "etkinlikler", "event", "events"].includes(segment) && (segments[index + 1]?.length ?? 0) > 10);
 }
 
 function addSourceCandidate(candidates: Map<string, number>, url: string, score: number): void {
@@ -675,6 +697,8 @@ function scoreAnnouncementCandidate(title: string, url: string): number {
   if (text.includes("announcement")) score += 60;
   if (text.includes("ilan")) score += 30;
   if (text.includes("haber")) score += 15;
+  if (text.includes("news")) score += 15;
+  if (text.includes("etkinlik") || text.includes("event")) score += 20;
   if (text.includes("ogrenci") || text.includes("öğrenci")) score += 10;
   return score;
 }
