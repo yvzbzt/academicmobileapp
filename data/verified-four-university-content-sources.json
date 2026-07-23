@@ -1,0 +1,4575 @@
+{
+  "generatedAt": "2026-07-16T10:48:57.920Z",
+  "sourceAttachment": "C:/Users/buyuk/.codex/attachments/ce2f8b9c-182a-4c2d-a520-bc32e9433079/pasted-text.txt",
+  "ignoredDuplicateDomains": [
+    "atu.edu.tr"
+  ],
+  "liveCheckEnabled": true,
+  "universities": [
+    {
+      "universityId": "abdullah-gul-universitesi-kayseri",
+      "universityName": "ABDULLAH GUL UNIVERSITESI",
+      "counts": {
+        "total": 50,
+        "announcement": 16,
+        "news": 14,
+        "event": 15,
+        "academicCalendar": 1,
+        "courseSchedule": 0,
+        "examSchedule": 0,
+        "reference": 4
+      },
+      "sources": [
+        {
+          "url": "https://w3.agu.edu.tr/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://w3.agu.edu.tr/"
+          }
+        },
+        {
+          "url": "http://www.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "http://www.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "http://www.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "http://www.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://oidb-tr.agu.edu.tr/akademik-takvim",
+          "types": [
+            "academic_calendar"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://oidb-tr.agu.edu.tr/akademik-takvim"
+          }
+        },
+        {
+          "url": "http://oidb-tr.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://oidb-tr.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "http://oidb-tr.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://oidb-tr.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://mf-tr.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mf-tr.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://mf-tr.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mf-tr.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://mf-tr.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mf-tr.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://cmp.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__bilgisayar-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://cmp.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "http://eee.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__elektrik-elektronik-muhendisligi",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://eee.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://ie.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__endustri-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ie.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://ie.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__endustri-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ie.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://ie.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__endustri-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ie.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "http://ce.agu.edu.tr/events/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "http://ce.agu.edu.tr/events/"
+          }
+        },
+        {
+          "url": "http://ce.agu.edu.tr/news",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "http://ce.agu.edu.tr/news"
+          }
+        },
+        {
+          "url": "http://ce.agu.edu.tr/announcements",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "http://ce.agu.edu.tr/announcements"
+          }
+        },
+        {
+          "url": "https://me.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__makine-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://me.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "http://me.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__makine-muhendisligi",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://me.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://flns.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://flns.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://flns.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://flns.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://flns.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://flns.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://bioeng.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi__biyomuhendislik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bioeng.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://bioeng.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi__biyomuhendislik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bioeng.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://bioeng.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi__biyomuhendislik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bioeng.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "http://mbg.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi__molekuler-biyoloji-ve-genetik",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://mbg.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "http://mbg.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi__molekuler-biyoloji-ve-genetik",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://mbg.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "http://mbg.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yasam-ve-doga-bilimleri-fakultesi__molekuler-biyoloji-ve-genetik",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://mbg.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://fa-tr.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__mimarlik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fa-tr.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://fa-tr.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__mimarlik-fakultesi",
+          "validation": {
+            "status": "broken",
+            "httpStatus": 500,
+            "finalUrl": "https://fa-tr.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://fa-tr.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__mimarlik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fa-tr.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://fms.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yonetim-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fms.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://fms.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yonetim-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fms.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://fms.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__yonetim-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fms.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "http://ba.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://ba.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "http://ba.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://ba.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "http://ba.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://ba.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://econ.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://econ.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://econ.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://econ.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://hss.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi",
+          "validation": {
+            "status": "broken",
+            "httpStatus": 500,
+            "finalUrl": "https://hss.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://hss.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://hss.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://hss.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://hss.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://pols.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi__siyaset-bilimi-ve-uluslararasi-iliskiler",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://pols.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://pols.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi__siyaset-bilimi-ve-uluslararasi-iliskiler",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://pols.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://pols.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi__siyaset-bilimi-ve-uluslararasi-iliskiler",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://pols.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://psy.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi__psikoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://psy.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://psy.agu.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi__psikoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://psy.agu.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://psy.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "abdullah-gul-universitesi-kayseri__insan-ve-toplum-bilimleri-fakultesi__psikoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://psy.agu.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "http://ydyo-tr.agu.edu.tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://ydyo-tr.agu.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "http://ydyo-tr.agu.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://ydyo-tr.agu.edu.tr/etkinlikler"
+          }
+        }
+      ]
+    },
+    {
+      "universityId": "acibadem-mehmet-ali-aydinlar-universitesi-istanbul",
+      "universityName": "ACIBADEM MEHMET ALI AYDINLAR UNIVERSITESI",
+      "counts": {
+        "total": 20,
+        "announcement": 2,
+        "news": 13,
+        "event": 1,
+        "academicCalendar": 2,
+        "courseSchedule": 0,
+        "examSchedule": 0,
+        "reference": 2
+      },
+      "sources": [
+        {
+          "url": "https://www.acibadem.edu.tr/ogrenci/ogrenci-isleri/akademik-takvim",
+          "types": [
+            "academic_calendar"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/ogrenci/ogrenci-isleri/akademik-takvim"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/sites/default/files/document/2026-2027-tip-fakultesi-akademik-takvimi.pdf",
+          "types": [
+            "academic_calendar"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 206,
+            "finalUrl": "https://www.acibadem.edu.tr/sites/default/files/document/2026-2027-tip-fakultesi-akademik-takvimi.pdf"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/27",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/27"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/duyurular"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/etkinlikler"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/29",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/29"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/148",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/148"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/143",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/143"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/duyurular/143",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/duyurular/143"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/en/haberler/144",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/en/haberler/144"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/145",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/145"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/146",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/146"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/en/haberler/147",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/en/haberler/147"
+          }
+        },
+        {
+          "url": "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=16&curSunit=6288",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://obs.acibadem.edu.tr/oibs/bologna/index.aspx?lang=tr&curOp=showPac&curUnit=16&curSunit=6288"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/127",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/127"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/akademik/lisans/muhendislik-ve-doga-bilimleri-fakultesi/bolumler/biyomedikal-muhendisligi/ogretim-plani",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/akademik/lisans/muhendislik-ve-doga-bilimleri-fakultesi/bolumler/biyomedikal-muhendisligi/ogretim-plani"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/153",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/153"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/128",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/128"
+          }
+        },
+        {
+          "url": "https://www.acibadem.edu.tr/haberler/165",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university_or_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://www.acibadem.edu.tr/haberler/165"
+          }
+        }
+      ]
+    },
+    {
+      "universityId": "adiyaman-universitesi",
+      "universityName": "ADIYAMAN UNIVERSITESI",
+      "counts": {
+        "total": 117,
+        "announcement": 50,
+        "news": 59,
+        "event": 7,
+        "academicCalendar": 1,
+        "courseSchedule": 0,
+        "examSchedule": 0,
+        "reference": 0
+      },
+      "sources": [
+        {
+          "url": "https://adiyaman.edu.tr/tr/egitim/akademik-takvim",
+          "types": [
+            "academic_calendar"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://adiyaman.edu.tr/tr/egitim/akademik-takvim"
+          }
+        },
+        {
+          "url": "https://adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://adiyaman.edu.tr/tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://adiyaman.edu.tr/tr/etkinlikler/2026/07/16"
+          }
+        },
+        {
+          "url": "https://dishekimligi.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__dis-hekimligi-fakultesi__dis-hekimligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dishekimligi.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://dishekimligi.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__dis-hekimligi-fakultesi__dis-hekimligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dishekimligi.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://eczacilik.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__eczacilik-fakultesi__eczacilik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://eczacilik.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://eczacilik.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__eczacilik-fakultesi__eczacilik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://eczacilik.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/etkinlikler/2026/07/16"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/egitim-bilimleri-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/egitim-bilimleri-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/egitim-bilimleri-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/egitim-bilimleri-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/matematik-ve-fen-bilimleri-egitimi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/matematik-ve-fen-bilimleri-egitimi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/matematik-ve-fen-bilimleri-egitimi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/matematik-ve-fen-bilimleri-egitimi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/ozel-egitim-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/ozel-egitim-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/ozel-egitim-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/ozel-egitim-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/temel-egitim-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/temel-egitim-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/temel-egitim-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/temel-egitim-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/turkce-ve-sosyal-bilimler-egitimi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/turkce-ve-sosyal-bilimler-egitimi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/turkce-ve-sosyal-bilimler-egitimi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/turkce-ve-sosyal-bilimler-egitimi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/yabanci-diller-egitimi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/yabanci-diller-egitimi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://egitim.adiyaman.edu.tr/tr/bolumler/yabanci-diller-egitimi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://egitim.adiyaman.edu.tr/tr/bolumler/yabanci-diller-egitimi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/etkinlikler/2026/07/16"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/arkeoloji-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__arkeoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/arkeoloji-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/arkeoloji-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__arkeoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/arkeoloji-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/biyoloji-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/biyoloji-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/biyoloji-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/biyoloji-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/fizik-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/fizik-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/fizik-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/fizik-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/ingiliz-dili-ve-edebiyati-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__ingiliz-dili-ve-edebiyati",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/ingiliz-dili-ve-edebiyati-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/ingiliz-dili-ve-edebiyati-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__ingiliz-dili-ve-edebiyati",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/ingiliz-dili-ve-edebiyati-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/matematik-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__matematik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/matematik-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/matematik-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__matematik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/matematik-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/psikoloji-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__psikoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/psikoloji-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/psikoloji-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__psikoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/psikoloji-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/sanat-tarihi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__sanat-tarihi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/sanat-tarihi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/sanat-tarihi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__sanat-tarihi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/sanat-tarihi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/sosyoloji-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__sosyoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/sosyoloji-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/sosyoloji-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__sosyoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/sosyoloji-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/tarih-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/tarih-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/tarih-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/tarih-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/turk-dili-ve-edebiyati-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__turk-dili-ve-edebiyati",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/turk-dili-ve-edebiyati-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/turk-dili-ve-edebiyati-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__fen-edebiyat-fakultesi__turk-dili-ve-edebiyati",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fenedebiyat.adiyaman.edu.tr/tr/bolumler/turk-dili-ve-edebiyati-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://gsf.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://gsf.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://gsf.adiyaman.edu.tr/tr/bolumler/resim-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.adiyaman.edu.tr/tr/bolumler/resim-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://gsf.adiyaman.edu.tr/tr/bolumler/resim-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.adiyaman.edu.tr/tr/bolumler/resim-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://gsf.adiyaman.edu.tr/tr/bolumler/seramik-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.adiyaman.edu.tr/tr/bolumler/seramik-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://iibf.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__iktisadi-ve-idari-bilimler-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://iibf.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://iibf.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__iktisadi-ve-idari-bilimler-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://iibf.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://ilahiyat.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__ilahiyat-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ilahiyat.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://ilahiyat.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__ilahiyat-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ilahiyat.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://mimarlik.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mimarlik.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/bilgisayar-muhendisligi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/bilgisayar-muhendisligi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/bilgisayar-muhendisligi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/bilgisayar-muhendisligi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/cevre-muhendisligi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/cevre-muhendisligi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/cevre-muhendisligi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/cevre-muhendisligi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/elektrik-elektronik-muhendisligi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/elektrik-elektronik-muhendisligi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/elektrik-elektronik-muhendisligi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/elektrik-elektronik-muhendisligi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/gida-muhendisligi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/gida-muhendisligi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/gida-muhendisligi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/gida-muhendisligi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/insaat-muhendisligi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/insaat-muhendisligi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/insaat-muhendisligi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/insaat-muhendisligi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/makine-muhendisligi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/makine-muhendisligi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/makine-muhendisligi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/makine-muhendisligi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/tekstil-muhendisligi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/tekstil-muhendisligi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/tekstil-muhendisligi-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.adiyaman.edu.tr/tr/bolumler/tekstil-muhendisligi-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://sbf.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://sbf.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://sbf.adiyaman.edu.tr/tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-bilimleri-fakultesi",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.adiyaman.edu.tr/tr/etkinlikler/2026/07/16"
+          }
+        },
+        {
+          "url": "https://sbf.adiyaman.edu.tr/tr/bolumler/ebelik-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.adiyaman.edu.tr/tr/bolumler/ebelik-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://sbf.adiyaman.edu.tr/tr/bolumler/ebelik-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.adiyaman.edu.tr/tr/bolumler/ebelik-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://sbf.adiyaman.edu.tr/tr/bolumler/hemsirelik-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.adiyaman.edu.tr/tr/bolumler/hemsirelik-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://sbf.adiyaman.edu.tr/tr/bolumler/hemsirelik-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-bilimleri-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.adiyaman.edu.tr/tr/bolumler/hemsirelik-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://sporbilimleri.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sporbilimleri.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://sporbilimleri.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sporbilimleri.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://tipfakultesi.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__tip-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tipfakultesi.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://tipfakultesi.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__tip-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tipfakultesi.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://tipfakultesi.adiyaman.edu.tr/tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__tip-fakultesi",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://tipfakultesi.adiyaman.edu.tr/tr/etkinlikler/2026/07/16"
+          }
+        },
+        {
+          "url": "https://turizm.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__turizm-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://turizm.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://turizm.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__turizm-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://turizm.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://ziraat.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ziraat.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://ziraat.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ziraat.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://ziraat.adiyaman.edu.tr/tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://ziraat.adiyaman.edu.tr/tr/etkinlikler/2026/07/16"
+          }
+        },
+        {
+          "url": "https://ziraat.adiyaman.edu.tr/tr/bolumler/bahce-bitkileri-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ziraat.adiyaman.edu.tr/tr/bolumler/bahce-bitkileri-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://ziraat.adiyaman.edu.tr/tr/bolumler/bitki-koruma-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ziraat.adiyaman.edu.tr/tr/bolumler/bitki-koruma-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://konservatuvar.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://konservatuvar.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://konservatuvar.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://konservatuvar.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://konservatuvar.adiyaman.edu.tr/tr/etkinlikler",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "redirected",
+            "httpStatus": 200,
+            "finalUrl": "https://konservatuvar.adiyaman.edu.tr/tr/etkinlikler/2026/07/16"
+          }
+        },
+        {
+          "url": "https://konservatuvar.adiyaman.edu.tr/tr/bolumler/muzikoloji-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://konservatuvar.adiyaman.edu.tr/tr/bolumler/muzikoloji-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://konservatuvar.adiyaman.edu.tr/tr/bolumler/muzikoloji-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://konservatuvar.adiyaman.edu.tr/tr/bolumler/muzikoloji-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://yadyok.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://yadyok.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://yadyok.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://yadyok.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://shmyo.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-hizmetleri-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://shmyo.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://shmyo.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__saglik-hizmetleri-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://shmyo.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://sbmyo.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbmyo.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://sbmyo.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbmyo.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://tbmyo.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tbmyo.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://tbmyo.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tbmyo.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://tbmyo.adiyaman.edu.tr/tr/bolumler/kimya-ve-kimyasal-isleme-teknolojileri-bolumu/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tbmyo.adiyaman.edu.tr/tr/bolumler/kimya-ve-kimyasal-isleme-teknolojileri-bolumu/duyurular"
+          }
+        },
+        {
+          "url": "https://bmyo.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__besni-ali-erdemoglu-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bmyo.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://bmyo.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__besni-ali-erdemoglu-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bmyo.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://bmyo.adiyaman.edu.tr/tr/bolumler/bilgisayar-kullanimi-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "adiyaman-universitesi__besni-ali-erdemoglu-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bmyo.adiyaman.edu.tr/tr/bolumler/bilgisayar-kullanimi-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://gmyo.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gmyo.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://gmyo.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gmyo.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://gmyo.adiyaman.edu.tr/tr/bolumler/elektrik-ve-enerji-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gmyo.adiyaman.edu.tr/tr/bolumler/elektrik-ve-enerji-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://gmyo.adiyaman.edu.tr/tr/bolumler/finans-bankacilik-ve-sigortacilik-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gmyo.adiyaman.edu.tr/tr/bolumler/finans-bankacilik-ve-sigortacilik-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://gmyo.adiyaman.edu.tr/tr/bolumler/mulkiyet-koruma-ve-guvenlik/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gmyo.adiyaman.edu.tr/tr/bolumler/mulkiyet-koruma-ve-guvenlik/haberler"
+          }
+        },
+        {
+          "url": "https://gmyo.adiyaman.edu.tr/tr/bolumler/yonetim-ve-organizasyon-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gmyo.adiyaman.edu.tr/tr/bolumler/yonetim-ve-organizasyon-bolumu/haberler"
+          }
+        },
+        {
+          "url": "https://kmyo.adiyaman.edu.tr/tr/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://kmyo.adiyaman.edu.tr/tr/haberler"
+          }
+        },
+        {
+          "url": "https://kmyo.adiyaman.edu.tr/tr/duyurular",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://kmyo.adiyaman.edu.tr/tr/duyurular"
+          }
+        },
+        {
+          "url": "https://kmyo.adiyaman.edu.tr/tr/bolumler/mimarlik-ve-sehir-planlama-bolumu/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://kmyo.adiyaman.edu.tr/tr/bolumler/mimarlik-ve-sehir-planlama-bolumu/haberler"
+          }
+        }
+      ]
+    },
+    {
+      "universityId": "afyon-kocatepe-universitesi-afyonkarahisar",
+      "universityName": "AFYON KOCATEPE UNIVERSITESI",
+      "counts": {
+        "total": 166,
+        "announcement": 76,
+        "news": 19,
+        "event": 52,
+        "academicCalendar": 2,
+        "courseSchedule": 8,
+        "examSchedule": 4,
+        "reference": 10
+      },
+      "sources": [
+        {
+          "url": "https://ogrenci.aku.edu.tr/2025-2026/",
+          "types": [
+            "academic_calendar"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ogrenci.aku.edu.tr/2025-2026/"
+          }
+        },
+        {
+          "url": "https://aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://aku.edu.tr/etkinlik-arsivi",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://aku.edu.tr/etkinlik-arsivi/"
+          }
+        },
+        {
+          "url": "https://haber.aku.edu.tr/category/haberler",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://haber.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://haber.aku.edu.tr/category/basinda-aku",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://haber.aku.edu.tr/category/basinda-aku/"
+          }
+        },
+        {
+          "url": "https://ebulten.aku.edu.tr/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ebulten.aku.edu.tr/"
+          }
+        },
+        {
+          "url": "https://arge.aku.edu.tr/category/proje-cagrilari",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://arge.aku.edu.tr/category/proje-cagrilari/"
+          }
+        },
+        {
+          "url": "https://aku.edu.tr/category/kurum-disi-duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://aku.edu.tr/category/kurum-disi-duyurular/"
+          }
+        },
+        {
+          "url": "https://bubfa.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bolvadin-uygulamali-bilimler-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bubfa.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://bubfa.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bolvadin-uygulamali-bilimler-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bubfa.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://afegitim.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://afegitim.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://afegitim.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__egitim-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://afegitim.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://ebil.aku.edu.tr/category/genel/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ebil.aku.edu.tr/category/genel/"
+          }
+        },
+        {
+          "url": "https://mfb.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__egitim-fakultesi__ilkogretim-matematik-ogretmenligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mfb.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://ozelegitim.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__egitim-fakultesi__ozel-egitim-ogretmenligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ozelegitim.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://tsb.aku.edu.tr/category/slayt/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__egitim-fakultesi__turkce-ogretmenligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tsb.aku.edu.tr/category/slayt/duyurular/"
+          }
+        },
+        {
+          "url": "https://tsb.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__egitim-fakultesi__turkce-ogretmenligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tsb.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://temelegitim.aku.edu.tr/category/genel/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://temelegitim.aku.edu.tr/category/genel/"
+          }
+        },
+        {
+          "url": "https://fled.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__egitim-fakultesi__ingilizce-ogretmenligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fled.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://fled.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__egitim-fakultesi__ingilizce-ogretmenligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fled.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://fef.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fef.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://fef.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fef.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://cografya.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__cografya",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://cografya.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://cografya.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__cografya",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://cografya.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://ctle.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__cagdas-turk-lehceleri-ve-edebiyatlari",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ctle.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://ctle.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__cagdas-turk-lehceleri-ve-edebiyatlari",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ctle.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://felsefe.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__felsefe",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://felsefe.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://felsefe.aku.edu.tr/category/ders-ve-sinav-programlari/",
+          "types": [
+            "exam_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__felsefe",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://felsefe.aku.edu.tr/category/ders-ve-sinav-programlari/"
+          }
+        },
+        {
+          "url": "https://imt.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__ingilizce-mutercim-ve-tercumanlik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://imt.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://imt.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__ingilizce-mutercim-ve-tercumanlik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://imt.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://psikoloji.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__psikoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://psikoloji.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://psikoloji.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__psikoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://psikoloji.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://sanattarihi.aku.edu.tr/category/genel/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sanattarihi.aku.edu.tr/category/genel/"
+          }
+        },
+        {
+          "url": "https://sosyoloji.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__sosyoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sosyoloji.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://sosyoloji.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__sosyoloji",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sosyoloji.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://tarih.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__tarih",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tarih.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://tarih.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__tarih",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tarih.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://tde.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__turk-dili-ve-edebiyati",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tde.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://tde.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__turk-dili-ve-edebiyati",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tde.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://fizik.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fizik.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://fizik.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://fizik.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://veribilimi.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://veribilimi.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://veribilimi.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://veribilimi.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://kimya.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__kimya",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://kimya.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://kimya.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__kimya",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://kimya.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://matematik.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__matematik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://matematik.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://matematik.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__matematik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://matematik.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://mbg.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__molekuler-biyoloji-ve-genetik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mbg.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://mbg.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__fen-edebiyat-fakultesi__molekuler-biyoloji-ve-genetik",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mbg.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://gsf.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__guzel-sanatlar-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://gsf.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__guzel-sanatlar-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://gsf.aku.edu.tr/geleneksel-turk-sanatlar-bolumu/",
+          "types": [
+            "course_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.aku.edu.tr/geleneksel-turk-sanatlar-bolumu/"
+          }
+        },
+        {
+          "url": "https://imct.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__guzel-sanatlar-fakultesi__ic-mimarlik-ve-cevre-tasarimi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://imct.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://imct.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__guzel-sanatlar-fakultesi__ic-mimarlik-ve-cevre-tasarimi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://imct.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://gsf.aku.edu.tr/resim-bolumu/",
+          "types": [
+            "course_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.aku.edu.tr/resim-bolumu/"
+          }
+        },
+        {
+          "url": "https://gsf.aku.edu.tr/sinema-ve-televizyon-bolumu/",
+          "types": [
+            "course_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__guzel-sanatlar-fakultesi__sinema-ve-televizyon",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gsf.aku.edu.tr/sinema-ve-televizyon-bolumu/"
+          }
+        },
+        {
+          "url": "https://hukuk.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__hukuk-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://hukuk.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://hukuk.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__hukuk-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://hukuk.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://iibf.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://iibf.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://iibf.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://iibf.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://iktisat.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__iktisat",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://iktisat.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://iktisat.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__iktisat",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://iktisat.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://isletme.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__isletme",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://isletme.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://isletme.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__isletme",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://isletme.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://maliye.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__maliye",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://maliye.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://maliye.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__maliye",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://maliye.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://sbky.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__siyaset-bilimi-ve-kamu-yonetimi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbky.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://sbky.aku.edu.tr/category/haberler-ve-etkinlikler/",
+          "types": [
+            "news",
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__siyaset-bilimi-ve-kamu-yonetimi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbky.aku.edu.tr/category/haberler-ve-etkinlikler/"
+          }
+        },
+        {
+          "url": "https://utf.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__uluslararasi-ticaret-ve-finansman",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://utf.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://utf.aku.edu.tr/category/bolumumuzden-faaliyetler-ve-haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__uluslararasi-ticaret-ve-finansman",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://utf.aku.edu.tr/category/bolumumuzden-faaliyetler-ve-haberler/"
+          }
+        },
+        {
+          "url": "https://ybs.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__yonetim-bilisim-sistemleri",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ybs.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://ybs.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iktisadi-ve-idari-bilimler-fakultesi__yonetim-bilisim-sistemleri",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ybs.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://ilahiyat.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__ilahiyat-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ilahiyat.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://ilahiyat.aku.edu.tr/category/etkinlikler-haberler/",
+          "types": [
+            "news",
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__ilahiyat-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ilahiyat.aku.edu.tr/category/etkinlikler-haberler/"
+          }
+        },
+        {
+          "url": "https://muhendislik.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://muhendislik.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://muhendislik.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://bilgisayar.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__bilgisayar-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bilgisayar.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://bilgisayar.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__bilgisayar-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bilgisayar.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://biyomedikal.aku.edu.tr/category/genel/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://biyomedikal.aku.edu.tr/category/genel/"
+          }
+        },
+        {
+          "url": "https://biyomedikal.aku.edu.tr/category/sinav-duyurulari/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__biyomedikal-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://biyomedikal.aku.edu.tr/category/sinav-duyurulari/"
+          }
+        },
+        {
+          "url": "https://elektrik.aku.edu.tr/category/genel-duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__elektrik-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://elektrik.aku.edu.tr/category/genel-duyurular/"
+          }
+        },
+        {
+          "url": "https://elektrik.aku.edu.tr/category/sinav-ve-ders-duyurulari/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__elektrik-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://elektrik.aku.edu.tr/category/sinav-ve-ders-duyurulari/"
+          }
+        },
+        {
+          "url": "https://gidamuh.aku.edu.tr/category/genel-duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__gida-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gidamuh.aku.edu.tr/category/genel-duyurular/"
+          }
+        },
+        {
+          "url": "https://gidamuh.aku.edu.tr/category/sinav-duyurulari/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__gida-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://gidamuh.aku.edu.tr/category/sinav-duyurulari/"
+          }
+        },
+        {
+          "url": "https://harita.aku.edu.tr/category/genel-duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__harita-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://harita.aku.edu.tr/category/genel-duyurular/"
+          }
+        },
+        {
+          "url": "https://harita.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__harita-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://harita.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://insaat.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__insaat-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://insaat.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://insaat.aku.edu.tr/category/bolumumuzden-haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__insaat-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://insaat.aku.edu.tr/category/bolumumuzden-haberler/"
+          }
+        },
+        {
+          "url": "https://jeoloji.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://jeoloji.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://jeoloji.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://jeoloji.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://kimmuh.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__kimya-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://kimmuh.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://kimmuh.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__kimya-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://kimmuh.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://maden.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__maden-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://maden.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://maden.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__maden-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://maden.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://malzeme.aku.edu.tr/category/genel-duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__malzeme-bilimi-ve-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://malzeme.aku.edu.tr/category/genel-duyurular/"
+          }
+        },
+        {
+          "url": "https://malzeme.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__malzeme-bilimi-ve-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://malzeme.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://yazilim.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__yazilim-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://yazilim.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://yazilim.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__muhendislik-fakultesi__yazilim-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://yazilim.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.aku.edu.tr/"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/wp-content/uploads/sites/42/2026/06/AKU-SBF-2025-2026-Egitim-Ogretim-Yili-Antrenorluk-Egitimi-Bolumu-Bahar-Donemi-Butunleme-Sinav-Programi-.pdf",
+          "types": [
+            "exam_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 206,
+            "finalUrl": "https://sbf.aku.edu.tr/wp-content/uploads/sites/42/2026/06/AKU-SBF-2025-2026-Egitim-Ogretim-Yili-Antrenorluk-Egitimi-Bolumu-Bahar-Donemi-Butunleme-Sinav-Programi-.pdf"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/wp-content/uploads/sites/42/2026/06/AKU-SBF-2025-2026-Rekreasyon-Bahar-Butunleme-Sinav-Programi.pdf",
+          "types": [
+            "exam_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 206,
+            "finalUrl": "https://sbf.aku.edu.tr/wp-content/uploads/sites/42/2026/06/AKU-SBF-2025-2026-Rekreasyon-Bahar-Butunleme-Sinav-Programi.pdf"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/wp-content/uploads/sites/42/2026/06/2025-2026-Ogretmenlik-Bolumu-Bahar-Butunleme-Sinav-Programi.pdf",
+          "types": [
+            "exam_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 206,
+            "finalUrl": "https://sbf.aku.edu.tr/wp-content/uploads/sites/42/2026/06/2025-2026-Ogretmenlik-Bolumu-Bahar-Butunleme-Sinav-Programi.pdf"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/beden-egitimi-ve-spor-ogretmenligi/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.aku.edu.tr/beden-egitimi-ve-spor-ogretmenligi/"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/antrenorluk-bolumu/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.aku.edu.tr/antrenorluk-bolumu/"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/rekreasyon-bolumu/",
+          "types": [
+            "reference"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sbf.aku.edu.tr/rekreasyon-bolumu/"
+          }
+        },
+        {
+          "url": "https://sbf.aku.edu.tr/wp-content/uploads/sites/42/2025/09/Beden-Egitimi-ve-Spor-Ogretmenligi-Bolumu-2025-2026-Guz-Donemi-Ders-Programi.pdf-2.pdf",
+          "types": [
+            "course_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 206,
+            "finalUrl": "https://sbf.aku.edu.tr/wp-content/uploads/sites/42/2025/09/Beden-Egitimi-ve-Spor-Ogretmenligi-Bolumu-2025-2026-Guz-Donemi-Ders-Programi.pdf-2.pdf"
+          }
+        },
+        {
+          "url": "https://tef.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tef.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://tef.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://tef.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://teknoloji.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://teknoloji.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://teknoloji.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://teknoloji.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://eem.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__elektrik-elektronik-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://eem.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://eem.aku.edu.tr/category/etkinlik/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__elektrik-elektronik-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://eem.aku.edu.tr/category/etkinlik/"
+          }
+        },
+        {
+          "url": "https://makine.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__makine-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://makine.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://makine.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__makine-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://makine.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://mekatronik.aku.edu.tr/category/genel-duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__mekatronik-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mekatronik.aku.edu.tr/category/genel-duyurular/"
+          }
+        },
+        {
+          "url": "https://mekatronik.aku.edu.tr/category/sinav-duyurulari/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__mekatronik-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://mekatronik.aku.edu.tr/category/sinav-duyurulari/"
+          }
+        },
+        {
+          "url": "https://metalurji.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__metalurji-ve-malzeme-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://metalurji.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://metalurji.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__metalurji-ve-malzeme-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://metalurji.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://otomotiv.aku.edu.tr/category/lisans-duyurulari/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__otomotiv-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://otomotiv.aku.edu.tr/category/lisans-duyurulari/"
+          }
+        },
+        {
+          "url": "https://otomotiv.aku.edu.tr/category/lisansustu-duyurulari/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__teknoloji-fakultesi__otomotiv-muhendisligi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://otomotiv.aku.edu.tr/category/lisansustu-duyurulari/"
+          }
+        },
+        {
+          "url": "https://ogrenci.aku.edu.tr/2026-2027/",
+          "types": [
+            "academic_calendar"
+          ],
+          "scopeHint": "university",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ogrenci.aku.edu.tr/2026-2027/"
+          }
+        },
+        {
+          "url": "https://turizm.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__turizm-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://turizm.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://turizm.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__turizm-fakultesi",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://turizm.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://veteriner.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__veteriner-fakultesi__veteriner",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://veteriner.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://veteriner.aku.edu.tr/category/haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__veteriner-fakultesi__veteriner",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://veteriner.aku.edu.tr/category/haberler/"
+          }
+        },
+        {
+          "url": "https://konservatuvar.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://konservatuvar.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://konservatuvar.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://konservatuvar.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://dubyo.aku.edu.tr/category/duyuru-haberler/",
+          "types": [
+            "announcement",
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__dinar-uygulamali-bilimler-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dubyo.aku.edu.tr/category/duyuru-haberler/"
+          }
+        },
+        {
+          "url": "https://dubyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__dinar-uygulamali-bilimler-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dubyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://dubyo.aku.edu.tr/ders-programi/",
+          "types": [
+            "course_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__dinar-uygulamali-bilimler-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dubyo.aku.edu.tr/ders-programi/"
+          }
+        },
+        {
+          "url": "https://dubyo.aku.edu.tr/ders-programi-2/",
+          "types": [
+            "course_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__dinar-uygulamali-bilimler-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dubyo.aku.edu.tr/ders-programi-2/"
+          }
+        },
+        {
+          "url": "https://subyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__sandikli-uygulamali-bilimler-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://subyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://subyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__sandikli-uygulamali-bilimler-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://subyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://ydy.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ydy.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://ydy.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://ydy.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://afyonmyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__afyon-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://afyonmyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://afyonmyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__afyon-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://afyonmyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://basmakcimyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__basmakci-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://basmakcimyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://basmakcimyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__basmakci-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://basmakcimyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://bayatmyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bayat-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bayatmyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://btmyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bilisim-teknolojileri-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://btmyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://btmyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bilisim-teknolojileri-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://btmyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://btmyo.aku.edu.tr/buyuk-veri-analistligi-ders-programi/",
+          "types": [
+            "course_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bilisim-teknolojileri-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://btmyo.aku.edu.tr/buyuk-veri-analistligi-ders-programi/"
+          }
+        },
+        {
+          "url": "https://btmyo.aku.edu.tr/oyun-gelistirme-ve-programlama-ders-programi/",
+          "types": [
+            "course_schedule"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bilisim-teknolojileri-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://btmyo.aku.edu.tr/oyun-gelistirme-ve-programlama-ders-programi/"
+          }
+        },
+        {
+          "url": "https://bolvadinmyo.aku.edu.tr/category/duyurular-ve-haberler/",
+          "types": [
+            "announcement",
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bolvadin-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bolvadinmyo.aku.edu.tr/category/duyurular-ve-haberler/"
+          }
+        },
+        {
+          "url": "https://bolvadinmyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__bolvadin-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://bolvadinmyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://caymyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__cay-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://caymyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://caymyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__cay-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://caymyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://dazkirimyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__dazkiri-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dazkirimyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://dazkirimyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__dazkiri-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dazkirimyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://dinarmyo.aku.edu.tr/category/duyuru-ve-haberler/",
+          "types": [
+            "announcement",
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__dinar-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dinarmyo.aku.edu.tr/category/duyuru-ve-haberler/"
+          }
+        },
+        {
+          "url": "https://dinarmyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__dinar-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://dinarmyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://emirdagmyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__emirdag-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://emirdagmyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://emirdagmyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__emirdag-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://emirdagmyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://iscehisarmyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iscehisar-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://iscehisarmyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://iscehisarmyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__iscehisar-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://iscehisarmyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://sandiklimyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__sandikli-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sandiklimyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://sandiklimyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__sandikli-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sandiklimyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://sinanpasamyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sinanpasamyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://sinanpasamyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sinanpasamyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://sultandagimyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__sultandagi-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sultandagimyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://sultandagimyo.aku.edu.tr/category/etkinlikler/",
+          "types": [
+            "event"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__sultandagi-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://sultandagimyo.aku.edu.tr/category/etkinlikler/"
+          }
+        },
+        {
+          "url": "https://suhutmyo.aku.edu.tr/category/duyurular/",
+          "types": [
+            "announcement"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__suhut-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://suhutmyo.aku.edu.tr/category/duyurular/"
+          }
+        },
+        {
+          "url": "https://suhutmyo.aku.edu.tr/category/bizden-haberler/",
+          "types": [
+            "news"
+          ],
+          "scopeHint": "academic_unit",
+          "matchedRuntimeScope": "afyon-kocatepe-universitesi-afyonkarahisar__suhut-meslek-yuksekokulu",
+          "validation": {
+            "status": "reachable",
+            "httpStatus": 200,
+            "finalUrl": "https://suhutmyo.aku.edu.tr/category/bizden-haberler/"
+          }
+        }
+      ]
+    }
+  ],
+  "automationTasks": [
+    {
+      "id": "aku-current-academic-calendar",
+      "status": "implemented",
+      "description": "Build the AKU academic-calendar page from the current academic year instead of pinning an expired year.",
+      "implementation": "apps/api/src/modules/calendars/calendar-ingestion.service.ts"
+    },
+    {
+      "id": "aku-gsf-course-schedule-discovery",
+      "status": "implemented",
+      "description": "Inspect GSF department pages and prefer current-year fall/spring course-program PDF links.",
+      "implementation": "apps/api/src/modules/calendars/academic-unit-schedule-discovery.ts"
+    },
+    {
+      "id": "aku-sbf-popup-exam-discovery",
+      "status": "implemented",
+      "description": "Inspect SBF modal popup links for current-year exam-program PDFs; image-only PDFs use the existing OCR pipeline.",
+      "implementation": "apps/api/src/modules/calendars/academic-unit-schedule-discovery.ts"
+    },
+    {
+      "id": "aku-sbf-department-course-discovery",
+      "status": "implemented",
+      "description": "Read department links below the Bolumler menu and inspect each department page for current-year course-program PDFs.",
+      "implementation": "apps/api/src/modules/calendars/academic-unit-schedule-discovery.ts"
+    }
+  ]
+}

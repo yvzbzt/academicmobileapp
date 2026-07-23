@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "scripts/university-source-discovery/**/*.ts",
+    "tests/unit/university-source-discovery.test.ts",
+    "tests/e2e/university-source-discovery-browser.spec.ts"
+  ]
+}
