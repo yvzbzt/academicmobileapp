@@ -3,6 +3,7 @@ academic-api.anssoft.com.tr {
 
 	redir /admin /admin/ 308
 	redir /app /app/ 308
+	redir /account-deletion* https://akademiksil.anssoft.com.tr{uri} 308
 
 	handle_path /admin/* {
 		reverse_proxy academic-admin:8080 {

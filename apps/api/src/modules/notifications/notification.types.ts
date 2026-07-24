@@ -129,4 +129,5 @@ export interface NotificationRepository {
   updateJobStatus(jobId: string, status: NotificationJobStatus): Promise<NotificationJobRecord | null>;
   rescheduleJob(jobId: string, scheduledAt: Date): Promise<NotificationJobRecord | null>;
   disableDeviceToken(token: string): Promise<DeviceTokenRecord | null>;
+  deleteUserData(userId: string): Promise<void>;
 }

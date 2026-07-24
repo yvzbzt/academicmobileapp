@@ -283,7 +283,7 @@ const UNIVERSITY_TYPE_LABELS: Record<string, string> = {
 };
 
 const PRODUCTION_API_BASE_URL = "https://academic-api.anssoft.com.tr";
-const DEFAULT_GOOGLE_WEB_CLIENT_ID = "315186329318-785gu93pgok7un5rgtpup812rn00irfn.apps.googleusercontent.com";
+const DEFAULT_GOOGLE_WEB_CLIENT_ID = "315186329318-911ks4c825vjrd5lpk608ugie7m8lujj.apps.googleusercontent.com";
 const DEFAULT_GOOGLE_ANDROID_CLIENT_ID = "315186329318-mbbpc4rjd1ipirfnsl3vdetjfi8ir2ff.apps.googleusercontent.com";
 
 const GOOGLE_EXPO_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID);
@@ -359,6 +359,15 @@ function toUserFacingErrorMessage(message: string, status?: number): string {
   }
   if (normalized.includes("invalid") && normalized.includes("google")) {
     return "Google oturumu doğrulanamadı. Lütfen tekrar dene.";
+  }
+  if (
+    normalized.includes("react-native-google-signin")
+    || normalized.includes("developer_error")
+    || normalized.includes("api_exception: 10")
+    || normalized.includes("status code: 10")
+    || normalized.includes("troubleshooting")
+  ) {
+    return "Bu APK için Google giriş ayarları tamamlanmamış görünüyor. Lütfen uygulamanın güncel sürümünü kullan veya e-posta ile giriş yap.";
   }
   if (normalized.startsWith("{") || normalized.includes("statuscode") || normalized.includes("exception")) {
     return "İşlem tamamlanamadı. Bilgileri kontrol edip tekrar dene.";
@@ -1215,6 +1224,7 @@ export default function App() {
         });
         return;
       }
+      await clearGoogleAccountSelection();
       setMessage({
         text: userMessageFromError(error, "Google girişi tamamlanamadı"),
         tone: "error"
@@ -1386,6 +1396,114 @@ export default function App() {
       await persistSession(null);
       await persistGoogleCalendarConnection(null);
       setMessage({ text: "Çıkış yapıldı.", tone: "info" });
+    }
+  }
+
+  function resetUserScopedState(): void {
+    setSelectedUniversityId("");
+    setRegisterUniversityId("");
+    setRegisterFacultyId("");
+    setRegisterDepartmentId("");
+    setRegisterPicker("none");
+    setFaculties({ loading: false, data: [] });
+    setDepartments({ loading: false, data: [] });
+    setCalendar({ loading: false });
+    setUpcoming({ loading: false });
+    setAnnouncements({ loading: false });
+    setSummerSchool({ loading: false });
+    setPreferences({ loading: false });
+    setGoogleCalendarIntegration(null);
+    setGoogleCalendarError(null);
+    setManualExams([]);
+    setManualExamTitle("");
+    setManualExamDate("");
+  }
+
+  function confirmDeleteMyData(): void {
+    if (!session) return;
+    Alert.alert(
+      "Verilerimi sil",
+      "Okul seçimin, bildirim tercihlerin, cihaz bildirim kaydın, kişisel alarm ve sınav verilerin silinir. Hesabın açık kalır.",
+      [
+        { text: "Vazgeç", style: "cancel" },
+        {
+          text: "Verileri Sil",
+          style: "destructive",
+          onPress: () => void deleteMyData()
+        }
+      ]
+    );
+  }
+
+  async function deleteMyData(): Promise<void> {
+    if (!session) return;
+    try {
+      setBusy(true);
+      await apiRequest<{ status: "deleted" }>("/me/data", { method: "DELETE" }, session.accessToken);
+      resetUserScopedState();
+      await persistGoogleCalendarConnection(null);
+      await deleteStoredValue(MANUAL_EXAMS_STORAGE_KEY);
+      setMessage({ text: "Uygulama verilerin silindi. Hesabın açık kalmaya devam ediyor.", tone: "success" });
+    } catch (error) {
+      setMessage({ text: userMessageFromError(error, "Veriler silinemedi. Lütfen tekrar dene."), tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmDeleteAccount(): void {
+    if (!session) return;
+    Alert.alert(
+      "Hesabımı sil",
+      "Hesabın kapatılır, oturumların sonlandırılır ve hesabına bağlı uygulama verileri silinir. Bu işlem geri alınamaz.",
+      [
+        { text: "Vazgeç", style: "cancel" },
+        {
+          text: "Hesabımı Sil",
+          style: "destructive",
+          onPress: () => void deleteAccount()
+        }
+      ]
+    );
+  }
+
+  async function deleteAccount(): Promise<void> {
+    if (!session) return;
+    try {
+      setBusy(true);
+      await apiRequest<{ status: "deleted" }>(
+        "/me",
+        {
+          method: "DELETE",
+          body: JSON.stringify({ deleteData: true })
+        },
+        session.accessToken,
+        { skipAuthRefresh: true }
+      );
+      sessionRef.current = null;
+      setSession(null);
+      setAuthStage("auth");
+      setAuthMode("login");
+      setActiveTab("home");
+      setEmail("");
+      setPassword("");
+      setFullName("");
+      resetUserScopedState();
+      await persistSession(null);
+      await persistGoogleCalendarConnection(null);
+      await deleteStoredValue(MANUAL_EXAMS_STORAGE_KEY);
+      if (GOOGLE_AUTH_CONFIGURED) {
+        try {
+          await GoogleSignin.signOut();
+        } catch {
+          // Ignore native Google sign-out failures after account deletion.
+        }
+      }
+      setMessage({ text: "Hesabın ve uygulama verilerin silindi.", tone: "success" });
+    } catch (error) {
+      setMessage({ text: userMessageFromError(error, "Hesap silinemedi. Lütfen tekrar dene."), tone: "error" });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -2626,6 +2744,36 @@ export default function App() {
                 </Pressable>
               </Section>
 
+              <Section title="Hesap ve Veri">
+                <View style={styles.accountDangerPanel}>
+                  <View style={styles.accountDangerIcon}>
+                    <Ionicons name="shield-checkmark-outline" size={22} color="#be123c" />
+                  </View>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.accountDangerTitle}>Verilerini sen yönetirsin</Text>
+                    <Text style={styles.caption}>Önce uygulama verilerini silebilir, sonra istersen hesabını tamamen kapatabilirsin.</Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  style={[styles.button, styles.secondaryButton, busy && styles.buttonDisabled]}
+                  onPress={confirmDeleteMyData}
+                  disabled={busy}
+                >
+                  <Ionicons name="trash-bin-outline" size={18} color="#1e293b" />
+                  <Text style={styles.secondaryButtonText}>Verilerimi Sil</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.button, styles.dangerButton, busy && styles.buttonDisabled]}
+                  onPress={confirmDeleteAccount}
+                  disabled={busy}
+                >
+                  <Ionicons name="person-remove-outline" size={18} color="#ffffff" />
+                  <Text style={styles.dangerButtonText}>Hesabımı Sil</Text>
+                </Pressable>
+              </Section>
+
               <Section title="Okul Bilgilerim">
                 <Pressable
                   style={styles.academicCompactCard}
@@ -3111,6 +3259,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 15
   },
+  dangerButton: {
+    backgroundColor: "#be123c",
+    elevation: 3
+  },
+  dangerButtonText: {
+    color: "#ffffff",
+    fontWeight: "800",
+    fontSize: 15
+  },
   row: {
     flexDirection: "row",
     gap: 8
@@ -3210,6 +3367,28 @@ const styles = StyleSheet.create({
   profileEmail: {
     color: "#0f172a",
     fontSize: 16,
+    fontWeight: "900"
+  },
+  accountDangerPanel: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#fecdd3",
+    backgroundColor: "#fff1f2",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  accountDangerIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#ffe4e6",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  accountDangerTitle: {
+    color: "#111827",
     fontWeight: "900"
   },
   academicCompactCard: {

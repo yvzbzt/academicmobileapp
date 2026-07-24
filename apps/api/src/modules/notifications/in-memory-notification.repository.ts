@@ -159,6 +159,22 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     this.deviceTokens.set(device.id, updated);
     return updated;
   }
+
+  async deleteUserData(userId: string): Promise<void> {
+    for (const [id, device] of this.deviceTokens.entries()) {
+      if (device.userId === userId) this.deviceTokens.delete(id);
+    }
+    this.preferences.delete(userId);
+    for (const [id, alarm] of this.studentAlarms.entries()) {
+      if (alarm.userId === userId) this.studentAlarms.delete(id);
+    }
+    for (const [id, job] of this.jobs.entries()) {
+      if (job.userId === userId) this.jobs.delete(id);
+    }
+    for (const [id, delivery] of this.deliveries.entries()) {
+      if (delivery.userId === userId) this.deliveries.delete(id);
+    }
+  }
 }
 
 function notificationJobReminderKey(job: Pick<NotificationJobRecord, "trigger" | "offsetDays" | "offsetHours">): string {

@@ -10,6 +10,7 @@ import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
 import { UsersService } from "../src/modules/users/users.service.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
+import { InMemoryNotificationRepository } from "../src/modules/notifications/in-memory-notification.repository.js";
 
 class FakeEmailVerificationSenderService extends EmailVerificationSenderService {
   public readonly sent: SendVerificationEmailInput[] = [];
@@ -136,5 +137,51 @@ describe("UsersService", () => {
 
     await usersService.deleteUserByAdmin(createdUser.id);
     await expect(usersService.getMe(createdUser.id)).rejects.toThrow("User not found.");
+  });
+
+  it("lets users erase app data before deleting their own account", async () => {
+    const authRepository = new InMemoryAuthRepository();
+    const notificationRepository = new InMemoryNotificationRepository();
+    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), notificationRepository);
+    const createdUser = await authRepository.createUser({
+      fullName: "Deleting Student",
+      email: "deleting.student@example.com",
+      passwordHash: "hash",
+      role: "student",
+      universityId: "sample-university-1",
+      facultyId: "sample-faculty-1",
+      departmentId: "sample-department-1",
+      classLevel: 2,
+      status: "active"
+    });
+    await notificationRepository.upsertPreferences({
+      userId: createdUser.id,
+      enabled: true,
+      categories: { final_exam: true },
+      reminderOffsets: [1]
+    });
+
+    await usersService.deleteMyData(createdUser.id);
+
+    const dataClearedProfile = await usersService.getMe(createdUser.id);
+    expect(dataClearedProfile).toEqual(expect.not.objectContaining({
+      universityId: "sample-university-1",
+      facultyId: "sample-faculty-1",
+      departmentId: "sample-department-1",
+      classLevel: 2
+    }));
+    await expect(notificationRepository.findPreferencesByUserId(createdUser.id)).resolves.toBeNull();
+
+    await usersService.deleteMe(createdUser.id, { deleteData: true });
+
+    await expect(usersService.getMe(createdUser.id)).rejects.toThrow("User not found.");
+    await expect(authRepository.findUserByEmail("deleting.student@example.com")).resolves.toBeNull();
+    await expect(authRepository.createUser({
+      fullName: "New Student",
+      email: "deleting.student@example.com",
+      passwordHash: "hash",
+      role: "student",
+      status: "active"
+    })).resolves.toEqual(expect.objectContaining({ email: "deleting.student@example.com" }));
   });
 });

@@ -130,6 +130,16 @@ export interface AuthRepository {
     input: Partial<Pick<AuthUserRecord, "fullName" | "role" | "status" | "universityId" | "facultyId" | "departmentId" | "classLevel">>
   ): Promise<AuthUserRecord | null>;
   deleteUserByAdmin(id: string): Promise<void>;
+  clearUserAppData(id: string): Promise<AuthUserRecord | null>;
+  deleteUserAccount(
+    id: string,
+    input: {
+      deletedAt: Date;
+      anonymizedEmail: string;
+      anonymizedFullName: string;
+      anonymizedPasswordHash: string;
+    }
+  ): Promise<void>;
   updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null>;
   updateUserAcademicSelection(
     id: string,
@@ -144,4 +154,6 @@ export interface AuthRepository {
   revokeRefreshToken(id: string, revokedAt: Date): Promise<void>;
   markRefreshTokenReused(id: string, reusedAt: Date): Promise<void>;
   revokeRefreshTokenFamily(familyId: string, revokedAt: Date): Promise<void>;
+  revokeRefreshTokensByUserId(userId: string, revokedAt: Date): Promise<void>;
+  deleteEmailVerificationTokensByUserId(userId: string): Promise<void>;
 }

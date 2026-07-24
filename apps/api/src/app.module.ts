@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { HealthController } from "./modules/health/health.controller.js";
+import { PublicPagesController } from "./modules/public/public-pages.controller.js";
+import { AccountDeletionService } from "./modules/public/account-deletion.service.js";
 import { InfrastructureHealthService } from "./modules/health/infrastructure-health.service.js";
 import { BootstrapSeedService } from "./bootstrap/bootstrap-seed.service.js";
 import { AuthController } from "./modules/auth/auth.controller.js";
@@ -67,9 +69,10 @@ import { FirebasePushSender } from "./modules/notifications/push-sender.service.
 const runtimeConfig = readRuntimeConfig();
 
 @Module({
-  controllers: [HealthController, AuthController, UsersController, AdminUsersController, AnnouncementsController, AdminAnnouncementsController, CatalogController, AdminCatalogController, CalendarController, AdminCalendarController, AdminPdfController, NotificationsController, AdminNotificationOpsController, AdminAuditController],
+  controllers: [HealthController, PublicPagesController, AuthController, UsersController, AdminUsersController, AnnouncementsController, AdminAnnouncementsController, CatalogController, AdminCatalogController, CalendarController, AdminCalendarController, AdminPdfController, NotificationsController, AdminNotificationOpsController, AdminAuditController],
   providers: [
     AuthApplicationService,
+    AccountDeletionService,
     EmailVerificationSenderService,
     FirebaseGoogleIdentityVerifier,
     UsersService,

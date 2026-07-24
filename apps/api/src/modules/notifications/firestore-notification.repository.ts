@@ -152,6 +152,23 @@ export class FirestoreNotificationRepository implements NotificationRepository {
     return updated;
   }
 
+  async deleteUserData(userId: string): Promise<void> {
+    const [devices, preferences, alarms, jobs, deliveries] = await Promise.all([
+      getAllFirestoreRecords<DeviceTokenRecord>(this.deviceTokens.where("userId", "==", userId)),
+      getAllFirestoreRecords<NotificationPreferenceRecord>(this.preferences.where("userId", "==", userId)),
+      getAllFirestoreRecords<StudentAlarmRecord>(this.studentAlarms.where("userId", "==", userId)),
+      getAllFirestoreRecords<NotificationJobRecord>(this.jobs.where("userId", "==", userId)),
+      getAllFirestoreRecords<NotificationDeliveryRecord>(this.deliveries.where("userId", "==", userId))
+    ]);
+    const batch = this.firestore.getDb().batch();
+    for (const item of devices) batch.delete(this.deviceTokens.doc(item.id));
+    for (const item of preferences) batch.delete(this.preferences.doc(item.id));
+    for (const item of alarms) batch.delete(this.studentAlarms.doc(item.id));
+    for (const item of jobs) batch.delete(this.jobs.doc(item.id));
+    for (const item of deliveries) batch.delete(this.deliveries.doc(item.id));
+    await batch.commit();
+  }
+
   private async updateJob(jobId: string, input: Partial<Omit<NotificationJobRecord, "id" | "createdAt" | "updatedAt">>): Promise<NotificationJobRecord | null> {
     const job = toFirestoreRecord<NotificationJobRecord>(await this.jobs.doc(jobId).get());
     if (!job) return null;

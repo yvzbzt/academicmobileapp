@@ -1,7 +1,8 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { AuthRepository, AuthUserRecord } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
+import type { NotificationRepository } from "../notifications/notification.types.js";
 import { assertClassLevelAllowed, classLevelOptionsForDepartment } from "../catalog/academic-levels.js";
 
 export interface UserProfileResponse {
@@ -48,7 +49,8 @@ export class UsersService {
 
   constructor(
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
-    @Inject("CatalogRepository") private readonly catalogRepository: CatalogRepository
+    @Inject("CatalogRepository") private readonly catalogRepository: CatalogRepository,
+    @Optional() @Inject("NotificationRepository") private readonly notificationRepository?: NotificationRepository
   ) {}
 
   async getMe(userId: string): Promise<UserProfileResponse> {
@@ -111,6 +113,38 @@ export class UsersService {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
     await this.authRepository.deleteUserByAdmin(userId);
+    return { status: "deleted" };
+  }
+
+  async deleteMyData(userId: string): Promise<{ status: "deleted" }> {
+    const user = await this.authRepository.findUserById(userId);
+    if (!user) throw new NotFoundException("User not found.");
+    await this.notificationRepository?.deleteUserData(userId);
+    await this.authRepository.clearUserAppData(userId);
+    this.deleteInMemoryUserData(userId);
+    return { status: "deleted" };
+  }
+
+  async deleteMe(userId: string, input: { deleteData?: boolean } = {}): Promise<{ status: "deleted" }> {
+    const user = await this.authRepository.findUserById(userId);
+    if (!user) throw new NotFoundException("User not found.");
+
+    if (input.deleteData !== false) {
+      await this.deleteMyData(userId);
+    } else {
+      await this.notificationRepository?.deleteUserData(userId);
+      this.deleteInMemoryUserData(userId);
+    }
+
+    const deletedAt = new Date();
+    await this.authRepository.revokeRefreshTokensByUserId(userId, deletedAt);
+    await this.authRepository.deleteEmailVerificationTokensByUserId(userId);
+    await this.authRepository.deleteUserAccount(userId, {
+      deletedAt,
+      anonymizedEmail: `deleted-${userId}-${randomUUID()}@deleted.local`,
+      anonymizedFullName: "Deleted User",
+      anonymizedPasswordHash: `deleted:${randomUUID()}`
+    });
     return { status: "deleted" };
   }
 
@@ -238,6 +272,15 @@ export class UsersService {
     const scope: FollowedAcademicScope = { id: randomUUID(), userId, universityId: input.universityId, ...(input.facultyId ? { facultyId: input.facultyId } : {}), ...(input.departmentId ? { departmentId: input.departmentId } : {}), createdAt: new Date() };
     this.followedScopes.push(scope);
     return { ...scope, createdAt: scope.createdAt.toISOString() };
+  }
+
+  private deleteInMemoryUserData(userId: string): void {
+    for (let index = this.academicUnitSuggestions.length - 1; index >= 0; index -= 1) {
+      if (this.academicUnitSuggestions[index]?.userId === userId) this.academicUnitSuggestions.splice(index, 1);
+    }
+    for (let index = this.followedScopes.length - 1; index >= 0; index -= 1) {
+      if (this.followedScopes[index]?.userId === userId) this.followedScopes.splice(index, 1);
+    }
   }
 
   private async validateAcademicSelection(input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }): Promise<void> {

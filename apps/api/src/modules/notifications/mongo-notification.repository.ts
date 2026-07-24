@@ -107,6 +107,14 @@ export class MongoNotificationRepository implements NotificationRepository {
     return document ? toDomainRecord<DeviceTokenRecord>(document) : null;
   }
 
+  async deleteUserData(userId: string): Promise<void> {
+    await (await this.model("DeviceToken", deviceTokenSchema)).deleteMany({ userId });
+    await (await this.model("NotificationPreference", notificationPreferenceSchema)).deleteMany({ userId });
+    await (await this.model("StudentAlarm", studentAlarmSchema)).deleteMany({ userId });
+    await (await this.model("NotificationJob", notificationJobSchema)).deleteMany({ userId });
+    await (await this.model("NotificationDelivery", notificationDeliverySchema)).deleteMany({ userId });
+  }
+
   private async model(name: string, schema: Parameters<typeof getModel>[2]) {
     const connection = this.mongo.getConnection() ?? (await this.mongo.connect());
     if (!connection) throw new Error("MONGODB_NOT_CONFIGURED");

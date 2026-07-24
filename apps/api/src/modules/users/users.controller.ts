@@ -4,7 +4,7 @@ import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
-import { AdminUpdateUserDto, FollowAcademicScopeDto, ListUsersQueryDto, SuggestAcademicUnitDto, UpdateMeDto, UpdateMyUniversityDto } from "./users.dto.js";
+import { AdminUpdateUserDto, DeleteMyAccountDto, FollowAcademicScopeDto, ListUsersQueryDto, SuggestAcademicUnitDto, UpdateMeDto, UpdateMyUniversityDto } from "./users.dto.js";
 import { UsersService } from "./users.service.js";
 
 @Controller("me")
@@ -17,9 +17,19 @@ export class UsersController {
     return this.usersService.getMe(user.id);
   }
 
+  @Delete()
+  deleteMe(@CurrentUser() user: AuthenticatedUser, @Body() body: DeleteMyAccountDto) {
+    return this.usersService.deleteMe(user.id, body);
+  }
+
   @Patch()
   updateMe(@CurrentUser() user: AuthenticatedUser, @Body() body: UpdateMeDto) {
     return this.usersService.updateMe(user.id, body);
+  }
+
+  @Delete("data")
+  deleteMyData(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.deleteMyData(user.id);
   }
 
   @Patch("university")

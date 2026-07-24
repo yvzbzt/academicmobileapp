@@ -62,6 +62,56 @@ export class MongoAuthRepository implements AuthRepository {
     await model.findByIdAndUpdate(id, { status: "inactive", deletedAt: new Date() });
   }
 
+  async clearUserAppData(id: string): Promise<AuthUserRecord | null> {
+    const model = await this.model("User", userSchema);
+    const document = await model.findOneAndUpdate(
+      { _id: id, deletedAt: { $exists: false } },
+      {
+        $unset: {
+          universityId: "",
+          facultyId: "",
+          departmentId: "",
+          classLevel: ""
+        }
+      },
+      { new: true }
+    );
+    return document ? toDomainRecord<AuthUserRecord>(document) : null;
+  }
+
+  async deleteUserAccount(
+    id: string,
+    input: {
+      deletedAt: Date;
+      anonymizedEmail: string;
+      anonymizedFullName: string;
+      anonymizedPasswordHash: string;
+    }
+  ): Promise<void> {
+    const model = await this.model("User", userSchema);
+    await model.findOneAndUpdate(
+      { _id: id, deletedAt: { $exists: false } },
+      {
+        $set: {
+          fullName: input.anonymizedFullName,
+          email: input.anonymizedEmail.toLocaleLowerCase("tr-TR"),
+          passwordHash: input.anonymizedPasswordHash,
+          status: "inactive",
+          deletedAt: input.deletedAt
+        },
+        $unset: {
+          emailVerifiedAt: "",
+          firebaseAuthUid: "",
+          universityId: "",
+          facultyId: "",
+          departmentId: "",
+          classLevel: "",
+          lastLoginAt: ""
+        }
+      }
+    );
+  }
+
   async updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
     return this.updateUser(id, input);
   }
@@ -118,6 +168,16 @@ export class MongoAuthRepository implements AuthRepository {
   async revokeRefreshTokenFamily(familyId: string, revokedAt: Date): Promise<void> {
     const model = await this.model("RefreshToken", refreshTokenSchema);
     await model.updateMany({ familyId, revokedAt: { $exists: false } }, { revokedAt });
+  }
+
+  async revokeRefreshTokensByUserId(userId: string, revokedAt: Date): Promise<void> {
+    const model = await this.model("RefreshToken", refreshTokenSchema);
+    await model.updateMany({ userId, revokedAt: { $exists: false } }, { revokedAt });
+  }
+
+  async deleteEmailVerificationTokensByUserId(userId: string): Promise<void> {
+    const model = await this.model("EmailVerificationToken", emailVerificationTokenSchema);
+    await model.deleteMany({ userId });
   }
 
   private async updateUser(id: string, input: Record<string, unknown>): Promise<AuthUserRecord | null> {

@@ -65,6 +65,48 @@ export class FirestoreAuthRepository implements AuthRepository {
     await this.users.doc(id).set(cleanFirestoreData({ ...user, status: "inactive", deletedAt: new Date(), updatedAt: new Date() }), { merge: false });
   }
 
+  async clearUserAppData(id: string): Promise<AuthUserRecord | null> {
+    const user = await this.findUserById(id);
+    if (!user) return null;
+    const { universityId: _universityId, facultyId: _facultyId, departmentId: _departmentId, classLevel: _classLevel, ...rest } = user;
+    const updated: AuthUserRecord = { ...rest, updatedAt: new Date() };
+    await this.users.doc(id).set(cleanFirestoreData(updated as unknown as Record<string, unknown>), { merge: false });
+    return updated;
+  }
+
+  async deleteUserAccount(
+    id: string,
+    input: {
+      deletedAt: Date;
+      anonymizedEmail: string;
+      anonymizedFullName: string;
+      anonymizedPasswordHash: string;
+    }
+  ): Promise<void> {
+    const user = await this.findUserById(id);
+    if (!user) return;
+    const {
+      emailVerifiedAt: _emailVerifiedAt,
+      firebaseAuthUid: _firebaseAuthUid,
+      universityId: _universityId,
+      facultyId: _facultyId,
+      departmentId: _departmentId,
+      classLevel: _classLevel,
+      lastLoginAt: _lastLoginAt,
+      ...rest
+    } = user;
+    const deletedUser: AuthUserRecord = {
+      ...rest,
+      fullName: input.anonymizedFullName,
+      email: input.anonymizedEmail.toLocaleLowerCase("tr-TR"),
+      passwordHash: input.anonymizedPasswordHash,
+      status: "inactive",
+      deletedAt: input.deletedAt,
+      updatedAt: input.deletedAt
+    };
+    await this.users.doc(id).set(cleanFirestoreData(deletedUser as unknown as Record<string, unknown>), { merge: false });
+  }
+
   updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
     return this.updateUser(id, {
       ...(input.fullName ? { fullName: input.fullName } : {}),
@@ -126,6 +168,22 @@ export class FirestoreAuthRepository implements AuthRepository {
     for (const token of tokens.filter((record) => !record.revokedAt)) {
       batch.set(this.refreshTokens.doc(token.id), cleanFirestoreData({ revokedAt }), { merge: true });
     }
+    await batch.commit();
+  }
+
+  async revokeRefreshTokensByUserId(userId: string, revokedAt: Date): Promise<void> {
+    const tokens = await getAllFirestoreRecords<RefreshTokenRecord>(this.refreshTokens.where("userId", "==", userId));
+    const batch = this.firestore.getDb().batch();
+    for (const token of tokens.filter((record) => !record.revokedAt)) {
+      batch.set(this.refreshTokens.doc(token.id), cleanFirestoreData({ revokedAt }), { merge: true });
+    }
+    await batch.commit();
+  }
+
+  async deleteEmailVerificationTokensByUserId(userId: string): Promise<void> {
+    const tokens = await getAllFirestoreRecords<EmailVerificationTokenRecord>(this.emailVerificationTokens.where("userId", "==", userId));
+    const batch = this.firestore.getDb().batch();
+    for (const token of tokens) batch.delete(this.emailVerificationTokens.doc(token.id));
     await batch.commit();
   }
 

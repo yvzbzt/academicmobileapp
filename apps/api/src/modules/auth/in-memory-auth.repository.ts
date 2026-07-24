@@ -93,6 +93,50 @@ export class InMemoryAuthRepository implements AuthRepository {
     if (user) this.users.set(id, { ...user, status: "inactive", deletedAt: new Date(), updatedAt: new Date() });
   }
 
+  async clearUserAppData(id: string): Promise<AuthUserRecord | null> {
+    const user = await this.findUserById(id);
+    if (!user) return null;
+    const { universityId: _universityId, facultyId: _facultyId, departmentId: _departmentId, classLevel: _classLevel, ...rest } = user;
+    const updated: AuthUserRecord = {
+      ...rest,
+      updatedAt: new Date()
+    };
+    this.users.set(id, updated);
+    return updated;
+  }
+
+  async deleteUserAccount(
+    id: string,
+    input: {
+      deletedAt: Date;
+      anonymizedEmail: string;
+      anonymizedFullName: string;
+      anonymizedPasswordHash: string;
+    }
+  ): Promise<void> {
+    const user = this.users.get(id);
+    if (!user || user.deletedAt) return;
+    const {
+      emailVerifiedAt: _emailVerifiedAt,
+      firebaseAuthUid: _firebaseAuthUid,
+      universityId: _universityId,
+      facultyId: _facultyId,
+      departmentId: _departmentId,
+      classLevel: _classLevel,
+      lastLoginAt: _lastLoginAt,
+      ...rest
+    } = user;
+    this.users.set(id, {
+      ...rest,
+      fullName: input.anonymizedFullName,
+      email: input.anonymizedEmail.toLocaleLowerCase("tr-TR"),
+      passwordHash: input.anonymizedPasswordHash,
+      status: "inactive",
+      deletedAt: input.deletedAt,
+      updatedAt: input.deletedAt
+    });
+  }
+
   async updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
     const user = this.users.get(id);
     if (!user) return null;
@@ -178,6 +222,20 @@ export class InMemoryAuthRepository implements AuthRepository {
       if (token.familyId === familyId && !token.revokedAt) {
         this.refreshTokens.set(id, { ...token, revokedAt });
       }
+    }
+  }
+
+  async revokeRefreshTokensByUserId(userId: string, revokedAt: Date): Promise<void> {
+    for (const [id, token] of this.refreshTokens.entries()) {
+      if (token.userId === userId && !token.revokedAt) {
+        this.refreshTokens.set(id, { ...token, revokedAt });
+      }
+    }
+  }
+
+  async deleteEmailVerificationTokensByUserId(userId: string): Promise<void> {
+    for (const [id, token] of this.emailVerificationTokens.entries()) {
+      if (token.userId === userId) this.emailVerificationTokens.delete(id);
     }
   }
 }
