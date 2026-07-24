@@ -17,9 +17,15 @@ const validPdfInput = {
   rawText: "15-19 Eylul 2026 Guz Donemi Ders Kayitlari\n05-16 Ocak 2027 Guz Donemi Final Sinavlari"
 };
 
+const disabledOcrService = {
+  async extractText() {
+    return null;
+  }
+};
+
 async function createApprovedExtractedEvents() {
   const pdfRepository = new InMemoryPdfRepository();
-  const pdfService = new PdfProcessingService(pdfRepository);
+  const pdfService = new PdfProcessingService(pdfRepository, disabledOcrService);
   const source = await pdfService.createPdfSource(validPdfInput);
   const processed = await pdfService.processPdfSource(source.id);
   for (const event of processed.extractedEvents) {
@@ -43,7 +49,7 @@ describe("AdminCalendarService", () => {
     });
 
     expect(draft.calendar.status).toBe("draft");
-    expect(draft.calendar.version).toBe(2);
+    expect(draft.calendar.version).toBe(1);
     expect(draft.events).toHaveLength(2);
     expect(draft.events.every((event) => event.status === "approved")).toBe(true);
   });
@@ -64,14 +70,14 @@ describe("AdminCalendarService", () => {
     const activeCalendar = await calendarRepository.findPublishedCalendar(source.universityId, source.academicYear);
 
     expect(published.calendar.status).toBe("published");
-    expect(published.archivedCalendarCount).toBe(1);
+    expect(published.archivedCalendarCount).toBe(0);
     expect(published.publishedEvents.every((event) => event.status === "published")).toBe(true);
     expect(activeCalendar?.id).toBe(draft.calendar.id);
   });
 
   it("rejects draft creation without approved extracted events", async () => {
     const pdfRepository = new InMemoryPdfRepository();
-    const pdfService = new PdfProcessingService(pdfRepository);
+    const pdfService = new PdfProcessingService(pdfRepository, disabledOcrService);
     const source = await pdfService.createPdfSource(validPdfInput);
     await pdfService.processPdfSource(source.id);
     const service = new AdminCalendarService(new InMemoryCalendarRepository(), pdfRepository);

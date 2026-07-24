@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Inject, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
-import { RegisterDeviceDto, UpdateNotificationPreferencesDto } from "./notifications.dto.js";
+import { CreateStudentAlarmDto, RegisterDeviceDto, UpdateNotificationPreferencesDto } from "./notifications.dto.js";
 import { NotificationsService } from "./notifications.service.js";
 
 @Controller()
@@ -28,5 +28,23 @@ export class NotificationsController {
   @Roles("student")
   async updateNotificationPreferences(@CurrentUser() user: AuthenticatedUser, @Body() body: UpdateNotificationPreferencesDto) {
     return this.notificationsService.toPreferenceDto(await this.notificationsService.updatePreferences(user, body));
+  }
+
+  @Get("notification-alarms")
+  @Roles("student")
+  listStudentAlarms(@CurrentUser() user: AuthenticatedUser) {
+    return this.notificationsService.listStudentAlarms(user);
+  }
+
+  @Post("notification-alarms")
+  @Roles("student")
+  createStudentAlarm(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateStudentAlarmDto) {
+    return this.notificationsService.createStudentAlarm(user, body);
+  }
+
+  @Delete("notification-alarms/:id")
+  @Roles("student")
+  cancelStudentAlarm(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.notificationsService.cancelStudentAlarm(user, id);
   }
 }

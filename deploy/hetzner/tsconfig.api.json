@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "noEmit": false,
+    "outDir": "../../dist",
+    "rootDir": "../..",
+    "sourceMap": true
+  },
+  "include": [
+    "../../apps/api/**/*.ts",
+    "../../packages/**/*.ts"
+  ],
+  "exclude": [
+    "../../apps/api/tests/**",
+    "../../apps/mobile-native/**"
+  ]
+}

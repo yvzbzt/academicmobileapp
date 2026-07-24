@@ -1,0 +1,27 @@
+.git
+.github
+.agents
+.codex
+
+node_modules
+**/node_modules
+**/build
+**/dist
+**/.expo
+**/.gradle
+
+apps/admin
+apps/mobile
+apps/mobile-native
+
+data
+docs
+tests
+firebase-live-app-visuals
+
+*.apk
+*.aab
+*.log
+*.png
+*.md
+Y*K *niversiteler.txt

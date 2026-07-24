@@ -1,0 +1,32 @@
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY deploy/hetzner/tsconfig.api.json ./deploy/hetzner/tsconfig.api.json
+COPY apps/api ./apps/api
+COPY packages ./packages
+
+RUN npx --no-install tsc -p deploy/hetzner/tsconfig.api.json \
+    && mkdir -p dist/apps/api/src/bootstrap \
+    && cp apps/api/src/bootstrap/*.json dist/apps/api/src/bootstrap/ \
+    && npm prune --omit=dev
+
+FROM node:22-alpine AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NODE_OPTIONS="--enable-source-maps --use-system-ca"
+ENV NODE_EXTRA_CA_CERTS=/app/certs/sectigo-public-server-authentication-ca-dv-r36.pem
+
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --chown=node:node deploy/certs ./certs
+
+USER node
+EXPOSE 3000
+
+CMD ["node", "dist/apps/api/src/main.js"]

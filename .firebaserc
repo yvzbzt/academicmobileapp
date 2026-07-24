@@ -1,0 +1,17 @@
+{
+  "projects": {
+    "default": "academic-mobile-app-7629"
+  },
+  "targets": {
+    "academic-mobile-app-7629": {
+      "hosting": {
+        "mobile": [
+          "academic-mobile-app-7629"
+        ],
+        "admin": [
+          "academic-mobile-app-7629-admin"
+        ]
+      }
+    }
+  }
+}

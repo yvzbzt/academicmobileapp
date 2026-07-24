@@ -1,202 +1,202 @@
 # UI/UX Optimization Scenarios (Web + Mobile)
 
-## 1. Amac
+## 1. Purpose
 
-Bu dokuman, production seviyesinde UI/UX kalitesini korumak icin performans, algilanan hiz, erisilebilirlik ve gorev tamamlama basarisi uzerinden senaryo bazli optimizasyon planini tanimlar.
+This document defines scenario-based optimization plans for protecting production-level UI/UX quality across performance, perceived speed, accessibility, and task-completion success.
 
 ## 2. Performance Budgets
 
-Admin web butceleri:
+Admin web budgets:
 
 - Initial JS (gzip): <= 220KB
 - Initial CSS (gzip): <= 70KB
-- SVG toplam (kritik path): <= 50KB
-- LCP: <= 2.5s (desktop), <= 3.0s (4G)
+- Total SVG on the critical path: <= 50KB
+- LCP: <= 2.5s on desktop, <= 3.0s on 4G
 - INP: < 200ms
 - CLS: < 0.1
 
-Mobile web butceleri:
+Mobile web budgets:
 
 - Initial JS (gzip): <= 180KB
 - Initial CSS (gzip): <= 55KB
-- Font toplam (woff2): <= 120KB
-- LCP: <= 2.8s (4G), <= 4.0s (slow 4G)
+- Total font payload (woff2): <= 120KB
+- LCP: <= 2.8s on 4G, <= 4.0s on slow 4G
 - INP: < 180ms
 - CLS: < 0.08
 
-## 3. Senaryo Seti
+## 3. Scenario Set
 
-## Senaryo A - Dusuk Donanimli Android + Zayif Ag
+## Scenario A - Low-End Android + Weak Network
 
 Risk:
 
-- Auth ve university secim ekranlarinda gec algilanan tepki.
+- Auth and university-selection screens feel slow to respond.
 
-Aksiyon:
+Actions:
 
 - Route-level code splitting.
 - Skeleton-first render.
-- Non-critical icon setini lazy load.
-- Input validasyonunu debounce ile calistir.
+- Lazy-load the non-critical icon set.
+- Run input validation with debounce.
 
-Beklenen kazanc:
+Expected gain:
 
-- First interactive state suresinde >= %25 iyilesme.
+- First interactive state time improves by at least 25%.
 
-## Senaryo B - Yavas API Donusleri (700ms+)
-
-Risk:
-
-- Kullanici eylemden sonra sistemin kilitlendigini dusunuyor.
-
-Aksiyon:
-
-- Optimistic UI pattern (uygun endpointlerde).
-- Request state machine (idle/loading/success/error/retrying).
-- Retry CTA ve timeout fallback mesaji.
-
-Beklenen kazanc:
-
-- Islem yarim birakma oraninda >= %20 azalis.
-
-## Senaryo C - Buyuk Veri Tablosu (Admin)
+## Scenario B - Slow API Responses (700ms+)
 
 Risk:
 
-- Table render ve scroll performansi dusuyor.
+- The user thinks the system is stuck after taking an action.
 
-Aksiyon:
+Actions:
+
+- Optimistic UI patterns where endpoints allow them.
+- Request state machine: idle, loading, success, error, retrying.
+- Retry CTA and timeout fallback message.
+
+Expected gain:
+
+- Action abandonment drops by at least 20%.
+
+## Scenario C - Large Data Table (Admin)
+
+Risk:
+
+- Table rendering and scroll performance degrade.
+
+Actions:
 
 - Row virtualization.
-- Sticky column ve sade satir layout.
-- Server-side pagination + filtre debounce.
+- Sticky column and simplified row layout.
+- Server-side pagination with filter debounce.
 
-Beklenen kazanc:
+Expected gain:
 
-- 5000+ satirli datasetlerde scroll jank'in kritik seviyeden cikmasi.
+- Scroll jank leaves the critical range on datasets with 5,000+ rows.
 
-## Senaryo D - Bildirim Islem Zirvesi
-
-Risk:
-
-- Notification paneli stale gorunuyor, operatorde guven kaybi oluyor.
-
-Aksiyon:
-
-- Polling interval strategy (focus tab aktifken hizli, arka planda yavas).
-- Incremental list update.
-- Islem sonucu icin deterministic status labels.
-
-Beklenen kazanc:
-
-- Islem sonucu gorunurlugunde gecikmenin azalmasi ve operator guveninin artmasi.
-
-## Senaryo E - Erisilebilirlik Kritik Aksiyonlar
+## Scenario D - Notification Processing Peak
 
 Risk:
 
-- Klavye veya ekran okuyucu kullanicisi kritik gorevi tamamlayamiyor.
+- The notification panel looks stale and operators lose confidence.
 
-Aksiyon:
+Actions:
 
-- Focus order map.
-- Live region ile hata/basari duyurusu.
-- Color-only signal yerine icon + text.
+- Polling strategy: faster while the tab is focused, slower in the background.
+- Incremental list updates.
+- Deterministic status labels for action outcomes.
 
-Beklenen kazanc:
+Expected gain:
 
-- WCAG 2.2 AA uyumunda kritik ihlallerin sifirlanmasi.
+- Action-result visibility improves and operator confidence increases.
 
-## 4. Vektor ve Gorsel Optimizasyon Kurallari
+## Scenario E - Accessibility For Critical Actions
 
-- Tum SVG varliklari SVGO pipeline'dan gecmeli.
-- Repeated iconlar icin sprite veya komponent tabanli tekrar kullanim.
-- Bitmap kullanimi gerekiyorsa AVIF -> WebP fallback strtejisi.
-- Ilustrasyon dosya boyutu hedefi: <= 120KB.
-- Lottie dosya boyutu hedefi: <= 80KB gzip.
-- Tek sayfada ayni anda max 1 mikro animasyon oynatimi (CPU sagligi icin).
+Risk:
 
-## 5. CTA ve Renk Optimizasyon Senaryolari
+- Keyboard or screen-reader users cannot complete a critical task.
 
-## Senaryo F - CTA Karar Yorgunlugu
+Actions:
 
-Aksiyon:
+- Focus-order map.
+- Live region for error and success announcements.
+- Icon + text instead of color-only signaling.
 
-- Her panelde tek primary CTA zorunlulugu.
-- Secondary ve destructive butonlarin gorsel agirligini dusurme.
+Expected gain:
 
-Metrik:
+- Critical WCAG 2.2 AA violations are reduced to zero.
 
-- Mis-click orani <= %3.
+## 4. Vector And Visual Optimization Rules
 
-## Senaryo G - Kontrast ve Gece Kullanim
+- All SVG assets must pass through the SVGO pipeline.
+- Repeated icons should use a sprite or component-based reuse.
+- When bitmap assets are required, use an AVIF -> WebP fallback strategy.
+- Target illustration file size: <= 120KB.
+- Target Lottie file size: <= 80KB gzip.
+- Play at most one micro-animation on a page at a time to protect CPU usage.
 
-Aksiyon:
+## 5. CTA And Color Optimization Scenarios
 
-- Text/background kontrast taramasi otomasyonu.
-- Theme tokenlari ile gelecekte dark mode acilimina hazir semantic katman.
+## Scenario F - CTA Decision Fatigue
 
-Metrik:
+Actions:
 
-- Tum ana metinlerde en az 4.5:1.
+- Require one primary CTA per panel.
+- Reduce the visual weight of secondary and destructive buttons.
 
-## 6. Tooling ve Otomasyon
+Metric:
 
-- Lighthouse CI: performans butce gate.
-- Axe-core: erisilebilirlik ihlal kontrolu.
-- Playwright: kritik akislarda gorsel regression.
-- Bundle analyzer: route bazli agirlik takibi.
-- RUM telemetry: LCP, INP, CLS canli takibi.
+- Mis-click rate <= 3%.
 
-## 7. Test Matrisi
+## Scenario G - Contrast And Night Usage
 
-Cihaz segmentleri:
+Actions:
+
+- Automate text/background contrast scanning.
+- Prepare a semantic token layer for future dark-mode support.
+
+Metric:
+
+- All primary text reaches at least 4.5:1 contrast.
+
+## 6. Tooling And Automation
+
+- Lighthouse CI: performance-budget gate.
+- Axe-core: accessibility violation checks.
+- Playwright: visual regression for critical flows.
+- Bundle analyzer: route-level weight tracking.
+- RUM telemetry: live tracking for LCP, INP, and CLS.
+
+## 7. Test Matrix
+
+Device segments:
 
 - Low: 2 GB RAM Android
 - Mid: 4 GB RAM Android / iOS
 - High: modern desktop
 
-Tarayici kapsami:
+Browser coverage:
 
-- Chrome, Edge, Safari, Firefox (son 2 major)
+- Chrome, Edge, Safari, Firefox (latest two major versions)
 
-Ag profilleri:
+Network profiles:
 
 - Wi-Fi
 - 4G
 - Slow 4G
 
-## 8. Release Gate Kriterleri
+## 8. Release Gate Criteria
 
-Bir release adayinin UI/UX gate'i gecmesi icin:
+A release candidate passes the UI/UX gate when:
 
-- Performance budget ihlali yok.
-- Accessibility kritik ihlali yok.
-- Critical flow E2E testleri yesil.
-- Visual regression farklari onayli.
-- CTA hierarchy checklist gecti.
+- No performance budget is violated.
+- No critical accessibility violation remains.
+- Critical-flow E2E tests are green.
+- Visual-regression differences are approved.
+- CTA hierarchy checklist passes.
 
-## 9. 30-60-90 Gunluk Optimizasyon Plani
+## 9. 30-60-90 Day Optimization Plan
 
-Ilk 30 gun:
+First 30 days:
 
-- Token migration ve CTA standardizasyonu.
-- Kritik ekranlarda loading/empty/error/success patternleri.
+- Token migration and CTA standardization.
+- Loading, empty, error, and success patterns on critical screens.
 
-60 gun:
+60 days:
 
-- Table virtualization ve mobile flow friction azaltimi.
+- Table virtualization and reduced mobile-flow friction.
 - SVG/Lottie budget enforcement.
 
-90 gun:
+90 days:
 
-- RUM bazli ince ayar.
-- UX KPI trendlerine gore ikinci tur iyilestirme.
+- RUM-based tuning.
+- A second optimization pass based on UX KPI trends.
 
-## 10. Beklenen Sonuc
+## 10. Expected Result
 
-Bu optimizasyon plani ile:
+This optimization plan should:
 
-- Admin panelde operasyon hizi ve hataya dayaniklilik artar.
-- Mobile web deneyiminde tamamlanma oranlari yukselir.
-- UI/UX kalitesi release surecinde olculebilir gate mekanizmasina baglanir.
+- Increase operational speed and error resilience in the admin panel.
+- Improve completion rates in the mobile web experience.
+- Connect UI/UX quality to measurable gates in the release process.

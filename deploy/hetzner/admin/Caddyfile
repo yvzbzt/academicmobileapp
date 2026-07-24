@@ -1,0 +1,26 @@
+{
+	auto_https off
+	admin off
+}
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	header {
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self' https://academic-api.anssoft.com.tr https://cloudflareinsights.com; font-src 'self' data: https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"
+		Permissions-Policy "camera=(), geolocation=(), microphone=()"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	@index path / /index.html
+	header @index Cache-Control "no-cache, no-store, must-revalidate"
+
+	try_files {path} /index.html
+	file_server
+}

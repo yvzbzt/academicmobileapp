@@ -8,87 +8,8 @@ export class InMemoryCalendarRepository implements CalendarRepository {
   private readonly events: AcademicEventRecord[];
 
   constructor() {
-    const now = new Date();
-    const calendar: AcademicCalendarRecord = {
-      id: "sample-calendar-2026",
-      universityId: "sample-university-1",
-      academicYear: "2026-2027",
-      title: "2026-2027 Akademik Takvimi",
-      status: "published",
-      version: 1,
-      publishedAt: now,
-      createdAt: now,
-      updatedAt: now
-    };
-    this.calendars = [calendar];
-    this.events = [
-      {
-        id: "sample-event-course-registration",
-        calendarId: calendar.id,
-        universityId: calendar.universityId,
-        academicYear: calendar.academicYear,
-        term: "fall",
-        category: "course_registration",
-        title: "Guz Donemi Ders Kayitlari",
-        description: "Ogrenciler icin guz donemi ders kayit araligi.",
-        startDate: new Date("2026-09-15T00:00:00.000Z"),
-        endDate: new Date("2026-09-19T23:59:59.000Z"),
-        timezone: "Europe/Istanbul",
-        originalDateText: "15-19 Eylul 2026",
-        originalText: "15-19 Eylul 2026 Guz Donemi Ders Kayitlari",
-        confidenceScore: 96,
-        status: "published",
-        notificationRules: [
-          { offsetDays: 7, enabled: true },
-          { offsetDays: 1, enabled: true }
-        ],
-        createdAt: now,
-        updatedAt: now
-      },
-      {
-        id: "sample-event-final-exams",
-        calendarId: calendar.id,
-        universityId: calendar.universityId,
-        facultyId: "sample-faculty-1",
-        academicYear: calendar.academicYear,
-        term: "fall",
-        category: "final_exam",
-        title: "Guz Donemi Final Sinavlari",
-        startDate: new Date("2027-01-05T00:00:00.000Z"),
-        endDate: new Date("2027-01-16T23:59:59.000Z"),
-        timezone: "Europe/Istanbul",
-        originalDateText: "05-16 Ocak 2027",
-        confidenceScore: 94,
-        status: "published",
-        notificationRules: [
-          { offsetDays: 7, enabled: true },
-          { offsetDays: 1, enabled: true }
-        ],
-        createdAt: now,
-        updatedAt: now
-      },
-      {
-        id: "sample-event-other-faculty-midterm",
-        calendarId: calendar.id,
-        universityId: calendar.universityId,
-        facultyId: "sample-faculty-x",
-        academicYear: calendar.academicYear,
-        term: "fall",
-        category: "midterm_exam",
-        title: "Diger Fakulteler Ara Sinav Takvimi",
-        startDate: new Date("2026-11-10T00:00:00.000Z"),
-        endDate: new Date("2026-11-14T23:59:59.000Z"),
-        timezone: "Europe/Istanbul",
-        confidenceScore: 90,
-        status: "published",
-        notificationRules: [
-          { offsetDays: 7, enabled: true },
-          { offsetDays: 1, enabled: true }
-        ],
-        createdAt: now,
-        updatedAt: now
-      }
-    ];
+    this.calendars = [];
+    this.events = [];
   }
 
   async findPublishedCalendar(universityId: string, academicYear?: string): Promise<AcademicCalendarRecord | null> {
@@ -96,7 +17,7 @@ export class InMemoryCalendarRepository implements CalendarRepository {
       this.calendars
         .filter((calendar) => calendar.universityId === universityId && calendar.status === "published")
         .filter((calendar) => (academicYear ? calendar.academicYear === academicYear : true))
-        .sort((left, right) => right.version - left.version)[0] ?? null
+        .sort(compareCalendarFreshness)[0] ?? null
     );
   }
 
@@ -159,6 +80,7 @@ export class InMemoryCalendarRepository implements CalendarRepository {
   async listPublishedEvents(filters: CalendarEventFilters): Promise<AcademicEventRecord[]> {
     return this.events
       .filter((event) => event.status === "published")
+      .filter((event) => (filters.calendarId ? event.calendarId === filters.calendarId : true))
       .filter((event) => (filters.universityId ? event.universityId === filters.universityId : true))
       .filter((event) => matchesScope(event, filters.facultyId, filters.departmentId))
       .filter((event) => (filters.category ? event.category === filters.category : true))
@@ -186,4 +108,8 @@ function matchesScope(event: AcademicEventRecord, facultyId?: string, department
   if (event.departmentId) return Boolean(departmentId && event.departmentId === departmentId);
   if (event.facultyId) return Boolean(facultyId && event.facultyId === facultyId);
   return true;
+}
+
+function compareCalendarFreshness(left: AcademicCalendarRecord, right: AcademicCalendarRecord): number {
+  return right.academicYear.localeCompare(left.academicYear, "en-US") || right.version - left.version;
 }

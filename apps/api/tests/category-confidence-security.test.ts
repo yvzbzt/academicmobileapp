@@ -6,9 +6,12 @@ import { sanitizeQueryValue } from "../src/security/query-sanitizer.js";
 describe("mapAcademicEventCategory", () => {
   it("maps academic Turkish phrases to canonical categories", () => {
     expect(mapAcademicEventCategory("Ders kayıt tarihleri")).toBe("course_registration");
+    expect(mapAcademicEventCategory("Haftalık ders programı")).toBe("course_schedule");
+    expect(mapAcademicEventCategory("Bölüm sınav programı")).toBe("department_exam_schedule");
     expect(mapAcademicEventCategory("Ara sınav haftası")).toBe("midterm_exam");
     expect(mapAcademicEventCategory("Final sınavları")).toBe("final_exam");
     expect(mapAcademicEventCategory("Bütünleme sınavları")).toBe("makeup_exam");
+    expect(mapAcademicEventCategory("Yaz Okulu başvuru ve ders seçimi")).toBe("summer_school_registration");
   });
 
   it("falls back to custom_event for unknown university-specific events", () => {

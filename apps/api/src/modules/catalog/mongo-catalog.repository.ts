@@ -9,7 +9,7 @@ export class MongoCatalogRepository implements CatalogRepository {
   constructor(@Inject(MongoConnectionService) private readonly mongo: MongoConnectionService) {}
 
   async createUniversity(input: Omit<UniversityRecord, "id" | "createdAt" | "updatedAt">): Promise<UniversityRecord> {
-    const document = await (await this.model("University", universitySchema)).create(input);
+    const document = await (await this.model("University", universitySchema)).create({ ...input, _id: input.slug });
     return toDomainRecord<UniversityRecord>(document);
   }
 
@@ -34,9 +34,20 @@ export class MongoCatalogRepository implements CatalogRepository {
     return documents.map((document) => toDomainRecord<UniversityRecord>(document));
   }
 
+  async findUniversityByEmailDomain(domain: string): Promise<UniversityRecord | null> {
+    const normalizedDomain = domain.trim().replace(/^@/, "").toLocaleLowerCase("en-US");
+    const document = await (await this.model("University", universitySchema)).findOne({ emailDomains: normalizedDomain });
+    return document ? toDomainRecord<UniversityRecord>(document) : null;
+  }
+
   async createFaculty(input: Omit<FacultyRecord, "id" | "createdAt" | "updatedAt">): Promise<FacultyRecord> {
-    const document = await (await this.model("Faculty", facultySchema)).create(input);
+    const document = await (await this.model("Faculty", facultySchema)).create({ ...input, _id: `${input.universityId}__${input.slug}` });
     return toDomainRecord<FacultyRecord>(document);
+  }
+
+  async updateFaculty(id: string, input: Partial<Omit<FacultyRecord, "id" | "createdAt" | "updatedAt">>): Promise<FacultyRecord | null> {
+    const document = await (await this.model("Faculty", facultySchema)).findByIdAndUpdate(id, omitUndefined(input), { new: true });
+    return document ? toDomainRecord<FacultyRecord>(document) : null;
   }
 
   async listFaculties(universityId: string, status?: CatalogStatus): Promise<FacultyRecord[]> {
@@ -45,8 +56,13 @@ export class MongoCatalogRepository implements CatalogRepository {
   }
 
   async createDepartment(input: Omit<DepartmentRecord, "id" | "createdAt" | "updatedAt">): Promise<DepartmentRecord> {
-    const document = await (await this.model("Department", departmentSchema)).create(input);
+    const document = await (await this.model("Department", departmentSchema)).create({ ...input, _id: `${input.facultyId}__${input.slug}` });
     return toDomainRecord<DepartmentRecord>(document);
+  }
+
+  async updateDepartment(id: string, input: Partial<Omit<DepartmentRecord, "id" | "createdAt" | "updatedAt">>): Promise<DepartmentRecord | null> {
+    const document = await (await this.model("Department", departmentSchema)).findByIdAndUpdate(id, omitUndefined(input), { new: true });
+    return document ? toDomainRecord<DepartmentRecord>(document) : null;
   }
 
   async listDepartments(facultyId: string, status?: CatalogStatus): Promise<DepartmentRecord[]> {

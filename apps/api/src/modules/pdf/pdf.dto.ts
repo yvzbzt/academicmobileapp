@@ -1,3 +1,4 @@
+import { Type } from "class-transformer";
 import { IsHexadecimal, IsIn, IsInt, IsOptional, IsString, IsUrl, Max, Min, MinLength } from "class-validator";
 import { academicEventCategories, type AcademicEventCategory } from "../../domain/academic-event.types.js";
 
@@ -46,12 +47,14 @@ export class ListExtractedEventsQueryDto {
   status?: "pending_review" | "approved" | "rejected";
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
   limit?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   offset?: number;

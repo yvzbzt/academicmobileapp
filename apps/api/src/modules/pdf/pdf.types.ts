@@ -22,6 +22,8 @@ export interface PdfSourceRecord {
   parseError?: string;
   uploadedBy: string;
   rawText?: string;
+  ocrProvider?: string;
+  ocrProcessedAt?: Date;
   downloadedAt?: Date;
   processedAt?: Date;
   createdAt: Date;
@@ -39,6 +41,9 @@ export interface ExtractedEventRecord {
   normalizedCategory: AcademicEventCategory;
   startDate?: Date;
   endDate?: Date;
+  startTime?: string;
+  endTime?: string;
+  hasExplicitTime?: boolean;
   timezone: "Europe/Istanbul";
   datePrecision: DatePrecision;
   term: AcademicTerm;

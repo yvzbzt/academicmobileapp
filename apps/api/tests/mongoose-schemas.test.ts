@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { academicCalendarSchema, academicEventSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, notificationJobSchema, notificationPreferenceSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
+import { academicCalendarSchema, academicEventSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, notificationJobSchema, notificationPreferenceSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
 
 describe("mongoose schemas", () => {
   it("defines users collection and email unique index", () => {
@@ -20,6 +20,9 @@ describe("mongoose schemas", () => {
     expect(universitySchema.get("collection")).toBe("universities");
     expect(facultySchema.get("collection")).toBe("faculties");
     expect(departmentSchema.get("collection")).toBe("departments");
+    expect(universitySchema.path("_id").instance).toBe("String");
+    expect(facultySchema.path("_id").instance).toBe("String");
+    expect(departmentSchema.path("_id").instance).toBe("String");
     expect(universitySchema.indexes()).toEqual(expect.arrayContaining([[{ slug: 1 }, expect.objectContaining({ unique: true })]]));
     expect(facultySchema.indexes()).toEqual(expect.arrayContaining([[{ universityId: 1, slug: 1 }, expect.objectContaining({ unique: true })]]));
     expect(departmentSchema.indexes()).toEqual(expect.arrayContaining([[{ facultyId: 1, slug: 1 }, expect.objectContaining({ unique: true })]]));
@@ -44,6 +47,17 @@ describe("mongoose schemas", () => {
     );
     expect(extractedEventSchema.indexes()).toEqual(
       expect.arrayContaining([[{ status: 1, confidenceScore: 1, createdAt: -1 }, expect.objectContaining({ name: "extracted_review_queue" })]])
+    );
+  });
+
+  it("defines announcement source and item indexes", () => {
+    expect(announcementSourceSchema.get("collection")).toBe("announcement_sources");
+    expect(announcementItemSchema.get("collection")).toBe("announcement_items");
+    expect(announcementSourceSchema.indexes()).toEqual(
+      expect.arrayContaining([[{ sourceUrl: 1, scopeType: 1, scopeId: 1 }, expect.objectContaining({ unique: true })]])
+    );
+    expect(announcementItemSchema.indexes()).toEqual(
+      expect.arrayContaining([[{ sourceId: 1, link: 1 }, expect.objectContaining({ unique: true })]])
     );
   });
 

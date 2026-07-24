@@ -7,7 +7,15 @@ Responsive student-facing MVP for university academic calendar notifications.
 - `npm run dev:mobile` starts the Vite app on port 3002.
 - `npm run build:mobile` verifies the production bundle.
 
-Set `VITE_API_BASE_URL` when the API runs outside `http://localhost:3000`.
+Production VPS build:
+
+```bash
+VITE_API_BASE_URL=https://academic-api.anssoft.com.tr \
+VITE_ADMIN_DASHBOARD_URL=https://academic-api.anssoft.com.tr/admin/ \
+npm run build:mobile -- --base=/app/
+```
+
+Google login uses Firebase Authentication. Add `academic-api.anssoft.com.tr` to Firebase Authentication authorized domains before using the VPS-hosted login page.
 
 ## MVP Scope
 

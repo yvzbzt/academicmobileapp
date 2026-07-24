@@ -2,17 +2,17 @@
 
 ## 1. Product Vision
 
-Universite Akademik Takvim Bildirim Uygulamasi, Turkiye'deki universitelerin akademik takvimlerini tek bir guvenilir mobil deneyimde toplar. Kullanici universitesini, fakulte ve bolum bilgisini secer; yayinlanmis akademik olaylari gorur ve tercih ettigi kategoriler icin zamaninda push notification alir.
+The University Academic Calendar Notification App brings academic calendars from universities in Turkey into one reliable mobile experience. A user selects their university, faculty, and department, sees published academic events, and receives timely push notifications for the categories they choose.
 
 ## 2. Primary Stakeholders
 
 | Stakeholder | Need | Success Metric |
 |---|---|---|
-| Student | Akademik tarihleri kacirmamak | Notification delivery success, active users |
-| Content Editor | PDF kaynaklari hizli islemek | Review throughput, low correction time |
-| Super Admin | Veri kalitesini ve yayini yonetmek | Low incident rate, audit completeness |
-| University Admin | Kendi universite takvimini yonetmek | Scoped admin accuracy |
-| Operations | Sistem sagligini izlemek | Queue latency, error budget |
+| Student | Avoid missing academic dates | Notification delivery success, active users |
+| Content Editor | Process PDF sources quickly | Review throughput, low correction time |
+| Super Admin | Manage data quality and publishing | Low incident rate, audit completeness |
+| University Admin | Manage their own university calendar | Scoped admin accuracy |
+| Operations | Monitor system health | Queue latency, error budget |
 
 ## 3. MVP Scope
 

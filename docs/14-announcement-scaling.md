@@ -78,7 +78,7 @@ Add admin controls for source lifecycle:
 
 ## 7. Future Enhancements
 
-- Language-aware relevance scoring (`duyuru`, `announcement`, `notice`, etc.).
+- Language-aware relevance scoring (`announcement`, `notice`, `bulletin`, etc.).
 - Content fingerprint dedupe (title + date + semantic hash), not only link dedupe.
 - Per-scope max item quotas and pagination.
 - Optional push notifications for critical announcement categories.

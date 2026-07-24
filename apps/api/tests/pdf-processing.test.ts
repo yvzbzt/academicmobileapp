@@ -4,7 +4,19 @@ import { InMemoryPdfRepository } from "../src/modules/pdf/in-memory-pdf.reposito
 import { PdfProcessingService } from "../src/modules/pdf/pdf-processing.service.js";
 
 function createService(): PdfProcessingService {
-  return new PdfProcessingService(new InMemoryPdfRepository());
+  return new PdfProcessingService(new InMemoryPdfRepository(), {
+    async extractText() {
+      return null;
+    }
+  });
+}
+
+function createServiceWithOcr(rawText: string): PdfProcessingService {
+  return new PdfProcessingService(new InMemoryPdfRepository(), {
+    async extractText() {
+      return { provider: "test_ocr", text: rawText };
+    }
+  });
 }
 
 const validPdfInput = {
@@ -55,6 +67,177 @@ describe("PdfProcessingService", () => {
     );
   });
 
+  it("merges split PDF rows and ignores dangling duplicate fragments", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "split-row-calendar.pdf",
+      rawText: [
+        "ilan edilmesinin son günü",
+        "24.07.2026",
+        "2025-2026 Bahar Döneminde %10'luk başarı dilimine itirazın son günü",
+        "24.07.2026",
+        "günü",
+        "24.07.2026"
+      ].join("\n")
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toHaveLength(1);
+    expect(result.extractedEvents[0]).toEqual(
+      expect.objectContaining({
+        normalizedTitle: "2025-2026 Bahar Döneminde %10'luk başarı dilimine itirazın son günü",
+        startDate: new Date("2026-07-24T00:00:00.000Z")
+      })
+    );
+  });
+
+  it("combines wrapped titles with a following date-only PDF line", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "wrapped-row-calendar.pdf",
+      rawText: [
+        "2025-2026 Bahar Döneminde",
+        "%10'luk başarı dilimine itirazın son günü",
+        "24.07.2026"
+      ].join("\n")
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toHaveLength(1);
+    expect(result.extractedEvents[0]?.normalizedTitle).toBe("2025-2026 Bahar Döneminde %10'luk başarı dilimine itirazın son günü");
+  });
+
+  it("extracts aligned dates and times from structured table rows", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "table-layout-calendar.pdf",
+      rawText: [
+        "Etkinlik\tBaslama Tarihi\tBitis Tarihi\tSaat",
+        "Guz Donemi Ders Kayitlari\t15.09.2026\t19.09.2026\t09:30",
+        "Final Sinavlari\t05.01.2027\t16.01.2027\t10:00"
+      ].join("\n")
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toHaveLength(2);
+    expect(result.extractedEvents[0]).toEqual(
+      expect.objectContaining({
+        normalizedTitle: "Guz Donemi Ders Kayitlari",
+        startDate: new Date("2026-09-15T06:30:00.000Z"),
+        endDate: new Date("2026-09-19T23:59:59.000Z"),
+        startTime: "09:30",
+        hasExplicitTime: true
+      })
+    );
+    expect(result.extractedEvents[1]?.startDate).toEqual(new Date("2027-01-05T07:00:00.000Z"));
+  });
+
+  it("extracts row-aligned dates from header mapped table cells", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "header-mapped-table-calendar.pdf",
+      rawText: [
+        "Event\tEvent Start Time\tEnd Date\tStart Date",
+        "Final Sinavlari\t14:30\t05.09.2026\t01.09.2026"
+      ].join("\n")
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toHaveLength(1);
+    expect(result.extractedEvents[0]).toEqual(
+      expect.objectContaining({
+        normalizedTitle: "Final Sinavlari",
+        normalizedCategory: "final_exam",
+        startDate: new Date("2026-09-01T11:30:00.000Z"),
+        endDate: new Date("2026-09-05T23:59:59.000Z"),
+        startTime: "14:30",
+        hasExplicitTime: true
+      })
+    );
+  });
+
+  it("strips inline pagination and navigation labels from PDF event rows", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "navigation-filter-calendar.pdf",
+      rawText: [
+        "Next",
+        "Read more",
+        "Show more",
+        "Read more Ders Kayitlari 01.09.2026",
+        "Show more Mezuniyet Basvurusu 02.09.2026",
+        "Next Ara Sinavlari 10.11.2026"
+      ].join("\n")
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents.map((event) => event.normalizedTitle)).toEqual([
+      "Ders Kayitlari",
+      "Mezuniyet Basvurusu",
+      "Ara Sinavlari"
+    ]);
+  });
+
+  it("does not emit document headings or notes as unknown-date calendar events", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "agri-current-calendar.pdf",
+      rawText: [
+        "AGRI IBRAHIM CECEN UNIVERSITESI",
+        "2025-2026 AKADEMIK TAKVIMI",
+        "NOT: Akademik takvimde belirtilen tarihler resmi duyurulara gore guncellenebilir.",
+        "Ders Kayitlari 01.09.2026",
+        "Final Sinavlari 05.01.2027 - 16.01.2027"
+      ].join("\n")
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toHaveLength(2);
+    expect(result.extractedEvents.every((event) => event.startDate && event.datePrecision !== "unknown")).toBe(true);
+    expect(result.extractedEvents.map((event) => event.normalizedTitle)).toEqual([
+      "Ders Kayitlari",
+      "Final Sinavlari"
+    ]);
+  });
+
+  it("repairs noisy OCR date and time glyphs before extracting events", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "ocr-noisy-calendar.pdf",
+      rawText: [
+        "Ders kay1tlari 0l.09.2026",
+        "Ara s1navlar l0.ll.2026 Saat l4:3O"
+      ].join("\n")
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toHaveLength(2);
+    expect(result.extractedEvents[0]).toEqual(expect.objectContaining({
+      normalizedCategory: "course_registration",
+      startDate: new Date("2026-09-01T00:00:00.000Z")
+    }));
+    expect(result.extractedEvents[1]).toEqual(expect.objectContaining({
+      normalizedCategory: "midterm_exam",
+      startDate: new Date("2026-11-10T11:30:00.000Z"),
+      startTime: "14:30",
+      hasExplicitTime: true
+    }));
+  });
+
   it("marks scanned PDFs as OCR required when no text layer exists", async () => {
     const service = createService();
     const { rawText: _rawText, ...scannedPdfInput } = validPdfInput;
@@ -64,6 +247,35 @@ describe("PdfProcessingService", () => {
 
     expect(result.pdfSource.parseStatus).toBe("ocr_required");
     expect(result.extractedEvents).toHaveLength(0);
+  });
+
+  it("extracts events from OCR text when the PDF has no text layer", async () => {
+    const service = createServiceWithOcr("15-19 Eylul 2026 Guz Donemi Ders Kayitlari");
+    const { rawText: _rawText, ...scannedPdfInput } = validPdfInput;
+    const source = await service.createPdfSource({ ...scannedPdfInput, fileName: "ocr-scanned.pdf" });
+
+    const result = await service.processPdfSource(source.id, { pdfData: Buffer.from("%PDF") });
+
+    expect(result.pdfSource.parseStatus).toBe("processed");
+    expect(result.pdfSource.ocrProvider).toBe("test_ocr");
+    expect(result.extractedEvents).toHaveLength(1);
+    expect(result.extractedEvents[0]).toEqual(expect.objectContaining({ normalizedCategory: "course_registration" }));
+  });
+
+  it("falls back to OCR when the text layer has no extractable events", async () => {
+    const service = createServiceWithOcr("15-19 Eylul 2026 Guz Donemi Ders Kayitlari");
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "ocr-fallback.pdf",
+      rawText: "MALATYA TURGUT OZAL UNIVERSITESI AKADEMIK TAKVIM"
+    });
+
+    const result = await service.processPdfSource(source.id, { pdfData: Buffer.from("%PDF") });
+
+    expect(result.pdfSource.parseStatus).toBe("processed");
+    expect(result.pdfSource.ocrProvider).toBe("test_ocr");
+    expect(result.extractedEvents).toHaveLength(1);
+    expect(result.extractedEvents[0]).toEqual(expect.objectContaining({ normalizedCategory: "course_registration" }));
   });
 
   it("supports admin approve and reject review decisions", async () => {

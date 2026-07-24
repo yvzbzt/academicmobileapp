@@ -1,0 +1,50 @@
+academic-api.anssoft.com.tr {
+	encode zstd gzip
+
+	redir /admin /admin/ 308
+	redir /app /app/ 308
+
+	@adminRoot path /admin/
+	handle @adminRoot {
+		uri strip_prefix /admin
+		reverse_proxy academic-admin:8080 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+				keepalive 30s
+			}
+		}
+	}
+
+	@adminAssets path /admin/assets/*
+	handle @adminAssets {
+		uri strip_prefix /admin
+		reverse_proxy academic-admin:8080 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+				keepalive 30s
+			}
+		}
+	}
+
+	handle_path /app/* {
+		reverse_proxy academic-web:8080 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+				keepalive 30s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy academic-api:3000 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+				keepalive 30s
+			}
+		}
+	}
+}

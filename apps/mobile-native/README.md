@@ -22,6 +22,7 @@ From repository root:
 - Student register/login/logout with device id.
 - University selection and profile linking.
 - Published calendar and upcoming events.
+- Direct Google Calendar synchronization for academic dates, announcements, and events.
 - Alarm controls:
   - `All Calendar`: enables alarms for all academic categories.
   - `Selected Fields`: enables alarms for chosen categories only.
@@ -38,9 +39,19 @@ API base URL is now resolved automatically in this order:
 
 Fallback defaults:
 
+- Production APK: `https://academic-api.anssoft.com.tr`
 - iOS simulator: `http://localhost:3000`
 - Android emulator: `http://10.0.2.2:3000`
 
 For local override, copy `.env.example` to `.env` in this folder and set:
 
 - `EXPO_PUBLIC_API_URL=http://192.168.1.20:3000`
+
+## Google Login Notes
+
+Mobile Google login does not use Firebase authorized domains. Android needs:
+
+- Android OAuth Client ID for package `com.anssoft.akademiktakvim` and the APK signing SHA-1.
+- Web OAuth Client ID set as `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, so Google Sign-In returns an ID token for the backend.
+
+The VPS backend must include both client IDs in `GOOGLE_OAUTH_CLIENT_IDS`.

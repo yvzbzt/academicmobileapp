@@ -1,9 +1,10 @@
 import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, MinLength } from "class-validator";
 
 export class RegisterDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  fullName!: string;
+  @MinLength(2)
+  fullName?: string;
 
   @IsEmail()
   email!: string;
@@ -14,24 +15,24 @@ export class RegisterDto {
 
   @IsString()
   @IsNotEmpty()
-  deviceId!: string;
+  passwordConfirmation!: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  universityId!: string;
+  universityId?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  facultyId!: string;
+  facultyId?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  departmentId!: string;
+  departmentId?: string;
 
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(8)
+  @Max(6)
   classLevel?: number;
 }
 
@@ -42,6 +43,16 @@ export class LoginDto {
   @IsString()
   @IsNotEmpty()
   password!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  deviceId!: string;
+}
+
+export class GoogleLoginDto {
+  @IsString()
+  @IsNotEmpty()
+  idToken!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -59,13 +70,21 @@ export class RefreshTokenDto {
 }
 
 export class VerifyEmailDto {
+  @IsEmail()
+  email!: string;
+
   @IsString()
   @IsNotEmpty()
-  token!: string;
+  code!: string;
 
   @IsString()
   @IsNotEmpty()
   deviceId!: string;
+}
+
+export class ResendVerificationCodeDto {
+  @IsEmail()
+  email!: string;
 }
 
 export class VerifyEmailQueryDto {

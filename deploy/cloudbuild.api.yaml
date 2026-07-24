@@ -1,0 +1,16 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/Dockerfile.api
+      - -t
+      - europe-west1-docker.pkg.dev/${PROJECT_ID}/academic-calendar/academic-calendar-api
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - europe-west1-docker.pkg.dev/${PROJECT_ID}/academic-calendar/academic-calendar-api
+
+images:
+  - europe-west1-docker.pkg.dev/${PROJECT_ID}/academic-calendar/academic-calendar-api

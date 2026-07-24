@@ -1,82 +1,16 @@
 import { Injectable } from "@nestjs/common";
-import type { AnnouncementRepository, AnnouncementSourceRecord } from "./announcements.types.js";
+import { randomUUID } from "node:crypto";
+import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class InMemoryAnnouncementRepository implements AnnouncementRepository {
-  private readonly sources: AnnouncementSourceRecord[];
+  private readonly sources = new Map<string, AnnouncementSourceRecord>();
+  private readonly items = new Map<string, AnnouncementItem[]>();
 
-  constructor() {
-    const now = new Date();
-    this.sources = [
-      {
-        id: "sample-source-university",
-        scopeType: "university",
-        scopeId: "sample-university-1",
-        sourceName: "University Announcements",
-        sourceUrl: "https://example.edu.tr/university/announcements",
-        parser: "auto",
-        priority: 10,
-        status: "active",
-        fallbackItems: [
-          {
-            title: "University Senate Calendar Decision",
-            link: "https://example.edu.tr/university/announcements/senate-calendar",
-            publishedAt: new Date("2026-05-06T09:00:00.000Z"),
-            summary: "Updated date windows for term transition have been published."
-          },
-          {
-            title: "Library Extended Hours During Finals",
-            link: "https://example.edu.tr/university/announcements/library-finals",
-            publishedAt: new Date("2026-05-04T09:00:00.000Z")
-          }
-        ],
-        createdAt: now,
-        updatedAt: now
-      },
-      {
-        id: "sample-source-faculty",
-        scopeType: "faculty",
-        scopeId: "sample-faculty-1",
-        sourceName: "Engineering Faculty Announcements",
-        sourceUrl: "https://example.edu.tr/engineering/announcements",
-        parser: "auto",
-        priority: 20,
-        status: "active",
-        fallbackItems: [
-          {
-            title: "Internship Orientation Session",
-            link: "https://example.edu.tr/engineering/announcements/internship-orientation",
-            publishedAt: new Date("2026-05-09T11:00:00.000Z")
-          }
-        ],
-        createdAt: now,
-        updatedAt: now
-      },
-      {
-        id: "sample-source-department",
-        scopeType: "department",
-        scopeId: "sample-department-1",
-        sourceName: "Computer Engineering Announcements",
-        sourceUrl: "https://example.edu.tr/ceng/announcements",
-        parser: "auto",
-        priority: 30,
-        status: "active",
-        fallbackItems: [
-          {
-            title: "Data Structures Midterm Classroom Update",
-            link: "https://example.edu.tr/ceng/announcements/data-structures-midterm-room",
-            publishedAt: new Date("2026-05-10T08:00:00.000Z"),
-            summary: "Classroom changed from B201 to A113."
-          }
-        ],
-        createdAt: now,
-        updatedAt: now
-      }
-    ];
-  }
+  constructor() {}
 
   async listSourcesByScope(input: { universityId: string; facultyId?: string; departmentId?: string }): Promise<AnnouncementSourceRecord[]> {
-    return this.sources
+    return [...this.sources.values()]
       .filter((source) => source.status === "active")
       .filter((source) => {
         if (source.scopeType === "university") return source.scopeId === input.universityId;
@@ -85,4 +19,61 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
       })
       .sort((left, right) => right.priority - left.priority);
   }
+
+  async listAllSources(input: { status?: AnnouncementSourceStatus; limit?: number; offset?: number } = {}): Promise<AnnouncementSourceRecord[]> {
+    return [...this.sources.values()]
+      .filter((source) => (input.status ? source.status === input.status : true))
+      .sort((left, right) => right.priority - left.priority || left.sourceName.localeCompare(right.sourceName, "tr-TR"))
+      .slice(input.offset ?? 0, (input.offset ?? 0) + (input.limit ?? 500));
+  }
+
+  async upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord> {
+    const duplicate = [...this.sources.values()].find((source) => source.scopeType === input.scopeType && source.scopeId === input.scopeId && source.sourceUrl === input.sourceUrl);
+    const id = input.id ?? duplicate?.id ?? randomUUID();
+    const now = new Date();
+    const existing = this.sources.get(id);
+    const source: AnnouncementSourceRecord = {
+      ...existing,
+      ...input,
+      id,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+    this.sources.set(id, source);
+    return source;
+  }
+
+  async recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null> {
+    const existing = this.sources.get(id);
+    if (!existing) return null;
+    const updated: AnnouncementSourceRecord = { ...existing, ...input, updatedAt: new Date() };
+    this.sources.set(id, updated);
+    return updated;
+  }
+
+  async replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[]): Promise<void> {
+    this.items.set(source.id, items.map((item) => ({ ...item, sourceId: source.id, sourceName: source.sourceName, contentType: item.contentType ?? source.contentType ?? "announcement", scopeType: source.scopeType, scopeId: source.scopeId })));
+  }
+
+  async listItemsByScope(input: { universityId: string; facultyId?: string; departmentId?: string; limit: number }): Promise<AnnouncementItem[]> {
+    const sourceIds = new Set((await this.listSourcesByScope(input)).map((source) => source.id));
+    return [...this.items.entries()]
+      .filter(([sourceId]) => sourceIds.has(sourceId))
+      .flatMap(([, sourceItems]) => sourceItems)
+      .sort(compareAnnouncementItems)
+      .slice(0, input.limit);
+  }
+
+  async listAllItems(input: { limit?: number; offset?: number } = {}): Promise<AnnouncementItem[]> {
+    return [...this.items.values()]
+      .flat()
+      .sort(compareAnnouncementItems)
+      .slice(input.offset ?? 0, (input.offset ?? 0) + (input.limit ?? 1000));
+  }
+}
+
+function compareAnnouncementItems(left: AnnouncementItem, right: AnnouncementItem): number {
+  const leftTime = left.publishedAt ? Date.parse(left.publishedAt) : left.fetchedAt ? Date.parse(left.fetchedAt) : 0;
+  const rightTime = right.publishedAt ? Date.parse(right.publishedAt) : right.fetchedAt ? Date.parse(right.fetchedAt) : 0;
+  return rightTime - leftTime;
 }

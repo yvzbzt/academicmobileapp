@@ -2,6 +2,7 @@ import type { AcademicEventCategory, AcademicTerm } from "../../domain/academic-
 
 export type CalendarStatus = "draft" | "published" | "archived";
 export type EventStatus = "draft" | "approved" | "published" | "archived";
+export type NotificationRuleTrigger = "before" | "at_time" | "approaching";
 
 export interface AcademicCalendarRecord {
   id: string;
@@ -11,6 +12,7 @@ export interface AcademicCalendarRecord {
   status: CalendarStatus;
   version: number;
   sourcePdfId?: string;
+  sourceUrl?: string;
   publishedAt?: Date;
   createdBy?: string;
   approvedBy?: string;
@@ -20,6 +22,8 @@ export interface AcademicCalendarRecord {
 
 export interface NotificationRuleRecord {
   offsetDays: number;
+  offsetHours?: number;
+  trigger?: NotificationRuleTrigger;
   enabled: boolean;
 }
 
@@ -49,6 +53,7 @@ export interface AcademicEventRecord {
 }
 
 export interface CalendarEventFilters {
+  calendarId?: string;
   universityId?: string;
   facultyId?: string;
   departmentId?: string;

@@ -26,7 +26,7 @@ export interface EmailVerificationTokenIssueResult {
 export class TokenService {
   private readonly accessTokenTtlSeconds = 900;
   private readonly refreshTokenTtlDays = 30;
-  private readonly emailVerificationTtlHours = 24;
+  private readonly emailVerificationTtlMinutes = 10;
 
   signAccessToken(user: Pick<AuthUserRecord, "id" | "email" | "role">): string {
     const secret = process.env.JWT_ACCESS_SECRET ?? "development-access-secret-change-me-32-chars";
@@ -69,11 +69,11 @@ export class TokenService {
   }
 
   issueEmailVerificationToken(): EmailVerificationTokenIssueResult {
-    const rawToken = `${randomUUID()}.${randomBytes(36).toString("base64url")}`;
+    const rawToken = String(Math.floor(Math.random() * 10_000)).padStart(4, "0");
     return {
       rawToken,
       tokenHash: this.hashOpaqueToken(rawToken),
-      expiresAt: new Date(Date.now() + this.emailVerificationTtlHours * 60 * 60 * 1000)
+      expiresAt: new Date(Date.now() + this.emailVerificationTtlMinutes * 60 * 1000)
     };
   }
 
