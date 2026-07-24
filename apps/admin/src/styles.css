@@ -274,6 +274,20 @@ h2 {
   gap: 10px;
 }
 
+.loginForm label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-800);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.loginForm .btn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
 /* ── Inputs ─────────────────────────────────────────────────── */
 input, select, textarea {
   width: 100%;

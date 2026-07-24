@@ -59,7 +59,6 @@ interface AdminUserRecord {
 }
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://academic-api.anssoft.com.tr";
-const mainAppUrl = import.meta.env.VITE_MAIN_APP_URL ?? "https://academic-mobile-app-7629.web.app";
 const adminRoles = new Set(["content_editor", "university_admin", "super_admin"]);
 const adminSessionStorageKey = "academic-calendar-admin-session";
 
@@ -287,13 +286,13 @@ function App() {
     setAuthState({ loading: true });
     try {
       const response = await fetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${storedSession.accessToken}` } });
-      if (!response.ok) throw new Error("Yönetici oturumunuzun süresi doldu. Ana uygulamadan tekrar giriş yapın.");
+      if (!response.ok) throw new Error("Yönetici oturumunuzun süresi doldu. Lütfen tekrar giriş yapın.");
       const user = await response.json() as AuthSession["user"];
       if (!adminRoles.has(user.role)) {
         storeSession(null);
         setSession(null);
         setToken("");
-        setAuthState({ loading: false, error: "403 Yetkisiz. Bu hesapta yönetici yetkisi yok." });
+        setAuthState({ loading: false, error: "Bu hesap yönetici paneline erişemez." });
         return;
       }
 
@@ -320,7 +319,7 @@ function App() {
         storeSession(null);
         setSession(null);
         setToken("");
-        setAuthState({ loading: false, error: "403 Yetkisiz. Bu hesapta yönetici yetkisi yok." });
+        setAuthState({ loading: false, error: "Bu hesap yönetici paneline erişemez." });
         window.history.replaceState(null, "", `${window.location.pathname}#/dashboard`);
         return;
       }
@@ -345,12 +344,50 @@ function App() {
     storeSession(null);
     setAuthState({ loading: false });
     setMessage("");
-    window.location.assign(mainAppUrl);
+    window.history.replaceState(null, "", `${window.location.pathname}#/dashboard`);
+    setActiveRoute("dashboard");
   }
 
-  function switchToUserPanel() {
-    const target = token ? `${mainAppUrl.replace(/\/$/, "")}/#/handoff?accessToken=${encodeURIComponent(token)}` : mainAppUrl;
-    window.location.assign(target);
+  async function loginAdmin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = formData(event);
+    setAuthState({ loading: true });
+    setMessage("");
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: values.email,
+          password: values.password,
+          deviceId: "admin-web"
+        })
+      });
+
+      if (!response.ok) throw new Error("E-posta veya şifre doğru değil.");
+
+      const nextSession = await response.json() as AuthSession;
+      if (!nextSession.accessToken || !nextSession.user || !adminRoles.has(nextSession.user.role)) {
+        throw new Error("Bu hesap yönetici paneline erişemez.");
+      }
+
+      setSession(nextSession);
+      setToken(nextSession.accessToken);
+      storeSession(nextSession);
+      setAuthState({ loading: false, data: nextSession });
+      setMessage("Yönetici oturumu açıldı");
+      window.history.replaceState(null, "", `${window.location.pathname}#/dashboard`);
+      setActiveRoute("dashboard");
+    } catch (error) {
+      storeSession(null);
+      setSession(null);
+      setToken("");
+      setAuthState({
+        loading: false,
+        error: error instanceof Error ? error.message : "Giriş yapılamadı. Bilgileri kontrol edip tekrar deneyin."
+      });
+    }
   }
 
   async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -752,10 +789,22 @@ function App() {
         <section className="adminLoginPanel">
           <div className="brand loginBrand"><ShieldCheck size={22} /> Akademik Takvim OS</div>
           <div className="sectionIntro">
-            <h1>403 Yetkisiz</h1>
-            <p>Yönetici erişimi yalnızca ana giriş ekranından açılır. Orada bir yönetici hesabıyla giriş yapıp Yönetici Paneli'ni seçin.</p>
+            <h1>Admin Girişi</h1>
+            <p>Yönetici hesabınızla giriş yapın. Bu panel mobil uygulamadan bağımsız çalışır.</p>
           </div>
-          <button className="btn btn-primary" type="button" onClick={() => window.location.assign(mainAppUrl)}><ShieldCheck size={18} /> Girişe Git</button>
+          <form className="loginForm" onSubmit={loginAdmin}>
+            <label>
+              E-posta
+              <input name="email" type="email" autoComplete="email" placeholder="admin@anssoft.com.tr" required />
+            </label>
+            <label>
+              Şifre
+              <input name="password" type="password" autoComplete="current-password" placeholder="Şifrenizi girin" required />
+            </label>
+            <button className="btn btn-primary" disabled={authState.loading}>
+              <ShieldCheck size={18} /> Admin Paneline Gir
+            </button>
+          </form>
           {authState.loading && <PanelState kind="loading" text="Yönetici oturumu doğrulanıyor..." />}
           {authState.error && <PanelState kind="error" text={authState.error} />}
         </section>
@@ -782,7 +831,6 @@ function App() {
           <PageHeader route={activeRouteConfig} />
           <div className="accountBox">
             <span>{session?.user.email ?? "Yönetici oturumu"}</span>
-            <button className="btn btn-secondary" type="button" onClick={switchToUserPanel}><BookOpen size={18} /> Kullanıcı Paneli</button>
             <button className="btn btn-secondary" type="button" onClick={logout}><LogOut size={18} /> Çıkış Yap</button>
           </div>
         </header>

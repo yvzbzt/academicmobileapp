@@ -4,7 +4,21 @@ academic-api.anssoft.com.tr {
 	redir /admin /admin/ 308
 	redir /app /app/ 308
 
-	handle_path /admin/* {
+	@adminRoot path /admin/
+	handle @adminRoot {
+		uri strip_prefix /admin
+		reverse_proxy academic-admin:8080 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+				keepalive 30s
+			}
+		}
+	}
+
+	@adminAssets path /admin/assets/*
+	handle @adminAssets {
+		uri strip_prefix /admin
 		reverse_proxy academic-admin:8080 {
 			transport http {
 				dial_timeout 5s
