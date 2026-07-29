@@ -60,6 +60,32 @@ export interface EmailVerificationTokenRecord {
   createdAt: Date;
 }
 
+export interface PasswordRecoveryTokenRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+  resendAvailableAt: Date;
+  consumedAt?: Date;
+  invalidatedAt?: Date;
+  createdAt: Date;
+}
+
+export interface PasswordRecoveryRequestResult {
+  status: "recovery_requested";
+  message: string;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+  previewRecoveryCode?: string;
+}
+
+export interface PasswordRecoveryConfirmInput {
+  email: string;
+  code: string;
+  newPassword: string;
+  passwordConfirmation: string;
+}
+
 export interface RegisterResult {
   status: "verification_required";
   email: string;
@@ -141,6 +167,7 @@ export interface AuthRepository {
     }
   ): Promise<void>;
   updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null>;
+  updateUserPassword(id: string, passwordHash: string): Promise<AuthUserRecord | null>;
   updateUserAcademicSelection(
     id: string,
     input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }
@@ -149,6 +176,12 @@ export interface AuthRepository {
   findEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationTokenRecord | null>;
   findLatestEmailVerificationTokenByUserId(userId: string): Promise<EmailVerificationTokenRecord | null>;
   consumeEmailVerificationToken(id: string, consumedAt: Date): Promise<void>;
+  createPasswordRecoveryToken(input: Omit<PasswordRecoveryTokenRecord, "id" | "createdAt">): Promise<PasswordRecoveryTokenRecord>;
+  findPasswordRecoveryTokenByHash(tokenHash: string): Promise<PasswordRecoveryTokenRecord | null>;
+  findLatestPasswordRecoveryTokenByUserId(userId: string): Promise<PasswordRecoveryTokenRecord | null>;
+  invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void>;
+  consumePasswordRecoveryToken(id: string, consumedAt: Date): Promise<boolean>;
+  deletePasswordRecoveryTokensByUserId(userId: string): Promise<void>;
   createRefreshToken(input: Omit<RefreshTokenRecord, "id" | "createdAt">): Promise<RefreshTokenRecord>;
   findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null>;
   revokeRefreshToken(id: string, revokedAt: Date): Promise<void>;

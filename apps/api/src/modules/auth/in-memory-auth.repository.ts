@@ -1,15 +1,16 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import type { AuthRepository, AuthUserRecord, EmailVerificationTokenRecord, RefreshTokenRecord } from "./auth.types.js";
+import type { AuthRepository, AuthUserRecord, EmailVerificationTokenRecord, PasswordRecoveryTokenRecord, RefreshTokenRecord } from "./auth.types.js";
 
 @Injectable()
 export class InMemoryAuthRepository implements AuthRepository {
   private readonly users = new Map<string, AuthUserRecord>();
   private readonly emailVerificationTokens = new Map<string, EmailVerificationTokenRecord>();
+  private readonly passwordRecoveryTokens = new Map<string, PasswordRecoveryTokenRecord>();
   private readonly refreshTokens = new Map<string, RefreshTokenRecord>();
 
   async createUser(input: Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt">): Promise<AuthUserRecord> {
-    const normalizedEmail = input.email.toLocaleLowerCase("tr-TR");
+    const normalizedEmail = input.email.toLowerCase();
     const existing = await this.findUserByEmail(normalizedEmail);
     if (existing) throw new Error("EMAIL_ALREADY_EXISTS");
 
@@ -36,7 +37,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
-    const normalizedEmail = email.toLocaleLowerCase("tr-TR");
+    const normalizedEmail = email.toLowerCase();
     return [...this.users.values()].find((user) => user.email === normalizedEmail && !user.deletedAt) ?? null;
   }
 
@@ -129,7 +130,7 @@ export class InMemoryAuthRepository implements AuthRepository {
     this.users.set(id, {
       ...rest,
       fullName: input.anonymizedFullName,
-      email: input.anonymizedEmail.toLocaleLowerCase("tr-TR"),
+      email: input.anonymizedEmail.toLowerCase(),
       passwordHash: input.anonymizedPasswordHash,
       status: "inactive",
       deletedAt: input.deletedAt,
@@ -150,14 +151,28 @@ export class InMemoryAuthRepository implements AuthRepository {
     return updated;
   }
 
+  async updateUserPassword(id: string, passwordHash: string): Promise<AuthUserRecord | null> {
+    const user = await this.findUserById(id);
+    if (!user) return null;
+    const updated: AuthUserRecord = {
+      ...user,
+      passwordHash,
+      authProvider: user.authProvider === "google" ? "password_google" : user.authProvider ?? "password",
+      updatedAt: new Date()
+    };
+    this.users.set(id, updated);
+    return updated;
+  }
+
   async updateUserAcademicSelection(
     id: string,
     input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }
   ): Promise<AuthUserRecord | null> {
     const user = this.users.get(id);
     if (!user) return null;
+    const { facultyId: _facultyId, departmentId: _departmentId, classLevel: _classLevel, ...userWithoutDependentSelection } = user;
     const updated: AuthUserRecord = {
-      ...user,
+      ...userWithoutDependentSelection,
       universityId: input.universityId,
       ...(input.facultyId ? { facultyId: input.facultyId } : {}),
       ...(input.departmentId ? { departmentId: input.departmentId } : {}),
@@ -222,6 +237,47 @@ export class InMemoryAuthRepository implements AuthRepository {
       if (token.familyId === familyId && !token.revokedAt) {
         this.refreshTokens.set(id, { ...token, revokedAt });
       }
+    }
+  }
+
+  async createPasswordRecoveryToken(input: Omit<PasswordRecoveryTokenRecord, "id" | "createdAt">): Promise<PasswordRecoveryTokenRecord> {
+    const token: PasswordRecoveryTokenRecord = {
+      ...input,
+      id: randomUUID(),
+      createdAt: new Date()
+    };
+    this.passwordRecoveryTokens.set(token.id, token);
+    return token;
+  }
+
+  async findPasswordRecoveryTokenByHash(tokenHash: string): Promise<PasswordRecoveryTokenRecord | null> {
+    return [...this.passwordRecoveryTokens.values()].find((token) => token.tokenHash === tokenHash) ?? null;
+  }
+
+  async findLatestPasswordRecoveryTokenByUserId(userId: string): Promise<PasswordRecoveryTokenRecord | null> {
+    return [...this.passwordRecoveryTokens.values()]
+      .filter((token) => token.userId === userId)
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0] ?? null;
+  }
+
+  async invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void> {
+    for (const [id, token] of this.passwordRecoveryTokens.entries()) {
+      if (token.userId === userId && !token.consumedAt && !token.invalidatedAt) {
+        this.passwordRecoveryTokens.set(id, { ...token, invalidatedAt });
+      }
+    }
+  }
+
+  async consumePasswordRecoveryToken(id: string, consumedAt: Date): Promise<boolean> {
+    const token = this.passwordRecoveryTokens.get(id);
+    if (!token || token.consumedAt || token.invalidatedAt || token.expiresAt.getTime() <= consumedAt.getTime()) return false;
+    this.passwordRecoveryTokens.set(id, { ...token, consumedAt });
+    return true;
+  }
+
+  async deletePasswordRecoveryTokensByUserId(userId: string): Promise<void> {
+    for (const [id, token] of this.passwordRecoveryTokens.entries()) {
+      if (token.userId === userId) this.passwordRecoveryTokens.delete(id);
     }
   }
 

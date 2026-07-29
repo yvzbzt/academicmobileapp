@@ -63,6 +63,22 @@ emailVerificationTokenSchema.index({ tokenHash: 1 }, { unique: true, name: "emai
 emailVerificationTokenSchema.index({ userId: 1, createdAt: -1 }, { name: "email_verification_tokens_user_latest" });
 emailVerificationTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "email_verification_tokens_expires_ttl" });
 
+export const passwordRecoveryTokenSchema = new Schema(
+  {
+    userId: { type: String, required: true, index: true },
+    tokenHash: { type: String, required: true, unique: true },
+    expiresAt: { type: Date, required: true, index: true },
+    resendAvailableAt: { type: Date, required: true },
+    consumedAt: { type: Date, required: false },
+    invalidatedAt: { type: Date, required: false }
+  },
+  { collection: "password_recovery_tokens", timestamps: { createdAt: true, updatedAt: false } }
+);
+
+passwordRecoveryTokenSchema.index({ tokenHash: 1 }, { unique: true, name: "password_recovery_tokens_hash_unique" });
+passwordRecoveryTokenSchema.index({ userId: 1, createdAt: -1 }, { name: "password_recovery_tokens_user_latest" });
+passwordRecoveryTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "password_recovery_tokens_expires_ttl" });
+
 export const universitySchema = new Schema(
   {
     _id: { type: String, required: true },

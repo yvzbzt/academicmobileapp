@@ -14,12 +14,13 @@ Turkiye'deki universitelerin akademik takvimlerini PDF kaynaklardan isleyen, adm
 ## Student Registration Rules
 
 - Registration accepts any valid email address.
+- Registration passwords must contain at least 10 characters, and password confirmation must match.
 - Email verification is mandatory before first login.
 - Students select their university, faculty and department after verification so the timeline can be scoped correctly.
 - Turkey university/faculty/department options are seeded from YOK Atlas on API startup unless `BOOTSTRAP_CATALOG_SEED_ENABLED=false`.
 - Student timeline endpoints (`/calendar/my`, `/calendar/upcoming`) are filtered by selected university/faculty/department scope.
 
-For local development without SMTP credentials, verification links are logged by the API and a preview verification token is returned in non-production mode.
+For local development without SMTP credentials, the API emits only a non-sensitive configuration warning; it never logs the email address or verification/deletion code. A preview verification token is returned in non-production mode (or when explicitly enabled) and must remain disabled in production. The controlled authentication error and resend-timing contract is documented in [docs/04-security-hardening.md](docs/04-security-hardening.md#controlled-authentication-api-contract).
 - Docker Compose: local dependency stack ve production-style API/admin/mobile deployment compose.
 - CI: typecheck, tests, frontend builds, MongoDB/Redis/BullMQ smoke ve dependency audit.
 

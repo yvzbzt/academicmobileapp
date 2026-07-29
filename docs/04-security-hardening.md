@@ -30,6 +30,125 @@ This document follows OWASP ASVS, OWASP API Security Top 10 and OWASP Mobile gui
 | Test Scenario | Old refresh token fails after one successful refresh. |
 | Priority | P0 |
 
+### Controlled Authentication API Contract
+
+The public authentication error-code source is `apps/api/src/modules/auth/auth.constants.ts`. The HTTP status and human-readable `message` remain present as compatibility fields; clients must branch on `errorCode` and must not display an unrecognized server payload directly.
+
+Controlled `401` authentication failures use this JSON shape:
+
+```json
+{
+  "statusCode": 401,
+  "error": "Unauthorized",
+  "errorCode": "AUTH_INVALID_CREDENTIALS",
+  "message": "Invalid credentials."
+}
+```
+
+Controlled rate-limit failures use the same base shape with status `429`, `error` set to `Too Many Requests`, and `errorCode` set to `AUTH_RATE_LIMITED`.
+
+| Error code | HTTP status | Endpoint/condition |
+|---|---:|---|
+| `AUTH_INVALID_CREDENTIALS` | 401 | `POST /auth/login` when the account does not exist or the password is wrong. Both cases intentionally return the same contract. |
+| `AUTH_EMAIL_NOT_VERIFIED` | 401 | `POST /auth/login` when valid credentials belong to an unverified account. |
+| `AUTH_VERIFICATION_CODE_INVALID` | 401 | `POST /auth/verify-email` when the four-digit code, email, ownership or consumption state is invalid. |
+| `AUTH_VERIFICATION_CODE_EXPIRED` | 401 | `POST /auth/verify-email` when the code exists but its expiration time has passed. |
+| `AUTH_VERIFICATION_REQUEST_INVALID` | 401 | `POST /auth/resend-verification-code` when no resumable unverified account exists for the supplied email. This unauthenticated recovery outcome is not a session-expired error. |
+| `AUTH_SESSION_INVALID` | 401 | `POST /auth/refresh-token` when the refresh token is unknown, revoked/reused, or no longer belongs to an existing user. Reuse details are not exposed. |
+| `AUTH_SESSION_EXPIRED` | 401 | `POST /auth/refresh-token` when the refresh token has expired. |
+| `AUTH_ACCOUNT_DISABLED` | 401 | `POST /auth/login`, `POST /auth/google`, or `POST /auth/refresh-token` when the resolved account is disabled or locked. |
+| `AUTH_RATE_LIMITED` | 429 | A catalogued `/auth/*` endpoint exceeds its request budget, or verification resend is attempted before its cooldown ends. |
+| `AUTH_VERIFICATION_TOKEN_INVALID` | 401 service result | Invalid email-verification link token. The current `GET /auth/verify-email` browser route converts this to generic `400` HTML and does not expose the JSON code. |
+| `AUTH_VERIFICATION_TOKEN_EXPIRED` | 401 service result | Expired email-verification link token. The current `GET /auth/verify-email` browser route converts this to generic `400` HTML and does not expose the JSON code. |
+
+Not every validation or provider error has an `errorCode`. Clients must use safe endpoint-specific fallback copy for unknown codes and for standard Nest validation responses.
+
+The endpoint catalog applies a strict rate policy of 10 requests per 60 seconds per client/route key to `POST /auth/register`, both `GET` and `POST /auth/verify-email`, `POST /auth/login`, `POST /auth/google`, `POST /auth/resend-verification-code`, both password-recovery routes, and `POST /auth/refresh-token`. `POST /auth/logout` uses the standard authenticated policy of 120 requests per 60 seconds.
+
+`POST /auth/resend-verification-code` accepts an email address and returns the same result contract as registration. A newly issued verification code expires after 10 minutes, and another resend becomes available after 60 seconds. Successful registration and resend responses include those ISO-8601 timing fields:
+
+```json
+{
+  "status": "verification_required",
+  "email": "student@example.com",
+  "verificationExpiresAt": "2026-07-29T10:20:00.000Z",
+  "resendAvailableAt": "2026-07-29T10:11:00.000Z"
+}
+```
+
+The response may also contain `previewVerificationToken` in non-production or explicitly enabled throwaway environments. It must not be enabled in production.
+
+When resend is still cooling down, the `429` response preserves the original top-level timestamp and also provides structured details:
+
+```json
+{
+  "statusCode": 429,
+  "error": "Too Many Requests",
+  "errorCode": "AUTH_RATE_LIMITED",
+  "message": "Please wait before requesting another verification code.",
+  "resendAvailableAt": "2026-07-29T10:11:00.000Z",
+  "details": {
+    "resendAvailableAt": "2026-07-29T10:11:00.000Z"
+  }
+}
+```
+
+Registration passwords are strings with a minimum length of 10 JavaScript UTF-16 code units; the input string is not trimmed. `passwordConfirmation` is required and must match. The shared backend value is exported as `AUTH_PASSWORD_MIN_LENGTH`. No additional password-complexity rule is currently enforced by the API.
+
+### Password-Recovery API And Storage Contract
+
+Password recovery is a two-step public contract. Both routes use the strict endpoint-catalog rate policy: at most 10 requests per 60 seconds for each client/route key. A limit breach returns HTTP `429` with `AUTH_RATE_LIMITED`; production proxy trust/client-IP configuration remains a deployment gate.
+
+#### `POST /auth/password-recovery/request`
+
+The request body contains one syntactically valid `email` field. In production, every valid known or unknown address—including a known account still inside its resend cooldown and an eligible account whose mail delivery fails—receives HTTP `201` with the same stable JSON fields and values:
+
+```json
+{
+  "status": "recovery_requested",
+  "message": "If an eligible account exists, recovery instructions will be sent.",
+  "expiresInSeconds": 600,
+  "resendAfterSeconds": 60
+}
+```
+
+This status/body contract must not disclose whether an account exists, whether it is eligible, whether a cooldown record exists, or whether SMTP delivery succeeded. It prevents direct response-body enumeration, but **request latency is not equalized**: unknown addresses return after fewer repository operations, while an eligible known account can await persistence and SMTP. Timing-based account inference therefore remains an open security risk and must not be described as prevented. A malformed email can still receive the standard DTO-validation `400`; that is input validation, not an account-existence result.
+
+In non-production only, the response also contains a random six-digit `previewRecoveryCode` for isolated development/test flows. Known and unknown responses therefore have the same non-production shape but different random preview values. A preview is confirmable only when a known eligible account outside cooldown caused its digest record to be persisted; unknown/cooldown previews are deliberate unusable decoys. `previewRecoveryCode` is guarded solely by `NODE_ENV !== "production"`; no flag can enable it in production. It must never be logged, copied into documentation evidence, analytics, screenshots with real identities, or a production response.
+
+For an eligible known account outside cooldown, the service:
+
+1. invalidates every older still-active recovery record for that user;
+2. creates a cryptographically random six-digit code with a ten-minute lifetime and a sixty-second resend cooldown;
+3. persists only an email-domain-separated HMAC-SHA-256 digest plus user ID and timestamps; and
+4. attempts delivery without changing the generic public result when delivery fails.
+
+The HMAC input domain is `password-recovery:<normalized-email>:<code>`. Production fails closed unless `PASSWORD_RECOVERY_TOKEN_PEPPER`, or the `JWT_ACCESS_SECRET` fallback, supplies at least 32 characters. A dedicated recovery pepper is preferred so recovery-digest rotation is independent of access-token signing.
+
+#### `POST /auth/password-recovery/confirm`
+
+The request contains `email`, the six-digit `code`, `newPassword`, and `passwordConfirmation`. Do not place any of those values in logs or examples. Success returns HTTP `201`:
+
+```json
+{
+  "status": "password_reset"
+}
+```
+
+| Error code | HTTP status | Safe condition |
+|---|---:|---|
+| `AUTH_PASSWORD_RECOVERY_CODE_INVALID` | 401 | Code format, digest lookup, ownership, prior consumption/invalidation, or final account update is invalid. The response does not distinguish those cases. |
+| `AUTH_PASSWORD_RECOVERY_CODE_EXPIRED` | 401 | A matching record owned by the supplied account exists, is unconsumed and non-invalidated, but its ten-minute lifetime has ended. |
+| `AUTH_PASSWORD_CONFIRMATION_MISMATCH` | 400 | `newPassword` and `passwordConfirmation` differ. |
+| `AUTH_PASSWORD_INVALID` | 400 | The new password is shorter than the shared minimum of ten JavaScript UTF-16 code units. The input string is not trimmed. |
+| `AUTH_RATE_LIMITED` | 429 | The strict per-client/route request budget is exceeded. |
+
+Single use is enforced by a conditional consume operation before password replacement: Mongo performs a `findOneAndUpdate` constrained to unconsumed, non-invalidated, unexpired material; Firestore uses a transaction with the same guards; and the in-memory test adapter applies the equivalent guarded update. A second confirmation therefore receives the generic invalid-code result.
+
+Only that consume operation is atomic. Password-hash replacement, refresh-session revocation, and invalidation of remaining recovery material are separate awaited repository operations, not one cross-record transaction. A later repository failure can therefore leave partial completion—for example, a consumed code before the password update, or an updated password before all sessions are revoked. The HTTP success result is returned only after all steps complete; after a successful result, the old password and all pre-reset refresh sessions must fail. Production hardening should add an adapter-appropriate transaction/saga or an idempotent recovery job with reconciliation before claiming all-or-nothing reset semantics.
+
+Security tests must cover identical known/unknown public status/body fields, six-digit CSPRNG shape without persisting the raw code, production preview suppression/fail-closed secret configuration, cooldown and strict rate limits, older-active-material invalidation, invalid/expired/single-use confirmation, password parity/mismatch, old/new password behavior, all-session revocation, and absence of recovery secrets or personal values in logs/results. Separately measure and mitigate the known/unknown timing channel; body-contract equality is not latency equality.
+
 ## 2. Authorization Findings
 
 ### IDOR On User-Owned Resources
@@ -106,7 +225,7 @@ This document follows OWASP ASVS, OWASP API Security Top 10 and OWASP Mobile gui
 
 | Gate | Required Evidence |
 |---|---|
-| Auth Security | Refresh rotation tests, rate limit tests and password hashing verified |
+| Auth Security | Refresh rotation/reuse, generic password-recovery response, digest-only/expiry/single-use recovery, all-session reset revocation, rate-limit, and password-hashing tests verified |
 | RBAC | Endpoint access matrix tests passing |
 | Upload Security | MIME, magic byte, size, encrypted PDF and malware scan tests passing |
 | Mobile Security | Tokens stored in secure storage, no token debug logs |

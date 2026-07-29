@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, Optional, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { AUTH_ERROR_CODES, AUTH_PASSWORD_MIN_LENGTH, PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_RESEND_SECONDS, PASSWORD_RECOVERY_TTL_SECONDS, type AuthErrorCode } from "./auth.constants.js";
 import { EmailVerificationSenderService } from "./email-verification-sender.service.js";
-import type { AuthRepository, AuthSessionResult, GoogleLoginInput, LoginInput, RefreshInput, RefreshTokenRecord, RegisterInput, RegisterResult, VerifyEmailByLinkInput, VerifyEmailInput } from "./auth.types.js";
+import type { AuthRepository, AuthSessionResult, GoogleLoginInput, LoginInput, PasswordRecoveryConfirmInput, PasswordRecoveryRequestResult, RefreshInput, RefreshTokenRecord, RegisterInput, RegisterResult, VerifyEmailByLinkInput, VerifyEmailInput } from "./auth.types.js";
 import { FirebaseAdminService } from "../../database/firebase-admin.service.js";
 import { FirebaseGoogleIdentityVerifier, type GoogleIdentityVerifier, type VerifiedGoogleIdentity } from "./firebase-google-identity.verifier.js";
 import { PasswordHasher } from "./password-hasher.js";
@@ -22,7 +23,7 @@ export class AuthApplicationService {
   ) {}
 
   async register(input: RegisterInput): Promise<RegisterResult> {
-    const normalizedEmail = input.email.trim().toLocaleLowerCase("tr-TR");
+    const normalizedEmail = input.email.trim().toLowerCase();
     const fullName = cleanGoogleDisplayName(input.fullName) ?? normalizedEmail.split("@")[0] ?? normalizedEmail;
     if (input.password !== input.passwordConfirmation) throw new BadRequestException("Password confirmation does not match.");
 
@@ -48,11 +49,16 @@ export class AuthApplicationService {
 
   async login(input: LoginInput): Promise<AuthSessionResult> {
     const user = await this.authRepository.findUserByEmail(input.email);
-    if (!user) throw new UnauthorizedException("Invalid credentials.");
-    if (user.status !== "active") throw new UnauthorizedException("Email verification is required before login.");
+    if (!user) throw unauthorizedAuthError(AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Invalid credentials.");
 
     const passwordMatches = await this.passwordHasher.verify(input.password, user.passwordHash);
-    if (!passwordMatches) throw new UnauthorizedException("Invalid credentials.");
+    if (!passwordMatches) throw unauthorizedAuthError(AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Invalid credentials.");
+    if (user.status === "locked" || (user.status === "inactive" && Boolean(user.emailVerifiedAt))) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
+    }
+    if (user.status !== "active") {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.EMAIL_NOT_VERIFIED, "Email verification is required before login.");
+    }
 
     return this.createSession(user, input.deviceId, input.ipAddress, input.userAgent);
   }
@@ -63,7 +69,7 @@ export class AuthApplicationService {
     if (!identity.emailVerified) throw new UnauthorizedException("Google account email is not verified.");
     if (identity.signInProvider !== "google.com") throw new UnauthorizedException("Google sign-in token must come from Google.");
 
-    const normalizedEmail = identity.email.trim().toLocaleLowerCase("tr-TR");
+    const normalizedEmail = identity.email.trim().toLowerCase();
     const fullName = cleanGoogleDisplayName(identity.fullName) ?? normalizedEmail.split("@")[0] ?? normalizedEmail;
     const now = new Date();
     let user = await this.authRepository.findUserByEmail(normalizedEmail);
@@ -81,7 +87,9 @@ export class AuthApplicationService {
         lastLoginAt: now
       });
     } else {
-      if (user.status === "locked") throw new UnauthorizedException("Account is locked.");
+      if (user.status === "locked" || (user.status === "inactive" && Boolean(user.emailVerifiedAt))) {
+        throw unauthorizedAuthError(AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
+      }
       const shouldBackfillName = user.fullName === user.email.split("@")[0] && fullName !== user.fullName;
       const linkedUser = await this.authRepository.updateUserGoogleIdentity(user.id, {
         ...(shouldBackfillName ? { fullName } : {}),
@@ -109,38 +117,128 @@ export class AuthApplicationService {
   }
 
   async resendVerificationCode(email: string): Promise<RegisterResult> {
-    const normalizedEmail = email.trim().toLocaleLowerCase("tr-TR");
+    const normalizedEmail = email.trim().toLowerCase();
     const user = await this.authRepository.findUserByEmail(normalizedEmail);
-    if (!user) throw new UnauthorizedException("Verification request is not valid.");
+    if (!user) {
+      throw unauthorizedAuthError(
+        AUTH_ERROR_CODES.VERIFICATION_REQUEST_INVALID,
+        "Verification request is not valid."
+      );
+    }
     if (user.status === "active") throw new BadRequestException("Email is already verified.");
     const latest = await this.authRepository.findLatestEmailVerificationTokenByUserId(user.id);
     if (latest && latest.resendAvailableAt.getTime() > Date.now()) {
+      const resendAvailableAt = latest.resendAvailableAt.toISOString();
       throw new HttpException({
+        statusCode: HttpStatus.TOO_MANY_REQUESTS,
+        error: "Too Many Requests",
+        errorCode: AUTH_ERROR_CODES.RATE_LIMITED,
         message: "Please wait before requesting another verification code.",
-        resendAvailableAt: latest.resendAvailableAt.toISOString()
+        resendAvailableAt,
+        details: { resendAvailableAt }
       }, HttpStatus.TOO_MANY_REQUESTS);
     }
     return this.issueAndSendVerificationCode(user);
   }
 
+  async requestPasswordRecovery(email: string): Promise<PasswordRecoveryRequestResult> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const recoveryToken = this.tokenService.issuePasswordRecoveryToken(normalizedEmail);
+    const user = await this.authRepository.findUserByEmail(normalizedEmail);
+    if (!user) return passwordRecoveryRequestResult(recoveryToken.rawToken);
+
+    const latest = await this.authRepository.findLatestPasswordRecoveryTokenByUserId(user.id);
+    if (latest && latest.resendAvailableAt.getTime() > Date.now()) {
+      return passwordRecoveryRequestResult(recoveryToken.rawToken);
+    }
+
+    const now = new Date();
+    await this.authRepository.invalidatePasswordRecoveryTokensByUserId(user.id, now);
+    await this.authRepository.createPasswordRecoveryToken({
+      userId: user.id,
+      tokenHash: recoveryToken.tokenHash,
+      expiresAt: recoveryToken.expiresAt,
+      resendAvailableAt: new Date(now.getTime() + PASSWORD_RECOVERY_RESEND_SECONDS * 1000)
+    });
+
+    try {
+      await this.emailVerificationSender.sendPasswordRecoveryEmail({
+        email: user.email,
+        fullName: user.fullName,
+        code: recoveryToken.rawToken,
+        expiresAt: recoveryToken.expiresAt
+      });
+    } catch {
+      // The public response must not disclose account existence or SMTP state.
+    }
+
+    return passwordRecoveryRequestResult(recoveryToken.rawToken);
+  }
+
+  async confirmPasswordRecovery(input: PasswordRecoveryConfirmInput): Promise<{ status: "password_reset" }> {
+    if (input.newPassword !== input.passwordConfirmation) {
+      throw badRequestAuthError(AUTH_ERROR_CODES.PASSWORD_CONFIRMATION_MISMATCH, "Password confirmation does not match.");
+    }
+    if (input.newPassword.length < AUTH_PASSWORD_MIN_LENGTH) {
+      throw badRequestAuthError(
+        AUTH_ERROR_CODES.PASSWORD_INVALID,
+        `Password must be at least ${AUTH_PASSWORD_MIN_LENGTH} characters.`
+      );
+    }
+
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const normalizedCode = input.code.trim();
+    if (!new RegExp(`^\\d{${PASSWORD_RECOVERY_CODE_LENGTH}}$`).test(normalizedCode)) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
+    }
+
+    const tokenHash = this.tokenService.hashPasswordRecoveryToken(normalizedEmail, normalizedCode);
+    const [user, record] = await Promise.all([
+      this.authRepository.findUserByEmail(normalizedEmail),
+      this.authRepository.findPasswordRecoveryTokenByHash(tokenHash)
+    ]);
+    if (!user || !record || record.userId !== user.id || record.consumedAt || record.invalidatedAt) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
+    }
+    if (record.expiresAt.getTime() <= Date.now()) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_EXPIRED, "Password recovery code has expired.");
+    }
+
+    const passwordHash = await this.passwordHasher.hash(input.newPassword);
+    const consumedAt = new Date();
+    const consumed = await this.authRepository.consumePasswordRecoveryToken(record.id, consumedAt);
+    if (!consumed) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
+    }
+
+    const updatedUser = await this.authRepository.updateUserPassword(user.id, passwordHash);
+    if (!updatedUser) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
+    }
+    await this.authRepository.revokeRefreshTokensByUserId(user.id, consumedAt);
+    await this.authRepository.invalidatePasswordRecoveryTokensByUserId(user.id, consumedAt);
+    return { status: "password_reset" };
+  }
+
   async refresh(input: RefreshInput): Promise<AuthSessionResult> {
     const tokenHash = this.tokenService.hashRefreshToken(input.refreshToken);
     const existingToken = await this.authRepository.findRefreshTokenByHash(tokenHash);
-    if (!existingToken) throw new UnauthorizedException("Invalid refresh token.");
+    if (!existingToken) throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_INVALID, "Session is no longer valid.");
 
     if (existingToken.revokedAt) {
       await this.authRepository.markRefreshTokenReused(existingToken.id, new Date());
       await this.authRepository.revokeRefreshTokenFamily(existingToken.familyId, new Date());
-      throw new UnauthorizedException("Refresh token reuse detected.");
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_INVALID, "Session is no longer valid.");
     }
 
     if (existingToken.expiresAt.getTime() <= Date.now()) {
       await this.authRepository.revokeRefreshToken(existingToken.id, new Date());
-      throw new UnauthorizedException("Refresh token expired.");
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_EXPIRED, "Session has expired.");
     }
 
     const user = await this.authRepository.findUserById(existingToken.userId);
-    if (!user || user.status !== "active") throw new UnauthorizedException("Invalid refresh token.");
+    if (!user) throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_INVALID, "Session is no longer valid.");
+    if (user.status !== "active") throw unauthorizedAuthError(AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
 
     await this.authRepository.revokeRefreshToken(existingToken.id, new Date());
     return this.createSession(user, input.deviceId, input.ipAddress, input.userAgent, existingToken.familyId);
@@ -157,34 +255,42 @@ export class AuthApplicationService {
   private async consumeVerificationToken(rawToken: string) {
     const tokenHash = this.tokenService.hashOpaqueToken(rawToken);
     const record = await this.authRepository.findEmailVerificationTokenByHash(tokenHash);
-    if (!record) throw new UnauthorizedException("Invalid verification token.");
+    if (!record) throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_TOKEN_INVALID, "Invalid verification token.");
 
     const user = await this.authRepository.findUserById(record.userId);
-    if (!user) throw new UnauthorizedException("Verification token is not valid.");
+    if (!user) throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_TOKEN_INVALID, "Verification token is not valid.");
 
-    if (record.expiresAt.getTime() <= Date.now()) throw new UnauthorizedException("Verification token has expired.");
+    if (record.expiresAt.getTime() <= Date.now()) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_TOKEN_EXPIRED, "Verification token has expired.");
+    }
 
     if (!record.consumedAt) {
       const verified = await this.authRepository.markUserEmailVerified(user.id, new Date());
-      if (!verified) throw new UnauthorizedException("Verification token is not valid.");
+      if (!verified) throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_TOKEN_INVALID, "Verification token is not valid.");
       await this.authRepository.consumeEmailVerificationToken(record.id, new Date());
       return verified;
     }
 
     if (user.status === "active") return user;
-    throw new UnauthorizedException("Verification token has already been consumed.");
+    throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_TOKEN_INVALID, "Verification token has already been consumed.");
   }
 
   private async consumeVerificationCode(email: string, code: string) {
-    if (!/^\d{4}$/.test(code.trim())) throw new UnauthorizedException("Invalid verification code.");
-    const user = await this.authRepository.findUserByEmail(email.trim().toLocaleLowerCase("tr-TR"));
-    if (!user) throw new UnauthorizedException("Invalid verification code.");
+    if (!/^\d{4}$/.test(code.trim())) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_CODE_INVALID, "Invalid verification code.");
+    }
+    const user = await this.authRepository.findUserByEmail(email.trim().toLowerCase());
+    if (!user) throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_CODE_INVALID, "Invalid verification code.");
     const tokenHash = this.tokenService.hashOpaqueToken(code.trim());
     const record = await this.authRepository.findEmailVerificationTokenByHash(tokenHash);
-    if (!record || record.userId !== user.id || record.consumedAt) throw new UnauthorizedException("Invalid verification code.");
-    if (record.expiresAt.getTime() <= Date.now()) throw new UnauthorizedException("Verification code has expired.");
+    if (!record || record.userId !== user.id || record.consumedAt) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_CODE_INVALID, "Invalid verification code.");
+    }
+    if (record.expiresAt.getTime() <= Date.now()) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_CODE_EXPIRED, "Verification code has expired.");
+    }
     const verified = await this.authRepository.markUserEmailVerified(user.id, new Date());
-    if (!verified) throw new UnauthorizedException("Verification code is not valid.");
+    if (!verified) throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_CODE_INVALID, "Verification code is not valid.");
     await this.authRepository.consumeEmailVerificationToken(record.id, new Date());
     return verified;
   }
@@ -299,4 +405,36 @@ function cleanGoogleDisplayName(value: string | undefined): string | undefined {
 
 function linkedGoogleProvider(current: "password" | "google" | "password_google" | undefined): "google" | "password_google" {
   return current === "google" ? "google" : "password_google";
+}
+
+function passwordRecoveryRequestResult(rawToken: string): PasswordRecoveryRequestResult {
+  return {
+    status: "recovery_requested",
+    message: "If an eligible account exists, recovery instructions will be sent.",
+    expiresInSeconds: PASSWORD_RECOVERY_TTL_SECONDS,
+    resendAfterSeconds: PASSWORD_RECOVERY_RESEND_SECONDS,
+    ...(shouldExposePreviewPasswordRecoveryCode() ? { previewRecoveryCode: rawToken } : {})
+  };
+}
+
+function shouldExposePreviewPasswordRecoveryCode(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+function unauthorizedAuthError(errorCode: AuthErrorCode, message: string): UnauthorizedException {
+  return new UnauthorizedException({
+    statusCode: HttpStatus.UNAUTHORIZED,
+    error: "Unauthorized",
+    errorCode,
+    message
+  });
+}
+
+function badRequestAuthError(errorCode: AuthErrorCode, message: string): BadRequestException {
+  return new BadRequestException({
+    statusCode: HttpStatus.BAD_REQUEST,
+    error: "Bad Request",
+    errorCode,
+    message
+  });
 }

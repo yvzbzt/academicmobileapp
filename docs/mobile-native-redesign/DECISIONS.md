@@ -1,0 +1,150 @@
+# Redesign Decisions
+
+Last updated: 29 July 2026
+
+## Accepted decisions
+
+### D-001 — Incremental redesign in the existing native app
+
+**Decision:** Evolve `apps/mobile-native`; do not rebuild it as a separate application. Preserve backend contracts unless a numbered phase explicitly changes and tests them.
+
+**Why:** The existing app already contains authentication, academic profile selection, calendar/announcement data, Google Calendar sync, notification preferences, and deletion flows. Rebuilding would hide regressions and risk losing working behavior.
+
+### D-002 — Four primary authenticated destinations
+
+**Decision:** Target Home, Announcements, Calendar, and Profile. Authentication/onboarding are outside the tab shell.
+
+**Migration:** Current Summer School and YÖK capabilities move into the Announcements information architecture. Current Agenda becomes Announcements. Manual exams and Google Calendar remain owned by Calendar even if Home provides shortcuts or summaries.
+
+### D-003 — Content-first, not dashboard-first
+
+**Decision:** Prioritize source identity, publication time, title, summary/media when useful, and a small set of real actions. Avoid nested dashboard cards, oversized marketing heroes, and decorative metrics without a student task.
+
+### D-004 — Distinct academic indigo brand
+
+**Decision:** Use the semantic indigo palette in `DESIGN_SYSTEM.md`, not LinkedIn blue. ANSSOFT identity may appear in launch/about/legal contexts without competing with the Academic Calendar product name.
+
+### D-005 — Shared semantics, platform-specific chrome
+
+**Decision:** Share tokens, data contracts, accessibility meaning, and content anatomy. Permit `.ios.tsx` / `.android.tsx` wrappers where navigation, sheets, feedback, motion, or material legitimately differs.
+
+### D-006 — Opaque content surfaces
+
+**Decision:** Main feed cards, forms, destructive controls, and reading surfaces stay opaque and high contrast. On supported iOS versions, translucent material is limited to navigation/control chrome and must degrade gracefully when Reduce Transparency is enabled or material APIs are unavailable.
+
+### D-007 — Real actions only
+
+**Decision:** Do not add likes, comments, reposts, connection counts, or fake engagement. Save, Share, Add to Calendar, and Open Official Source appear only when their behavior, failure state, accessibility, and persistence contract are real.
+
+### D-008 — Virtualized long collections
+
+**Decision:** Feed and selector implementations must use `FlatList`, `SectionList`, or an equally justified virtualized primitive. A page-wide `ScrollView` that mounts an unbounded feed is not an acceptable target.
+
+### D-009 — Evidence before visual acceptance
+
+**Decision:** Semantic component tests, contract/unit tests, native build smoke, and native screenshots are separate evidence categories. Web screenshots cannot satisfy native visual QA.
+
+### D-010 — No framework churn in Phase 0
+
+**Decision:** Phase 0 installs or upgrades nothing. Phase 4 must choose a single native component-test stack after confirming compatibility with Expo 54 / React Native 0.81.5. Do not install competing frameworks.
+
+### D-011 — Turkish-first copy with localization seams
+
+**Decision:** User-facing copy remains Turkish. New components must avoid sentence fragments assembled from hard-coded word order and must centralize reusable labels/error categories so later localization does not require component rewrites.
+
+### D-012 — Trust precedes redesign
+
+**Decision:** Phase 1 fixes account/session ownership; Phase 2 fixes content trust; Phase 3 reconciles integration promises. Visual phases must not normalize known-broken behavior by merely restyling it.
+
+### D-013 — Verification recovery stores no secret
+
+**Decision:** Persist only normalized email, verification expiry, and resend cooldown under `native_pending_email_verification`. Never persist the registration password or verification code. Verification activates the email identity only; login and refresh-session creation happen later as a separately reported result.
+
+**Compatibility:** A relaunch can resume verification and resend without the password. After successful verification following a relaunch, the user must enter the password on Login. This is intentional because the client has no safe reason to retain it.
+
+### D-014 — Every authenticated completion belongs to an account generation
+
+**Decision:** A generation snapshot contains both owner ID and generation. Login/session activation creates a generation; logout, expiry, data deletion, account deletion, and replacement invalidate it and abort registered requests. A response may update React state or persistent owner data only while its snapshot is current.
+
+**Why:** Access-token equality alone does not protect account switching, refresh rotation, native Google authorization, or queued storage writes.
+
+### D-015 — Owner-unknown legacy exams are discarded
+
+**Decision:** Manual exams use an owner-encoded v2 key and an envelope containing `schemaVersion`, `ownerId`, validated exam fields, and `updatedAt`. The old global `native_manual_exams` value has no trustworthy owner proof, so it is deleted and not assigned to the account that happens to sign in first.
+
+**Rollback:** The v2 records are left intact if the app rolls back, but the old build cannot read them. The deleted owner-unknown legacy payload cannot be reconstructed by design. A future migration may import legacy content only when an independent, verified owner ID is available.
+
+### D-016 — Auth failures use controlled codes and fixed copy
+
+**Decision:** Auth endpoints return a stable `errorCode`; the native client maps that code plus endpoint context to fixed Turkish copy. Untrusted response bodies are never displayed. Supported outcomes distinguish invalid credentials, unverified email, invalid/expired verification, invalid/expired session, disabled account, and rate limiting.
+
+### D-017 — Local cleanup is observable and server cleanup may be uncertain
+
+**Decision:** Logout and account deletion first serialize a non-secret invalidation tombstone over `native_session`. Only after that durable write succeeds may the account generation be invalidated and authenticated UI state be cleared. If the tombstone write fails, the destructive action does not advance, the still-authenticated state remains visible, and a controlled retry is offered. Once the tombstone is durable, physical key deletion is best-effort compaction: even if removal fails, no token remains at that key and cold-start restoration treats the tombstone as logged out.
+
+Server revocation/deletion and the remaining local/Google cleanup tasks run after the local session can no longer resurrect the account. Terminal cleanup also clears pending-verification memory/storage so a previous account's recovery state cannot reappear. Failure is represented only by controlled target identifiers. Unconfirmed server revocation does not restore personal UI state; failures to remove pending verification, owner-scoped manual-exam, or Google metadata remain visible and retryable.
+
+**Known backend gap:** Account deletion has no recent-authentication challenge or reauthentication token contract. Phase 1 cannot add a client-only guarantee; this remains documented until the backend supports it.
+
+### D-018 — Academic selection is a replacement contract
+
+**Decision:** `/me/university` validates the complete submitted hierarchy. Omitted faculty, department, and class level are removed by every repository adapter. Native selection sends only real user selections and no longer invents `classLevel: 2`.
+
+### D-019 — Hydration is an explicit root state and refresh precedes readiness
+
+**Decision:** Cold start has `loading`, `error`, and `ready` hydration states. Login and Home are not stable root surfaces until a device ID exists, the stored session has been parsed, any stored refresh token has been rotated against that device ID, owner-scoped storage has been restored, and the initial authenticated context has settled. A recoverable startup failure renders a labelled retry state instead of silently presenting Login or stale Home.
+
+**Compatibility:** A controlled expired/invalid/disabled session is cleared and reaches Login. Storage, network, or unexpected restoration failure stays on the hydration error boundary so it cannot be mistaken for an intentional logout.
+
+### D-020 — Session writes and authenticated completions are bounded and serialized
+
+**Decision:** SecureStore mutations use one serialized queue. A live-session write is rejected while account cleanup is locked, and refresh persistence rechecks both its owner-generation snapshot and the cleanup lock. Authenticated API requests register abort controllers and use a 15-second default timeout that remains active through response-body consumption; logout and account deletion use an explicit 8-second server-cleanup bound. Stale or aborted results cannot update state or owner storage.
+
+**Why:** A generation check at fetch start is insufficient. Refresh rotation, JSON parsing, a queued SecureStore write, or a retry can otherwise settle after the account has been closed.
+
+### D-021 — Destructive data work has a mutation barrier
+
+**Decision:** Logout, data deletion, and account deletion establish a cleanup lock that blocks new authenticated mutations. Data deletion waits for already-tracked academic-selection and preference mutations before issuing `DELETE /me/data`; successful deletion then invalidates/aborts the prior generation before resetting and reactivating the same owner. Google REST requests receive the same abort signal, while Google native SDK operations are serialized and protected by an epoch because the SDK authorization prompt itself is not abortable.
+
+**Known boundary:** Cancellation prevents stale local settlement but cannot guarantee transaction-like rollback of Google Calendar mutations already accepted remotely. Phase 3 owns explicit disconnect, revoke, and remote-removal behavior.
+
+### D-022 — Password recovery has a production public-field-parity contract
+
+**Decision:** In production, `POST /auth/password-recovery/request` always returns the same public status/body fields for a syntactically valid known or unknown email address. An accepted request issues a cryptographically random six-digit code with a ten-minute lifetime and a sixty-second resend cooldown. Only an email-domain-separated HMAC-SHA-256 digest is persisted; a newer accepted request invalidates older active recovery material, a successful confirmation consumes the code once, and all existing refresh sessions for the account are revoked after the password is replaced.
+
+**Native boundary:** Login exposes the reachable Turkish-first `Şifremi unuttum` action. Request, code entry, new-password entry, confirmation, resend, error, success, Back, and cancellation states remain inside the existing authentication shell. The code, new password, and password confirmation exist only in memory and are cleared on completion, cancellation, or return to Login. Password-recovery state is intentionally not restored after process death because no recovery secret may be persisted.
+
+**Security boundary:** Production fails closed unless `PASSWORD_RECOVERY_TOKEN_PEPPER` or the existing JWT access secret provides at least 32 characters of key material. Non-production may return `previewRecoveryCode` to isolated development/test fixtures; production never returns it. Controlled outcomes are `AUTH_PASSWORD_RECOVERY_CODE_INVALID`, `AUTH_PASSWORD_RECOVERY_CODE_EXPIRED`, `AUTH_PASSWORD_CONFIRMATION_MISMATCH`, `AUTH_PASSWORD_INVALID`, and `AUTH_RATE_LIMITED`. Raw server payloads and recovery secrets never become UI copy or logs.
+
+**Known backend boundaries:** Public field equality is not latency equality. Unknown requests return after less work, while an eligible known request can await persistence and SMTP, so timing-based account inference remains possible. Confirmation conditionally consumes the code atomically, but password replacement, refresh-session revocation, and invalidation of remaining material are sequential repository operations rather than one transaction; a later failure can leave partial completion. Do not claim timing resistance or all-or-nothing reset semantics until those paths are explicitly hardened.
+
+### D-023 — Native evidence records configured and effective emulator limits separately
+
+**Decision:** Phase 1 closure uses one official Google Android Studio Stable installation, one Google APIs x86_64 system image, and exactly one AVD named `AcademicPhase1Low`. Configuration files and runtime-reported values are both evidence; a configured value must not be presented as an effective runtime value when the system image or emulator overrides it.
+
+**Recorded closure environment:** Android Studio product build `AI-261.25134.95.2612.15822958` (winget package version `2026.1.2.10`), command-line tools revision 22 installed at the recognized noncanonical `cmdline-tools/latest-2` path, Emulator `36.6.11`, and Google APIs API 24 x86_64 revision 27. The AVD was requested/prelaunch-configured for 1,536 MB RAM, two cores, 720 × 1280 at 320 dpi, 256 MB heap, 2,047 MB data, host GPU, cameras/audio/device frame off, hardware keyboard on, and Quick Boot on.
+
+**Effective-value disclosure:** WHPX acceleration is usable and the first cold boot completed in 42.3 seconds. Runtime reports 1,533,960 kB RAM, two cores, 720 × 1280 at 320 dpi, a 384 MB heap, and approximately 5.8 GB for `/data`; the post-boot `config.ini` was normalized to 6,442,450,944 bytes for the data partition while retaining `vm.heapSize=256M`. API 36, 34, 30, and 28 Google APIs images were tried before API 24; those images also forced heap/data values above the requested budget. The effective heap/data deviation remains visible evidence and cannot be relabelled as the requested 256 MB/≤4 GB configuration.
+
+## Open questions with decision owners
+
+| Question | Required by | Resolution owner/gate |
+|---|---:|---|
+| Use React Navigation, Expo Router, or a small typed internal navigator? | Phase 5 | Phase 4 architecture spike; must support native back behavior, deep links, restoration, and screen tests |
+| Which component test runner is compatible with the current Expo/RN stack? | Phase 4 | Choose one of Jest + React Native Testing Library or a justified equivalent; do not run two |
+| Which native material API provides supported iOS translucent chrome? | Phase 5 | Confirm runtime/Expo compatibility and fallback before dependency change |
+| Should tablets use a navigation rail/sidebar while keeping four destinations? | Phase 5/11 | Validate native tablet layouts; information architecture remains four destinations |
+| What is the durable Save model for feed items? | Phase 8 | Requires product/API decision; omit Save until persistence exists |
+| Should Share use only the native share sheet or also a backend short link? | Phase 8 | Start with privacy-reviewed native share payload; never share crawler/internal URLs blindly |
+| Is native device-calendar sync retained, replaced, or removed as dormant code? | Phase 3 | Decide from real product requirement and platform permission model |
+| What analytics provider and consent model will implement page views? | Separate approved instrumentation work | Follow the privacy-safe taxonomy in `docs/20-mobile-native-in-app-user-activity-report.md` |
+| What is the source-of-truth publication timestamp when crawlers only provide fetch time? | Phase 2 | Content contract must distinguish publication, update, and retrieval timestamps |
+
+## Rejected directions
+
+- Copying LinkedIn's exact blue, logo placement, navigation appearance, or social actions.
+- Six permanent phone bottom tabs.
+- Glass feed cards or translucent form fields over decorative backgrounds.
+- Replacing all existing code before fixing session/content correctness.
+- Treating an Expo Web screenshot as evidence for iOS or Android.
+- Adding a large UI framework only to obtain basic tokens, buttons, cards, or sheets.

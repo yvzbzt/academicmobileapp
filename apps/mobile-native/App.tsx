@@ -12,6 +12,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Linking,
   NativeModules,
   Platform,
@@ -29,6 +30,41 @@ import {
   GoogleCalendarSyncError,
   type GoogleCalendarSyncResult
 } from "./src/google-calendar/google-calendar-sync";
+import {
+  AUTH_ENDPOINTS,
+  AUTH_PASSWORD_MIN_LENGTH,
+  PASSWORD_RECOVERY_CODE_LENGTH,
+  PENDING_VERIFICATION_STORAGE_KEY,
+  createPendingPasswordRecoveryRecord,
+  createPendingVerificationRecord,
+  getPasswordRecoveryTiming,
+  getVerificationTiming,
+  isValidPasswordRecoveryEmail,
+  parsePendingVerificationRecord,
+  rootSurfaceForHydration,
+  validatePasswordRecoveryConfirmation,
+  validatePasswordRecoveryRequest,
+  type HydrationStatus,
+  type PendingPasswordRecoveryRecord,
+  type PendingVerificationRecord
+} from "./src/auth/auth-recovery";
+import {
+  AccountGenerationGuard,
+  classifyAuthError,
+  runObservableAccountCleanup,
+  type AccountCleanupResult,
+  type AccountCleanupTarget,
+  type AccountGenerationSnapshot,
+  type AuthOperation
+} from "./src/auth/session-integrity";
+import {
+  LEGACY_MANUAL_EXAMS_STORAGE_KEY,
+  createManualExamStorageKey,
+  planLegacyManualExamMigration,
+  readManualExamEnvelope,
+  serializeManualExamEnvelope,
+  type ManualExamRecord
+} from "./src/session-integrity/manual-exam-storage";
 
 type AuthMode = "login" | "register";
 type AlarmMode = "all_calendar" | "selected_fields";
@@ -37,7 +73,12 @@ type AcademicSelectionLevel = "university" | "faculty" | "department";
 type AnnouncementContentType = "announcement" | "news" | "event";
 type AnnouncementContentFilter = "all" | AnnouncementContentType;
 type AnnouncementScopeType = "university" | "faculty" | "department";
-type AuthStage = "auth" | "verify" | "profile_confirm";
+type AuthStage =
+  | "auth"
+  | "verify"
+  | "profile_confirm"
+  | "password_recovery_request"
+  | "password_recovery_confirm";
 
 type SessionPayload = {
   accessToken: string;
@@ -55,7 +96,20 @@ type RegisterResponse = {
   status: "verification_required";
   email: string;
   verificationExpiresAt: string;
+  resendAvailableAt?: string;
   previewVerificationToken?: string;
+};
+
+type PasswordRecoveryRequestResponse = {
+  status: "recovery_requested";
+  message: string;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+  previewRecoveryCode?: string;
+};
+
+type PasswordRecoveryConfirmResponse = {
+  status: "password_reset";
 };
 
 type UserProfile = {
@@ -63,6 +117,7 @@ type UserProfile = {
   fullName: string;
   email: string;
   role: string;
+  status: "active" | "inactive" | "locked";
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
@@ -97,12 +152,6 @@ type AnnouncementRecord = {
   publishedAt?: string;
   fetchedAt?: string;
   summary?: string;
-};
-
-type ManualExamRecord = {
-  id: string;
-  title: string;
-  examDate: string;
 };
 
 type CalendarRecord = {
@@ -195,9 +244,10 @@ type Loadable<T> = {
 };
 
 const SESSION_STORAGE_KEY = "native_session";
+const SESSION_INVALIDATED_STORAGE_VALUE = "native_session_invalidated_v1";
 const DEVICE_ID_STORAGE_KEY = "native_device_id";
-const MANUAL_EXAMS_STORAGE_KEY = "native_manual_exams";
-const GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
+const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
+const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v2";
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -303,7 +353,8 @@ const GOOGLE_AUTH_CONFIGURATION_MESSAGE = Platform.select({
 }) ?? "Bu derleme Google Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.";
 const GOOGLE_ID_TOKEN_CONFIGURATION_MESSAGE =
   "Google oturumu tamamlanamadı. Lütfen tekrar dene veya e-posta ile giriş yap.";
-const AUTH_INPUT_PLACEHOLDER_COLOR = "#94a3b8";
+const AUTH_INPUT_PLACEHOLDER_COLOR = "#64748b";
+const API_REQUEST_TIMEOUT_MS = 15_000;
 
 function cleanEnvValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -311,9 +362,49 @@ function cleanEnvValue(value: string | undefined): string | undefined {
 }
 
 class ApiRequestError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly details?: Readonly<Record<string, unknown>>
+  ) {
     super(message);
     this.name = "ApiRequestError";
+  }
+}
+
+class StaleAccountRequestError extends Error {
+  constructor() {
+    super("Stale account request ignored.");
+    this.name = "StaleAccountRequestError";
+  }
+}
+
+type ApiErrorPayload = {
+  errorCode?: string;
+  message?: unknown;
+  error?: unknown;
+  resendAvailableAt?: string;
+  details?: Record<string, unknown>;
+};
+
+function readApiErrorPayload(body: string): ApiErrorPayload {
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const payload = parsed as Record<string, unknown>;
+    const details = payload.details && typeof payload.details === "object" && !Array.isArray(payload.details)
+      ? payload.details as Record<string, unknown>
+      : undefined;
+    return {
+      ...(typeof payload.errorCode === "string" ? { errorCode: payload.errorCode } : {}),
+      ...(typeof payload.message === "string" || Array.isArray(payload.message) ? { message: payload.message } : {}),
+      ...(typeof payload.error === "string" ? { error: payload.error } : {}),
+      ...(typeof payload.resendAvailableAt === "string" ? { resendAvailableAt: payload.resendAvailableAt } : {}),
+      ...(details ? { details } : {})
+    };
+  } catch {
+    return {};
   }
 }
 
@@ -327,10 +418,10 @@ function parseApiErrorMessage(body: string, fallback: string, status?: number): 
     if (typeof payload.message === "string" && payload.message.trim()) return toUserFacingErrorMessage(payload.message.trim(), status);
     if (typeof payload.error === "string" && payload.error.trim()) return toUserFacingErrorMessage(payload.error.trim(), status);
   } catch {
-    // Fall back to raw text when the server returns non-JSON errors.
+    // Never surface an untrusted raw response body.
   }
 
-  return toUserFacingErrorMessage(trimmed, status);
+  return toUserFacingErrorMessage(fallback, status);
 }
 
 function toUserFacingErrorMessage(message: string, status?: number): string {
@@ -373,9 +464,7 @@ function toUserFacingErrorMessage(message: string, status?: number): string {
     return "İşlem tamamlanamadı. Bilgileri kontrol edip tekrar dene.";
   }
 
-  const cleaned = message.replace(/\s+/g, " ").trim();
-  if (!cleaned) return "İşlem tamamlanamadı. Lütfen tekrar dene.";
-  return cleaned.length > 180 ? "İşlem tamamlanamadı. Lütfen tekrar dene." : cleaned;
+  return "İşlem tamamlanamadı. Lütfen tekrar dene.";
 }
 
 function userMessageFromError(error: unknown, fallback: string): string {
@@ -558,6 +647,27 @@ function formatDateTimeShort(value?: string): string {
   return date.toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatDuration(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function cleanupTargetLabel(target: AccountCleanupTarget): string {
+  const labels: Record<AccountCleanupTarget, string> = {
+    server_session: "sunucu oturumu",
+    server_account: "sunucudaki hesap silme işlemi",
+    session_storage: "cihaz oturumu",
+    pending_verification_storage: "doğrulama kurtarma kaydı",
+    manual_exam_storage: "kişisel sınav kaydı",
+    google_connection_storage: "Google Takvim bağlantı kaydı",
+    google_sign_in: "Google hesap seçimi",
+    in_memory_state: "ekrandaki hesap verileri"
+  };
+  return labels[target];
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <View style={styles.section}>
@@ -575,52 +685,52 @@ function getWebStorage(): Storage | null {
 
 async function getStoredValue(key: string): Promise<string | null> {
   if (Platform.OS === "web") {
-    try {
-      return getWebStorage()?.getItem(key) ?? null;
-    } catch {
-      return null;
-    }
+    return getWebStorage()?.getItem(key) ?? null;
   }
+  return SecureStore.getItemAsync(key);
+}
 
-  try {
-    return await SecureStore.getItemAsync(key);
-  } catch {
-    return null;
-  }
+function createGoogleCalendarStorageKey(ownerId: string): string {
+  const normalized = ownerId.trim();
+  if (!normalized) throw new Error("A Google Calendar connection owner is required.");
+  const encoded = Array.from(normalized, (character) => character.codePointAt(0)?.toString(16) ?? "0").join("_");
+  return `${GOOGLE_CALENDAR_STORAGE_PREFIX}_${encoded}`;
+}
+
+function isSessionPayload(value: unknown): value is SessionPayload {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<SessionPayload>;
+  return typeof candidate.accessToken === "string"
+    && Boolean(candidate.accessToken)
+    && typeof candidate.refreshToken === "string"
+    && Boolean(candidate.refreshToken)
+    && typeof candidate.expiresInSeconds === "number"
+    && Boolean(candidate.user)
+    && typeof candidate.user?.id === "string"
+    && Boolean(candidate.user.id)
+    && typeof candidate.user?.email === "string"
+    && typeof candidate.user?.fullName === "string"
+    && typeof candidate.user?.role === "string";
 }
 
 async function setStoredValue(key: string, value: string): Promise<void> {
   if (Platform.OS === "web") {
-    try {
-      getWebStorage()?.setItem(key, value);
-    } catch {
-      // Ignore web storage write failures.
-    }
+    const storage = getWebStorage();
+    if (!storage) throw new Error("Web storage is unavailable.");
+    storage.setItem(key, value);
     return;
   }
-
-  try {
-    await SecureStore.setItemAsync(key, value);
-  } catch {
-    // Ignore secure storage write failures.
-  }
+  await SecureStore.setItemAsync(key, value);
 }
 
 async function deleteStoredValue(key: string): Promise<void> {
   if (Platform.OS === "web") {
-    try {
-      getWebStorage()?.removeItem(key);
-    } catch {
-      // Ignore web storage delete failures.
-    }
+    const storage = getWebStorage();
+    if (!storage) throw new Error("Web storage is unavailable.");
+    storage.removeItem(key);
     return;
   }
-
-  try {
-    await SecureStore.deleteItemAsync(key);
-  } catch {
-    // Ignore secure storage delete failures.
-  }
+  await SecureStore.deleteItemAsync(key);
 }
 
 export default function App() {
@@ -632,7 +742,23 @@ export default function App() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [verificationToken, setVerificationToken] = useState("");
+  const [pendingVerification, setPendingVerification] = useState<PendingVerificationRecord | null>(null);
+  const [verificationClockMs, setVerificationClockMs] = useState(Date.now());
+  const [passwordRecoveryCode, setPasswordRecoveryCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [newPasswordVisible, setNewPasswordVisible] = useState(false);
+  const [passwordConfirmationVisible, setPasswordConfirmationVisible] = useState(false);
+  const [pendingPasswordRecovery, setPendingPasswordRecovery] = useState<PendingPasswordRecoveryRecord | null>(null);
+  const [passwordRecoveryClockMs, setPasswordRecoveryClockMs] = useState(Date.now());
+  const [passwordRecoveryFeedback, setPasswordRecoveryFeedback] = useState<{
+    text: string;
+    tone: "info" | "success" | "error";
+  } | null>(null);
+  const [hydrationStatus, setHydrationStatus] = useState<HydrationStatus>("loading");
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
 
   const [registerUniversityId, setRegisterUniversityId] = useState("");
   const [registerFacultyId, setRegisterFacultyId] = useState("");
@@ -641,8 +767,6 @@ export default function App() {
   const [universitySearch, setUniversitySearch] = useState("");
   const [facultySearch, setFacultySearch] = useState("");
   const [departmentSearch, setDepartmentSearch] = useState("");
-  const [pendingVerifiedSession, setPendingVerifiedSession] = useState<SessionPayload | null>(null);
-
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [deviceId, setDeviceId] = useState("");
 
@@ -656,6 +780,8 @@ export default function App() {
   const [summerSchool, setSummerSchool] = useState<Loadable<SummerSchoolPayload>>({ loading: false });
   const [preferences, setPreferences] = useState<Loadable<NotificationPreferencePayload>>({ loading: false });
   const [manualExams, setManualExams] = useState<ManualExamRecord[]>([]);
+  const [manualExamOwnerId, setManualExamOwnerId] = useState<string | null>(null);
+  const [manualExamsHydrated, setManualExamsHydrated] = useState(false);
   const [manualExamTitle, setManualExamTitle] = useState("");
   const [manualExamDate, setManualExamDate] = useState("");
 
@@ -673,9 +799,25 @@ export default function App() {
   const [academicProfileExpanded, setAcademicProfileExpanded] = useState(false);
   const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
   const [announcementContentFilter, setAnnouncementContentFilter] = useState<AnnouncementContentFilter>("all");
+  const [cleanupIssue, setCleanupIssue] = useState<{
+    action: "logout" | "session_expiry" | "data_deletion" | "account_deletion" | "verification_save" | "verification_clear" | "activation" | "manual_exam_save";
+    failedTargets: AccountCleanupTarget[];
+    ownerId?: string;
+  } | null>(null);
   const sessionRef = useRef<SessionPayload | null>(null);
+  const deviceIdRef = useRef("");
   const refreshSessionPromiseRef = useRef<Promise<SessionPayload | null> | null>(null);
   const academicSelectionPendingRef = useRef<AcademicSelectionLevel | null>(null);
+  const accountGuardRef = useRef(new AccountGenerationGuard());
+  const authenticatedRequestControllersRef = useRef(new Set<AbortController>());
+  const storageMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const googleSdkQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const activeAuthenticatedMutationsRef = useRef(new Set<Promise<unknown>>());
+  const googleSdkEpochRef = useRef(0);
+  const accountCleanupInProgressRef = useRef(false);
+  const authOperationInProgressRef = useRef(false);
+  const activationAttemptRef = useRef(0);
+  const hydrationInProgressRef = useRef(false);
 
   const accessToken = session?.accessToken;
   const googleCalendarService = useMemo(() => new GoogleCalendarService(), []);
@@ -696,7 +838,10 @@ export default function App() {
         source: "calendar" as const
       }));
 
-    const extraExams = manualExams.map((exam) => ({
+    const visibleManualExams = session?.user.id === manualExamOwnerId && manualExamsHydrated
+      ? manualExams
+      : [];
+    const extraExams = visibleManualExams.map((exam) => ({
       id: exam.id,
       title: exam.title,
       examDate: exam.examDate,
@@ -707,7 +852,7 @@ export default function App() {
       .filter((exam) => !Number.isNaN(Date.parse(exam.examDate)))
       .filter((exam) => Date.parse(exam.examDate) >= Date.now())
       .sort((left, right) => Date.parse(left.examDate) - Date.parse(right.examDate));
-  }, [calendar.data?.events, manualExams]);
+  }, [calendar.data?.events, manualExams, manualExamOwnerId, manualExamsHydrated, session?.user.id]);
   const announcementFeed = useMemo(
     () => announcements.data ?? [],
     [announcements.data]
@@ -804,33 +949,89 @@ export default function App() {
     return list.filter((item) => item.name.toLocaleLowerCase("tr-TR").includes(query));
   }, [departments.data, departmentSearch]);
 
-  const registerIdentityReady = Boolean(fullName.trim() && email.trim() && password.trim());
-  const loginReady = Boolean(email.trim() && password.trim());
+  const registerIdentityReady = Boolean(
+    fullName.trim()
+    && email.trim()
+    && password.length >= AUTH_PASSWORD_MIN_LENGTH
+  );
+  const loginReady = Boolean(email.trim() && password.length > 0);
+  const verificationTiming = pendingVerification
+    ? getVerificationTiming(pendingVerification, verificationClockMs)
+    : null;
+  const passwordRecoveryTiming = pendingPasswordRecovery
+    ? getPasswordRecoveryTiming(pendingPasswordRecovery, passwordRecoveryClockMs)
+    : null;
+  const passwordRecoveryRequestReady = isValidPasswordRecoveryEmail(email);
+  const passwordRecoveryConfirmationValidation = validatePasswordRecoveryConfirmation({
+    code: passwordRecoveryCode,
+    newPassword,
+    passwordConfirmation
+  });
+  const passwordRecoveryConfirmReady = passwordRecoveryConfirmationValidation.valid
+    && !passwordRecoveryTiming?.expired;
+  const rootSurface = rootSurfaceForHydration(hydrationStatus, Boolean(session));
+
   useEffect(() => {
-    const initialize = async () => {
-      await restoreDeviceId();
-      await restoreManualExams();
-      const restoredSession = await restoreSession();
-      await restoreGoogleCalendarConnection(restoredSession?.user.id);
-      await loadUniversities();
-
-      if (restoredSession) {
-        await bootstrapAuthenticatedContext(restoredSession.accessToken);
-      }
-    };
-
-    void initialize();
+    void hydrateApplication();
   }, []);
 
   useEffect(() => {
-    void setStoredValue(MANUAL_EXAMS_STORAGE_KEY, JSON.stringify(manualExams));
-  }, [manualExams]);
+    if (!manualExamsHydrated || !manualExamOwnerId || session?.user.id !== manualExamOwnerId) return;
+    const snapshot = accountGuardRef.current.capture();
+    if (!snapshot || snapshot.ownerId !== manualExamOwnerId) return;
+
+    void enqueueStorageMutation(async () => {
+      if (!accountGuardRef.current.isCurrent(snapshot)) return;
+      await setStoredValue(
+        createManualExamStorageKey(manualExamOwnerId),
+        serializeManualExamEnvelope(manualExamOwnerId, manualExams)
+      );
+    }).catch(() => {
+      if (!accountGuardRef.current.isCurrent(snapshot)) return;
+      setCleanupIssue({
+        action: "manual_exam_save",
+        failedTargets: ["manual_exam_storage"],
+        ownerId: manualExamOwnerId
+      });
+      setMessage({ text: "Sınavlar cihazda saklanamadı. Lütfen tekrar dene.", tone: "error" });
+    });
+  }, [manualExams, manualExamsHydrated, manualExamOwnerId, session?.user.id]);
 
   useEffect(() => {
     if (!message) return;
     const timer = setTimeout(() => setMessage(null), 3500);
     return () => clearTimeout(timer);
   }, [message]);
+
+  useEffect(() => {
+    if (authStage !== "verify" || !pendingVerification) return;
+    setVerificationClockMs(Date.now());
+    const timer = setInterval(() => setVerificationClockMs(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [authStage, pendingVerification?.email, pendingVerification?.verificationExpiresAt, pendingVerification?.resendAvailableAt]);
+
+  useEffect(() => {
+    if (!authStage.startsWith("password_recovery") || !pendingPasswordRecovery) return;
+    setPasswordRecoveryClockMs(Date.now());
+    const timer = setInterval(() => setPasswordRecoveryClockMs(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [
+    authStage,
+    pendingPasswordRecovery?.email,
+    pendingPasswordRecovery?.recoveryExpiresAt,
+    pendingPasswordRecovery?.resendAvailableAt
+  ]);
+
+  useEffect(() => {
+    if (authStage !== "password_recovery_request" && authStage !== "password_recovery_confirm") return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (busy) return true;
+      if (authStage === "password_recovery_confirm") returnToPasswordRecoveryRequest();
+      else cancelPasswordRecovery();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [authStage, busy]);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -883,114 +1084,476 @@ export default function App() {
   }, [activeTab, session?.user.id, registerUniversityId]);
 
   useEffect(() => {
-    if (authMode !== "register") {
-      setAuthStage("auth");
-      setRegisterPicker("none");
-      setPendingVerifiedSession(null);
-      setVerificationToken("");
-      return;
-    }
-
-    if (authStage !== "auth") return;
+    if (authMode !== "register" || authStage !== "auth") return;
 
     if (!(universities.data?.length) && !universities.loading) {
       void loadUniversities();
     }
   }, [authMode, authStage, universities.data?.length, universities.loading]);
 
-  async function restoreSession(): Promise<SessionPayload | null> {
+  async function hydrateApplication(): Promise<void> {
+    if (hydrationInProgressRef.current) return;
+    hydrationInProgressRef.current = true;
+    setHydrationStatus("loading");
+    setHydrationError(null);
+    setCleanupIssue(null);
     try {
-      const stored = await getStoredValue(SESSION_STORAGE_KEY);
-      if (!stored) return null;
-      const parsed = JSON.parse(stored) as SessionPayload;
-      sessionRef.current = parsed;
-      setSession(parsed);
-      return parsed;
+      await restoreDeviceId();
+      let restoredSession = await restoreSession();
+      const recoverableTargets: AccountCleanupTarget[] = [];
+
+      if (restoredSession) {
+        const storedSession = restoredSession;
+        const snapshot = accountGuardRef.current.activate(storedSession.user.id);
+        try {
+          const refreshedSession = await apiRequest<SessionPayload>(
+            "/auth/refresh-token",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                refreshToken: storedSession.refreshToken,
+                deviceId: deviceIdRef.current
+              })
+            },
+            undefined,
+            {
+              skipAuthRefresh: true,
+              authOperation: "refresh_session",
+              ownerSnapshot: snapshot
+            }
+          );
+          if (refreshedSession.user.id !== storedSession.user.id) {
+            await persistSession(null);
+            accountGuardRef.current.invalidate();
+            clearAuthenticatedMemory();
+            restoredSession = null;
+            setMessage({ text: "Kayıtlı oturum bu hesapla eşleşmedi. Lütfen tekrar giriş yap.", tone: "error" });
+          } else {
+            await persistSession(refreshedSession);
+            sessionRef.current = refreshedSession;
+            setSession(refreshedSession);
+            restoredSession = refreshedSession;
+          }
+        } catch (error) {
+          if (
+            error instanceof ApiRequestError
+            && (error.code === "session_expired" || error.code === "disabled_account")
+          ) {
+            await persistSession(null);
+            accountGuardRef.current.invalidate();
+            clearAuthenticatedMemory();
+            restoredSession = null;
+            setMessage({ text: error.message, tone: "info" });
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      if (restoredSession) {
+        const snapshot = accountGuardRef.current.capture();
+        if (!snapshot) throw new StaleAccountRequestError();
+        try {
+          await restoreManualExams(restoredSession.user.id, snapshot);
+        } catch (error) {
+          if (error instanceof StaleAccountRequestError) throw error;
+          setManualExams([]);
+          setManualExamOwnerId(null);
+          setManualExamsHydrated(false);
+          recoverableTargets.push("manual_exam_storage");
+        }
+        try {
+          await restoreGoogleCalendarConnection(restoredSession.user.id, snapshot);
+        } catch (error) {
+          if (error instanceof StaleAccountRequestError) throw error;
+          setGoogleCalendarIntegration(null);
+          recoverableTargets.push("google_connection_storage");
+        }
+        try {
+          await clearPendingVerification();
+        } catch {
+          recoverableTargets.push("pending_verification_storage");
+        }
+      } else {
+        accountGuardRef.current.invalidate();
+        setManualExams([]);
+        setManualExamOwnerId(null);
+        setManualExamsHydrated(false);
+        try {
+          await restoreGoogleCalendarConnection();
+        } catch {
+          setGoogleCalendarIntegration(null);
+          recoverableTargets.push("google_connection_storage");
+        }
+        try {
+          await restorePendingVerification();
+        } catch {
+          setPendingVerification(null);
+          setPassword("");
+          setVerificationToken("");
+          setAuthMode("login");
+          setAuthStage("auth");
+          recoverableTargets.push("pending_verification_storage");
+        }
+      }
+
+      if (recoverableTargets.length > 0) {
+        setCleanupIssue({
+          action: "activation",
+          failedTargets: [...new Set(recoverableTargets)],
+          ...(restoredSession ? { ownerId: restoredSession.user.id } : {})
+        });
+      }
+
+      await loadUniversities();
+      if (restoredSession) {
+        const snapshot = accountGuardRef.current.capture();
+        if (snapshot) await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
+      }
+      setHydrationStatus("ready");
     } catch {
-      return null;
+      abortAuthenticatedRequests();
+      accountGuardRef.current.invalidate();
+      sessionRef.current = null;
+      setSession(null);
+      setManualExams([]);
+      setManualExamOwnerId(null);
+      setManualExamsHydrated(false);
+      setHydrationError("Cihazdaki oturum bilgileri güvenli biçimde okunamadı. Tekrar deneyebilirsin.");
+      setHydrationStatus("error");
+    } finally {
+      hydrationInProgressRef.current = false;
     }
   }
 
-  async function restoreDeviceId(): Promise<void> {
+  async function restoreSession(): Promise<SessionPayload | null> {
+    const stored = await getStoredValue(SESSION_STORAGE_KEY);
+    if (!stored) return null;
+    if (stored === SESSION_INVALIDATED_STORAGE_VALUE) {
+      await deleteStoredValue(SESSION_STORAGE_KEY).catch(() => undefined);
+      return null;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stored);
+    } catch {
+      await deleteStoredValue(SESSION_STORAGE_KEY);
+      return null;
+    }
+    if (!isSessionPayload(parsed)) {
+      await deleteStoredValue(SESSION_STORAGE_KEY);
+      return null;
+    }
+    sessionRef.current = parsed;
+    setSession(parsed);
+    return parsed;
+  }
+
+  async function restoreDeviceId(): Promise<string> {
     const stored = await getStoredValue(DEVICE_ID_STORAGE_KEY);
     if (stored) {
+      deviceIdRef.current = stored;
       setDeviceId(stored);
-      return;
+      return stored;
     }
 
     const created = createLocalId("rn-device");
     await setStoredValue(DEVICE_ID_STORAGE_KEY, created);
+    deviceIdRef.current = created;
     setDeviceId(created);
+    return created;
   }
 
-  async function restoreManualExams(): Promise<void> {
+  async function restorePendingVerification(): Promise<void> {
+    const stored = await getStoredValue(PENDING_VERIFICATION_STORAGE_KEY);
+    const restored = parsePendingVerificationRecord(stored);
+    if (!restored) {
+      if (stored) await deleteStoredValue(PENDING_VERIFICATION_STORAGE_KEY);
+      return;
+    }
+    setPendingVerification(restored);
+    setEmail(restored.email);
+    setPassword("");
+    setVerificationToken("");
+    setAuthMode("login");
+    setAuthStage("verify");
+  }
+
+  async function restoreManualExams(
+    ownerId: string,
+    ownerSnapshot?: AccountGenerationSnapshot | null
+  ): Promise<void> {
+    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+    setManualExamsHydrated(false);
+    const storageKey = createManualExamStorageKey(ownerId);
+    const stored = await getStoredValue(storageKey);
+    const result = readManualExamEnvelope(stored, ownerId);
+    if (result.shouldDelete) await deleteStoredValue(storageKey);
+
+    const legacyValue = await getStoredValue(LEGACY_MANUAL_EXAMS_STORAGE_KEY);
+    const migration = planLegacyManualExamMigration({ legacyValue, currentOwnerId: ownerId });
+    if (migration.status !== "no_data") {
+      await deleteStoredValue(LEGACY_MANUAL_EXAMS_STORAGE_KEY);
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      setMessage({
+        text: "Sahibi doğrulanamayan eski cihaz sınavları güvenlik için bu hesaba aktarılmadı.",
+        tone: "info"
+      });
+    }
+
+    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+    setManualExams(result.status === "loaded" ? result.exams : []);
+    setManualExamOwnerId(ownerId);
+    setManualExamsHydrated(true);
+  }
+
+  async function restoreGoogleCalendarConnection(
+    ownerId?: string,
+    ownerSnapshot?: AccountGenerationSnapshot | null
+  ): Promise<void> {
+    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+    setGoogleCalendarIntegration(null);
+    const legacy = await getStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
+    if (!ownerId) {
+      if (legacy) await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
+      return;
+    }
+
+    const storageKey = createGoogleCalendarStorageKey(ownerId);
+    const stored = await getStoredValue(storageKey);
+    const candidate = stored ?? legacy;
+    if (!candidate) return;
+
+    let parsed: GoogleCalendarConnectionRecord | null = null;
     try {
-      const stored = await getStoredValue(MANUAL_EXAMS_STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as ManualExamRecord[];
-      if (!Array.isArray(parsed)) return;
-      setManualExams(parsed.filter((item) => typeof item.title === "string" && typeof item.examDate === "string"));
+      parsed = JSON.parse(candidate) as GoogleCalendarConnectionRecord;
     } catch {
-      setManualExams([]);
+      parsed = null;
+    }
+    const valid = parsed
+      && parsed.ownerId === ownerId
+      && typeof parsed.accountEmail === "string"
+      && typeof parsed.lastSyncedAt === "string"
+      && typeof parsed.result?.verified === "number";
+    if (!valid) {
+      if (stored) await deleteStoredValue(storageKey);
+      if (legacy) await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
+      return;
+    }
+
+    if (!stored) await setStoredValue(storageKey, JSON.stringify(parsed));
+    if (legacy) await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
+    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+    setGoogleCalendarIntegration(parsed);
+  }
+
+  function enqueueStorageMutation(action: () => Promise<void>): Promise<void> {
+    const next = storageMutationQueueRef.current.catch(() => undefined).then(action);
+    storageMutationQueueRef.current = next;
+    return next;
+  }
+
+  function enqueueGoogleSdkOperation<T>(action: () => Promise<T>): Promise<T> {
+    const next = googleSdkQueueRef.current.catch(() => undefined).then(action);
+    googleSdkQueueRef.current = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  function trackAuthenticatedMutation<T>(action: () => Promise<T>): Promise<T> {
+    if (accountCleanupInProgressRef.current) return Promise.reject(new StaleAccountRequestError());
+    const operation = action();
+    activeAuthenticatedMutationsRef.current.add(operation);
+    const remove = () => activeAuthenticatedMutationsRef.current.delete(operation);
+    operation.then(remove, remove);
+    return operation;
+  }
+
+  async function waitForAuthenticatedMutations(): Promise<void> {
+    while (activeAuthenticatedMutationsRef.current.size > 0) {
+      await Promise.allSettled([...activeAuthenticatedMutationsRef.current]);
     }
   }
 
-  async function restoreGoogleCalendarConnection(ownerId?: string): Promise<void> {
-    try {
-      const stored = await getStoredValue(GOOGLE_CALENDAR_STORAGE_KEY);
-      if (!stored || !ownerId) return;
-      const parsed = JSON.parse(stored) as GoogleCalendarConnectionRecord;
-      if (
-        parsed.ownerId !== ownerId
-        || typeof parsed.accountEmail !== "string"
-        || typeof parsed.lastSyncedAt !== "string"
-        || typeof parsed.result?.verified !== "number"
-      ) return;
-      setGoogleCalendarIntegration(parsed);
-    } catch {
-      setGoogleCalendarIntegration(null);
-    }
+  function queueGoogleSignOut(): Promise<void> {
+    if (!GOOGLE_AUTH_CONFIGURED) return Promise.resolve();
+    const epoch = googleSdkEpochRef.current;
+    return enqueueGoogleSdkOperation(async () => {
+      if (googleSdkEpochRef.current !== epoch) return;
+      await GoogleSignin.signOut();
+    });
   }
 
-  async function persistGoogleCalendarConnection(record: GoogleCalendarConnectionRecord | null): Promise<void> {
+  async function persistGoogleCalendarConnection(
+    record: GoogleCalendarConnectionRecord | null,
+    ownerId = record?.ownerId
+  ): Promise<void> {
     if (!record) {
-      await deleteStoredValue(GOOGLE_CALENDAR_STORAGE_KEY);
+      if (ownerId) await deleteStoredValue(createGoogleCalendarStorageKey(ownerId));
+      await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
       return;
     }
-    await setStoredValue(GOOGLE_CALENDAR_STORAGE_KEY, JSON.stringify(record));
+    await setStoredValue(createGoogleCalendarStorageKey(record.ownerId), JSON.stringify(record));
   }
 
-  async function persistSession(nextSession: SessionPayload | null): Promise<void> {
-    if (!nextSession) {
-      await deleteStoredValue(SESSION_STORAGE_KEY);
-      return;
+  async function persistSession(
+    nextSession: SessionPayload | null,
+    afterDurableInvalidation?: () => void
+  ): Promise<void> {
+    await enqueueStorageMutation(async () => {
+      if (!nextSession) {
+        // Overwrite tokens before best-effort deletion so a deletion failure
+        // cannot resurrect the previous account on the next launch.
+        await setStoredValue(SESSION_STORAGE_KEY, SESSION_INVALIDATED_STORAGE_VALUE);
+        afterDurableInvalidation?.();
+        await deleteStoredValue(SESSION_STORAGE_KEY).catch(() => undefined);
+        return;
+      }
+      if (accountCleanupInProgressRef.current) throw new StaleAccountRequestError();
+      await setStoredValue(SESSION_STORAGE_KEY, JSON.stringify(nextSession));
+    });
+  }
+
+  async function persistPendingVerification(record: PendingVerificationRecord | null): Promise<void> {
+    await enqueueStorageMutation(async () => {
+      if (!record) {
+        await deleteStoredValue(PENDING_VERIFICATION_STORAGE_KEY);
+        return;
+      }
+      await setStoredValue(PENDING_VERIFICATION_STORAGE_KEY, JSON.stringify(record));
+    });
+  }
+
+  async function clearPendingVerification(): Promise<void> {
+    setPendingVerification(null);
+    await persistPendingVerification(null);
+  }
+
+  function abortAuthenticatedRequests(): void {
+    for (const controller of authenticatedRequestControllersRef.current) controller.abort();
+    authenticatedRequestControllersRef.current.clear();
+  }
+
+  function invalidateAuthenticatedWork(): void {
+    activationAttemptRef.current += 1;
+    googleSdkEpochRef.current += 1;
+    accountGuardRef.current.invalidate();
+    abortAuthenticatedRequests();
+    refreshSessionPromiseRef.current = null;
+  }
+
+  async function activateSession(nextSession: SessionPayload): Promise<AccountGenerationSnapshot> {
+    invalidateAuthenticatedWork();
+    const activationAttempt = activationAttemptRef.current;
+    resetUserScopedState();
+    try {
+      await persistSession(nextSession);
+    } catch {
+      await persistSession(null).catch(() => undefined);
+      setCleanupIssue({ action: "logout", failedTargets: ["session_storage"], ownerId: nextSession.user.id });
+      throw new ApiRequestError("Oturum cihazda güvenli biçimde saklanamadı. Lütfen tekrar dene.", 0);
     }
-
-    await setStoredValue(SESSION_STORAGE_KEY, JSON.stringify(nextSession));
-  }
-
-  async function activateSession(nextSession: SessionPayload): Promise<void> {
+    if (activationAttemptRef.current !== activationAttempt || accountCleanupInProgressRef.current) {
+      try {
+        await persistSession(null);
+      } catch {
+        setCleanupIssue({ action: "logout", failedTargets: ["session_storage"], ownerId: nextSession.user.id });
+      }
+      throw new StaleAccountRequestError();
+    }
+    const snapshot = accountGuardRef.current.activate(nextSession.user.id);
+    const failedTargets: AccountCleanupTarget[] = [];
+    try {
+      await restoreManualExams(nextSession.user.id, snapshot);
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError) throw error;
+      setManualExams([]);
+      setManualExamOwnerId(null);
+      setManualExamsHydrated(false);
+      failedTargets.push("manual_exam_storage");
+    }
+    try {
+      await restoreGoogleCalendarConnection(nextSession.user.id, snapshot);
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError) throw error;
+      setGoogleCalendarIntegration(null);
+      failedTargets.push("google_connection_storage");
+    }
+    try {
+      await clearPendingVerification();
+    } catch {
+      failedTargets.push("pending_verification_storage");
+    }
+    if (
+      activationAttemptRef.current !== activationAttempt
+      || accountCleanupInProgressRef.current
+      || !accountGuardRef.current.isCurrent(snapshot)
+    ) {
+      throw new StaleAccountRequestError();
+    }
     sessionRef.current = nextSession;
     setSession(nextSession);
-    await persistSession(nextSession);
+    if (failedTargets.length > 0) {
+      setCleanupIssue({ action: "activation", failedTargets, ownerId: nextSession.user.id });
+    } else {
+      setCleanupIssue(null);
+    }
+    return snapshot;
   }
 
-  async function clearExpiredSession(): Promise<void> {
-    sessionRef.current = null;
-    setSession(null);
-    setAuthStage("auth");
-    setActiveTab("home");
-    setSelectedUniversityId("");
-    await persistSession(null);
+  async function clearExpiredSession(
+    userMessage = "Oturumunun süresi doldu. Lütfen tekrar giriş yap."
+  ): Promise<void> {
+    if (accountCleanupInProgressRef.current) return;
+    accountCleanupInProgressRef.current = true;
+    setBusy(true);
+    const ownerId = sessionRef.current?.user.id;
+    invalidateAuthenticatedWork();
+    const sessionStorageResult = await runObservableAccountCleanup([
+      { target: "session_storage", run: () => persistSession(null) }
+    ]);
+    if (!sessionStorageResult.complete) {
+      clearAuthenticatedMemory();
+      reportCleanupResult("session_expiry", sessionStorageResult, ownerId);
+      setHydrationError("Süresi dolan oturum cihazdan güvenli biçimde kaldırılamadı. Depolama erişimini kontrol edip tekrar dene.");
+      setHydrationStatus("error");
+      accountCleanupInProgressRef.current = false;
+      setBusy(false);
+      return;
+    }
+    const result = await runObservableAccountCleanup([
+      { target: "in_memory_state", run: () => clearAuthenticatedMemory() },
+      {
+        target: "pending_verification_storage",
+        run: () => persistPendingVerification(null)
+      },
+      {
+        target: "google_connection_storage",
+        run: () => enqueueStorageMutation(() => persistGoogleCalendarConnection(null, ownerId))
+      },
+      {
+        target: "google_sign_in",
+        run: async () => {
+          await queueGoogleSignOut();
+        }
+      }
+    ]);
+    reportCleanupResult("session_expiry", result, ownerId);
+    accountCleanupInProgressRef.current = false;
+    setBusy(false);
+    setMessage({ text: userMessage, tone: "info" });
   }
 
   async function refreshAuthenticatedSession(expiredAccessToken?: string): Promise<SessionPayload | null> {
     const currentSession = sessionRef.current;
-    if (!currentSession || !deviceId) return null;
+    const snapshot = accountGuardRef.current.capture();
+    const currentDeviceId = deviceIdRef.current;
+    if (!currentSession || !snapshot || !currentDeviceId) return null;
     if (expiredAccessToken && currentSession.accessToken !== expiredAccessToken) return currentSession;
     if (refreshSessionPromiseRef.current) return refreshSessionPromiseRef.current;
 
-    refreshSessionPromiseRef.current = (async () => {
+    let refreshPromise!: Promise<SessionPayload | null>;
+    refreshPromise = (async () => {
+      let sessionWasRotated = false;
       try {
         const nextSession = await apiRequest<SessionPayload>(
           "/auth/refresh-token",
@@ -998,30 +1561,58 @@ export default function App() {
             method: "POST",
             body: JSON.stringify({
               refreshToken: currentSession.refreshToken,
-              deviceId
+              deviceId: currentDeviceId
             })
           },
           undefined,
-          { skipAuthRefresh: true }
+          {
+            skipAuthRefresh: true,
+            authOperation: "refresh_session",
+            ownerSnapshot: snapshot
+          }
         );
-        await activateSession(nextSession);
+        sessionWasRotated = true;
+        if (!accountGuardRef.current.isCurrent(snapshot) || nextSession.user.id !== snapshot.ownerId) return null;
+        await enqueueStorageMutation(async () => {
+          if (!accountGuardRef.current.isCurrent(snapshot) || accountCleanupInProgressRef.current) return;
+          await setStoredValue(SESSION_STORAGE_KEY, JSON.stringify(nextSession));
+        });
+        if (!accountGuardRef.current.isCurrent(snapshot)) return null;
+        sessionRef.current = nextSession;
+        setSession(nextSession);
         return nextSession;
-      } catch {
-        await clearExpiredSession();
+      } catch (error) {
+        if (error instanceof StaleAccountRequestError || !accountGuardRef.current.isCurrent(snapshot)) return null;
+        if (sessionWasRotated) {
+          await clearExpiredSession("Oturum yenilendi ancak cihazda güvenli biçimde saklanamadı. Lütfen tekrar giriş yap.");
+        } else if (
+          error instanceof ApiRequestError
+          && (error.code === "session_expired" || error.code === "disabled_account")
+        ) {
+          await clearExpiredSession(error.message);
+        } else {
+          setMessage({ text: "Oturum şu anda yenilenemedi. Bağlantını kontrol edip tekrar dene.", tone: "error" });
+        }
         return null;
       } finally {
-        refreshSessionPromiseRef.current = null;
+        if (refreshSessionPromiseRef.current === refreshPromise) refreshSessionPromiseRef.current = null;
       }
     })();
-
-    return refreshSessionPromiseRef.current;
+    refreshSessionPromiseRef.current = refreshPromise;
+    return refreshPromise;
   }
 
   async function apiRequest<T>(
     path: string,
     options: RequestInit = {},
     token?: string,
-    requestOptions: { skipAuthRefresh?: boolean } = {}
+    requestOptions: {
+      skipAuthRefresh?: boolean;
+      authOperation?: AuthOperation;
+      ownerSnapshot?: AccountGenerationSnapshot | null;
+      detached?: boolean;
+      timeoutMs?: number;
+    } = {}
   ): Promise<T> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -1030,40 +1621,110 @@ export default function App() {
 
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    let response: Response;
+    const ownerSnapshot = requestOptions.ownerSnapshot ?? (
+      token && !requestOptions.detached ? accountGuardRef.current.capture() : null
+    );
+    if (token && !requestOptions.detached && !ownerSnapshot) throw new StaleAccountRequestError();
+    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+
+    const effectiveTimeoutMs = requestOptions.timeoutMs ?? API_REQUEST_TIMEOUT_MS;
+    const controller = ownerSnapshot || effectiveTimeoutMs > 0 ? new AbortController() : null;
+    const upstreamSignal = options.signal;
+    const abortFromUpstream = () => controller?.abort();
+    let requestTimedOut = false;
+    const timeout = effectiveTimeoutMs > 0 && controller
+      ? setTimeout(() => {
+        requestTimedOut = true;
+        controller.abort();
+      }, effectiveTimeoutMs)
+      : null;
+    if (controller) {
+      authenticatedRequestControllersRef.current.add(controller);
+      if (upstreamSignal?.aborted) controller.abort();
+      else upstreamSignal?.addEventListener("abort", abortFromUpstream, { once: true });
+    }
+
     try {
-      response = await fetch(`${apiBaseUrl}${path}`, {
+      const response = await fetch(`${apiBaseUrl}${path}`, {
         ...options,
-        headers
+        headers,
+        ...(controller ? { signal: controller.signal } : {})
       });
-    } catch {
-      throw new ApiRequestError("Sunucuya ulaşılamadı. İnternet bağlantını kontrol edip tekrar dene.", 0);
-    }
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
-    if (!response.ok) {
-      const body = await response.text();
-      if (response.status === 401 && token && !requestOptions.skipAuthRefresh) {
-        const refreshedSession = await refreshAuthenticatedSession(token);
-        if (refreshedSession) {
-          return apiRequest<T>(path, options, refreshedSession.accessToken, { skipAuthRefresh: true });
+      if (!response.ok) {
+        const body = await response.text();
+        if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+        const payload = readApiErrorPayload(body);
+        if (response.status === 401 && token && !requestOptions.skipAuthRefresh) {
+          const refreshedSession = await refreshAuthenticatedSession(token);
+          if (refreshedSession && (!ownerSnapshot || accountGuardRef.current.isCurrent(ownerSnapshot))) {
+            return apiRequest<T>(path, options, refreshedSession.accessToken, {
+              ...requestOptions,
+              skipAuthRefresh: true,
+              ownerSnapshot
+            });
+          }
         }
+        const details = {
+          ...(payload.details ?? {}),
+          ...(payload.resendAvailableAt ? { resendAvailableAt: payload.resendAvailableAt } : {})
+        };
+        if (requestOptions.authOperation) {
+          const controlled = classifyAuthError({
+            operation: requestOptions.authOperation,
+            status: response.status,
+            body: payload
+          });
+          throw new ApiRequestError(controlled.message, response.status, controlled.code, details);
+        }
+        throw new ApiRequestError(
+          parseApiErrorMessage(body, `${response.status} ${response.statusText}`, response.status),
+          response.status,
+          payload.errorCode,
+          details
+        );
       }
-      throw new ApiRequestError(parseApiErrorMessage(body, `${response.status} ${response.statusText}`, response.status), response.status);
-    }
 
-    return (await response.json()) as T;
+      const data = (await response.json()) as T;
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      return data;
+    } catch (error) {
+      if (requestTimedOut) {
+        throw new ApiRequestError("Sunucu zamanında yanıt vermedi. Lütfen tekrar dene.", 0, "network_unavailable");
+      }
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) {
+        throw new StaleAccountRequestError();
+      }
+      if (error instanceof StaleAccountRequestError || error instanceof ApiRequestError) throw error;
+      if (controller?.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+        throw new StaleAccountRequestError();
+      }
+      throw new ApiRequestError("Sunucuya ulaşılamadı. İnternet bağlantını kontrol edip tekrar dene.", 0);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (controller) authenticatedRequestControllersRef.current.delete(controller);
+      upstreamSignal?.removeEventListener("abort", abortFromUpstream);
+    }
   }
 
   async function withLoadable<T>(
     setter: (state: Loadable<T>) => void,
-    action: () => Promise<T>
+    action: () => Promise<T>,
+    ownerSnapshot: AccountGenerationSnapshot | null = accountGuardRef.current.capture()
   ): Promise<T | null> {
+    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) return null;
     setter({ loading: true });
     try {
       const data = await action();
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) return null;
       setter({ loading: false, data });
       return data;
     } catch (error) {
+      if (error instanceof StaleAccountRequestError || (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot))) {
+        setter({ loading: false });
+        return null;
+      }
       setter({
         loading: false,
         error: userMessageFromError(error, "İşlem tamamlanamadı. Lütfen tekrar dene.")
@@ -1072,87 +1733,142 @@ export default function App() {
     }
   }
 
-  async function bootstrapAuthenticatedContext(token: string): Promise<void> {
-    const profile = await apiRequest<UserProfile>("/me", {}, token).catch(() => null);
-    await loadPreferences(token);
-    const profileUniversityId = profile?.universityId ?? "";
-    if (profile?.universityId) {
-      setSelectedUniversityId(profile.universityId);
-      setRegisterUniversityId(profile.universityId);
-      if (profile.facultyId) setRegisterFacultyId(profile.facultyId);
-      if (profile.departmentId) setRegisterDepartmentId(profile.departmentId);
-      await loadMyCalendar(token);
-      await loadUpcoming(token);
+  async function bootstrapAuthenticatedContext(
+    token: string,
+    ownerSnapshot = accountGuardRef.current.capture()
+  ): Promise<void> {
+    if (!ownerSnapshot || !accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+    let profile: UserProfile;
+    try {
+      profile = await apiRequest<UserProfile>("/me", {}, token, { ownerSnapshot });
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError || !accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403 || error.status === 404)) {
+        await clearExpiredSession("Bu hesap artık kullanılamıyor. Lütfen farklı bir hesapla giriş yap.");
+        return;
+      }
+      setMessage({ text: "Hesap bilgileri şu anda yenilenemedi. Bağlantını kontrol edip tekrar dene.", tone: "error" });
+      return;
     }
-    await loadAnnouncements(token, profileUniversityId);
+    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+    if (profile.id !== ownerSnapshot.ownerId || profile.status !== "active") {
+      await clearExpiredSession("Bu hesap artık kullanılamıyor. Lütfen farklı bir hesapla giriş yap.");
+      return;
+    }
+    await loadPreferences(token, ownerSnapshot);
+    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+    const profileUniversityId = profile.universityId ?? "";
+    setSelectedUniversityId(profileUniversityId);
+    setRegisterUniversityId(profileUniversityId);
+    setRegisterFacultyId(profile.facultyId ?? "");
+    setRegisterDepartmentId(profile.departmentId ?? "");
+    if (profileUniversityId) {
+      await loadMyCalendar(token, ownerSnapshot);
+      await loadUpcoming(token, ownerSnapshot);
+    }
+    await loadAnnouncements(token, profileUniversityId, ownerSnapshot);
   }
 
   async function handleAuth(): Promise<void> {
-    if (!email.trim() || !password.trim()) {
+    if (accountCleanupInProgressRef.current || authOperationInProgressRef.current) {
+      setMessage({ text: "Başka bir hesap işlemi tamamlanıyor. Lütfen kısa bir süre bekle.", tone: "info" });
+      return;
+    }
+    if (!email.trim() || password.length === 0) {
       Alert.alert("Eksik alan", "E-posta ve şifre zorunludur.");
       return;
     }
-    if (!deviceId) {
+    if (authMode === "register" && password.length < AUTH_PASSWORD_MIN_LENGTH) {
+      Alert.alert("Şifre çok kısa", `Şifren en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmalıdır.`);
+      return;
+    }
+    const currentDeviceId = deviceIdRef.current;
+    if (!currentDeviceId) {
       Alert.alert("Hazırlanıyor", "Cihaz kimliği henüz hazır değil.");
       return;
     }
 
+    const isRegister = authMode === "register";
+    authOperationInProgressRef.current = true;
     try {
       setBusy(true);
-      const isRegister = authMode === "register";
       if (!isRegister) {
         const nextSession = await apiRequest<SessionPayload>(
-          "/auth/login",
+          AUTH_ENDPOINTS.login,
           {
             method: "POST",
             body: JSON.stringify({
               email: email.trim().toLowerCase(),
-              password: password.trim(),
-              deviceId
+              password,
+              deviceId: currentDeviceId
             })
-          }
+          },
+          undefined,
+          { authOperation: "login" }
         );
 
         setAuthStage("auth");
-        setPendingVerifiedSession(null);
-        await activateSession(nextSession);
+        const snapshot = await activateSession(nextSession);
+        setPassword("");
         setActiveTab("home");
         setMessage({ text: "Giriş başarılı.", tone: "success" });
-        await bootstrapAuthenticatedContext(nextSession.accessToken);
+        await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
         return;
       }
 
       const registerResult = await apiRequest<RegisterResponse>(
-        "/auth/register",
+        AUTH_ENDPOINTS.register,
         {
           method: "POST",
           body: JSON.stringify({
             fullName: fullName.trim() || "Mobil Öğrenci",
             email: email.trim().toLowerCase(),
-            password: password.trim(),
-            passwordConfirmation: password.trim()
+            password,
+            passwordConfirmation: password
           })
-        }
+        },
+        undefined,
+        { authOperation: "register" }
       );
 
+      const record = createPendingVerificationRecord(registerResult);
+      setPendingVerification(record);
       setAuthStage("verify");
       setRegisterPicker("none");
       setVerificationToken(registerResult.previewVerificationToken ?? "");
-      setMessage({
-        text: registerResult.previewVerificationToken ? "Doğrulama kodu hazır. Devam etmek için doğrulamayı tamamla." : "Doğrulama kodu e-postana gönderildi.",
-        tone: "info"
-      });
+      try {
+        await persistPendingVerification(record);
+        setMessage({
+          text: registerResult.previewVerificationToken ? "Doğrulama kodu hazır. Devam etmek için doğrulamayı tamamla." : "Doğrulama kodu e-postana gönderildi.",
+          tone: "info"
+        });
+      } catch {
+        setCleanupIssue({ action: "verification_save", failedTargets: ["pending_verification_storage"] });
+        setMessage({
+          text: "Hesap oluşturuldu ve kod gönderildi; ancak doğrulama adımı cihazda saklanamadı. Bu ekranı kapatmadan doğrulamayı tamamla.",
+          tone: "error"
+        });
+      }
     } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
+      if (!isRegister && error instanceof ApiRequestError && error.code === "email_not_verified") {
+        await openVerificationRecovery(email).catch(() => undefined);
+      }
       setMessage({
         text: userMessageFromError(error, "Giriş işlemi tamamlanamadı"),
         tone: "error"
       });
     } finally {
+      authOperationInProgressRef.current = false;
       setBusy(false);
     }
   }
 
   async function handleGoogleAuth(): Promise<void> {
+    if (accountCleanupInProgressRef.current || authOperationInProgressRef.current) {
+      setMessage({ text: "Başka bir hesap işlemi tamamlanıyor. Lütfen kısa bir süre bekle.", tone: "info" });
+      return;
+    }
     if (!GOOGLE_AUTH_CONFIGURED) {
       setMessage({ text: GOOGLE_AUTH_CONFIGURATION_MESSAGE, tone: "error" });
       return;
@@ -1162,27 +1878,32 @@ export default function App() {
       return;
     }
 
+    authOperationInProgressRef.current = true;
     try {
       setGoogleBusy(true);
-      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      await clearGoogleAccountSelection();
+      const nativeAuth = await enqueueGoogleSdkOperation(async () => {
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        await clearGoogleAccountSelection();
+        const result = await GoogleSignin.signIn();
+        if (isCancelledResponse(result)) return { cancelled: true as const, idToken: null };
 
-      const result = await GoogleSignin.signIn();
-      if (isCancelledResponse(result)) {
+        let idToken = result.data.idToken;
+        if (!idToken) {
+          try {
+            idToken = (await GoogleSignin.getTokens()).idToken;
+          } catch {
+            idToken = null;
+          }
+        }
+        return { cancelled: false as const, idToken };
+      });
+      if (nativeAuth.cancelled) {
         setMessage({ text: "Google girişi tamamlanmadan kapatıldı.", tone: "info" });
         return;
       }
-
-      let idToken = result.data.idToken;
+      const idToken = nativeAuth.idToken;
       if (!idToken) {
-        try {
-          idToken = (await GoogleSignin.getTokens()).idToken;
-        } catch {
-          idToken = null;
-        }
-      }
-      if (!idToken) {
-        await clearGoogleAccountSelection();
+        await queueGoogleSignOut();
         setMessage({ text: GOOGLE_ID_TOKEN_CONFIGURATION_MESSAGE, tone: "error" });
         return;
       }
@@ -1191,17 +1912,20 @@ export default function App() {
         "/auth/google",
         {
           method: "POST",
-          body: JSON.stringify({ idToken, deviceId })
-        }
+          body: JSON.stringify({ idToken, deviceId: deviceIdRef.current })
+        },
+        undefined,
+        { authOperation: "google_sign_in" }
       );
 
       setAuthStage("auth");
-      setPendingVerifiedSession(null);
-      await activateSession(nextSession);
+      const snapshot = await activateSession(nextSession);
+      setPassword("");
       setActiveTab("home");
       setMessage({ text: "Google ile giriş başarılı.", tone: "success" });
-      await bootstrapAuthenticatedContext(nextSession.accessToken);
+      await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
     } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
       if (isErrorWithCode(error)) {
         if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
           setMessage({ text: "Google Play Hizmetleri bu cihazda hazır değil veya güncellenmeli.", tone: "error" });
@@ -1216,104 +1940,129 @@ export default function App() {
           return;
         }
       }
+      if (error instanceof ApiRequestError && error.code === "disabled_account") {
+        await queueGoogleSignOut();
+        setMessage({ text: error.message, tone: "error" });
+        return;
+      }
       if (error instanceof ApiRequestError && error.status === 401) {
-        await clearGoogleAccountSelection();
+        await queueGoogleSignOut();
         setMessage({
           text: "Google oturumu doğrulanamadı. Hesap seçimi sıfırlandı; tekrar deneyip farklı bir Google hesabı seçebilirsin.",
           tone: "error"
         });
         return;
       }
-      await clearGoogleAccountSelection();
+      await queueGoogleSignOut();
       setMessage({
         text: userMessageFromError(error, "Google girişi tamamlanamadı"),
         tone: "error"
       });
     } finally {
+      authOperationInProgressRef.current = false;
       setGoogleBusy(false);
     }
   }
 
   async function resendVerificationEmail(): Promise<void> {
-    if (!registerIdentityReady) {
-      setMessage({ text: "Kodu tekrar göndermek için önce kayıt bilgilerini tamamla.", tone: "error" });
-      setAuthStage("auth");
+    if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setMessage({ text: "Kod istemek için e-posta adresini gir.", tone: "error" });
+      return;
+    }
+    if (verificationTiming && verificationTiming.resendInSeconds > 0) {
+      setMessage({ text: "Yeni kod istemeden önce geri sayımın bitmesini bekle.", tone: "info" });
       return;
     }
 
-    if (!deviceId) {
-      setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
-      return;
-    }
-
+    authOperationInProgressRef.current = true;
     try {
       setBusy(true);
       const registerResult = await apiRequest<RegisterResponse>(
-        "/auth/register",
+        AUTH_ENDPOINTS.resendVerificationCode,
         {
           method: "POST",
-          body: JSON.stringify({
-            fullName: fullName.trim() || "Mobil Öğrenci",
-            email: email.trim().toLowerCase(),
-            password: password.trim(),
-            passwordConfirmation: password.trim()
-          })
-        }
+          body: JSON.stringify({ email: normalizedEmail })
+        },
+        undefined,
+        { authOperation: "resend_verification" }
       );
 
+      const record = createPendingVerificationRecord(registerResult);
+      setPendingVerification(record);
       setVerificationToken(registerResult.previewVerificationToken ?? "");
-      setMessage({
-        text: registerResult.previewVerificationToken ? "Doğrulama kodu yenilendi ve dolduruldu." : "Doğrulama kodu tekrar gönderildi.",
-        tone: "info"
-      });
+      try {
+        await persistPendingVerification(record);
+        setMessage({
+          text: registerResult.previewVerificationToken ? "Doğrulama kodu yenilendi ve dolduruldu." : "Doğrulama kodu tekrar gönderildi.",
+          tone: "info"
+        });
+      } catch {
+        setCleanupIssue({ action: "verification_save", failedTargets: ["pending_verification_storage"] });
+        setMessage({
+          text: "Yeni kod gönderildi; ancak doğrulama süresi cihazda saklanamadı.",
+          tone: "error"
+        });
+      }
     } catch (error) {
+      if (error instanceof ApiRequestError) {
+        const resendAvailableAt = error.details?.resendAvailableAt;
+        if (typeof resendAvailableAt === "string" && pendingVerification) {
+          const record = createPendingVerificationRecord({
+            ...pendingVerification,
+            resendAvailableAt
+          });
+          setPendingVerification(record);
+          await persistPendingVerification(record).catch(() => undefined);
+        }
+      }
       setMessage({
         text: userMessageFromError(error, "Kod tekrar gönderilemedi"),
         tone: "error"
       });
     } finally {
+      authOperationInProgressRef.current = false;
       setBusy(false);
     }
   }
 
   async function handleVerifyEmail(): Promise<void> {
+    if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
     if (!verificationToken.trim()) {
       setMessage({ text: "Doğrulama kodu gereklidir.", tone: "error" });
       return;
     }
 
-    if (!deviceId) {
+    const currentDeviceId = deviceIdRef.current;
+    if (!currentDeviceId) {
       setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
       return;
     }
 
+    authOperationInProgressRef.current = true;
     try {
       setBusy(true);
       await apiRequest<{ status: "verified"; email: string }>(
-        "/auth/verify-email",
+        AUTH_ENDPOINTS.verifyEmail,
         {
           method: "POST",
           body: JSON.stringify({
             email: email.trim().toLowerCase(),
             code: verificationToken.trim(),
-            deviceId
+            deviceId: currentDeviceId
           })
-        }
+        },
+        undefined,
+        { authOperation: "verify_email" }
       );
 
-      const nextSession = await apiRequest<SessionPayload>(
-        "/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            email: email.trim().toLowerCase(),
-            password: password.trim(),
-            deviceId
-          })
-        }
-      );
-
-      setPendingVerifiedSession(nextSession);
+      setPendingVerification(null);
+      try {
+        await persistPendingVerification(null);
+      } catch {
+        setCleanupIssue({ action: "verification_clear", failedTargets: ["pending_verification_storage"] });
+      }
       setAuthStage("profile_confirm");
       setMessage({ text: "E-posta doğrulandı. Son adım: profilini onayla.", tone: "success" });
     } catch (error) {
@@ -1322,84 +2071,363 @@ export default function App() {
         tone: "error"
       });
     } finally {
+      authOperationInProgressRef.current = false;
       setBusy(false);
     }
   }
 
   async function confirmProfileAndStart(): Promise<void> {
-    if (!pendingVerifiedSession) {
-      setMessage({ text: "Oturum hazır değil. Doğrulama adımını tekrarla.", tone: "error" });
-      setAuthStage("verify");
+    if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
+    if (password.length === 0) {
+      setAuthMode("login");
+      setAuthStage("auth");
+      setVerificationToken("");
+      setMessage({ text: "E-posta doğrulandı. Devam etmek için şifrenle giriş yap.", tone: "success" });
       return;
     }
 
+    authOperationInProgressRef.current = true;
     try {
       setBusy(true);
-      const nextSession = pendingVerifiedSession;
-      await activateSession(nextSession);
-      setPendingVerifiedSession(null);
+      const nextSession = await apiRequest<SessionPayload>(
+        AUTH_ENDPOINTS.login,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            password,
+            deviceId: deviceIdRef.current
+          })
+        },
+        undefined,
+        { authOperation: "login" }
+      );
+      const snapshot = await activateSession(nextSession);
       setAuthStage("auth");
       setActiveTab("home");
+      setPassword("");
       setMessage({ text: "Profilin onaylandı. Uygulamayı kullanmaya başlayabilirsin.", tone: "success" });
-      await bootstrapAuthenticatedContext(nextSession.accessToken);
+      await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
+      setAuthMode("login");
+      setAuthStage("auth");
+      setMessage({
+        text: `E-posta doğrulandı ancak giriş tamamlanamadı. ${userMessageFromError(error, "Şifreni girip tekrar dene.")}`,
+        tone: "error"
+      });
     } finally {
+      authOperationInProgressRef.current = false;
       setBusy(false);
     }
   }
 
-  function returnToRegisterForm(): void {
-    setAuthMode("register");
+  function openPasswordRecovery(candidateEmail = email): void {
+    setEmail(candidateEmail.trim().toLowerCase());
+    setPassword("");
+    setPasswordVisible(false);
+    setPasswordRecoveryCode("");
+    setNewPassword("");
+    setPasswordConfirmation("");
+    setNewPasswordVisible(false);
+    setPasswordConfirmationVisible(false);
+    setPendingPasswordRecovery(null);
+    setPasswordRecoveryFeedback(null);
+    setAuthMode("login");
+    setAuthStage("password_recovery_request");
+  }
+
+  async function requestPasswordRecovery(): Promise<void> {
+    if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
+    const normalizedEmail = email.trim().toLowerCase();
+    const validation = validatePasswordRecoveryRequest(normalizedEmail);
+    if (!validation.valid) {
+      setPasswordRecoveryFeedback({ text: validation.message, tone: "error" });
+      return;
+    }
+    if (
+      pendingPasswordRecovery?.email === normalizedEmail
+      && passwordRecoveryTiming
+      && passwordRecoveryTiming.resendInSeconds > 0
+    ) {
+      setPasswordRecoveryFeedback({
+        text: "Yeni kod istemeden önce geri sayımın bitmesini bekle.",
+        tone: "info"
+      });
+      return;
+    }
+
+    authOperationInProgressRef.current = true;
+    try {
+      setBusy(true);
+      setPasswordRecoveryFeedback(null);
+      const result = await apiRequest<PasswordRecoveryRequestResponse>(
+        AUTH_ENDPOINTS.passwordRecoveryRequest,
+        {
+          method: "POST",
+          body: JSON.stringify({ email: normalizedEmail })
+        },
+        undefined,
+        { authOperation: "request_password_recovery" }
+      );
+
+      const nowMs = Date.now();
+      const expiresInSeconds = Number.isFinite(result.expiresInSeconds)
+        ? Math.max(1, Math.floor(result.expiresInSeconds))
+        : 600;
+      const resendAfterSeconds = Number.isFinite(result.resendAfterSeconds)
+        ? Math.max(0, Math.floor(result.resendAfterSeconds))
+        : 60;
+      const record = createPendingPasswordRecoveryRecord({
+        email: normalizedEmail,
+        recoveryExpiresAt: new Date(nowMs + expiresInSeconds * 1_000).toISOString(),
+        resendAvailableAt: new Date(nowMs + resendAfterSeconds * 1_000).toISOString()
+      });
+      const previewCode = typeof result.previewRecoveryCode === "string"
+        && new RegExp(`^\\d{${PASSWORD_RECOVERY_CODE_LENGTH}}$`).test(result.previewRecoveryCode)
+        ? result.previewRecoveryCode
+        : "";
+
+      setPendingPasswordRecovery(record);
+      setPasswordRecoveryClockMs(nowMs);
+      setPasswordRecoveryCode(previewCode);
+      setNewPassword("");
+      setPasswordConfirmation("");
+      setNewPasswordVisible(false);
+      setPasswordConfirmationVisible(false);
+      setAuthStage("password_recovery_confirm");
+      setPasswordRecoveryFeedback({
+        text: previewCode
+          ? "Sıfırlama kodu hazır. Yeni şifreni belirleyebilirsin."
+          : "Hesap uygunsa sıfırlama kodu e-posta adresine gönderildi.",
+        tone: "success"
+      });
+    } catch (error) {
+      setPasswordRecoveryFeedback({
+        text: userMessageFromError(error, "Şifre sıfırlama isteği tamamlanamadı."),
+        tone: "error"
+      });
+    } finally {
+      authOperationInProgressRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function confirmPasswordRecovery(): Promise<void> {
+    if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
+    if (!pendingPasswordRecovery) {
+      setAuthStage("password_recovery_request");
+      setPasswordRecoveryFeedback({
+        text: "Önce e-posta adresin için yeni bir sıfırlama kodu iste.",
+        tone: "error"
+      });
+      return;
+    }
+    const validation = validatePasswordRecoveryConfirmation({
+      code: passwordRecoveryCode,
+      newPassword,
+      passwordConfirmation
+    });
+    if (!validation.valid) {
+      setPasswordRecoveryFeedback({ text: validation.message, tone: "error" });
+      return;
+    }
+    if (passwordRecoveryTiming?.expired) {
+      setPasswordRecoveryFeedback({
+        text: "Şifre sıfırlama kodunun süresi dolmuş. Yeni bir kod iste.",
+        tone: "error"
+      });
+      return;
+    }
+
+    authOperationInProgressRef.current = true;
+    try {
+      setBusy(true);
+      setPasswordRecoveryFeedback(null);
+      await apiRequest<PasswordRecoveryConfirmResponse>(
+        AUTH_ENDPOINTS.passwordRecoveryConfirm,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: pendingPasswordRecovery.email,
+            code: passwordRecoveryCode.trim(),
+            newPassword,
+            passwordConfirmation
+          })
+        },
+        undefined,
+        { authOperation: "confirm_password_recovery" }
+      );
+
+      setPasswordRecoveryCode("");
+      setNewPassword("");
+      setPasswordConfirmation("");
+      setNewPasswordVisible(false);
+      setPasswordConfirmationVisible(false);
+      setPendingPasswordRecovery(null);
+      setPasswordRecoveryFeedback(null);
+      setPassword("");
+      setPasswordVisible(false);
+      setAuthMode("login");
+      setAuthStage("auth");
+      setMessage({
+        text: "Şifren başarıyla yenilendi. Yeni şifrenle giriş yapabilirsin.",
+        tone: "success"
+      });
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.code === "password_recovery_code_expired") {
+        setPendingPasswordRecovery(createPendingPasswordRecoveryRecord({
+          ...pendingPasswordRecovery,
+          recoveryExpiresAt: new Date().toISOString()
+        }));
+      }
+      setPasswordRecoveryFeedback({
+        text: userMessageFromError(error, "Şifre yenilenemedi. Bilgilerini kontrol edip tekrar dene."),
+        tone: "error"
+      });
+    } finally {
+      authOperationInProgressRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  function returnToPasswordRecoveryRequest(): void {
+    setPasswordRecoveryCode("");
+    setNewPassword("");
+    setPasswordConfirmation("");
+    setNewPasswordVisible(false);
+    setPasswordConfirmationVisible(false);
+    setPasswordRecoveryFeedback(null);
+    setAuthStage("password_recovery_request");
+  }
+
+  function cancelPasswordRecovery(): void {
+    setPasswordRecoveryCode("");
+    setNewPassword("");
+    setPasswordConfirmation("");
+    setNewPasswordVisible(false);
+    setPasswordConfirmationVisible(false);
+    setPendingPasswordRecovery(null);
+    setPasswordRecoveryFeedback(null);
+    setPassword("");
+    setPasswordVisible(false);
+    setAuthMode("login");
     setAuthStage("auth");
-    setPendingVerifiedSession(null);
+  }
+
+  async function openVerificationRecovery(candidateEmail = email): Promise<void> {
+    const normalizedEmail = candidateEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setMessage({ text: "Önce doğrulamak istediğin e-posta adresini gir.", tone: "error" });
+      return;
+    }
+    const record = createPendingVerificationRecord({
+      email: normalizedEmail,
+      verificationExpiresAt: new Date().toISOString()
+    });
+    setEmail(normalizedEmail);
+    setPassword("");
+    setPendingVerification(record);
+    setVerificationToken("");
+    setAuthMode("login");
+    setAuthStage("verify");
+    try {
+      await persistPendingVerification(record);
+    } catch {
+      setCleanupIssue({ action: "verification_save", failedTargets: ["pending_verification_storage"] });
+      setMessage({
+        text: "Doğrulama ekranı açıldı; ancak bu adım cihazda saklanamadı.",
+        tone: "error"
+      });
+    }
+  }
+
+  function returnToLoginForm(): void {
+    setAuthMode("login");
+    setAuthStage("auth");
+    setPassword("");
+    setPasswordVisible(false);
+    setPasswordRecoveryCode("");
+    setNewPassword("");
+    setPasswordConfirmation("");
+    setNewPasswordVisible(false);
+    setPasswordConfirmationVisible(false);
+    setPendingPasswordRecovery(null);
+    setPasswordRecoveryFeedback(null);
     setRegisterPicker("none");
     setVerificationToken("");
   }
 
   async function handleLogout(): Promise<void> {
-    if (!session) return;
-
-    try {
-      setBusy(true);
-      await apiRequest<{ status: "ok" }>(
-        "/auth/logout",
-        {
-          method: "POST",
-          body: JSON.stringify({ refreshToken: session.refreshToken })
-        },
-        session.accessToken,
-        { skipAuthRefresh: true }
-      );
-    } catch {
-      // Deliberately ignore logout network errors and continue local cleanup.
-    } finally {
+    if (!session || accountCleanupInProgressRef.current) return;
+    const closingSession = session;
+    const ownerId = closingSession.user.id;
+    accountCleanupInProgressRef.current = true;
+    setBusy(true);
+    const sessionStorageResult = await runObservableAccountCleanup([
+      { target: "session_storage", run: () => persistSession(null, invalidateAuthenticatedWork) }
+    ]);
+    if (!sessionStorageResult.complete) {
+      reportCleanupResult("logout", sessionStorageResult, ownerId);
+      accountCleanupInProgressRef.current = false;
       setBusy(false);
-      sessionRef.current = null;
-      setSession(null);
-      setAuthStage("auth");
-      setActiveTab("home");
-      setSelectedUniversityId("");
-      setCalendar({ loading: false });
-      setUpcoming({ loading: false });
-      setAnnouncements({ loading: false });
-      setYokAnnouncements({ loading: false });
-      setSummerSchool({ loading: false });
-      setPreferences({ loading: false });
-      setGoogleCalendarIntegration(null);
-      setGoogleCalendarError(null);
-      if (GOOGLE_AUTH_CONFIGURED) {
-        try {
-          await GoogleSignin.signOut();
-        } catch {
-          // Ignore native Google sign-out failures during local cleanup.
+      setMessage({
+        text: "Çıkış tamamlanamadı; cihaz oturumu güvenli biçimde kaldırılamadığı için bu hesap açık bırakıldı. Tekrar deneyebilirsin.",
+        tone: "error"
+      });
+      return;
+    }
+    const result = await runObservableAccountCleanup([
+      { target: "in_memory_state", run: () => clearAuthenticatedMemory() },
+      {
+        target: "pending_verification_storage",
+        run: () => persistPendingVerification(null)
+      },
+      {
+        target: "google_connection_storage",
+        run: () => enqueueStorageMutation(() => persistGoogleCalendarConnection(null, ownerId))
+      },
+      {
+        target: "google_sign_in",
+        run: async () => {
+          await queueGoogleSignOut();
         }
+      },
+      {
+        target: "server_session",
+        timeoutMs: 8_000,
+        run: () => apiRequest<{ status: "ok" }>(
+          "/auth/logout",
+          {
+            method: "POST",
+            body: JSON.stringify({ refreshToken: closingSession.refreshToken })
+          },
+          closingSession.accessToken,
+          { skipAuthRefresh: true, authOperation: "logout", detached: true, timeoutMs: 8_000 }
+        ).then(() => undefined)
       }
-      await persistSession(null);
-      await persistGoogleCalendarConnection(null);
+    ]);
+    accountCleanupInProgressRef.current = false;
+    setBusy(false);
+    reportCleanupResult("logout", result, ownerId);
+    if (result.complete) {
       setMessage({ text: "Çıkış yapıldı.", tone: "info" });
+    } else if (result.failedTargets.every((target) => target === "server_session")) {
+      setMessage({
+        text: "Bu cihazdaki çıkış tamamlandı; sunucudaki oturumun sonlandırıldığı doğrulanamadı.",
+        tone: "info"
+      });
+    } else {
+      setMessage({
+        text: "Çıkış ekranda tamamlandı; bazı cihaz kayıtları temizlenemedi. Aşağıdan tekrar deneyebilirsin.",
+        tone: "error"
+      });
     }
   }
 
   function resetUserScopedState(): void {
+    setManualExamsHydrated(false);
+    setManualExamOwnerId(null);
     setSelectedUniversityId("");
     setRegisterUniversityId("");
     setRegisterFacultyId("");
@@ -1410,13 +2438,148 @@ export default function App() {
     setCalendar({ loading: false });
     setUpcoming({ loading: false });
     setAnnouncements({ loading: false });
+    setYokAnnouncements({ loading: false });
     setSummerSchool({ loading: false });
     setPreferences({ loading: false });
+    setAlarmEnabled(true);
+    setAlarmMode("all_calendar");
+    setCategoryDraft({});
+    setAlarmCategoriesExpanded(false);
     setGoogleCalendarIntegration(null);
     setGoogleCalendarError(null);
+    setGoogleCalendarBusy(false);
+    setGoogleBusy(false);
+    academicSelectionPendingRef.current = null;
+    setAcademicSelectionPending(null);
     setManualExams([]);
     setManualExamTitle("");
     setManualExamDate("");
+  }
+
+  function clearAuthenticatedMemory(): void {
+    sessionRef.current = null;
+    setSession(null);
+    setAuthMode("login");
+    setAuthStage("auth");
+    setActiveTab("home");
+    setEmail("");
+    setPassword("");
+    setPasswordVisible(false);
+    setFullName("");
+    setVerificationToken("");
+    setPendingVerification(null);
+    resetUserScopedState();
+  }
+
+  function reportCleanupResult(
+    action: "logout" | "session_expiry" | "data_deletion" | "account_deletion" | "verification_save" | "verification_clear" | "activation" | "manual_exam_save",
+    result: AccountCleanupResult,
+    ownerId?: string
+  ): void {
+    setCleanupIssue(result.complete ? null : { action, failedTargets: result.failedTargets, ownerId });
+  }
+
+  async function retryFailedCleanup(): Promise<void> {
+    if (!cleanupIssue || accountCleanupInProgressRef.current || authOperationInProgressRef.current) return;
+    const issue = cleanupIssue;
+    if (
+      issue.action === "logout"
+      && issue.failedTargets.includes("session_storage")
+      && sessionRef.current
+      && (!issue.ownerId || sessionRef.current.user.id === issue.ownerId)
+    ) {
+      setCleanupIssue(null);
+      await handleLogout();
+      return;
+    }
+    if (
+      issue.action === "account_deletion"
+      && issue.failedTargets.includes("session_storage")
+      && sessionRef.current
+      && (!issue.ownerId || sessionRef.current.user.id === issue.ownerId)
+    ) {
+      setCleanupIssue(null);
+      await deleteAccount();
+      return;
+    }
+    const currentSnapshot = accountGuardRef.current.capture();
+    if (
+      issue.ownerId
+      && currentSnapshot
+      && currentSnapshot.ownerId !== issue.ownerId
+    ) {
+      setCleanupIssue(null);
+      setMessage({ text: "Hesap değiştiği için eski hesaba ait tekrar deneme iptal edildi.", tone: "info" });
+      return;
+    }
+
+    accountCleanupInProgressRef.current = true;
+    setBusy(true);
+    try {
+      const localTargets = issue.failedTargets.filter(
+        (target) => target !== "server_session" && target !== "server_account"
+      );
+      const tasks = localTargets.map((target) => ({
+        target,
+        run: async () => {
+          if (target === "session_storage") await persistSession(null);
+          else if (target === "pending_verification_storage") {
+            if (issue.action === "verification_save") {
+              if (!pendingVerification) throw new Error("Pending verification state is no longer available.");
+              await persistPendingVerification(pendingVerification);
+            } else {
+              await persistPendingVerification(null);
+            }
+          }
+          else if (target === "manual_exam_storage" && issue.ownerId) {
+            if (issue.action === "activation") {
+              await restoreManualExams(issue.ownerId, currentSnapshot);
+            } else if (issue.action === "manual_exam_save") {
+              if (!currentSnapshot || !accountGuardRef.current.isCurrent(currentSnapshot)) throw new StaleAccountRequestError();
+              await enqueueStorageMutation(async () => {
+                if (!accountGuardRef.current.isCurrent(currentSnapshot)) throw new StaleAccountRequestError();
+                await setStoredValue(
+                  createManualExamStorageKey(issue.ownerId as string),
+                  serializeManualExamEnvelope(issue.ownerId as string, manualExams)
+                );
+              });
+            } else {
+              await enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(issue.ownerId as string)));
+            }
+          } else if (target === "google_connection_storage") {
+            if (issue.action === "activation" && issue.ownerId) {
+              await restoreGoogleCalendarConnection(issue.ownerId, currentSnapshot);
+            } else {
+              await enqueueStorageMutation(() => persistGoogleCalendarConnection(null, issue.ownerId));
+            }
+          } else if (target === "google_sign_in" && GOOGLE_AUTH_CONFIGURED) {
+            await queueGoogleSignOut();
+          } else if (target === "in_memory_state") {
+            clearAuthenticatedMemory();
+          }
+        }
+      }));
+      const retryResult = await runObservableAccountCleanup(tasks);
+      const unresolvedServer = issue.failedTargets.filter(
+        (target) => target === "server_session" || target === "server_account"
+      );
+      const failedTargets = [...unresolvedServer, ...retryResult.failedTargets];
+      if (failedTargets.length === 0) {
+        setCleanupIssue(null);
+        if (issue.action === "data_deletion" && issue.ownerId && sessionRef.current?.user.id === issue.ownerId) {
+          setManualExams([]);
+          setManualExamOwnerId(issue.ownerId);
+          setManualExamsHydrated(true);
+        }
+        setMessage({ text: "Cihazdaki temizlik tamamlandı.", tone: "success" });
+      } else {
+        setCleanupIssue({ ...issue, failedTargets });
+        setMessage({ text: "Bazı temizlik adımları hâlâ tamamlanamadı.", tone: "error" });
+      }
+    } finally {
+      accountCleanupInProgressRef.current = false;
+      setBusy(false);
+    }
   }
 
   function confirmDeleteMyData(): void {
@@ -1436,17 +2599,59 @@ export default function App() {
   }
 
   async function deleteMyData(): Promise<void> {
-    if (!session) return;
+    if (!session || accountCleanupInProgressRef.current) return;
+    const currentSession = session;
+    accountCleanupInProgressRef.current = true;
+    setBusy(true);
     try {
-      setBusy(true);
-      await apiRequest<{ status: "deleted" }>("/me/data", { method: "DELETE" }, session.accessToken);
+      await waitForAuthenticatedMutations();
+      await apiRequest<{ status: "deleted" }>(
+        "/me/data",
+        { method: "DELETE" },
+        currentSession.accessToken,
+        { skipAuthRefresh: true, detached: true }
+      );
+      invalidateAuthenticatedWork();
       resetUserScopedState();
-      await persistGoogleCalendarConnection(null);
-      await deleteStoredValue(MANUAL_EXAMS_STORAGE_KEY);
-      setMessage({ text: "Uygulama verilerin silindi. Hesabın açık kalmaya devam ediyor.", tone: "success" });
+      setPendingVerification(null);
+      accountGuardRef.current.activate(currentSession.user.id);
+      const result = await runObservableAccountCleanup([
+        {
+          target: "pending_verification_storage",
+          run: () => persistPendingVerification(null)
+        },
+        {
+          target: "manual_exam_storage",
+          run: () => enqueueStorageMutation(
+            () => deleteStoredValue(createManualExamStorageKey(currentSession.user.id))
+          )
+        },
+        {
+          target: "google_connection_storage",
+          run: () => enqueueStorageMutation(
+            () => persistGoogleCalendarConnection(null, currentSession.user.id)
+          )
+        },
+        {
+          target: "google_sign_in",
+          run: async () => {
+            await queueGoogleSignOut();
+          }
+        }
+      ]);
+      setManualExamOwnerId(currentSession.user.id);
+      setManualExamsHydrated(!result.failedTargets.includes("manual_exam_storage"));
+      reportCleanupResult("data_deletion", result, currentSession.user.id);
+      setMessage({
+        text: result.complete
+          ? "Uygulama verilerin silindi. Hesabın açık kalmaya devam ediyor."
+          : "Sunucudaki veriler silindi; bazı cihaz kayıtları temizlenemedi.",
+        tone: result.complete ? "success" : "error"
+      });
     } catch (error) {
       setMessage({ text: userMessageFromError(error, "Veriler silinemedi. Lütfen tekrar dene."), tone: "error" });
     } finally {
+      accountCleanupInProgressRef.current = false;
       setBusy(false);
     }
   }
@@ -1468,49 +2673,73 @@ export default function App() {
   }
 
   async function deleteAccount(): Promise<void> {
-    if (!session) return;
-    try {
-      setBusy(true);
-      await apiRequest<{ status: "deleted" }>(
-        "/me",
-        {
-          method: "DELETE",
-          body: JSON.stringify({ deleteData: true })
-        },
-        session.accessToken,
-        { skipAuthRefresh: true }
-      );
-      sessionRef.current = null;
-      setSession(null);
-      setAuthStage("auth");
-      setAuthMode("login");
-      setActiveTab("home");
-      setEmail("");
-      setPassword("");
-      setFullName("");
-      resetUserScopedState();
-      await persistSession(null);
-      await persistGoogleCalendarConnection(null);
-      await deleteStoredValue(MANUAL_EXAMS_STORAGE_KEY);
-      if (GOOGLE_AUTH_CONFIGURED) {
-        try {
-          await GoogleSignin.signOut();
-        } catch {
-          // Ignore native Google sign-out failures after account deletion.
-        }
-      }
-      setMessage({ text: "Hesabın ve uygulama verilerin silindi.", tone: "success" });
-    } catch (error) {
-      setMessage({ text: userMessageFromError(error, "Hesap silinemedi. Lütfen tekrar dene."), tone: "error" });
-    } finally {
+    if (!session || accountCleanupInProgressRef.current) return;
+    const closingSession = session;
+    const ownerId = closingSession.user.id;
+    accountCleanupInProgressRef.current = true;
+    setBusy(true);
+    const sessionStorageResult = await runObservableAccountCleanup([
+      { target: "session_storage", run: () => persistSession(null, invalidateAuthenticatedWork) }
+    ]);
+    if (!sessionStorageResult.complete) {
+      reportCleanupResult("account_deletion", sessionStorageResult, ownerId);
+      accountCleanupInProgressRef.current = false;
       setBusy(false);
+      setMessage({
+        text: "Hesap silme başlatılmadı; cihaz oturumu güvenli biçimde kaldırılamadı. Tekrar deneyebilirsin.",
+        tone: "error"
+      });
+      return;
     }
+    const result = await runObservableAccountCleanup([
+      { target: "in_memory_state", run: () => clearAuthenticatedMemory() },
+      {
+        target: "pending_verification_storage",
+        run: () => persistPendingVerification(null)
+      },
+      {
+        target: "manual_exam_storage",
+        run: () => enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(ownerId)))
+      },
+      {
+        target: "google_connection_storage",
+        run: () => enqueueStorageMutation(() => persistGoogleCalendarConnection(null, ownerId))
+      },
+      {
+        target: "google_sign_in",
+        run: async () => {
+          await queueGoogleSignOut();
+        }
+      },
+      {
+        target: "server_account",
+        timeoutMs: 8_000,
+        run: () => apiRequest<{ status: "deleted" }>(
+          "/me",
+          { method: "DELETE", body: JSON.stringify({ deleteData: true }) },
+          closingSession.accessToken,
+          { skipAuthRefresh: true, authOperation: "delete_account", detached: true, timeoutMs: 8_000 }
+        ).then(() => undefined)
+      }
+    ]);
+    accountCleanupInProgressRef.current = false;
+    setBusy(false);
+    reportCleanupResult("account_deletion", result, ownerId);
+    setMessage({
+      text: result.complete
+        ? "Hesabın ve uygulama verilerin silindi."
+        : result.failedTargets.includes("server_account")
+          ? "Bu cihazdaki oturum temizlendi; sunucudaki hesabın silindiği doğrulanamadı. Tekrar giriş yapıp hesap silmeyi yeniden deneyebilirsin."
+          : "Bu cihazdaki hesap kapatıldı; bazı yerel silme adımları tamamlanamadı.",
+      tone: result.complete ? "success" : "error"
+    });
   }
 
   async function loadUniversities(): Promise<void> {
+    const ownerSnapshot = accountGuardRef.current.capture();
     await withLoadable(setUniversities, () =>
-      apiRequest<UniversityRecord[]>("/universities?limit=500&offset=0")
-    );
+      apiRequest<UniversityRecord[]>("/universities?limit=500&offset=0", {}, undefined, { ownerSnapshot })
+    , ownerSnapshot);
   }
 
   async function loadFacultiesForRegistration(universityId: string): Promise<void> {
@@ -1519,9 +2748,10 @@ export default function App() {
       return;
     }
 
+    const ownerSnapshot = accountGuardRef.current.capture();
     await withLoadable(setFaculties, () =>
-      apiRequest<FacultyRecord[]>(`/universities/${universityId}/faculties`)
-    );
+      apiRequest<FacultyRecord[]>(`/universities/${universityId}/faculties`, {}, undefined, { ownerSnapshot })
+    , ownerSnapshot);
   }
 
   async function loadDepartmentsForRegistration(facultyId: string): Promise<void> {
@@ -1530,9 +2760,10 @@ export default function App() {
       return;
     }
 
+    const ownerSnapshot = accountGuardRef.current.capture();
     await withLoadable(setDepartments, () =>
-      apiRequest<DepartmentRecord[]>(`/faculties/${facultyId}/departments`)
-    );
+      apiRequest<DepartmentRecord[]>(`/faculties/${facultyId}/departments`, {}, undefined, { ownerSnapshot })
+    , ownerSnapshot);
   }
 
   async function selectUniversity(universityId: string): Promise<void> {
@@ -1540,19 +2771,19 @@ export default function App() {
       setMessage({ text: "Üniversite bağlamak için önce giriş yapmalısın.", tone: "error" });
       return;
     }
-    if (academicSelectionPendingRef.current) return;
+    if (academicSelectionPendingRef.current || accountCleanupInProgressRef.current) return;
 
     try {
       academicSelectionPendingRef.current = "university";
       setAcademicSelectionPending("university");
-      await apiRequest<UserProfile>(
+      await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
         "/me/university",
         {
           method: "PATCH",
-          body: JSON.stringify({ universityId, classLevel: 2 })
+          body: JSON.stringify({ universityId })
         },
         accessToken
-      );
+      ));
 
       setSelectedUniversityId(universityId);
       setRegisterUniversityId(universityId);
@@ -1573,6 +2804,7 @@ export default function App() {
         loadPreferences(accessToken)
       ]);
     } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
       setMessage({
         text: userMessageFromError(error, "Üniversite seçimi güncellenemedi"),
         tone: "error"
@@ -1588,19 +2820,19 @@ export default function App() {
       setMessage({ text: "Fakülte seçmek için önce üniversite seçmelisin.", tone: "error" });
       return;
     }
-    if (academicSelectionPendingRef.current) return;
+    if (academicSelectionPendingRef.current || accountCleanupInProgressRef.current) return;
 
     try {
       academicSelectionPendingRef.current = "faculty";
       setAcademicSelectionPending("faculty");
-      await apiRequest<UserProfile>(
+      await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
         "/me/university",
         {
           method: "PATCH",
-          body: JSON.stringify({ universityId: registerUniversityId, facultyId, classLevel: 2 })
+          body: JSON.stringify({ universityId: registerUniversityId, facultyId })
         },
         accessToken
-      );
+      ));
 
       setRegisterFacultyId(facultyId);
       setRegisterDepartmentId("");
@@ -1612,6 +2844,7 @@ export default function App() {
 
       void loadAnnouncements(accessToken, registerUniversityId);
     } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
       setMessage({
         text: userMessageFromError(error, "Fakülte seçimi güncellenemedi"),
         tone: "error"
@@ -1627,24 +2860,23 @@ export default function App() {
       setMessage({ text: "Bölüm seçmek için önce üniversite ve fakülte seçmelisin.", tone: "error" });
       return;
     }
-    if (academicSelectionPendingRef.current) return;
+    if (academicSelectionPendingRef.current || accountCleanupInProgressRef.current) return;
 
     try {
       academicSelectionPendingRef.current = "department";
       setAcademicSelectionPending("department");
-      await apiRequest<UserProfile>(
+      await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
         "/me/university",
         {
           method: "PATCH",
           body: JSON.stringify({
             universityId: registerUniversityId,
             facultyId: registerFacultyId,
-            departmentId,
-            classLevel: 2
+            departmentId
           })
         },
         accessToken
-      );
+      ));
 
       setRegisterDepartmentId(departmentId);
       setRegisterPicker("none");
@@ -1653,6 +2885,7 @@ export default function App() {
 
       void loadAnnouncements(accessToken, registerUniversityId);
     } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
       setMessage({
         text: userMessageFromError(error, "Bölüm seçimi güncellenemedi"),
         tone: "error"
@@ -1663,21 +2896,39 @@ export default function App() {
     }
   }
 
-  async function loadMyCalendar(tokenOverride?: string): Promise<void> {
+  async function loadMyCalendar(
+    tokenOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture()
+  ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
-    await withLoadable(setCalendar, () => apiRequest<CalendarPayload>("/calendar/my", {}, token));
+    await withLoadable(
+      setCalendar,
+      () => apiRequest<CalendarPayload>("/calendar/my", {}, token, { ownerSnapshot }),
+      ownerSnapshot
+    );
   }
 
-  async function loadUpcoming(tokenOverride?: string): Promise<void> {
+  async function loadUpcoming(
+    tokenOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture()
+  ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
-    await withLoadable(setUpcoming, () => apiRequest<EventRecord[]>("/calendar/upcoming?limit=10", {}, token));
+    await withLoadable(
+      setUpcoming,
+      () => apiRequest<EventRecord[]>("/calendar/upcoming?limit=10", {}, token, { ownerSnapshot }),
+      ownerSnapshot
+    );
   }
 
-  async function loadAnnouncements(tokenOverride?: string, universityIdOverride?: string): Promise<void> {
+  async function loadAnnouncements(
+    tokenOverride?: string,
+    universityIdOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture()
+  ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
@@ -1687,14 +2938,27 @@ export default function App() {
       return;
     }
 
-    await withLoadable(setAnnouncements, () => apiRequest<AnnouncementRecord[]>("/announcements/my?limit=60", {}, token));
+    await withLoadable(
+      setAnnouncements,
+      () => apiRequest<AnnouncementRecord[]>("/announcements/my?limit=60", {}, token, { ownerSnapshot }),
+      ownerSnapshot
+    );
   }
 
   async function loadYokAnnouncements(): Promise<void> {
-    await withLoadable(setYokAnnouncements, () => apiRequest<AnnouncementRecord[]>("/announcements/yok?limit=30"));
+    const ownerSnapshot = accountGuardRef.current.capture();
+    await withLoadable(
+      setYokAnnouncements,
+      () => apiRequest<AnnouncementRecord[]>("/announcements/yok?limit=30", {}, undefined, { ownerSnapshot }),
+      ownerSnapshot
+    );
   }
 
-  async function loadSummerSchool(tokenOverride?: string, universityIdOverride?: string): Promise<void> {
+  async function loadSummerSchool(
+    tokenOverride?: string,
+    universityIdOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture()
+  ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
@@ -1704,57 +2968,130 @@ export default function App() {
       return;
     }
 
-    await withLoadable(setSummerSchool, () => apiRequest<SummerSchoolPayload>("/calendar/summer-school/my", {}, token));
+    await withLoadable(
+      setSummerSchool,
+      () => apiRequest<SummerSchoolPayload>("/calendar/summer-school/my", {}, token, { ownerSnapshot }),
+      ownerSnapshot
+    );
   }
 
-  async function loadPreferences(tokenOverride?: string): Promise<void> {
+  async function loadPreferences(
+    tokenOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture()
+  ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
-    await withLoadable(setPreferences, () => apiRequest<NotificationPreferencePayload>("/notification-preferences", {}, token));
+    await withLoadable(
+      setPreferences,
+      () => apiRequest<NotificationPreferencePayload>("/notification-preferences", {}, token, { ownerSnapshot }),
+      ownerSnapshot
+    );
   }
 
   async function authorizeGoogleCalendar(forceAccountSelection: boolean): Promise<{ accessToken: string; accountEmail: string }> {
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    return enqueueGoogleSdkOperation(async () => {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
-    if (forceAccountSelection) await clearGoogleAccountSelection();
-    let currentUser = GoogleSignin.getCurrentUser();
-    if (!currentUser) {
-      const signInResult = await GoogleSignin.signIn();
-      if (isCancelledResponse(signInResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
-      currentUser = signInResult.data;
-    }
+      if (forceAccountSelection) await clearGoogleAccountSelection();
+      let currentUser = GoogleSignin.getCurrentUser();
+      if (!currentUser) {
+        const signInResult = await GoogleSignin.signIn();
+        if (isCancelledResponse(signInResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
+        currentUser = signInResult.data;
+      }
 
-    const scopeResult = await GoogleSignin.addScopes({
-      scopes: [GOOGLE_CALENDAR_EVENTS_SCOPE]
+      const scopeResult = await GoogleSignin.addScopes({
+        scopes: [GOOGLE_CALENDAR_EVENTS_SCOPE]
+      });
+      if (scopeResult && isCancelledResponse(scopeResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
+
+      const tokens = await GoogleSignin.getTokens();
+      const accountEmail = GoogleSignin.getCurrentUser()?.user.email ?? currentUser.user.email;
+      if (!tokens.accessToken || !accountEmail) throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
+      return { accessToken: tokens.accessToken, accountEmail };
     });
-    if (scopeResult && isCancelledResponse(scopeResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
-
-    const tokens = await GoogleSignin.getTokens();
-    const accountEmail = GoogleSignin.getCurrentUser()?.user.email ?? currentUser.user.email;
-    if (!tokens.accessToken || !accountEmail) throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
-    return { accessToken: tokens.accessToken, accountEmail };
   }
 
   async function syncGoogleCalendar(forceAccountSelection = false): Promise<void> {
+    if (accountCleanupInProgressRef.current) return;
     const currentSession = sessionRef.current;
-    if (!currentSession?.accessToken) {
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession?.accessToken || !ownerSnapshot) {
       setGoogleCalendarError("Google Takvim bağlantısı için yeniden giriş yapmalısın.");
       return;
+    }
+
+    const expectedAccountEmail = googleCalendarIntegration?.ownerId === currentSession.user.id
+      ? googleCalendarIntegration.accountEmail.trim().toLowerCase()
+      : null;
+    if (forceAccountSelection && googleCalendarIntegration) {
+      setGoogleCalendarIntegration(null);
+      try {
+        await enqueueStorageMutation(async () => {
+          if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+          await persistGoogleCalendarConnection(null, currentSession.user.id);
+        });
+      } catch {
+        setCleanupIssue({
+          action: "data_deletion",
+          failedTargets: ["google_connection_storage"],
+          ownerId: currentSession.user.id
+        });
+        setGoogleCalendarError("Eski Google Takvim bağlantı kaydı temizlenemedi. Hesap değiştirme başlatılmadı.");
+        return;
+      }
     }
 
     setGoogleCalendarError(null);
     setMessage(null);
     setGoogleCalendarBusy(true);
     let googleAccessToken: string | undefined;
+    const syncController = new AbortController();
+    authenticatedRequestControllersRef.current.add(syncController);
 
     try {
       const authorization = await authorizeGoogleCalendar(forceAccountSelection);
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) {
+        throw new StaleAccountRequestError();
+      }
+      if (
+        !forceAccountSelection
+        && expectedAccountEmail
+        && authorization.accountEmail.trim().toLowerCase() !== expectedAccountEmail
+      ) {
+        setGoogleCalendarIntegration(null);
+        try {
+          await enqueueStorageMutation(async () => {
+            if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+            await persistGoogleCalendarConnection(null, currentSession.user.id);
+          });
+        } catch {
+          setCleanupIssue({
+            action: "data_deletion",
+            failedTargets: ["google_connection_storage"],
+            ownerId: currentSession.user.id
+          });
+        }
+        await queueGoogleSignOut();
+        throw new Error("GOOGLE_CALENDAR_ACCOUNT_MISMATCH");
+      }
       googleAccessToken = authorization.accessToken;
       const [calendarResult, announcementResult] = await Promise.allSettled([
-        apiRequest<CalendarPayload>("/calendar/my", {}, currentSession.accessToken),
-        apiRequest<AnnouncementRecord[]>("/announcements/my?limit=100", {}, currentSession.accessToken)
+        apiRequest<CalendarPayload>(
+          "/calendar/my",
+          { signal: syncController.signal },
+          currentSession.accessToken,
+          { ownerSnapshot }
+        ),
+        apiRequest<AnnouncementRecord[]>(
+          "/announcements/my?limit=100",
+          { signal: syncController.signal },
+          currentSession.accessToken,
+          { ownerSnapshot }
+        )
       ]);
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
       if (calendarResult.status === "rejected" && announcementResult.status === "rejected") {
         throw calendarResult.reason;
       }
@@ -1790,8 +3127,10 @@ export default function App() {
         ownerId: currentSession.user.id,
         calendarEvents,
         announcements: announcementItems,
-        replaceSourceTypes
+        replaceSourceTypes,
+        signal: syncController.signal
       });
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
       const connection: GoogleCalendarConnectionRecord = {
         ownerId: currentSession.user.id,
         accountEmail: authorization.accountEmail,
@@ -1800,7 +3139,11 @@ export default function App() {
         ...(warnings.length > 0 ? { warnings } : {})
       };
       setGoogleCalendarIntegration(connection);
-      await persistGoogleCalendarConnection(connection);
+      await enqueueStorageMutation(async () => {
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+        await persistGoogleCalendarConnection(connection);
+      });
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
       if (result.verified === 0) {
         setGoogleCalendarError("Profiline ait aktarılabilir akademik tarih, duyuru veya etkinlik bulunamadı.");
@@ -1811,7 +3154,13 @@ export default function App() {
         });
       }
     } catch (error) {
-      if (error instanceof Error && error.message === "GOOGLE_CALENDAR_CANCELLED") {
+      if (
+        error instanceof StaleAccountRequestError
+        || (error instanceof Error && error.name === "AbortError")
+        || !accountGuardRef.current.isCurrent(ownerSnapshot)
+      ) {
+        return;
+      } else if (error instanceof Error && error.message === "GOOGLE_CALENDAR_CANCELLED") {
         setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
       } else if (isErrorWithCode(error) && error.code === statusCodes.SIGN_IN_CANCELLED) {
         setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
@@ -1819,18 +3168,22 @@ export default function App() {
         setGoogleCalendarError("Google Play Hizmetleri bu cihazda hazır değil veya güncellenmeli.");
       } else if (isErrorWithCode(error) && error.code === statusCodes.IN_PROGRESS) {
         setGoogleCalendarError("Google hesabı seçimi zaten devam ediyor.");
+      } else if (error instanceof Error && error.message === "GOOGLE_CALENDAR_ACCOUNT_MISMATCH") {
+        setGoogleCalendarIntegration(null);
+        setGoogleCalendarError("Google hesabı değişmiş. Devam etmek için hesabını yeniden seç.");
       } else {
         if (
           googleAccessToken
           && error instanceof GoogleCalendarSyncError
           && error.code === "GOOGLE_CALENDAR_AUTH_EXPIRED"
         ) {
-          await GoogleSignin.clearCachedAccessToken(googleAccessToken).catch(() => null);
+          await enqueueGoogleSdkOperation(() => GoogleSignin.clearCachedAccessToken(googleAccessToken as string)).catch(() => null);
         }
         setGoogleCalendarError(googleCalendarUserMessage(error));
       }
     } finally {
-      setGoogleCalendarBusy(false);
+      authenticatedRequestControllersRef.current.delete(syncController);
+      if (accountGuardRef.current.isCurrent(ownerSnapshot)) setGoogleCalendarBusy(false);
     }
   }
 
@@ -1855,6 +3208,7 @@ export default function App() {
       setMessage({ text: "Alarm ayarları için giriş yapmalısın.", tone: "error" });
       return;
     }
+    if (accountCleanupInProgressRef.current) return;
 
     const categoryPayload: Record<string, boolean> = {};
     for (const category of availableCategories) {
@@ -1867,7 +3221,7 @@ export default function App() {
 
     try {
       setBusy(true);
-      const updated = await apiRequest<NotificationPreferencePayload>(
+      const updated = await trackAuthenticatedMutation(() => apiRequest<NotificationPreferencePayload>(
         "/notification-preferences",
         {
           method: "PATCH",
@@ -1885,11 +3239,12 @@ export default function App() {
           })
         },
         accessToken
-      );
+      ));
 
       setPreferences({ loading: false, data: updated });
       setMessage({ text: "Alarm ayarları kaydedildi.", tone: "success" });
     } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
       setMessage({
         text: userMessageFromError(error, "Alarm ayarları kaydedilemedi"),
         tone: "error"
@@ -1926,6 +3281,11 @@ export default function App() {
   }
 
   function addManualExam(): void {
+    if (accountCleanupInProgressRef.current) return;
+    if (!session || !manualExamsHydrated || manualExamOwnerId !== session.user.id) {
+      setMessage({ text: "Hesaba ait sınav alanı henüz hazır değil.", tone: "error" });
+      return;
+    }
     if (!manualExamTitle.trim() || !manualExamDate.trim()) {
       setMessage({ text: "Sınav adı ve tarihi zorunludur.", tone: "error" });
       return;
@@ -1947,6 +3307,39 @@ export default function App() {
     setManualExamTitle("");
     setManualExamDate("");
     setMessage({ text: "Sınav geri sayımına eklendi.", tone: "success" });
+  }
+
+  if (rootSurface === "hydration_loading" || rootSurface === "hydration_error") {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar style="dark" />
+          <View style={styles.hydrationContainer} accessibilityLiveRegion="polite">
+            {rootSurface === "hydration_loading" ? (
+              <>
+                <ActivityIndicator size="large" color="#4338ca" />
+                <Text style={styles.hydrationTitle}>Uygulama hazırlanıyor</Text>
+                <Text style={styles.hydrationText}>Cihaz ve hesap bilgilerin güvenli biçimde yükleniyor.</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="warning-outline" size={34} color="#b45309" />
+                <Text style={styles.hydrationTitle}>Başlangıç tamamlanamadı</Text>
+                <Text style={styles.hydrationText}>{hydrationError}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Başlangıcı tekrar dene"
+                  style={[styles.button, styles.primaryButton, styles.hydrationRetryButton]}
+                  onPress={() => void hydrateApplication()}
+                >
+                  <Text style={styles.primaryButtonText}>Tekrar Dene</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
   }
 
   return (
@@ -1971,24 +3364,56 @@ export default function App() {
             </View>
           )}
 
+          {cleanupIssue && (
+            <View style={styles.cleanupIssueCard} accessibilityLiveRegion="polite">
+              <Text style={styles.cleanupIssueTitle}>Tamamlanamayan güvenli temizlik</Text>
+              <Text style={styles.cleanupIssueText}>
+                {cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
+              </Text>
+              {cleanupIssue.failedTargets.some(
+                (target) => target !== "server_session" && target !== "server_account"
+              ) && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Cihaz temizliğini tekrar dene"
+                  style={[styles.button, styles.secondaryButton, (busy || googleBusy) && styles.buttonDisabled]}
+                  onPress={() => void retryFailedCleanup()}
+                  disabled={busy || googleBusy}
+                >
+                  <Text style={styles.secondaryButtonText}>Temizliği Tekrar Dene</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
           {!session && authStage === "auth" && (
             <Section title="Giriş ve Kayıt">
               <View style={styles.row}>
                 <Pressable
-                  style={[styles.modeButton, authMode === "login" && styles.modeButtonActive]}
+                  style={[
+                    styles.modeButton,
+                    authMode === "login" && styles.modeButtonActive,
+                    (busy || googleBusy) && styles.buttonDisabled
+                  ]}
                   onPress={() => {
                     setAuthMode("login");
                     setAuthStage("auth");
                   }}
+                  disabled={busy || googleBusy}
                 >
                   <Text style={[styles.modeButtonText, authMode === "login" && styles.modeButtonTextActive]}>Giriş Yap</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.modeButton, authMode === "register" && styles.modeButtonActive]}
+                  style={[
+                    styles.modeButton,
+                    authMode === "register" && styles.modeButtonActive,
+                    (busy || googleBusy) && styles.buttonDisabled
+                  ]}
                   onPress={() => {
                     setAuthMode("register");
                     setAuthStage("auth");
                   }}
+                  disabled={busy || googleBusy}
                 >
                   <Text style={[styles.modeButtonText, authMode === "register" && styles.modeButtonTextActive]}>Kayıt Ol</Text>
                 </Pressable>
@@ -2052,16 +3477,27 @@ export default function App() {
 
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>Şifre</Text>
-                    <TextInput
-                      value={password}
-                      onChangeText={setPassword}
-                      placeholder="En az 8 karakter önerilir"
-                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
-                      secureTextEntry
-                      textContentType="newPassword"
-                      autoComplete="new-password"
-                      style={styles.input}
-                    />
+                    <View style={styles.passwordInputShell}>
+                      <TextInput
+                        accessibilityLabel="Yeni şifre"
+                        value={password}
+                        onChangeText={setPassword}
+                        placeholder={`En az ${AUTH_PASSWORD_MIN_LENGTH} karakter`}
+                        placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                        secureTextEntry={!passwordVisible}
+                        textContentType="newPassword"
+                        autoComplete="new-password"
+                        style={[styles.input, styles.passwordInput]}
+                      />
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={passwordVisible ? "Şifreyi gizle" : "Şifreyi göster"}
+                        style={styles.passwordVisibilityButton}
+                        onPress={() => setPasswordVisible((visible) => !visible)}
+                      >
+                        <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={21} color="#475569" />
+                      </Pressable>
+                    </View>
                   </View>
 
                   <Text style={styles.helperText}>Kayıt yalnızca hesap bilgileriyle tamamlanır. Üniversite, fakülte ve bölümünü uygulama içinde seçebilirsin.</Text>
@@ -2070,15 +3506,15 @@ export default function App() {
                     style={[
                       styles.button,
                       styles.primaryButton,
-                      (busy || !registerIdentityReady) && styles.buttonDisabled
+                      (busy || googleBusy || !registerIdentityReady) && styles.buttonDisabled
                     ]}
                     onPress={() => void handleAuth()}
-                    disabled={busy || !registerIdentityReady}
+                    disabled={busy || googleBusy || !registerIdentityReady}
                   >
                     <Text style={styles.primaryButtonText}>Hesap Oluştur</Text>
                   </Pressable>
                   {!registerIdentityReady && (
-                    <Text style={styles.caption}>Devam etmek için ad soyad, e-posta ve şifre alanlarını doldur.</Text>
+                    <Text style={styles.caption}>Ad soyad ve e-posta alanlarını doldur; şifren en az {AUTH_PASSWORD_MIN_LENGTH} karakter olsun.</Text>
                   )}
 
                   <View style={styles.inlineInfoCard}>
@@ -2106,22 +3542,53 @@ export default function App() {
 
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>Şifre</Text>
-                    <TextInput
-                      value={password}
-                      onChangeText={setPassword}
-                      placeholder="Şifreni gir"
-                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
-                      secureTextEntry
-                      textContentType="password"
-                      autoComplete="password"
-                      style={styles.input}
-                    />
+                    <View style={styles.passwordInputShell}>
+                      <TextInput
+                        accessibilityLabel="Şifre"
+                        value={password}
+                        onChangeText={setPassword}
+                        placeholder="Şifreni gir"
+                        placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                        secureTextEntry={!passwordVisible}
+                        textContentType="password"
+                        autoComplete="password"
+                        style={[styles.input, styles.passwordInput]}
+                      />
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={passwordVisible ? "Şifreyi gizle" : "Şifreyi göster"}
+                        style={styles.passwordVisibilityButton}
+                        onPress={() => setPasswordVisible((visible) => !visible)}
+                      >
+                        <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={21} color="#475569" />
+                      </Pressable>
+                    </View>
                   </View>
 
                   <Pressable
-                    style={[styles.button, styles.primaryButton, (busy || !loginReady) && styles.buttonDisabled]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Şifremi unuttum"
+                    style={[styles.textActionButton, (busy || googleBusy) && styles.buttonDisabled]}
+                    onPress={() => openPasswordRecovery()}
+                    disabled={busy || googleBusy}
+                  >
+                    <Text style={styles.textActionText}>Şifremi unuttum</Text>
+                  </Pressable>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="E-posta doğrulamasına devam et"
+                    style={[styles.textActionButton, (!email.trim() || busy || googleBusy) && styles.buttonDisabled]}
+                    onPress={() => void openVerificationRecovery()}
+                    disabled={!email.trim() || busy || googleBusy}
+                  >
+                    <Text style={styles.textActionText}>E-postamı doğrula</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[styles.button, styles.primaryButton, (busy || googleBusy || !loginReady) && styles.buttonDisabled]}
                     onPress={() => void handleAuth()}
-                    disabled={busy || !loginReady}
+                    disabled={busy || googleBusy || !loginReady}
                   >
                     <Text style={styles.primaryButtonText}>Giriş Yap</Text>
                   </Pressable>
@@ -2130,6 +3597,303 @@ export default function App() {
                   )}
                 </>
               )}
+            </Section>
+          )}
+
+          {!session && authStage === "password_recovery_request" && (
+            <Section title="Şifre Kurtarma">
+              <View style={styles.verificationCard}>
+                <Text style={styles.verificationTitle}>Sıfırlama kodu iste</Text>
+                <Text style={styles.verificationSubtitle}>
+                  E-posta adresini gir. Hesap uygunsa altı haneli sıfırlama kodu gönderilir.
+                </Text>
+
+                {passwordRecoveryFeedback && (
+                  <View
+                    accessibilityLiveRegion="polite"
+                    style={[
+                      styles.passwordRecoveryFeedback,
+                      passwordRecoveryFeedback.tone === "error"
+                        ? styles.passwordRecoveryFeedbackError
+                        : passwordRecoveryFeedback.tone === "success"
+                          ? styles.passwordRecoveryFeedbackSuccess
+                          : styles.passwordRecoveryFeedbackInfo
+                    ]}
+                  >
+                    <Text style={styles.passwordRecoveryFeedbackText}>{passwordRecoveryFeedback.text}</Text>
+                  </View>
+                )}
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>E-posta adresi</Text>
+                  <TextInput
+                    accessibilityLabel="Şifre kurtarma e-posta adresi"
+                    value={email}
+                    onChangeText={(value) => {
+                      setEmail(value);
+                      setPasswordRecoveryFeedback(null);
+                    }}
+                    placeholder="ornek@email.com"
+                    placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    textContentType="emailAddress"
+                    autoComplete="email"
+                    editable={!busy}
+                    style={styles.input}
+                  />
+                </View>
+
+                {!passwordRecoveryRequestReady && (
+                  <Text style={styles.caption}>Devam etmek için geçerli bir e-posta adresi gir.</Text>
+                )}
+
+                {pendingPasswordRecovery?.email === email.trim().toLowerCase() && passwordRecoveryTiming && (
+                  <View style={styles.verificationTimingCard} accessibilityLiveRegion="polite">
+                    <Text style={styles.verificationTimingText}>
+                      {passwordRecoveryTiming.resendInSeconds > 0
+                        ? `Yeni kod isteyebilme: ${formatDuration(passwordRecoveryTiming.resendInSeconds)}`
+                        : "Yeni kod isteyebilirsin."}
+                    </Text>
+                  </View>
+                )}
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Şifre sıfırlama kodu iste"
+                  accessibilityState={{
+                    disabled: busy
+                      || !passwordRecoveryRequestReady
+                      || Boolean(
+                        pendingPasswordRecovery?.email === email.trim().toLowerCase()
+                        && passwordRecoveryTiming?.resendInSeconds
+                      ),
+                    busy
+                  }}
+                  style={[
+                    styles.button,
+                    styles.primaryButton,
+                    (
+                      busy
+                      || !passwordRecoveryRequestReady
+                      || Boolean(
+                        pendingPasswordRecovery?.email === email.trim().toLowerCase()
+                        && passwordRecoveryTiming?.resendInSeconds
+                      )
+                    ) && styles.buttonDisabled
+                  ]}
+                  onPress={() => void requestPasswordRecovery()}
+                  disabled={
+                    busy
+                    || !passwordRecoveryRequestReady
+                    || Boolean(
+                      pendingPasswordRecovery?.email === email.trim().toLowerCase()
+                      && passwordRecoveryTiming?.resendInSeconds
+                    )
+                  }
+                >
+                  {busy && <ActivityIndicator size="small" color="#ffffff" />}
+                  <Text style={styles.primaryButtonText}>
+                    {busy ? "Kod isteniyor..." : pendingPasswordRecovery ? "Yeni Kod İste" : "Kodu İste"}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Şifre kurtarmayı iptal et ve giriş ekranına dön"
+                  style={[styles.textActionButton, busy && styles.buttonDisabled]}
+                  onPress={cancelPasswordRecovery}
+                  disabled={busy}
+                >
+                  <Text style={styles.textActionText}>İptal et ve giriş ekranına dön</Text>
+                </Pressable>
+              </View>
+            </Section>
+          )}
+
+          {!session && authStage === "password_recovery_confirm" && (
+            <Section title="Şifre Kurtarma">
+              <View style={styles.verificationCard}>
+                <Text style={styles.verificationTitle}>Yeni şifreni belirle</Text>
+                <Text style={styles.verificationSubtitle}>
+                  {pendingPasswordRecovery?.email} adresine gönderilen altı haneli kodu ve yeni şifreni gir.
+                </Text>
+
+                {passwordRecoveryFeedback && (
+                  <View
+                    accessibilityLiveRegion="polite"
+                    style={[
+                      styles.passwordRecoveryFeedback,
+                      passwordRecoveryFeedback.tone === "error"
+                        ? styles.passwordRecoveryFeedbackError
+                        : passwordRecoveryFeedback.tone === "success"
+                          ? styles.passwordRecoveryFeedbackSuccess
+                          : styles.passwordRecoveryFeedbackInfo
+                    ]}
+                  >
+                    <Text style={styles.passwordRecoveryFeedbackText}>{passwordRecoveryFeedback.text}</Text>
+                  </View>
+                )}
+
+                {passwordRecoveryTiming && (
+                  <View style={styles.verificationTimingCard} accessibilityLiveRegion="polite">
+                    <Text style={styles.verificationTimingText}>
+                      {passwordRecoveryTiming.expired
+                        ? "Sıfırlama kodunun süresi doldu. Yeni bir kod iste."
+                        : `Kodun kalan süresi: ${formatDuration(passwordRecoveryTiming.expiresInSeconds)}`}
+                    </Text>
+                    <Text style={styles.verificationTimingText}>
+                      {passwordRecoveryTiming.resendInSeconds > 0
+                        ? `Yeni kod isteyebilme: ${formatDuration(passwordRecoveryTiming.resendInSeconds)}`
+                        : "Yeni kod isteyebilirsin."}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Sıfırlama kodu</Text>
+                  <TextInput
+                    accessibilityLabel="Altı haneli şifre sıfırlama kodu"
+                    value={passwordRecoveryCode}
+                    onChangeText={(value) => {
+                      setPasswordRecoveryCode(value.replace(/\D/g, ""));
+                      setPasswordRecoveryFeedback(null);
+                    }}
+                    placeholder="000000"
+                    placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                    keyboardType="number-pad"
+                    textContentType="oneTimeCode"
+                    autoComplete="sms-otp"
+                    maxLength={PASSWORD_RECOVERY_CODE_LENGTH}
+                    editable={!busy}
+                    style={styles.input}
+                  />
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Yeni şifre</Text>
+                  <View style={styles.passwordInputShell}>
+                    <TextInput
+                      accessibilityLabel="Yeni şifre"
+                      value={newPassword}
+                      onChangeText={(value) => {
+                        setNewPassword(value);
+                        setPasswordRecoveryFeedback(null);
+                      }}
+                      placeholder={`En az ${AUTH_PASSWORD_MIN_LENGTH} karakter`}
+                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                      secureTextEntry={!newPasswordVisible}
+                      textContentType="newPassword"
+                      autoComplete="new-password"
+                      editable={!busy}
+                      style={[styles.input, styles.passwordInput]}
+                    />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={newPasswordVisible ? "Yeni şifreyi gizle" : "Yeni şifreyi göster"}
+                      accessibilityState={{ disabled: busy }}
+                      style={[styles.passwordVisibilityButton, busy && styles.buttonDisabled]}
+                      onPress={() => setNewPasswordVisible((visible) => !visible)}
+                      disabled={busy}
+                    >
+                      <Ionicons name={newPasswordVisible ? "eye-off-outline" : "eye-outline"} size={21} color="#475569" />
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Yeni şifre tekrarı</Text>
+                  <View style={styles.passwordInputShell}>
+                    <TextInput
+                      accessibilityLabel="Yeni şifre tekrarı"
+                      value={passwordConfirmation}
+                      onChangeText={(value) => {
+                        setPasswordConfirmation(value);
+                        setPasswordRecoveryFeedback(null);
+                      }}
+                      placeholder="Yeni şifreni tekrar gir"
+                      placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                      secureTextEntry={!passwordConfirmationVisible}
+                      textContentType="newPassword"
+                      autoComplete="new-password"
+                      editable={!busy}
+                      style={[styles.input, styles.passwordInput]}
+                    />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={passwordConfirmationVisible ? "Şifre tekrarını gizle" : "Şifre tekrarını göster"}
+                      accessibilityState={{ disabled: busy }}
+                      style={[styles.passwordVisibilityButton, busy && styles.buttonDisabled]}
+                      onPress={() => setPasswordConfirmationVisible((visible) => !visible)}
+                      disabled={busy}
+                    >
+                      <Ionicons name={passwordConfirmationVisible ? "eye-off-outline" : "eye-outline"} size={21} color="#475569" />
+                    </Pressable>
+                  </View>
+                </View>
+
+                {!passwordRecoveryConfirmationValidation.valid && (
+                  <Text style={styles.passwordRecoveryValidationText} accessibilityLiveRegion="polite">
+                    {passwordRecoveryConfirmationValidation.message}
+                  </Text>
+                )}
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Şifre sıfırlamayı tamamla"
+                  accessibilityState={{ disabled: busy || !passwordRecoveryConfirmReady, busy }}
+                  style={[
+                    styles.button,
+                    styles.primaryButton,
+                    (busy || !passwordRecoveryConfirmReady) && styles.buttonDisabled
+                  ]}
+                  onPress={() => void confirmPasswordRecovery()}
+                  disabled={busy || !passwordRecoveryConfirmReady}
+                >
+                  {busy && <ActivityIndicator size="small" color="#ffffff" />}
+                  <Text style={styles.primaryButtonText}>{busy ? "Şifre yenileniyor..." : "Şifreyi Yenile"}</Text>
+                </Pressable>
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Yeni şifre sıfırlama kodu iste"
+                  accessibilityState={{ disabled: busy || Boolean(passwordRecoveryTiming?.resendInSeconds), busy }}
+                  style={[
+                    styles.button,
+                    styles.secondaryButton,
+                    (busy || Boolean(passwordRecoveryTiming?.resendInSeconds)) && styles.buttonDisabled
+                  ]}
+                  onPress={() => void requestPasswordRecovery()}
+                  disabled={busy || Boolean(passwordRecoveryTiming?.resendInSeconds)}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {passwordRecoveryTiming?.resendInSeconds
+                      ? `Yeni Kod İste (${formatDuration(passwordRecoveryTiming.resendInSeconds)})`
+                      : "Yeni Kod İste"}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Şifre kurtarma e-posta adımına dön"
+                  style={[styles.textActionButton, busy && styles.buttonDisabled]}
+                  onPress={returnToPasswordRecoveryRequest}
+                  disabled={busy}
+                >
+                  <Text style={styles.textActionText}>Geri</Text>
+                </Pressable>
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Şifre kurtarmayı iptal et ve giriş ekranına dön"
+                  style={[styles.textActionButton, busy && styles.buttonDisabled]}
+                  onPress={cancelPasswordRecovery}
+                  disabled={busy}
+                >
+                  <Text style={styles.textActionText}>İptal et ve giriş ekranına dön</Text>
+                </Pressable>
+              </View>
             </Section>
           )}
 
@@ -2148,25 +3912,62 @@ export default function App() {
                 <Text style={styles.verificationTitle}>Kodunu Gir</Text>
                 <Text style={styles.verificationSubtitle}>{email.trim().toLowerCase()} adresine gönderilen kodu girerek devam et.</Text>
 
+                {verificationTiming && (
+                  <View style={styles.verificationTimingCard} accessibilityLiveRegion="polite">
+                    <Text style={styles.verificationTimingText}>
+                      {verificationTiming.expired
+                        ? "Kodun süresi doldu. Yeni bir kod iste."
+                        : `Kodun kalan süresi: ${formatDuration(verificationTiming.expiresInSeconds)}`}
+                    </Text>
+                    <Text style={styles.verificationTimingText}>
+                      {verificationTiming.resendInSeconds > 0
+                        ? `Yeni kod isteyebilme: ${formatDuration(verificationTiming.resendInSeconds)}`
+                        : "Yeni kod isteyebilirsin."}
+                    </Text>
+                  </View>
+                )}
+
                 <TextInput
+                  accessibilityLabel="Dört haneli doğrulama kodu"
                   value={verificationToken}
                   onChangeText={setVerificationToken}
                   placeholder="Doğrulama kodu"
+                  placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
+                  keyboardType="number-pad"
+                  maxLength={4}
                   autoCapitalize="none"
                   autoCorrect={false}
                   style={styles.input}
                 />
 
-                <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void handleVerifyEmail()} disabled={busy}>
+                <Pressable
+                  accessibilityRole="button"
+                  style={[styles.button, styles.primaryButton, (busy || verificationToken.trim().length !== 4) && styles.buttonDisabled]}
+                  onPress={() => void handleVerifyEmail()}
+                  disabled={busy || verificationToken.trim().length !== 4}
+                >
                   <Text style={styles.primaryButtonText}>Doğrulamayı Tamamla</Text>
                 </Pressable>
 
-                <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void resendVerificationEmail()} disabled={busy}>
-                  <Text style={styles.secondaryButtonText}>Kodu Tekrar Gönder</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  style={[
+                    styles.button,
+                    styles.secondaryButton,
+                    (busy || Boolean(verificationTiming?.resendInSeconds)) && styles.buttonDisabled
+                  ]}
+                  onPress={() => void resendVerificationEmail()}
+                  disabled={busy || Boolean(verificationTiming?.resendInSeconds)}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {verificationTiming?.resendInSeconds
+                      ? `Tekrar Gönder (${formatDuration(verificationTiming.resendInSeconds)})`
+                      : "Kodu Tekrar Gönder"}
+                  </Text>
                 </Pressable>
 
-                <Pressable style={styles.textActionButton} onPress={returnToRegisterForm} disabled={busy}>
-                  <Text style={styles.textActionText}>Kayıt bilgilerimi düzenle</Text>
+                <Pressable style={styles.textActionButton} onPress={returnToLoginForm} disabled={busy}>
+                  <Text style={styles.textActionText}>Giriş ekranına dön</Text>
                 </Pressable>
               </View>
             </Section>
@@ -2183,7 +3984,9 @@ export default function App() {
                 </View>
               </View>
 
-              <Text style={styles.helperText}>Hesabın hazır. Akademik profilini giriş yaptıktan sonra içeride seçeceksin.</Text>
+              <Text style={styles.helperText}>
+                E-posta doğrulaman tamamlandı. Akademik profilini giriş yaptıktan sonra içeride seçeceksin.
+              </Text>
 
               <View style={styles.summaryCard}>
                 <View style={styles.summaryRow}>
@@ -2197,11 +4000,11 @@ export default function App() {
               </View>
 
               <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void confirmProfileAndStart()} disabled={busy}>
-                <Text style={styles.primaryButtonText}>Profili Onayla ve Başla</Text>
+                <Text style={styles.primaryButtonText}>{password.length > 0 ? "Giriş Yap ve Başla" : "Giriş Ekranına Geç"}</Text>
               </Pressable>
 
-              <Pressable style={styles.textActionButton} onPress={returnToRegisterForm} disabled={busy}>
-                <Text style={styles.textActionText}>Bilgilerimi düzenle</Text>
+              <Pressable style={styles.textActionButton} onPress={returnToLoginForm} disabled={busy}>
+                <Text style={styles.textActionText}>Giriş ekranına dön</Text>
               </Pressable>
             </Section>
           )}
@@ -2438,9 +4241,9 @@ export default function App() {
 
                 <View style={styles.nativeCalendarActions}>
                   <Pressable
-                    style={[styles.button, styles.primaryButton, googleCalendarBusy && styles.buttonDisabled]}
+                    style={[styles.button, styles.primaryButton, (busy || googleCalendarBusy) && styles.buttonDisabled]}
                     onPress={() => void syncGoogleCalendar(!googleCalendarIntegration)}
-                    disabled={googleCalendarBusy}
+                    disabled={busy || googleCalendarBusy}
                   >
                     {googleCalendarBusy ? (
                       <ActivityIndicator color="#ffffff" />
@@ -2453,9 +4256,9 @@ export default function App() {
                   </Pressable>
                   {googleCalendarIntegration && (
                     <Pressable
-                      style={[styles.button, styles.secondaryButton, googleCalendarBusy && styles.buttonDisabled]}
+                      style={[styles.button, styles.secondaryButton, (busy || googleCalendarBusy) && styles.buttonDisabled]}
                       onPress={() => void syncGoogleCalendar(true)}
-                      disabled={googleCalendarBusy}
+                      disabled={busy || googleCalendarBusy}
                     >
                       <View style={styles.buttonContent}>
                         <Ionicons name="swap-horizontal-outline" size={19} color="#1e293b" />
@@ -2798,9 +4601,9 @@ export default function App() {
                 {academicProfileExpanded && (
                   <View style={styles.profileEditorPanel}>
                     <Pressable
-                      style={[styles.button, styles.secondaryButton, (universities.loading || academicSelectionPending) && styles.buttonDisabled]}
+                      style={[styles.button, styles.secondaryButton, (universities.loading || academicSelectionPending || busy) && styles.buttonDisabled]}
                       onPress={() => void loadUniversities()}
-                      disabled={universities.loading || Boolean(academicSelectionPending)}
+                      disabled={universities.loading || Boolean(academicSelectionPending) || busy}
                     >
                       <Ionicons name="refresh-outline" size={18} color="#1e293b" />
                       <Text style={styles.secondaryButtonText}>Üniversiteleri Yenile</Text>
@@ -2817,12 +4620,12 @@ export default function App() {
 
                 <View style={styles.selectorGroup}>
                   <Pressable
-                    style={styles.selectorTrigger}
+                    style={[styles.selectorTrigger, busy && styles.selectorTriggerDisabled]}
                     onPress={() => {
                       setRegisterPicker((prev) => (prev === "university" ? "none" : "university"));
                       if (!(universities.data ?? []).length) void loadUniversities();
                     }}
-                    disabled={Boolean(academicSelectionPending)}
+                    disabled={Boolean(academicSelectionPending) || busy}
                   >
                     <Text style={styles.selectorLabel}>Üniversite</Text>
                     <Text style={styles.selectorValue}>{selectedUniversity?.name ?? "Seçmek için dokun"}</Text>
@@ -2841,7 +4644,7 @@ export default function App() {
                           key={university.id}
                           style={[styles.selectorOption, selectedUniversityId === university.id && styles.selectorOptionSelected]}
                           onPress={() => void selectUniversity(university.id)}
-                          disabled={Boolean(academicSelectionPending)}
+                          disabled={Boolean(academicSelectionPending) || busy}
                         >
                           <Text style={styles.universityName}>{university.name}</Text>
                           <Text style={styles.universityMeta}>{university.city} | {UNIVERSITY_TYPE_LABELS[university.type] ?? university.type}</Text>
@@ -2851,9 +4654,9 @@ export default function App() {
                   )}
 
                   <Pressable
-                    style={[styles.selectorTrigger, !registerUniversityId && styles.selectorTriggerDisabled]}
+                    style={[styles.selectorTrigger, (!registerUniversityId || busy) && styles.selectorTriggerDisabled]}
                     onPress={() => setRegisterPicker((prev) => (prev === "faculty" ? "none" : "faculty"))}
-                    disabled={!registerUniversityId || Boolean(academicSelectionPending)}
+                    disabled={!registerUniversityId || Boolean(academicSelectionPending) || busy}
                   >
                     <Text style={styles.selectorLabel}>Fakülte</Text>
                     <Text style={styles.selectorValue}>{selectedFaculty?.name ?? "Seçmek için dokun"}</Text>
@@ -2873,7 +4676,7 @@ export default function App() {
                           key={faculty.id}
                           style={[styles.selectorOption, registerFacultyId === faculty.id && styles.selectorOptionSelected]}
                           onPress={() => void selectFaculty(faculty.id)}
-                          disabled={Boolean(academicSelectionPending)}
+                          disabled={Boolean(academicSelectionPending) || busy}
                         >
                           <Text style={styles.universityName}>{faculty.name}</Text>
                         </Pressable>
@@ -2882,9 +4685,9 @@ export default function App() {
                   )}
 
                   <Pressable
-                    style={[styles.selectorTrigger, !registerFacultyId && styles.selectorTriggerDisabled]}
+                    style={[styles.selectorTrigger, (!registerFacultyId || busy) && styles.selectorTriggerDisabled]}
                     onPress={() => setRegisterPicker((prev) => (prev === "department" ? "none" : "department"))}
-                    disabled={!registerFacultyId || Boolean(academicSelectionPending)}
+                    disabled={!registerFacultyId || Boolean(academicSelectionPending) || busy}
                   >
                     <Text style={styles.selectorLabel}>Bölüm</Text>
                     <Text style={styles.selectorValue}>{selectedDepartment?.name ?? "Seçmek için dokun"}</Text>
@@ -2904,7 +4707,7 @@ export default function App() {
                           key={department.id}
                           style={[styles.selectorOption, registerDepartmentId === department.id && styles.selectorOptionSelected]}
                           onPress={() => void selectDepartment(department.id)}
-                          disabled={Boolean(academicSelectionPending)}
+                          disabled={Boolean(academicSelectionPending) || busy}
                         >
                           <Text style={styles.universityName}>{department.name}</Text>
                         </Pressable>
@@ -2980,7 +4783,7 @@ export default function App() {
                   </>
                 )}
 
-                <Pressable style={[styles.button, styles.primaryButton]} onPress={() => void saveAlarmSettings()} disabled={busy}>
+                <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void saveAlarmSettings()} disabled={busy}>
                   <Text style={styles.primaryButtonText}>Bildirim Tercihlerini Kaydet</Text>
                 </Pressable>
               </Section>
@@ -3036,6 +4839,31 @@ const styles = StyleSheet.create({
   },
   containerWithNav: {
     paddingBottom: 142
+  },
+  hydrationContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    backgroundColor: "#f5f6ff"
+  },
+  hydrationTitle: {
+    color: "#111827",
+    fontSize: 20,
+    fontWeight: "800",
+    textAlign: "center"
+  },
+  hydrationText: {
+    color: "#475569",
+    lineHeight: 21,
+    textAlign: "center",
+    maxWidth: 360
+  },
+  hydrationRetryButton: {
+    width: "100%",
+    maxWidth: 360,
+    marginTop: 6
   },
   authHero: {
     marginTop: 8,
@@ -3158,6 +4986,22 @@ const styles = StyleSheet.create({
   errorBox: {
     backgroundColor: "#be123c"
   },
+  cleanupIssueCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+    backgroundColor: "#fffbeb",
+    padding: 14,
+    gap: 8
+  },
+  cleanupIssueTitle: {
+    color: "#92400e",
+    fontWeight: "800"
+  },
+  cleanupIssueText: {
+    color: "#78350f",
+    lineHeight: 19
+  },
   section: {
     backgroundColor: "#ffffff",
     borderColor: "#e2e8f0",
@@ -3207,7 +5051,23 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     backgroundColor: "#ffffff",
     color: "#111827",
-    fontSize: 15
+    fontSize: 15,
+    minHeight: 50
+  },
+  passwordInputShell: {
+    position: "relative",
+    justifyContent: "center"
+  },
+  passwordInput: {
+    paddingRight: 58
+  },
+  passwordVisibilityButton: {
+    position: "absolute",
+    right: 2,
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center"
   },
   button: {
     minHeight: 50,
@@ -3228,7 +5088,7 @@ const styles = StyleSheet.create({
     opacity: 0.5
   },
   primaryButton: {
-    backgroundColor: "#5c6ef0",
+    backgroundColor: "#4554e0",
     elevation: 3
   },
   primaryButtonText: {
@@ -3316,11 +5176,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#f1f5f9",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 44
+    minHeight: 48
   },
   modeButtonActive: {
-    backgroundColor: "#5c6ef0",
-    borderColor: "#5c6ef0",
+    backgroundColor: "#4554e0",
+    borderColor: "#4554e0",
     elevation: 2
   },
   modeButtonText: {
@@ -3657,13 +5517,55 @@ const styles = StyleSheet.create({
     color: "#475569",
     lineHeight: 20
   },
+  verificationTimingCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
+    backgroundColor: "#eef2ff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 3
+  },
+  verificationTimingText: {
+    color: "#3730a3",
+    fontWeight: "700",
+    lineHeight: 19
+  },
+  passwordRecoveryFeedback: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  passwordRecoveryFeedbackInfo: {
+    borderColor: "#c7d2fe",
+    backgroundColor: "#eef2ff"
+  },
+  passwordRecoveryFeedbackSuccess: {
+    borderColor: "#86efac",
+    backgroundColor: "#f0fdf4"
+  },
+  passwordRecoveryFeedbackError: {
+    borderColor: "#fda4af",
+    backgroundColor: "#fff1f2"
+  },
+  passwordRecoveryFeedbackText: {
+    color: "#1e293b",
+    fontWeight: "700",
+    lineHeight: 19
+  },
+  passwordRecoveryValidationText: {
+    color: "#be123c",
+    fontWeight: "700",
+    lineHeight: 19
+  },
   textActionButton: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 36
+    minHeight: 48
   },
   textActionText: {
-    color: "#5c6ef0",
+    color: "#4554e0",
     fontWeight: "800"
   },
   summaryCard: {

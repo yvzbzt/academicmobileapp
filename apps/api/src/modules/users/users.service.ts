@@ -90,21 +90,69 @@ export class UsersService {
   ): Promise<UserProfileResponse> {
     const current = await this.authRepository.findUserById(userId);
     if (!current) throw new NotFoundException("User not found.");
-    const selection = {
-      universityId: input.universityId ?? current.universityId,
-      facultyId: input.facultyId ?? current.facultyId,
-      departmentId: input.departmentId ?? current.departmentId,
-      classLevel: input.classLevel ?? current.classLevel
-    };
-    const updatesAcademicSelection = ["universityId", "facultyId", "departmentId", "classLevel"].some((key) => Object.prototype.hasOwnProperty.call(input, key));
-    if (updatesAcademicSelection && selection.universityId) await this.validateAcademicSelection({
-      universityId: selection.universityId,
-      ...(selection.facultyId ? { facultyId: selection.facultyId } : {}),
-      ...(selection.departmentId ? { departmentId: selection.departmentId } : {}),
-      ...(selection.classLevel !== undefined ? { classLevel: selection.classLevel } : {})
-    });
-    else if (updatesAcademicSelection) assertClassLevelAllowed(selection.classLevel, null);
-    const updatedUser = await this.authRepository.updateUserByAdmin(userId, input);
+    const hasUniversity = Object.prototype.hasOwnProperty.call(input, "universityId");
+    const hasFaculty = Object.prototype.hasOwnProperty.call(input, "facultyId");
+    const hasDepartment = Object.prototype.hasOwnProperty.call(input, "departmentId");
+    const hasClassLevel = Object.prototype.hasOwnProperty.call(input, "classLevel");
+    const updatesAcademicSelection = hasUniversity || hasFaculty || hasDepartment || hasClassLevel;
+    const requestedUniversityId = input.universityId?.trim() || undefined;
+    const requestedFacultyId = input.facultyId?.trim() || undefined;
+    const requestedDepartmentId = input.departmentId?.trim() || undefined;
+    let updatedUser: AuthUserRecord | null = current;
+
+    if (hasUniversity && !requestedUniversityId) {
+      throw new BadRequestException("University is required when updating academic selection.");
+    }
+
+    if (updatesAcademicSelection) {
+      const universityId = hasUniversity ? requestedUniversityId : current.universityId;
+      const universityChanged = hasUniversity && universityId !== current.universityId;
+      const facultyId = hasFaculty
+        ? requestedFacultyId
+        : universityChanged
+          ? undefined
+          : current.facultyId;
+      const facultyChanged = universityChanged || (hasFaculty && facultyId !== current.facultyId);
+      const departmentId = hasDepartment
+        ? requestedDepartmentId
+        : facultyChanged
+          ? undefined
+          : current.departmentId;
+      const departmentChanged = facultyChanged || (hasDepartment && departmentId !== current.departmentId);
+      const classLevel = hasClassLevel
+        ? input.classLevel
+        : departmentChanged
+          ? undefined
+          : current.classLevel;
+
+      if (universityId) {
+        const selection = {
+          universityId,
+          ...(facultyId ? { facultyId } : {}),
+          ...(departmentId ? { departmentId } : {}),
+          ...(classLevel !== undefined ? { classLevel } : {})
+        };
+        await this.validateAcademicSelection(selection);
+        updatedUser = await this.authRepository.updateUserAcademicSelection(userId, selection);
+      } else {
+        if (facultyId || departmentId) throw new BadRequestException("University is required for academic selection.");
+        assertClassLevelAllowed(classLevel, null);
+        updatedUser = await this.authRepository.updateUserByAdmin(userId, {
+          ...(classLevel !== undefined ? { classLevel } : {})
+        });
+      }
+    }
+
+    const {
+      universityId: _universityId,
+      facultyId: _facultyId,
+      departmentId: _departmentId,
+      classLevel: _classLevel,
+      ...nonAcademicInput
+    } = input;
+    if (Object.keys(nonAcademicInput).length > 0) {
+      updatedUser = await this.authRepository.updateUserByAdmin(userId, nonAcademicInput);
+    }
     if (!updatedUser) throw new NotFoundException("User not found.");
     return this.toProfileResponse(updatedUser);
   }
@@ -139,6 +187,7 @@ export class UsersService {
     const deletedAt = new Date();
     await this.authRepository.revokeRefreshTokensByUserId(userId, deletedAt);
     await this.authRepository.deleteEmailVerificationTokensByUserId(userId);
+    await this.authRepository.deletePasswordRecoveryTokensByUserId(userId);
     await this.authRepository.deleteUserAccount(userId, {
       deletedAt,
       anonymizedEmail: `deleted-${userId}-${randomUUID()}@deleted.local`,

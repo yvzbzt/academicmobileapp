@@ -1,4 +1,4 @@
-import { ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { describe, expect, it } from "vitest";
 import { JwtAuthGuard } from "../src/common/guards/jwt-auth.guard.js";
@@ -108,6 +108,86 @@ describe("UsersService", () => {
         classLevel: 2
       })
     );
+  });
+
+  it("clears stale academic children and preserves parent-child validation", async () => {
+    const authRepository = new InMemoryAuthRepository();
+    const catalogRepository = new InMemoryCatalogRepository();
+    const firstUniversity = await catalogRepository.createUniversity({ name: "First University", slug: "first-university", city: "Ankara", type: "state", status: "active" });
+    const secondUniversity = await catalogRepository.createUniversity({ name: "Second University", slug: "second-university", city: "Izmir", type: "state", status: "active" });
+    const firstFaculty = await catalogRepository.createFaculty({ universityId: firstUniversity.id, name: "First Faculty", slug: "first-faculty", status: "active" });
+    const alternateFirstFaculty = await catalogRepository.createFaculty({ universityId: firstUniversity.id, name: "Alternate First Faculty", slug: "alternate-first-faculty", status: "active" });
+    const secondFaculty = await catalogRepository.createFaculty({ universityId: secondUniversity.id, name: "Second Faculty", slug: "second-faculty", status: "active" });
+    const alternateSecondFaculty = await catalogRepository.createFaculty({ universityId: secondUniversity.id, name: "Alternate Faculty", slug: "alternate-faculty", status: "active" });
+    const firstDepartment = await catalogRepository.createDepartment({ universityId: firstUniversity.id, facultyId: firstFaculty.id, name: "First Department", slug: "first-department", educationLevel: "bachelor", status: "active" });
+    const secondDepartment = await catalogRepository.createDepartment({ universityId: secondUniversity.id, facultyId: secondFaculty.id, name: "Second Department", slug: "second-department", educationLevel: "bachelor", status: "active" });
+    const user = await authRepository.createUser({
+      fullName: "Academic Selection Student",
+      email: "academic-selection@example.com",
+      passwordHash: "unused",
+      role: "student",
+      status: "active",
+      universityId: firstUniversity.id,
+      facultyId: firstFaculty.id,
+      departmentId: firstDepartment.id,
+      classLevel: 2
+    });
+    const usersService = new UsersService(authRepository, catalogRepository);
+
+    const universityChanged = await usersService.updateMyUniversity(user.id, { universityId: secondUniversity.id });
+    expect(universityChanged).toEqual(expect.objectContaining({ universityId: secondUniversity.id }));
+    expect(universityChanged).not.toEqual(expect.objectContaining({ facultyId: expect.any(String) }));
+    expect(universityChanged).not.toEqual(expect.objectContaining({ departmentId: expect.any(String) }));
+    expect(universityChanged).not.toEqual(expect.objectContaining({ classLevel: expect.any(Number) }));
+
+    await usersService.updateMyUniversity(user.id, {
+      universityId: secondUniversity.id,
+      facultyId: secondFaculty.id,
+      departmentId: secondDepartment.id,
+      classLevel: 3
+    });
+    const facultyChanged = await usersService.updateMyUniversity(user.id, {
+      universityId: secondUniversity.id,
+      facultyId: alternateSecondFaculty.id
+    });
+    expect(facultyChanged).toEqual(expect.objectContaining({ universityId: secondUniversity.id, facultyId: alternateSecondFaculty.id }));
+    expect(facultyChanged).not.toEqual(expect.objectContaining({ departmentId: expect.any(String) }));
+    expect(facultyChanged).not.toEqual(expect.objectContaining({ classLevel: expect.any(Number) }));
+
+    await expect(
+      usersService.updateMyUniversity(user.id, { universityId: firstUniversity.id, facultyId: secondFaculty.id })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      usersService.updateMyUniversity(user.id, {
+        universityId: secondUniversity.id,
+        facultyId: alternateSecondFaculty.id,
+        departmentId: secondDepartment.id
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const adminUniversityChanged = await usersService.updateUserByAdmin(user.id, {
+      universityId: firstUniversity.id
+    });
+    expect(adminUniversityChanged).toEqual(expect.objectContaining({ universityId: firstUniversity.id }));
+    expect(adminUniversityChanged).not.toEqual(expect.objectContaining({ facultyId: expect.any(String) }));
+    expect(adminUniversityChanged).not.toEqual(expect.objectContaining({ departmentId: expect.any(String) }));
+    expect(adminUniversityChanged).not.toEqual(expect.objectContaining({ classLevel: expect.any(Number) }));
+
+    await usersService.updateMyUniversity(user.id, {
+      universityId: firstUniversity.id,
+      facultyId: firstFaculty.id,
+      departmentId: firstDepartment.id,
+      classLevel: 2
+    });
+    const adminFacultyChanged = await usersService.updateUserByAdmin(user.id, {
+      facultyId: alternateFirstFaculty.id
+    });
+    expect(adminFacultyChanged).toEqual(expect.objectContaining({
+      universityId: firstUniversity.id,
+      facultyId: alternateFirstFaculty.id
+    }));
+    expect(adminFacultyChanged).not.toEqual(expect.objectContaining({ departmentId: expect.any(String) }));
+    expect(adminFacultyChanged).not.toEqual(expect.objectContaining({ classLevel: expect.any(Number) }));
   });
 
   it("lists, updates and deletes users for admin management", async () => {

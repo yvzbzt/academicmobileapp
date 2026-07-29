@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable, Optional, type CanActivate, type ExecutionContext } from "@nestjs/common";
 import { endpointCatalog, type EndpointContract } from "../../contracts/endpoint-catalog.js";
+import { AUTH_ERROR_CODES } from "../../modules/auth/auth.constants.js";
 import { InMemoryRateLimitStore, type RateLimitStore } from "./rate-limit-store.js";
 
 const RATE_LIMITS: Record<EndpointContract["rateLimit"], { points: number; windowMs: number }> = {
@@ -21,7 +22,20 @@ export class RateLimitGuard implements CanActivate {
     const limit = RATE_LIMITS[policy?.rateLimit ?? "standard"];
     const key = `${request.ip ?? request.socket?.remoteAddress ?? "unknown"}:${request.method}:${policy?.path ?? request.route?.path ?? request.path ?? request.originalUrl}`;
     const accepted = await (this.rateLimitStore ?? this.fallbackStore).consume(key, limit);
-    if (!accepted) throw new HttpException("Rate limit exceeded.", HttpStatus.TOO_MANY_REQUESTS);
+    if (!accepted) {
+      if (policy?.path.startsWith("/auth/")) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.TOO_MANY_REQUESTS,
+            error: "Too Many Requests",
+            errorCode: AUTH_ERROR_CODES.RATE_LIMITED,
+            message: "Rate limit exceeded."
+          },
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+      }
+      throw new HttpException("Rate limit exceeded.", HttpStatus.TOO_MANY_REQUESTS);
+    }
     return true;
   }
 }

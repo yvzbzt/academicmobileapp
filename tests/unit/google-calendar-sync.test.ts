@@ -94,6 +94,61 @@ describe("GoogleCalendarService", () => {
     expect(api.events.size).toBe(2);
   });
 
+  it("propagates the supplied abort signal to every listing, mutation, and verification request", async () => {
+    const api = new MemoryGoogleCalendarApi();
+    const controller = new AbortController();
+    const observedSignals: Array<AbortSignal | null | undefined> = [];
+    const service = new GoogleCalendarService(async (input, init) => {
+      observedSignals.push(init?.signal);
+      return api.fetch(input, init);
+    });
+
+    await service.sync({
+      ...syncInput(),
+      signal: controller.signal
+    });
+    const changed = syncInput();
+    changed.calendarEvents = [{
+      ...changed.calendarEvents[0]!,
+      title: "Updated academic date"
+    }];
+    changed.announcements = [];
+    await service.sync({
+      ...changed,
+      signal: controller.signal
+    });
+
+    expect(observedSignals).toHaveLength(8);
+    expect(observedSignals.every((signal) => signal === controller.signal)).toBe(true);
+  });
+
+  it("surfaces an aborted request without wrapping it as a Google Calendar network error", async () => {
+    const controller = new AbortController();
+    const abortError = Object.assign(new Error("Calendar sync aborted."), { name: "AbortError" });
+    let observedSignal: AbortSignal | null | undefined;
+    const service = new GoogleCalendarService(async (_input, init) => {
+      observedSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        if (init?.signal?.aborted) {
+          reject(abortError);
+          return;
+        }
+        init?.signal?.addEventListener("abort", () => reject(abortError), { once: true });
+      });
+    });
+
+    const pendingSync = service.sync({
+      ...syncInput(),
+      signal: controller.signal
+    });
+    controller.abort();
+    const rejection = await pendingSync.catch((error: unknown) => error);
+
+    expect(observedSignal).toBe(controller.signal);
+    expect(rejection).toBe(abortError);
+    expect(rejection).not.toBeInstanceOf(GoogleCalendarSyncError);
+  });
+
   it("updates changed events and removes only stale events owned by the app user", async () => {
     const api = new MemoryGoogleCalendarApi();
     api.seedManagedEvent("other-user-event", "other-user", "announcement:foreign", "foreign");

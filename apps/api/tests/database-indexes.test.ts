@@ -29,4 +29,19 @@ describe("mongoIndexDefinitions", () => {
       })
     );
   });
+
+  it("contains digest lookup and TTL indexes for password recovery", () => {
+    expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collection: "password_recovery_tokens",
+        name: "password_recovery_tokens_hash_unique",
+        unique: true
+      }),
+      expect.objectContaining({
+        collection: "password_recovery_tokens",
+        name: "password_recovery_tokens_expires_ttl",
+        ttlSeconds: 0
+      })
+    ]));
+  });
 });

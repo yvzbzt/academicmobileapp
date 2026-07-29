@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { academicCalendarSchema, academicEventSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, notificationJobSchema, notificationPreferenceSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
+import { academicCalendarSchema, academicEventSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
 
 describe("mongoose schemas", () => {
   it("defines users collection and email unique index", () => {
@@ -14,6 +14,15 @@ describe("mongoose schemas", () => {
     expect(indexes).toEqual(
       expect.arrayContaining([[{ expiresAt: 1 }, expect.objectContaining({ expireAfterSeconds: 0 })]])
     );
+  });
+
+  it("defines password recovery digest, user lookup, and TTL indexes", () => {
+    expect(passwordRecoveryTokenSchema.get("collection")).toBe("password_recovery_tokens");
+    expect(passwordRecoveryTokenSchema.indexes()).toEqual(expect.arrayContaining([
+      [{ tokenHash: 1 }, expect.objectContaining({ unique: true, name: "password_recovery_tokens_hash_unique" })],
+      [{ userId: 1, createdAt: -1 }, expect.objectContaining({ name: "password_recovery_tokens_user_latest" })],
+      [{ expiresAt: 1 }, expect.objectContaining({ expireAfterSeconds: 0, name: "password_recovery_tokens_expires_ttl" })]
+    ]));
   });
 
   it("defines catalog collection indexes", () => {

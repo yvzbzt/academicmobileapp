@@ -23,6 +23,8 @@ import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repos
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { AdminNotificationOpsController } from "../src/modules/notifications/admin-notification-ops.controller.js";
+import { AUTH_ERROR_CODES } from "../src/modules/auth/auth.constants.js";
+import { endpointCatalog } from "../src/contracts/endpoint-catalog.js";
 
 function createExecutionContext(request: Record<string, unknown>): ExecutionContext {
   return {
@@ -135,12 +137,31 @@ describe("operation services", () => {
 
     for (let attempt = 0; attempt < 10; attempt += 1) await expect(guard.canActivate(createExecutionContext(request))).resolves.toBe(true);
 
-    await expect(guard.canActivate(createExecutionContext(request))).rejects.toBeInstanceOf(HttpException);
+    let rateLimitError: HttpException | undefined;
     try {
       await guard.canActivate(createExecutionContext(request));
     } catch (error) {
-      expect((error as HttpException).getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+      rateLimitError = error as HttpException;
     }
+
+    expect(rateLimitError).toBeInstanceOf(HttpException);
+    expect(rateLimitError?.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(rateLimitError?.getResponse()).toEqual(
+      expect.objectContaining({
+        statusCode: HttpStatus.TOO_MANY_REQUESTS,
+        errorCode: AUTH_ERROR_CODES.RATE_LIMITED,
+        message: "Rate limit exceeded."
+      })
+    );
+  });
+
+  it("catalogs Google and resend verification as strict public auth endpoints", () => {
+    expect(endpointCatalog).toEqual(
+      expect.arrayContaining([
+        { method: "POST", path: "/auth/google", authRequired: false, roles: "public", rateLimit: "strict" },
+        { method: "POST", path: "/auth/resend-verification-code", authRequired: false, roles: "public", rateLimit: "strict" }
+      ])
+    );
   });
 
   it("keeps Mongo connection passive when no URI is configured", async () => {

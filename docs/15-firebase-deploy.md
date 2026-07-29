@@ -51,12 +51,32 @@ gcloud builds submit `
   --config deploy/cloudbuild.api.yaml `
   --substitutions _IMAGE=europe-west1-docker.pkg.dev/YOUR_FIREBASE_PROJECT_ID/academic-calendar/academic-calendar-api
 
+```
+
+Before deployment, create the referenced JWT/recovery secrets in Secret Manager. Put only non-secret configuration in an untracked file outside the repository, for example `C:\secure\academic-calendar-api.nonsensitive.yaml`:
+
+```yaml
+NODE_ENV: "production"
+REPOSITORY_MODE: "memory"
+QUEUE_MODE: "memory"
+RATE_LIMIT_STORE: "memory"
+BOOTSTRAP_SEED_ENABLED: "false"
+AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN: "false"
+CORS_ORIGIN: "https://YOUR_ADMIN_SITE_ID.web.app,https://YOUR_MOBILE_SITE_ID.web.app"
+```
+
+Then deploy with secret references rather than shell-visible secret values. The Secret Manager resource names below are placeholders, not secret material:
+
+```powershell
 gcloud run deploy academic-calendar-api `
   --image europe-west1-docker.pkg.dev/YOUR_FIREBASE_PROJECT_ID/academic-calendar/academic-calendar-api `
   --region europe-west1 `
   --allow-unauthenticated `
-  --set-env-vars NODE_ENV=production,REPOSITORY_MODE=memory,QUEUE_MODE=memory,RATE_LIMIT_STORE=memory,BOOTSTRAP_SEED_ENABLED=true,BOOTSTRAP_ADMIN_EMAIL=admin@example.com,BOOTSTRAP_ADMIN_PASSWORD=change-this-demo-password,JWT_ACCESS_SECRET=change-this-access-secret-with-32-plus-chars,JWT_REFRESH_SECRET=change-this-refresh-secret-with-32-plus-chars,CORS_ORIGIN=https://YOUR_ADMIN_SITE_ID.web.app,https://YOUR_MOBILE_SITE_ID.web.app
+  --env-vars-file "C:\secure\academic-calendar-api.nonsensitive.yaml" `
+  --set-secrets "JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest,PASSWORD_RECOVERY_TOKEN_PEPPER=password-recovery-pepper:latest"
 ```
+
+Do not pass real JWT secrets, the recovery pepper, SMTP credentials, or bootstrap credentials through `--set-env-vars`/`--update-env-vars`; command lines and shell history are not secret stores. Using the YAML file also avoids misparsing the comma-separated two-origin `CORS_ORIGIN` value.
 
 After deploy, copy the Cloud Run service URL. Verify:
 
@@ -86,21 +106,31 @@ firebase deploy --only hosting:admin,hosting:mobile
 - `MAIL_FROM`
 - `EMAIL_VERIFICATION_URL=https://YOUR_CLOUD_RUN_URL/auth/verify-email`
 - `AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN=false`
+- `PASSWORD_RECOVERY_TOKEN_PEPPER` with an independent random value of at least 32 characters
 - `FIREBASE_SERVICE_ACCOUNT_JSON`
 - `CORS_ORIGIN` with the final Hosting/custom domains
 
 Push delivery already uses Firebase Admin SDK through `FIREBASE_SERVICE_ACCOUNT_JSON`; Hosting itself does not configure push notifications.
 
-## 6. Email Authentication
+## 6. Email Authentication And Password Recovery
 
-Student registration creates an inactive user and sends an email verification link. Login is blocked until the user opens that link.
+Student registration creates an inactive user and emails a four-digit verification code. The native client submits that code to `POST /auth/verify-email`; Login remains blocked until verification succeeds.
 
 For a real email-auth demo, configure Cloud Run with SMTP credentials and keep preview tokens disabled:
 
 ```powershell
 gcloud run services update academic-calendar-api `
   --region europe-west1 `
-  --update-env-vars SMTP_HOST=smtp.example.com,SMTP_PORT=587,SMTP_USER=YOUR_SMTP_USER,SMTP_PASS=YOUR_SMTP_PASSWORD,SMTP_SECURE=false,MAIL_FROM=noreply@example.com,EMAIL_VERIFICATION_URL=https://YOUR_CLOUD_RUN_URL/auth/verify-email,AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN=false
+  --update-env-vars SMTP_HOST=smtp.example.com,SMTP_PORT=587,SMTP_SECURE=false,MAIL_FROM=noreply@example.invalid,EMAIL_VERIFICATION_URL=https://YOUR_CLOUD_RUN_URL/auth/verify-email,AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN=false `
+  --update-secrets "SMTP_USER=smtp-user:latest,SMTP_PASS=smtp-pass:latest"
 ```
 
-For local development without SMTP, the API logs the verification link. Set `AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN=true` only for throwaway demos where showing the token in the UI is acceptable.
+For local development without SMTP, the API emits a non-sensitive warning without logging the email address or verification code. Whenever `NODE_ENV !== "production"`, the API automatically includes the verification preview token. In production, `AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN` must be absent or `false`; the current implementation can expose the verification preview if production explicitly sets it to `true`, so a production smoke must assert that the field is absent.
+
+Password recovery uses the same SMTP transport but has an independent digest-secret gate. Production startup/request handling requires `PASSWORD_RECOVERY_TOKEN_PEPPER`, or the `JWT_ACCESS_SECRET` fallback, to contain at least 32 characters; use a dedicated random pepper in real deployments. Store it in Secret Manager or the deployment platform's secret facility rather than in source, shell history, or a checked-in environment file.
+
+The public `POST /auth/password-recovery/request` production status/body fields are intentionally identical for known and unknown syntactically valid email addresses. Do not add Cloud Run/API Gateway rules, mail-delivery diagnostics, or client-visible logs that reintroduce a response-field account-existence signal. Current application latency is not equalized—eligible known accounts can await persistence and SMTP—so timing-based inference remains an open risk. Both password-recovery routes use the strict 10-requests-per-60-seconds rate class; verify trusted-proxy/client-IP handling before relying on per-client isolation behind a reverse proxy.
+
+`previewRecoveryCode` is strictly non-production and depends only on `NODE_ENV !== "production"`; there is no production override. A production smoke must assert that the field is absent. Never place a recovery code, password, email address, refresh token, or request body in deployment logs. A successful confirmation response means password replacement, refresh-session revocation, and remaining-record invalidation all completed, so post-deploy verification should use isolated synthetic accounts and assert that every pre-reset refresh session is rejected without printing token values.
+
+The confirmation implementation does not wrap that full sequence in one transaction: only conditional recovery-code consumption is atomic, and later password/session/invalidation writes are sequential. Before real-user rollout, add transaction/saga or idempotent reconciliation and operational alerting for failures after code consumption; do not describe the current reset as all-or-nothing.

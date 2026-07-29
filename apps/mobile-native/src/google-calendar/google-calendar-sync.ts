@@ -50,6 +50,7 @@ export type GoogleCalendarSyncInput = {
   calendarEvents: GoogleCalendarAcademicEvent[];
   announcements: GoogleCalendarAnnouncement[];
   replaceSourceTypes?: Array<GoogleCalendarSyncItem["sourceType"]>;
+  signal?: AbortSignal;
 };
 
 export type GoogleCalendarErrorCode =
@@ -95,7 +96,7 @@ export class GoogleCalendarService {
     );
     const desiredItems = buildGoogleCalendarSyncItems(input.calendarEvents, input.announcements)
       .filter((item) => replaceSourceTypes.has(item.sourceType));
-    const existing = (await this.listManagedEvents(input.accessToken))
+    const existing = (await this.listManagedEvents(input.accessToken, input.signal))
       .filter((event) => event.extendedProperties?.private?.[OWNER_PROPERTY] === input.ownerId);
     const existingBySourceId = new Map<string, GoogleApiEvent>();
     const duplicates: GoogleApiEvent[] = [];
@@ -125,7 +126,9 @@ export class GoogleCalendarService {
         await this.request(
           input.accessToken,
           `/calendars/primary/events/${encodeURIComponent(existingEvent.id)}`,
-          { method: "PATCH", body: JSON.stringify(body) }
+          { method: "PATCH", body: JSON.stringify(body) },
+          [],
+          input.signal
         );
         updated += 1;
         return;
@@ -134,7 +137,9 @@ export class GoogleCalendarService {
       await this.request(
         input.accessToken,
         "/calendars/primary/events",
-        { method: "POST", body: JSON.stringify(body) }
+        { method: "POST", body: JSON.stringify(body) },
+        [],
+        input.signal
       );
       created += 1;
     });
@@ -157,11 +162,12 @@ export class GoogleCalendarService {
         input.accessToken,
         `/calendars/primary/events/${encodeURIComponent(event.id!)}`,
         { method: "DELETE" },
-        [404, 410]
+        [404, 410],
+        input.signal
       );
     });
 
-    const verifiedEvents = (await this.listManagedEvents(input.accessToken))
+    const verifiedEvents = (await this.listManagedEvents(input.accessToken, input.signal))
       .filter((event) => event.extendedProperties?.private?.[OWNER_PROPERTY] === input.ownerId);
     const verifiedSourceIds = new Set(
       verifiedEvents
@@ -191,7 +197,7 @@ export class GoogleCalendarService {
     };
   }
 
-  private async listManagedEvents(accessToken: string): Promise<GoogleApiEvent[]> {
+  private async listManagedEvents(accessToken: string, signal?: AbortSignal): Promise<GoogleApiEvent[]> {
     const events: GoogleApiEvent[] = [];
     let pageToken: string | undefined;
 
@@ -206,7 +212,9 @@ export class GoogleCalendarService {
       const page = await this.request<GoogleApiEventList>(
         accessToken,
         `/calendars/primary/events?${query}`,
-        { method: "GET" }
+        { method: "GET" },
+        [],
+        signal
       );
       events.push(...(page.items ?? []));
       pageToken = page.nextPageToken;
@@ -219,12 +227,14 @@ export class GoogleCalendarService {
     accessToken: string,
     path: string,
     init: RequestInit,
-    acceptedFailureStatuses: number[] = []
+    acceptedFailureStatuses: number[] = [],
+    signal?: AbortSignal
   ): Promise<T> {
     let response: Response;
     try {
       response = await this.fetchImpl(`${GOOGLE_CALENDAR_API_BASE_URL}${path}`, {
         ...init,
+        ...(signal ? { signal } : {}),
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
@@ -232,6 +242,7 @@ export class GoogleCalendarService {
         }
       });
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
       throw new GoogleCalendarSyncError(
         "GOOGLE_CALENDAR_NETWORK_ERROR",
         error instanceof Error ? error.message : "Google Calendar request failed."

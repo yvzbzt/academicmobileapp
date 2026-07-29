@@ -1,7 +1,8 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import jwt from "jsonwebtoken";
 import type { AuthUserRecord } from "./auth.types.js";
+import { PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_TTL_SECONDS } from "./auth.constants.js";
 
 export interface AccessTokenPayload {
   sub: string;
@@ -21,6 +22,8 @@ export interface EmailVerificationTokenIssueResult {
   tokenHash: string;
   expiresAt: Date;
 }
+
+export type PasswordRecoveryTokenIssueResult = EmailVerificationTokenIssueResult;
 
 @Injectable()
 export class TokenService {
@@ -75,6 +78,25 @@ export class TokenService {
       tokenHash: this.hashOpaqueToken(rawToken),
       expiresAt: new Date(Date.now() + this.emailVerificationTtlMinutes * 60 * 1000)
     };
+  }
+
+  issuePasswordRecoveryToken(email: string): PasswordRecoveryTokenIssueResult {
+    const rawToken = randomInt(0, 10 ** PASSWORD_RECOVERY_CODE_LENGTH).toString().padStart(PASSWORD_RECOVERY_CODE_LENGTH, "0");
+    return {
+      rawToken,
+      tokenHash: this.hashPasswordRecoveryToken(email, rawToken),
+      expiresAt: new Date(Date.now() + PASSWORD_RECOVERY_TTL_SECONDS * 1000)
+    };
+  }
+
+  hashPasswordRecoveryToken(email: string, rawToken: string): string {
+    const configuredSecret = process.env.PASSWORD_RECOVERY_TOKEN_PEPPER ?? process.env.JWT_ACCESS_SECRET;
+    if (process.env.NODE_ENV === "production" && (!configuredSecret || configuredSecret.length < 32)) {
+      throw new Error("PASSWORD_RECOVERY_TOKEN_PEPPER_NOT_CONFIGURED");
+    }
+    const secret = configuredSecret ?? "development-password-recovery-pepper-change-me";
+    const normalizedEmail = email.trim().toLowerCase();
+    return createHmac("sha256", secret).update(`password-recovery:${normalizedEmail}:${rawToken.trim()}`).digest("hex");
   }
 
   hashOpaqueToken(rawToken: string): string {
