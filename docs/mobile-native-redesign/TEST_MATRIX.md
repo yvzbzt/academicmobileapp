@@ -148,6 +148,35 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 | Logout/deletion cleanup failure is observable and bounded | Cleanup helper timeout/failure tests plus concrete tombstone/cleanup source assertions | Automated PASS; forced SecureStore failure was not injected into the installed app |
 | No password, token, code, email, or personal exam content is logged by repaired paths | Email-sender logger spy and controlled-result non-leak assertions | Native startup logcat filter PASS with zero sensitive-pattern hits; see [`startup-logcat.md`](./evidence/phase-01-native/startup-logcat.md) |
 
+### Phase 1 Task A1 credential-generation coverage
+
+Task A1 adds backend persistence and stale-writer coverage only; it does not change native behavior. The complete run increased the established 29-file/240-test regression baseline to 30 files/265 tests.
+
+| Contract | Required deterministic evidence | Deferred boundary |
+|---|---|---|
+| Legacy compatibility | User, refresh-token, and password-recovery records missing `credentialGeneration` read as `0`; newly created users initialize `0` | No production migration is run |
+| Issuance stamping | Login/Google/refresh session creation stamps the current user generation on a new refresh record; an eligible recovery request stamps it on the new recovery record | Mismatch checks remain Task A2 |
+| Profile and academic writers | Profile and hierarchy updates preserve a newer stored generation; university/faculty changes still delete omitted descendants in Firestore, Mongo, and in-memory adapters | Generation is not incremented in A1 |
+| Identity and administrative writers | Email verification, Google identity, admin update, password update, admin deletion, personal-data clearing, and account deletion cannot erase or decrease a newer generation | Atomic reset completion remains Task A2 |
+| Firestore persistence | User changes are field-level updates; clearing uses explicit delete sentinels; tests prove descendant clearing and generation preservation | No Firestore index change |
+| Mongo persistence | User changes remain partial `$set`/`$unset`; general update input cannot write `credentialGeneration`; legacy output normalization returns `0` | No Mongo index or migration change |
+| In-memory scheduling | User mutations use the current map entry synchronously, and deterministic delayed/concurrent coverage proves a stale read cannot restore an older generation | This is adapter safety, not cross-process transaction evidence |
+| Auth compatibility | Existing login, refresh rotation/reuse, verification, and password-recovery request/confirmation behavior remains unchanged | Access JWT contents and validation are unaffected |
+
+#### Task A1 final validation ledger — 30 July 2026
+
+| Command | Result |
+|---|---|
+| `npm.cmd test -- --run apps/api/tests/auth-credential-generation.test.ts apps/api/tests/auth-academic-selection-repositories.test.ts apps/api/tests/mongoose-schemas.test.ts apps/api/tests/auth-application.service.test.ts apps/api/tests/password-recovery.test.ts --configLoader runner` | PASS, 5 files / 62 tests |
+| `npm.cmd test -- apps/api/tests --configLoader runner` | PASS, 24 files / 182 tests |
+| `npm.cmd run typecheck` | PASS, exit 0 |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS, exit 0; no native source changed |
+| `npm.cmd test` | Environment-blocked before test startup: sandbox denied esbuild access to the parent directory/config; no product test failed |
+| `npm.cmd test -- --configLoader runner` | PASS, 30 files / 265 tests; exceeds the 29/240 baseline |
+| `npx.cmd vitest run --configLoader runner` | Independent PASS, 30 files / 265 tests |
+| Expanded production-source sensitive-log scan | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
+| `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
+
 ### Earlier Phase 1 reconciliation before password-recovery closure
 
 | Command | Final result |

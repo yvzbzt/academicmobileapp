@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { academicCalendarSchema, academicEventSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
 
 describe("mongoose schemas", () => {
+  it("defaults credential generations to zero and rejects negative values", () => {
+    for (const schema of [userSchema, refreshTokenSchema, passwordRecoveryTokenSchema]) {
+      expect(schema.path("credentialGeneration").options).toEqual(expect.objectContaining({
+        required: true,
+        default: 0,
+        min: 0
+      }));
+    }
+  });
+
   it("defines users collection and email unique index", () => {
     expect(userSchema.get("collection")).toBe("users");
     const indexes = userSchema.indexes();

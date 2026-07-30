@@ -1,6 +1,6 @@
 # Redesign Decisions
 
-Last updated: 29 July 2026
+Last updated: 30 July 2026
 
 ## Accepted decisions
 
@@ -125,6 +125,16 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 **Recorded closure environment:** Android Studio product build `AI-261.25134.95.2612.15822958` (winget package version `2026.1.2.10`), command-line tools revision 22 installed at the recognized noncanonical `cmdline-tools/latest-2` path, Emulator `36.6.11`, and Google APIs API 24 x86_64 revision 27. The AVD was requested/prelaunch-configured for 1,536 MB RAM, two cores, 720 × 1280 at 320 dpi, 256 MB heap, 2,047 MB data, host GPU, cameras/audio/device frame off, hardware keyboard on, and Quick Boot on.
 
 **Effective-value disclosure:** WHPX acceleration is usable and the first cold boot completed in 42.3 seconds. Runtime reports 1,533,960 kB RAM, two cores, 720 × 1280 at 320 dpi, a 384 MB heap, and approximately 5.8 GB for `/data`; the post-boot `config.ini` was normalized to 6,442,450,944 bytes for the data partition while retaining `vm.heapSize=256M`. API 36, 34, 30, and 28 Google APIs images were tried before API 24; those images also forced heap/data values above the requested budget. The effective heap/data deviation remains visible evidence and cannot be relabelled as the requested 256 MB/≤4 GB configuration.
+
+### D-024 — Credential generations have a backward-compatible persistence substrate
+
+**Decision:** Every auth user, refresh-token record, and password-recovery record has a non-negative integer `credentialGeneration`. A legacy record with no field is read as generation `0`, and every newly created user starts at `0`. New refresh-token and password-recovery records copy the current user's generation at issuance time.
+
+**Writer safety:** Existing-user mutations must not accept `credentialGeneration` from a stale or caller-controlled user object. Firestore uses field-level updates and explicit field deletions instead of full-document replacement; Mongo strips the field from general user-update input and retains partial `$set`/`$unset` writes; the in-memory adapter reads and writes its current map entry without an intervening await. University/faculty replacement continues to delete omitted descendants in every adapter.
+
+**Deferred enforcement:** Task A1 does not advance the generation and does not reject refresh or recovery material on a mismatch. Generation increment, mismatch enforcement, and an atomic password-reset completion operation belong to Task A2. Existing access JWTs are unchanged. The substrate requires no migration, new index, or environment variable; while no generation is advanced, rollback remains compatible because missing fields read as `0`.
+
+**Unchanged boundaries:** MN-031 remains open because the password-reset execution order is still consume, password update, refresh-session revocation, then remaining-token invalidation. MN-030 remains open because recovery-request latency is not equalized. Task B and Phase 2 are not started by this decision.
 
 ## Open questions with decision owners
 

@@ -40,6 +40,18 @@ function createAuthService(googleIdentity?: VerifiedGoogleIdentity, catalogRepos
   return { service, sender, authRepository };
 }
 
+function setStoredCredentialGeneration(
+  repository: InMemoryAuthRepository,
+  userId: string,
+  credentialGeneration: number
+): void {
+  type StoredUser = Record<string, unknown> & { credentialGeneration: number };
+  const users = (repository as unknown as { users: Map<string, StoredUser> }).users;
+  const user = users.get(userId);
+  if (!user) throw new Error("Expected a stored test user.");
+  users.set(userId, { ...user, credentialGeneration });
+}
+
 async function captureHttpException(action: () => Promise<unknown>): Promise<HttpException> {
   try {
     await action();
@@ -299,6 +311,7 @@ describe("AuthApplicationService", () => {
     const rawRefreshToken = "expired-refresh-token";
     await authRepository.createRefreshToken({
       userId: "unused-user-id",
+      credentialGeneration: 0,
       tokenHash: new TokenService().hashRefreshToken(rawRefreshToken),
       familyId: "expired-family",
       deviceId: "device-1",
@@ -414,6 +427,42 @@ describe("AuthApplicationService", () => {
         deviceId: "device-1"
       })
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("stamps the current generation on issued and rotated refresh records without enforcing it yet", async () => {
+    const { service: authService, sender, authRepository } = createAuthService();
+    const registerResult = await authService.register({
+      email: "generation-session@campus.edu.tr",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+    await authService.verifyEmail({
+      email: registerResult.email,
+      code: sender.sent[0]!.code,
+      deviceId: "generation-device"
+    });
+    const user = await authRepository.findUserByEmail(registerResult.email);
+    expect(user).not.toBeNull();
+    setStoredCredentialGeneration(authRepository, user!.id, 7);
+
+    const firstSession = await authService.login({
+      email: registerResult.email,
+      password: "StrongPass123!",
+      deviceId: "generation-device"
+    });
+    const tokenService = new TokenService();
+    await expect(authRepository.findRefreshTokenByHash(
+      tokenService.hashRefreshToken(firstSession.refreshToken)
+    )).resolves.toEqual(expect.objectContaining({ credentialGeneration: 7 }));
+
+    setStoredCredentialGeneration(authRepository, user!.id, 9);
+    const secondSession = await authService.refresh({
+      refreshToken: firstSession.refreshToken,
+      deviceId: "generation-device"
+    });
+    await expect(authRepository.findRefreshTokenByHash(
+      tokenService.hashRefreshToken(secondSession.refreshToken)
+    )).resolves.toEqual(expect.objectContaining({ credentialGeneration: 9 }));
   });
 
   it("revokes refresh token on logout", async () => {

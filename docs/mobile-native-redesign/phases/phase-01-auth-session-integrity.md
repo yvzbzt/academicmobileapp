@@ -48,7 +48,7 @@ No new navigation shell, UI framework, analytics SDK, content-trust work, deploy
    - Logout, session expiry, account deletion, and successful personal-data deletion clear pending-verification memory/storage as well; storage failure is included in observable cleanup and retry.
 8. **Academic hierarchy integrity**
    - University changes clear faculty, department, and class level; faculty changes clear department and class level.
-   - Mongo uses `$unset`; Firestore uses full-document replacement; in-memory storage removes omitted descendants.
+   - Mongo uses `$unset`; Firestore uses field-level updates with explicit deletes; in-memory storage removes omitted descendants.
    - User and admin update paths validate the complete parent-child hierarchy and use replacement semantics.
    - Native no longer sends an invented `classLevel: 2`.
 9. **Secret-free diagnostics**
@@ -207,6 +207,33 @@ No endpoint was removed. No production infrastructure was changed or deployed.
 | `native_manual_exams` | Legacy global array with no owner proof | Deleted and deliberately not migrated; user receives controlled information. |
 | `native_google_calendar_connection_v2_<encoded-owner>` | Owner ID, account email, sync timestamp/result | Legacy global record migrates only when its embedded owner matches; otherwise it is discarded. |
 
+## Task A1 security-remediation addendum — credential-generation substrate
+
+Task A1 adds `credentialGeneration` to backend user, refresh-token, and password-recovery records. Repository reads normalize a missing legacy field to `0`, every new user starts at `0`, and refresh/recovery issuance copies the current user's value. No production migration is required or run.
+
+Generation-safe existing-user writers are:
+
+- email verification, Google identity, administrative update, profile update, password update, and academic hierarchy replacement;
+- personal-data clearing, admin deletion, and account deletion/anonymization;
+- Firestore field-level updates with explicit deletions for omitted academic descendants and cleared personal fields, replacing unsafe full-document writes;
+- Mongo partial `$set`/`$unset` updates with `credentialGeneration` stripped from general update input; and
+- in-memory mutations that synchronously read and replace the current map entry, eliminating the prior read/await/write stale-object window.
+
+University and faculty replacement still clears all omitted descendants. Task A1 does not increment a generation or reject refresh/recovery records whose snapshot differs, and it does not change the password-reset execution order. Generation advancement, mismatch enforcement, and atomic reset completion are intentionally deferred to Task A2. Existing access JWTs are unaffected. No index, environment, native-app, Task B, or Phase 2 change is included.
+
+### Task A1 validation ledger
+
+| Command | Result |
+|---|---|
+| Focused generation/repository/schema/auth/recovery suite | PASS, 5 files / 62 tests |
+| `npm.cmd test -- apps/api/tests --configLoader runner` | PASS, 24 files / 182 tests |
+| Workspace and native TypeScript checks | PASS, exit 0 for both |
+| `npm.cmd test -- --configLoader runner` | PASS, 30 files / 265 tests; exceeds the 29/240 checkpoint baseline |
+| `npx.cmd vitest run --configLoader runner` | Independent PASS, 30 files / 265 tests |
+| Whitespace and expanded production-source sensitive-log checks | PASS; no whitespace errors and `SENSITIVE_LOG_SCAN_NO_MATCHES` |
+
+The plain `npm.cmd test` form was blocked before Vitest startup because the sandbox denied esbuild access to the parent directory/config. The unchanged runner-loader form passed twice, so this is recorded as an environment-only startup limitation rather than a failed product test.
+
 ## Tests added and updated
 
 The coverage-to-file map and exact command ledger are in [TEST_MATRIX.md](../TEST_MATRIX.md). Added or extended coverage includes every Phase 1-required family:
@@ -228,6 +255,11 @@ The coverage-to-file map and exact command ledger are in [TEST_MATRIX.md](../TES
 - frontend/backend password parity and confirmation mismatch;
 - old-password rejection, new-password acceptance, and refresh-session revocation after reset;
 - absence of recovery code/password/email values from recovery logs and returned controlled failures.
+- missing user/refresh/recovery generations normalizing to `0` and new users initializing at `0`;
+- refresh and password-recovery issuance stamping the current user generation;
+- profile, academic, Google-identity, admin, clear-data, password, and deletion-related writes preserving a newer generation;
+- Firestore explicit descendant deletion after replacing full-document writes; and
+- deterministic in-memory delayed/concurrent mutation safety.
 
 No React Native component test stack was installed. The native-focused Vitest tests exercise extracted pure contracts and concrete source-order assertions; they do not claim rendered-component or native SDK execution.
 
@@ -281,7 +313,7 @@ All closure rows are resolved as PASS or BLOCKED. Historical failed attempts rem
 | Old password rejected, new password accepted, refresh sessions revoked | PASS | Reset replaces hash and revokes sessions | `apps/api/tests/password-recovery.test.ts`: 9/9 PASS plus same-runtime two-session proof | Native old password rejected; new password reached Home; both held pre-reset sessions returned 401 / `AUTH_SESSION_INVALID` without API restart | A second AVD was neither required nor permitted |
 | User A local data cannot appear for User B | PASS | Owner-derived v2 key/envelope and account generation | Existing Phase 1 owner-isolation tests | B saw no A exam; B added its own; returning A showed only A | None for required two-account path |
 | Owner-scoped manual exams survive relaunch | PASS | Hydration-before-write ordering | Existing Phase 1 storage tests | Unique A exam survived force-stop/relaunch | None for required path |
-| Academic descendant clearing survives reload/relaunch | PASS | Replacement semantics across Mongo/Firestore/in-memory/user/admin paths | Existing repository/service/HTTP tests | Full A hierarchy matched server; university→B cleared all descendants; faculty replacement cleared department/class; both survived relaunch | Native interaction and isolated API-driven server-reload fixtures were both used |
+| Academic descendant clearing survives reload/relaunch | PASS | Replacement semantics across Mongo/in-memory and field-delete semantics in Firestore across user/admin paths | Existing repository/service/HTTP tests | Full A hierarchy matched server; university→B cleared all descendants; faculty replacement cleared department/class; both survived relaunch | Native interaction and isolated API-driven server-reload fixtures were both used |
 | Logout cannot restore prior account/content | PASS | Tombstone, cleanup lock, abort/generation checks | Existing late-response/cleanup tests | Protected content absent immediately, after 5 s, and after signed-out relaunch | None for required path |
 | Late refresh/content/preference/Google work cannot repopulate a closed or switched account | PASS | Account generation, abort signals, owner checks, and logout tombstone guard every repaired settlement path | Existing late-response/source-order/Google-cancellation tests | Logout/wait/relaunch stayed clear; A→B→A isolation stayed correct | Native timing did not force every Google SDK callback; automated cancellation/generation evidence covers those settlements |
 | 360 dp, 320 dp, and 200% font-scale evidence | PASS with limitation | Source-derived width formulas and default font scaling | Static source audit plus exact capture hashes | 360/320 pass; 2.0 covers Login, Register, Verification, Password Recovery Request/Confirm, Home, and Profile academic selection with reachable actions | Home nav labels wrap/truncate and recovery password placeholders truncate at 2.0; retained as frontend limitations |
@@ -394,6 +426,7 @@ TalkBack order/announcements and disabled/busy-state runtime acceptance are BLOC
 4. **Rate-limit client identity:** per-client isolation behind Cloud Run/reverse proxies depends on trusted-proxy configuration not changed in this no-infrastructure phase (MN-027).
 5. **Recovery timing:** production status/body fields match, but eligible known requests can await more storage/SMTP work than unknown requests; timing-based account inference remains possible (MN-030).
 6. **Recovery multi-write atomicity:** code consumption is atomic, but password update, session revocation, and remaining-record invalidation are sequential and need transaction/saga or reconciliation hardening (MN-031).
+   Task A1 only lays down generation-safe persistence; Task A2 owns generation advancement/enforcement and atomic reset completion.
 7. **Rendered/native automation:** no React Native component runner or native E2E harness exists (MN-019).
 8. **Visual/accessibility runtime:** Android environment, required flows, 360/320 dp, and the complete six-surface 200%-font set are available. Home nav labels wrap/truncate and recovery placeholders truncate at 2.0. TalkBack is exactly unavailable on the retained image and is not claimed as accepted screen-reader behavior (MN-025/MN-029).
 9. **Broader feedback UI:** endpoint-aware auth copy is repaired, but the existing global top message pattern still needs the planned design-system/auth UI phases (MN-009).
@@ -403,6 +436,8 @@ TalkBack order/announcements and disabled/busy-state runtime acceptance are BLOC
 ## Migration and rollback considerations
 
 - No destructive database migration is required. Password-recovery persistence adds repository/schema/index support; old deployments have no recovery records to migrate.
+- Task A1 adds no migration or new index. Existing user, refresh-token, and recovery records with no `credentialGeneration` read as `0`; new users also begin at `0`.
+- Until Task A2 advances or enforces generations, rollback is behaviorally compatible: older code ignores the additive fields and restored A1 code normalizes missing fields to `0`. Access JWTs are unchanged.
 - Production must provide `PASSWORD_RECOVERY_TOKEN_PEPPER` or an existing `JWT_ACCESS_SECRET` of at least 32 characters before password-recovery request handling is allowed. Rollback may leave expired/unused recovery records, which contain only digests and can be cleaned by repository retention without exposing codes.
 - The controlled `errorCode` fields and resend timing fields are additive. Older clients can continue reading status/message; repaired clients prefer codes.
 - Academic selection changes semantics from partial descendant retention to complete replacement. Any client that intended to retain faculty/department/class level must submit the complete valid hierarchy. Roll out server/client changes together and keep the repository-adapter tests as the rollback gate.

@@ -2,16 +2,30 @@ import { Inject, Injectable } from "@nestjs/common";
 import { emailVerificationTokenSchema, passwordRecoveryTokenSchema, refreshTokenSchema, userSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
-import type { AuthRepository, AuthUserRecord, EmailVerificationTokenRecord, PasswordRecoveryTokenRecord, RefreshTokenRecord } from "./auth.types.js";
+import type {
+  AuthRepository,
+  AuthUserRecord,
+  CreateAuthUserInput,
+  CreatePasswordRecoveryTokenInput,
+  CreateRefreshTokenInput,
+  EmailVerificationTokenRecord,
+  PasswordRecoveryTokenRecord,
+  RefreshTokenRecord
+} from "./auth.types.js";
+import {
+  normalizeAuthUserRecord,
+  normalizePasswordRecoveryTokenRecord,
+  normalizeRefreshTokenRecord
+} from "./credential-generation.js";
 
 @Injectable()
 export class MongoAuthRepository implements AuthRepository {
   constructor(@Inject(MongoConnectionService) private readonly mongo: MongoConnectionService) {}
 
-  async createUser(input: Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt">): Promise<AuthUserRecord> {
+  async createUser(input: CreateAuthUserInput): Promise<AuthUserRecord> {
     const model = await this.model("User", userSchema);
-    const document = await model.create({ ...input, email: input.email.toLowerCase() });
-    return toDomainRecord<AuthUserRecord>(document);
+    const document = await model.create({ ...input, credentialGeneration: 0, email: input.email.toLowerCase() });
+    return normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document));
   }
 
   async listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]> {
@@ -24,19 +38,19 @@ export class MongoAuthRepository implements AuthRepository {
     }
 
     const documents = await model.find(query).sort({ createdAt: -1 }).skip(input.offset).limit(input.limit);
-    return documents.map((document) => toDomainRecord<AuthUserRecord>(document));
+    return documents.map((document) => normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)));
   }
 
   async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
     const document = await model.findOne({ email: email.toLowerCase(), deletedAt: { $exists: false } });
-    return document ? toDomainRecord<AuthUserRecord>(document) : null;
+    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
   }
 
   async findUserById(id: string): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
     const document = await model.findOne({ _id: id, deletedAt: { $exists: false } });
-    return document ? toDomainRecord<AuthUserRecord>(document) : null;
+    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
   }
 
   async markUserEmailVerified(id: string, verifiedAt: Date): Promise<AuthUserRecord | null> {
@@ -76,7 +90,7 @@ export class MongoAuthRepository implements AuthRepository {
       },
       { new: true }
     );
-    return document ? toDomainRecord<AuthUserRecord>(document) : null;
+    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
   }
 
   async deleteUserAccount(
@@ -145,7 +159,7 @@ export class MongoAuthRepository implements AuthRepository {
       },
       { new: true }
     );
-    return document ? toDomainRecord<AuthUserRecord>(document) : null;
+    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
   }
 
   async createEmailVerificationToken(input: Omit<EmailVerificationTokenRecord, "id" | "createdAt">): Promise<EmailVerificationTokenRecord> {
@@ -171,16 +185,16 @@ export class MongoAuthRepository implements AuthRepository {
     await model.findByIdAndUpdate(id, { consumedAt });
   }
 
-  async createRefreshToken(input: Omit<RefreshTokenRecord, "id" | "createdAt">): Promise<RefreshTokenRecord> {
+  async createRefreshToken(input: CreateRefreshTokenInput): Promise<RefreshTokenRecord> {
     const model = await this.model("RefreshToken", refreshTokenSchema);
     const document = await model.create(input);
-    return toDomainRecord<RefreshTokenRecord>(document);
+    return normalizeRefreshTokenRecord(toDomainRecord<RefreshTokenRecord>(document));
   }
 
   async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null> {
     const model = await this.model("RefreshToken", refreshTokenSchema);
     const document = await model.findOne({ tokenHash });
-    return document ? toDomainRecord<RefreshTokenRecord>(document) : null;
+    return document ? normalizeRefreshTokenRecord(toDomainRecord<RefreshTokenRecord>(document)) : null;
   }
 
   async revokeRefreshToken(id: string, revokedAt: Date): Promise<void> {
@@ -198,22 +212,22 @@ export class MongoAuthRepository implements AuthRepository {
     await model.updateMany({ familyId, revokedAt: { $exists: false } }, { revokedAt });
   }
 
-  async createPasswordRecoveryToken(input: Omit<PasswordRecoveryTokenRecord, "id" | "createdAt">): Promise<PasswordRecoveryTokenRecord> {
+  async createPasswordRecoveryToken(input: CreatePasswordRecoveryTokenInput): Promise<PasswordRecoveryTokenRecord> {
     const model = await this.model("PasswordRecoveryToken", passwordRecoveryTokenSchema);
     const document = await model.create(input);
-    return toDomainRecord<PasswordRecoveryTokenRecord>(document);
+    return normalizePasswordRecoveryTokenRecord(toDomainRecord<PasswordRecoveryTokenRecord>(document));
   }
 
   async findPasswordRecoveryTokenByHash(tokenHash: string): Promise<PasswordRecoveryTokenRecord | null> {
     const model = await this.model("PasswordRecoveryToken", passwordRecoveryTokenSchema);
     const document = await model.findOne({ tokenHash });
-    return document ? toDomainRecord<PasswordRecoveryTokenRecord>(document) : null;
+    return document ? normalizePasswordRecoveryTokenRecord(toDomainRecord<PasswordRecoveryTokenRecord>(document)) : null;
   }
 
   async findLatestPasswordRecoveryTokenByUserId(userId: string): Promise<PasswordRecoveryTokenRecord | null> {
     const model = await this.model("PasswordRecoveryToken", passwordRecoveryTokenSchema);
     const document = await model.findOne({ userId }).sort({ createdAt: -1 });
-    return document ? toDomainRecord<PasswordRecoveryTokenRecord>(document) : null;
+    return document ? normalizePasswordRecoveryTokenRecord(toDomainRecord<PasswordRecoveryTokenRecord>(document)) : null;
   }
 
   async invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void> {
@@ -256,8 +270,10 @@ export class MongoAuthRepository implements AuthRepository {
 
   private async updateUser(id: string, input: Record<string, unknown>): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
-    const document = await model.findByIdAndUpdate(id, omitUndefined(input), { new: true });
-    return document ? toDomainRecord<AuthUserRecord>(document) : null;
+    const { credentialGeneration: _credentialGeneration, ...safeInput } = input;
+    void _credentialGeneration;
+    const document = await model.findByIdAndUpdate(id, { $set: omitUndefined(safeInput) }, { new: true });
+    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
   }
 
   private async model(name: string, schema: Parameters<typeof getModel>[2]) {

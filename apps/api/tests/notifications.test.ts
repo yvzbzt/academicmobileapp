@@ -275,6 +275,7 @@ const scopedUsers = new Map<string, AuthUserRecord>([
 function createUser(id: string, universityId: string, facultyId: string, departmentId: string): AuthUserRecord {
   return {
     id,
+    credentialGeneration: 0,
     fullName: id,
     email: `${id}@example.edu.tr`,
     passwordHash: "hash",

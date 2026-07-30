@@ -49,6 +49,18 @@ function createRecoveryFixture() {
   return { service, repository, passwordHasher, tokenService, sender };
 }
 
+function setStoredCredentialGeneration(
+  repository: InMemoryAuthRepository,
+  userId: string,
+  credentialGeneration: number
+): void {
+  type StoredUser = Record<string, unknown> & { credentialGeneration: number };
+  const users = (repository as unknown as { users: Map<string, StoredUser> }).users;
+  const user = users.get(userId);
+  if (!user) throw new Error("Expected a stored test user.");
+  users.set(userId, { ...user, credentialGeneration });
+}
+
 async function createActivePasswordUser(
   fixture: ReturnType<typeof createRecoveryFixture>,
   email = "recovery.student@example.com",
@@ -127,6 +139,7 @@ describe("password recovery", () => {
   it("stores only an HMAC digest and supports account-cleanup deletion", async () => {
     const fixture = createRecoveryFixture();
     const user = await createActivePasswordUser(fixture);
+    setStoredCredentialGeneration(fixture.repository, user.id, 11);
     await fixture.service.requestPasswordRecovery(user.email);
     const code = fixture.sender.recoverySent[0]!.code;
 
@@ -134,7 +147,11 @@ describe("password recovery", () => {
     const record = await fixture.repository.findPasswordRecoveryTokenByHash(
       fixture.tokenService.hashPasswordRecoveryToken(user.email, code)
     );
-    expect(record).toEqual(expect.objectContaining({ userId: user.id, tokenHash: expect.any(String) }));
+    expect(record).toEqual(expect.objectContaining({
+      userId: user.id,
+      credentialGeneration: 11,
+      tokenHash: expect.any(String)
+    }));
     expect(JSON.stringify(record)).not.toContain(code);
     expect(JSON.stringify(record)).not.toContain(user.email);
     await fixture.repository.deletePasswordRecoveryTokensByUserId(user.id);
@@ -228,9 +245,10 @@ describe("password recovery", () => {
     })).resolves.toEqual({ status: "password_reset" });
   });
 
-  it("changes the password, enforces single use, and revokes existing refresh sessions", async () => {
+  it("changes the password, preserves the current generation without pre-A2 mismatch enforcement, and revokes sessions", async () => {
     const fixture = createRecoveryFixture();
     const user = await createActivePasswordUser(fixture);
+    setStoredCredentialGeneration(fixture.repository, user.id, 5);
     const existingSession = await fixture.service.login({
       email: user.email,
       password: "OldPassword123!",
@@ -238,6 +256,7 @@ describe("password recovery", () => {
     });
     await fixture.service.requestPasswordRecovery(user.email);
     const code = fixture.sender.recoverySent[0]!.code;
+    setStoredCredentialGeneration(fixture.repository, user.id, 6);
 
     await expect(fixture.service.confirmPasswordRecovery({
       email: user.email,
@@ -245,6 +264,9 @@ describe("password recovery", () => {
       newPassword: "NewPassword123!",
       passwordConfirmation: "NewPassword123!"
     })).resolves.toEqual({ status: "password_reset" });
+    await expect(fixture.repository.findUserById(user.id)).resolves.toEqual(
+      expect.objectContaining({ credentialGeneration: 6 })
+    );
 
     const oldPasswordError = await captureHttpException(() => fixture.service.login({
       email: user.email,

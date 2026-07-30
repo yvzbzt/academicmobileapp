@@ -4,6 +4,7 @@ export const userSchema = new Schema(
   {
     fullName: { type: String, required: true, trim: true },
     email: { type: String, required: true, lowercase: true, trim: true, unique: true },
+    credentialGeneration: { type: Number, required: true, default: 0, min: 0 },
     emailVerifiedAt: { type: Date, required: false },
     passwordHash: { type: String, required: true, select: true },
     authProvider: { type: String, required: false, enum: ["password", "google", "password_google"], default: "password" },
@@ -32,6 +33,7 @@ userSchema.index({ universityId: 1, status: 1 }, { name: "users_university_statu
 export const refreshTokenSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
+    credentialGeneration: { type: Number, required: true, default: 0, min: 0 },
     tokenHash: { type: String, required: true, unique: true },
     familyId: { type: String, required: true, index: true },
     deviceId: { type: String, required: true },
@@ -66,6 +68,7 @@ emailVerificationTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, na
 export const passwordRecoveryTokenSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
+    credentialGeneration: { type: Number, required: true, default: 0, min: 0 },
     tokenHash: { type: String, required: true, unique: true },
     expiresAt: { type: Date, required: true, index: true },
     resendAvailableAt: { type: Date, required: true },

@@ -1,6 +1,20 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import type { AuthRepository, AuthUserRecord, EmailVerificationTokenRecord, PasswordRecoveryTokenRecord, RefreshTokenRecord } from "./auth.types.js";
+import type {
+  AuthRepository,
+  AuthUserRecord,
+  CreateAuthUserInput,
+  CreatePasswordRecoveryTokenInput,
+  CreateRefreshTokenInput,
+  EmailVerificationTokenRecord,
+  PasswordRecoveryTokenRecord,
+  RefreshTokenRecord
+} from "./auth.types.js";
+import {
+  normalizeAuthUserRecord,
+  normalizePasswordRecoveryTokenRecord,
+  normalizeRefreshTokenRecord
+} from "./credential-generation.js";
 
 @Injectable()
 export class InMemoryAuthRepository implements AuthRepository {
@@ -9,26 +23,28 @@ export class InMemoryAuthRepository implements AuthRepository {
   private readonly passwordRecoveryTokens = new Map<string, PasswordRecoveryTokenRecord>();
   private readonly refreshTokens = new Map<string, RefreshTokenRecord>();
 
-  async createUser(input: Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt">): Promise<AuthUserRecord> {
+  async createUser(input: CreateAuthUserInput): Promise<AuthUserRecord> {
     const normalizedEmail = input.email.toLowerCase();
-    const existing = await this.findUserByEmail(normalizedEmail);
-    if (existing) throw new Error("EMAIL_ALREADY_EXISTS");
+    if ([...this.users.values()].some((user) => user.email === normalizedEmail && !user.deletedAt)) {
+      throw new Error("EMAIL_ALREADY_EXISTS");
+    }
 
     const now = new Date();
     const user: AuthUserRecord = {
       ...input,
       id: randomUUID(),
+      credentialGeneration: 0,
       email: normalizedEmail,
       createdAt: now,
       updatedAt: now
     };
-    this.users.set(user.id, user);
-    return user;
+    return this.storeUser(user);
   }
 
   async listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]> {
     const search = input.search?.trim().toLocaleLowerCase("tr-TR");
     return [...this.users.values()]
+      .map(normalizeAuthUserRecord)
       .filter((user) => !user.deletedAt)
       .filter((user) => (input.status ? user.status === input.status : true))
       .filter((user) => (search ? user.fullName.toLocaleLowerCase("tr-TR").includes(search) || user.email.includes(search) : true))
@@ -38,72 +54,66 @@ export class InMemoryAuthRepository implements AuthRepository {
 
   async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
     const normalizedEmail = email.toLowerCase();
-    return [...this.users.values()].find((user) => user.email === normalizedEmail && !user.deletedAt) ?? null;
+    const user = [...this.users.values()].find((candidate) => candidate.email === normalizedEmail && !candidate.deletedAt);
+    return user ? normalizeAuthUserRecord(user) : null;
   }
 
   async findUserById(id: string): Promise<AuthUserRecord | null> {
-    const user = this.users.get(id);
-    return user && !user.deletedAt ? user : null;
+    return this.getActiveUser(id);
   }
 
   async markUserEmailVerified(id: string, verifiedAt: Date): Promise<AuthUserRecord | null> {
-    const user = this.users.get(id);
+    const user = this.getActiveUser(id);
     if (!user) return null;
-    const updated: AuthUserRecord = {
+    return this.storeUser({
       ...user,
       status: "active",
       emailVerifiedAt: verifiedAt,
       updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    });
   }
 
   async updateUserGoogleIdentity(
     id: string,
     input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "firebaseAuthUid" | "lastLoginAt">>
   ): Promise<AuthUserRecord | null> {
-    const user = await this.findUserById(id);
+    const user = this.getActiveUser(id);
     if (!user) return null;
-    const updated: AuthUserRecord = {
+    return this.storeUser({
       ...user,
       ...input,
+      credentialGeneration: user.credentialGeneration,
       updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    });
   }
 
   async updateUserByAdmin(
     id: string,
     input: Partial<Pick<AuthUserRecord, "fullName" | "role" | "status" | "universityId" | "facultyId" | "departmentId" | "classLevel">>
   ): Promise<AuthUserRecord | null> {
-    const user = await this.findUserById(id);
+    const user = this.getActiveUser(id);
     if (!user) return null;
-    const updated: AuthUserRecord = {
+    return this.storeUser({
       ...user,
       ...input,
+      credentialGeneration: user.credentialGeneration,
       updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    });
   }
 
   async deleteUserByAdmin(id: string): Promise<void> {
-    const user = this.users.get(id);
-    if (user) this.users.set(id, { ...user, status: "inactive", deletedAt: new Date(), updatedAt: new Date() });
+    const user = this.getActiveUser(id);
+    if (user) this.storeUser({ ...user, status: "inactive", deletedAt: new Date(), updatedAt: new Date() });
   }
 
   async clearUserAppData(id: string): Promise<AuthUserRecord | null> {
-    const user = await this.findUserById(id);
+    const user = this.getActiveUser(id);
     if (!user) return null;
     const { universityId: _universityId, facultyId: _facultyId, departmentId: _departmentId, classLevel: _classLevel, ...rest } = user;
-    const updated: AuthUserRecord = {
+    return this.storeUser({
       ...rest,
       updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    });
   }
 
   async deleteUserAccount(
@@ -115,8 +125,8 @@ export class InMemoryAuthRepository implements AuthRepository {
       anonymizedPasswordHash: string;
     }
   ): Promise<void> {
-    const user = this.users.get(id);
-    if (!user || user.deletedAt) return;
+    const user = this.getActiveUser(id);
+    if (!user) return;
     const {
       emailVerifiedAt: _emailVerifiedAt,
       firebaseAuthUid: _firebaseAuthUid,
@@ -127,7 +137,7 @@ export class InMemoryAuthRepository implements AuthRepository {
       lastLoginAt: _lastLoginAt,
       ...rest
     } = user;
-    this.users.set(id, {
+    this.storeUser({
       ...rest,
       fullName: input.anonymizedFullName,
       email: input.anonymizedEmail.toLowerCase(),
@@ -139,48 +149,42 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   async updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
-    const user = this.users.get(id);
+    const user = this.getActiveUser(id);
     if (!user) return null;
-    const updated: AuthUserRecord = {
+    return this.storeUser({
       ...user,
       ...(input.fullName ? { fullName: input.fullName } : {}),
       ...(input.classLevel ? { classLevel: input.classLevel } : {}),
       updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    });
   }
 
   async updateUserPassword(id: string, passwordHash: string): Promise<AuthUserRecord | null> {
-    const user = await this.findUserById(id);
+    const user = this.getActiveUser(id);
     if (!user) return null;
-    const updated: AuthUserRecord = {
+    return this.storeUser({
       ...user,
       passwordHash,
       authProvider: user.authProvider === "google" ? "password_google" : user.authProvider ?? "password",
       updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    });
   }
 
   async updateUserAcademicSelection(
     id: string,
     input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }
   ): Promise<AuthUserRecord | null> {
-    const user = this.users.get(id);
+    const user = this.getActiveUser(id);
     if (!user) return null;
     const { facultyId: _facultyId, departmentId: _departmentId, classLevel: _classLevel, ...userWithoutDependentSelection } = user;
-    const updated: AuthUserRecord = {
+    return this.storeUser({
       ...userWithoutDependentSelection,
       universityId: input.universityId,
       ...(input.facultyId ? { facultyId: input.facultyId } : {}),
       ...(input.departmentId ? { departmentId: input.departmentId } : {}),
       ...(input.classLevel ? { classLevel: input.classLevel } : {}),
       updatedAt: new Date()
-    };
-    this.users.set(id, updated);
-    return updated;
+    });
   }
 
   async createEmailVerificationToken(input: Omit<EmailVerificationTokenRecord, "id" | "createdAt">): Promise<EmailVerificationTokenRecord> {
@@ -208,54 +212,57 @@ export class InMemoryAuthRepository implements AuthRepository {
     if (token) this.emailVerificationTokens.set(id, { ...token, consumedAt });
   }
 
-  async createRefreshToken(input: Omit<RefreshTokenRecord, "id" | "createdAt">): Promise<RefreshTokenRecord> {
-    const refreshToken: RefreshTokenRecord = {
+  async createRefreshToken(input: CreateRefreshTokenInput): Promise<RefreshTokenRecord> {
+    const refreshToken = normalizeRefreshTokenRecord({
       ...input,
       id: randomUUID(),
       createdAt: new Date()
-    };
-    this.refreshTokens.set(refreshToken.id, refreshToken);
-    return refreshToken;
+    });
+    this.refreshTokens.set(refreshToken.id, { ...refreshToken });
+    return { ...refreshToken };
   }
 
   async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null> {
-    return [...this.refreshTokens.values()].find((token) => token.tokenHash === tokenHash) ?? null;
+    const token = [...this.refreshTokens.values()].find((candidate) => candidate.tokenHash === tokenHash);
+    return token ? normalizeRefreshTokenRecord(token) : null;
   }
 
   async revokeRefreshToken(id: string, revokedAt: Date): Promise<void> {
     const token = this.refreshTokens.get(id);
-    if (token) this.refreshTokens.set(id, { ...token, revokedAt });
+    if (token) this.refreshTokens.set(id, normalizeRefreshTokenRecord({ ...token, revokedAt }));
   }
 
   async markRefreshTokenReused(id: string, reusedAt: Date): Promise<void> {
     const token = this.refreshTokens.get(id);
-    if (token) this.refreshTokens.set(id, { ...token, reusedAt });
+    if (token) this.refreshTokens.set(id, normalizeRefreshTokenRecord({ ...token, reusedAt }));
   }
 
   async revokeRefreshTokenFamily(familyId: string, revokedAt: Date): Promise<void> {
     for (const [id, token] of this.refreshTokens.entries()) {
       if (token.familyId === familyId && !token.revokedAt) {
-        this.refreshTokens.set(id, { ...token, revokedAt });
+        this.refreshTokens.set(id, normalizeRefreshTokenRecord({ ...token, revokedAt }));
       }
     }
   }
 
-  async createPasswordRecoveryToken(input: Omit<PasswordRecoveryTokenRecord, "id" | "createdAt">): Promise<PasswordRecoveryTokenRecord> {
-    const token: PasswordRecoveryTokenRecord = {
+  async createPasswordRecoveryToken(input: CreatePasswordRecoveryTokenInput): Promise<PasswordRecoveryTokenRecord> {
+    const token = normalizePasswordRecoveryTokenRecord({
       ...input,
       id: randomUUID(),
       createdAt: new Date()
-    };
-    this.passwordRecoveryTokens.set(token.id, token);
-    return token;
+    });
+    this.passwordRecoveryTokens.set(token.id, { ...token });
+    return { ...token };
   }
 
   async findPasswordRecoveryTokenByHash(tokenHash: string): Promise<PasswordRecoveryTokenRecord | null> {
-    return [...this.passwordRecoveryTokens.values()].find((token) => token.tokenHash === tokenHash) ?? null;
+    const token = [...this.passwordRecoveryTokens.values()].find((candidate) => candidate.tokenHash === tokenHash);
+    return token ? normalizePasswordRecoveryTokenRecord(token) : null;
   }
 
   async findLatestPasswordRecoveryTokenByUserId(userId: string): Promise<PasswordRecoveryTokenRecord | null> {
     return [...this.passwordRecoveryTokens.values()]
+      .map(normalizePasswordRecoveryTokenRecord)
       .filter((token) => token.userId === userId)
       .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0] ?? null;
   }
@@ -263,7 +270,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   async invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void> {
     for (const [id, token] of this.passwordRecoveryTokens.entries()) {
       if (token.userId === userId && !token.consumedAt && !token.invalidatedAt) {
-        this.passwordRecoveryTokens.set(id, { ...token, invalidatedAt });
+        this.passwordRecoveryTokens.set(id, normalizePasswordRecoveryTokenRecord({ ...token, invalidatedAt }));
       }
     }
   }
@@ -271,7 +278,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   async consumePasswordRecoveryToken(id: string, consumedAt: Date): Promise<boolean> {
     const token = this.passwordRecoveryTokens.get(id);
     if (!token || token.consumedAt || token.invalidatedAt || token.expiresAt.getTime() <= consumedAt.getTime()) return false;
-    this.passwordRecoveryTokens.set(id, { ...token, consumedAt });
+    this.passwordRecoveryTokens.set(id, normalizePasswordRecoveryTokenRecord({ ...token, consumedAt }));
     return true;
   }
 
@@ -284,7 +291,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   async revokeRefreshTokensByUserId(userId: string, revokedAt: Date): Promise<void> {
     for (const [id, token] of this.refreshTokens.entries()) {
       if (token.userId === userId && !token.revokedAt) {
-        this.refreshTokens.set(id, { ...token, revokedAt });
+        this.refreshTokens.set(id, normalizeRefreshTokenRecord({ ...token, revokedAt }));
       }
     }
   }
@@ -293,5 +300,16 @@ export class InMemoryAuthRepository implements AuthRepository {
     for (const [id, token] of this.emailVerificationTokens.entries()) {
       if (token.userId === userId) this.emailVerificationTokens.delete(id);
     }
+  }
+
+  private getActiveUser(id: string): AuthUserRecord | null {
+    const user = this.users.get(id);
+    return user && !user.deletedAt ? normalizeAuthUserRecord(user) : null;
+  }
+
+  private storeUser(user: AuthUserRecord): AuthUserRecord {
+    const normalized = normalizeAuthUserRecord(user);
+    this.users.set(normalized.id, { ...normalized });
+    return { ...normalized };
   }
 }

@@ -2,6 +2,7 @@ import type { UserRole } from "../../../../../packages/shared/src/contracts.js";
 
 export interface AuthUserRecord {
   id: string;
+  credentialGeneration: number;
   fullName: string;
   email: string;
   emailVerifiedAt?: Date;
@@ -32,6 +33,7 @@ export interface AuthenticatedUser {
 export interface RefreshTokenRecord {
   id: string;
   userId: string;
+  credentialGeneration: number;
   tokenHash: string;
   familyId: string;
   deviceId: string;
@@ -63,6 +65,7 @@ export interface EmailVerificationTokenRecord {
 export interface PasswordRecoveryTokenRecord {
   id: string;
   userId: string;
+  credentialGeneration: number;
   tokenHash: string;
   expiresAt: Date;
   resendAvailableAt: Date;
@@ -141,8 +144,14 @@ export interface VerifyEmailByLinkInput {
   token: string;
 }
 
+export type CreateAuthUserInput = Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt" | "credentialGeneration">;
+
+export type CreateRefreshTokenInput = Omit<RefreshTokenRecord, "id" | "createdAt">;
+
+export type CreatePasswordRecoveryTokenInput = Omit<PasswordRecoveryTokenRecord, "id" | "createdAt">;
+
 export interface AuthRepository {
-  createUser(input: Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt">): Promise<AuthUserRecord>;
+  createUser(input: CreateAuthUserInput): Promise<AuthUserRecord>;
   listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]>;
   findUserByEmail(email: string): Promise<AuthUserRecord | null>;
   findUserById(id: string): Promise<AuthUserRecord | null>;
@@ -176,13 +185,13 @@ export interface AuthRepository {
   findEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationTokenRecord | null>;
   findLatestEmailVerificationTokenByUserId(userId: string): Promise<EmailVerificationTokenRecord | null>;
   consumeEmailVerificationToken(id: string, consumedAt: Date): Promise<void>;
-  createPasswordRecoveryToken(input: Omit<PasswordRecoveryTokenRecord, "id" | "createdAt">): Promise<PasswordRecoveryTokenRecord>;
+  createPasswordRecoveryToken(input: CreatePasswordRecoveryTokenInput): Promise<PasswordRecoveryTokenRecord>;
   findPasswordRecoveryTokenByHash(tokenHash: string): Promise<PasswordRecoveryTokenRecord | null>;
   findLatestPasswordRecoveryTokenByUserId(userId: string): Promise<PasswordRecoveryTokenRecord | null>;
   invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void>;
   consumePasswordRecoveryToken(id: string, consumedAt: Date): Promise<boolean>;
   deletePasswordRecoveryTokensByUserId(userId: string): Promise<void>;
-  createRefreshToken(input: Omit<RefreshTokenRecord, "id" | "createdAt">): Promise<RefreshTokenRecord>;
+  createRefreshToken(input: CreateRefreshTokenInput): Promise<RefreshTokenRecord>;
   findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null>;
   revokeRefreshToken(id: string, revokedAt: Date): Promise<void>;
   markRefreshTokenReused(id: string, reusedAt: Date): Promise<void>;

@@ -1,19 +1,40 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { CollectionReference, DocumentData } from "firebase-admin/firestore";
+import { FieldValue, type CollectionReference, type DocumentData } from "firebase-admin/firestore";
 import { FirestoreDatabaseService } from "../../database/firestore.service.js";
 import { cleanFirestoreData, getAllFirestoreRecords, newFirestoreId, toFirestoreRecord } from "../../database/firestore-utils.js";
-import type { AuthRepository, AuthUserRecord, EmailVerificationTokenRecord, PasswordRecoveryTokenRecord, RefreshTokenRecord } from "./auth.types.js";
+import type {
+  AuthRepository,
+  AuthUserRecord,
+  CreateAuthUserInput,
+  CreatePasswordRecoveryTokenInput,
+  CreateRefreshTokenInput,
+  EmailVerificationTokenRecord,
+  PasswordRecoveryTokenRecord,
+  RefreshTokenRecord
+} from "./auth.types.js";
+import {
+  normalizeAuthUserRecord,
+  normalizePasswordRecoveryTokenRecord,
+  normalizeRefreshTokenRecord
+} from "./credential-generation.js";
 
 @Injectable()
 export class FirestoreAuthRepository implements AuthRepository {
   constructor(@Inject(FirestoreDatabaseService) private readonly firestore: FirestoreDatabaseService) {}
 
-  async createUser(input: Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt">): Promise<AuthUserRecord> {
+  async createUser(input: CreateAuthUserInput): Promise<AuthUserRecord> {
     const normalizedEmail = input.email.toLowerCase();
     const existing = await this.findUserByEmail(normalizedEmail);
     if (existing) throw new Error("EMAIL_ALREADY_EXISTS");
     const now = new Date();
-    const user: AuthUserRecord = { ...input, id: newFirestoreId(), email: normalizedEmail, createdAt: now, updatedAt: now };
+    const user: AuthUserRecord = {
+      ...input,
+      id: newFirestoreId(),
+      credentialGeneration: 0,
+      email: normalizedEmail,
+      createdAt: now,
+      updatedAt: now
+    };
     await this.users.doc(user.id).set(cleanFirestoreData(user as unknown as Record<string, unknown>));
     return user;
   }
@@ -24,6 +45,7 @@ export class FirestoreAuthRepository implements AuthRepository {
       : await getAllFirestoreRecords<AuthUserRecord>(this.users);
     const search = input.search?.trim().toLocaleLowerCase("tr-TR");
     return records
+      .map(normalizeAuthUserRecord)
       .filter((user) => !user.deletedAt)
       .filter((user) => (search ? user.fullName.toLocaleLowerCase("tr-TR").includes(search) || user.email.includes(search) : true))
       .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
@@ -33,12 +55,12 @@ export class FirestoreAuthRepository implements AuthRepository {
   async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
     const snapshot = await this.users.where("email", "==", email.toLowerCase()).limit(1).get();
     const user = snapshot.docs[0] ? toFirestoreRecord<AuthUserRecord>(snapshot.docs[0]) : null;
-    return user && !user.deletedAt ? user : null;
+    return user && !user.deletedAt ? normalizeAuthUserRecord(user) : null;
   }
 
   async findUserById(id: string): Promise<AuthUserRecord | null> {
     const user = toFirestoreRecord<AuthUserRecord>(await this.users.doc(id).get());
-    return user && !user.deletedAt ? user : null;
+    return user && !user.deletedAt ? normalizeAuthUserRecord(user) : null;
   }
 
   markUserEmailVerified(id: string, verifiedAt: Date): Promise<AuthUserRecord | null> {
@@ -60,18 +82,12 @@ export class FirestoreAuthRepository implements AuthRepository {
   }
 
   async deleteUserByAdmin(id: string): Promise<void> {
-    const user = await this.findUserById(id);
-    if (!user) return;
-    await this.users.doc(id).set(cleanFirestoreData({ ...user, status: "inactive", deletedAt: new Date(), updatedAt: new Date() }), { merge: false });
+    const deletedAt = new Date();
+    await this.updateUserFields(id, { status: "inactive", deletedAt }, []);
   }
 
   async clearUserAppData(id: string): Promise<AuthUserRecord | null> {
-    const user = await this.findUserById(id);
-    if (!user) return null;
-    const { universityId: _universityId, facultyId: _facultyId, departmentId: _departmentId, classLevel: _classLevel, ...rest } = user;
-    const updated: AuthUserRecord = { ...rest, updatedAt: new Date() };
-    await this.users.doc(id).set(cleanFirestoreData(updated as unknown as Record<string, unknown>), { merge: false });
-    return updated;
+    return this.updateUserFields(id, {}, ["universityId", "facultyId", "departmentId", "classLevel"]);
   }
 
   async deleteUserAccount(
@@ -83,28 +99,18 @@ export class FirestoreAuthRepository implements AuthRepository {
       anonymizedPasswordHash: string;
     }
   ): Promise<void> {
-    const user = await this.findUserById(id);
-    if (!user) return;
-    const {
-      emailVerifiedAt: _emailVerifiedAt,
-      firebaseAuthUid: _firebaseAuthUid,
-      universityId: _universityId,
-      facultyId: _facultyId,
-      departmentId: _departmentId,
-      classLevel: _classLevel,
-      lastLoginAt: _lastLoginAt,
-      ...rest
-    } = user;
-    const deletedUser: AuthUserRecord = {
-      ...rest,
-      fullName: input.anonymizedFullName,
-      email: input.anonymizedEmail.toLowerCase(),
-      passwordHash: input.anonymizedPasswordHash,
-      status: "inactive",
-      deletedAt: input.deletedAt,
-      updatedAt: input.deletedAt
-    };
-    await this.users.doc(id).set(cleanFirestoreData(deletedUser as unknown as Record<string, unknown>), { merge: false });
+    await this.updateUserFields(
+      id,
+      {
+        fullName: input.anonymizedFullName,
+        email: input.anonymizedEmail.toLowerCase(),
+        passwordHash: input.anonymizedPasswordHash,
+        status: "inactive",
+        deletedAt: input.deletedAt,
+        updatedAt: input.deletedAt
+      },
+      ["emailVerifiedAt", "firebaseAuthUid", "universityId", "facultyId", "departmentId", "classLevel", "lastLoginAt"]
+    );
   }
 
   updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
@@ -115,19 +121,20 @@ export class FirestoreAuthRepository implements AuthRepository {
   }
 
   async updateUserAcademicSelection(id: string, input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
-    const user = await this.findUserById(id);
-    if (!user) return null;
-    const { facultyId: _facultyId, departmentId: _departmentId, classLevel: _classLevel, ...userWithoutDependentSelection } = user;
-    const updated: AuthUserRecord = {
-      ...userWithoutDependentSelection,
-      universityId: input.universityId,
-      ...(input.facultyId ? { facultyId: input.facultyId } : {}),
-      ...(input.departmentId ? { departmentId: input.departmentId } : {}),
-      ...(input.classLevel ? { classLevel: input.classLevel } : {}),
-      updatedAt: new Date()
-    };
-    await this.users.doc(id).set(cleanFirestoreData(updated as unknown as Record<string, unknown>), { merge: false });
-    return updated;
+    return this.updateUserFields(
+      id,
+      {
+        universityId: input.universityId,
+        ...(input.facultyId ? { facultyId: input.facultyId } : {}),
+        ...(input.departmentId ? { departmentId: input.departmentId } : {}),
+        ...(input.classLevel ? { classLevel: input.classLevel } : {})
+      },
+      [
+        ...(input.facultyId ? [] : ["facultyId"]),
+        ...(input.departmentId ? [] : ["departmentId"]),
+        ...(input.classLevel ? [] : ["classLevel"])
+      ]
+    );
   }
 
   async updateUserPassword(id: string, passwordHash: string): Promise<AuthUserRecord | null> {
@@ -159,15 +166,16 @@ export class FirestoreAuthRepository implements AuthRepository {
     await this.emailVerificationTokens.doc(id).set(cleanFirestoreData({ consumedAt }), { merge: true });
   }
 
-  async createRefreshToken(input: Omit<RefreshTokenRecord, "id" | "createdAt">): Promise<RefreshTokenRecord> {
-    const refreshToken: RefreshTokenRecord = { ...input, id: newFirestoreId(), createdAt: new Date() };
+  async createRefreshToken(input: CreateRefreshTokenInput): Promise<RefreshTokenRecord> {
+    const refreshToken = normalizeRefreshTokenRecord({ ...input, id: newFirestoreId(), createdAt: new Date() });
     await this.refreshTokens.doc(refreshToken.id).set(cleanFirestoreData(refreshToken as unknown as Record<string, unknown>));
     return refreshToken;
   }
 
   async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null> {
     const snapshot = await this.refreshTokens.where("tokenHash", "==", tokenHash).limit(1).get();
-    return snapshot.docs[0] ? toFirestoreRecord<RefreshTokenRecord>(snapshot.docs[0]) : null;
+    const token = snapshot.docs[0] ? toFirestoreRecord<RefreshTokenRecord>(snapshot.docs[0]) : null;
+    return token ? normalizeRefreshTokenRecord(token) : null;
   }
 
   async revokeRefreshToken(id: string, revokedAt: Date): Promise<void> {
@@ -187,19 +195,22 @@ export class FirestoreAuthRepository implements AuthRepository {
     await batch.commit();
   }
 
-  async createPasswordRecoveryToken(input: Omit<PasswordRecoveryTokenRecord, "id" | "createdAt">): Promise<PasswordRecoveryTokenRecord> {
-    const token: PasswordRecoveryTokenRecord = { ...input, id: newFirestoreId(), createdAt: new Date() };
+  async createPasswordRecoveryToken(input: CreatePasswordRecoveryTokenInput): Promise<PasswordRecoveryTokenRecord> {
+    const token = normalizePasswordRecoveryTokenRecord({ ...input, id: newFirestoreId(), createdAt: new Date() });
     await this.passwordRecoveryTokens.doc(token.id).set(cleanFirestoreData(token as unknown as Record<string, unknown>));
     return token;
   }
 
   async findPasswordRecoveryTokenByHash(tokenHash: string): Promise<PasswordRecoveryTokenRecord | null> {
     const snapshot = await this.passwordRecoveryTokens.where("tokenHash", "==", tokenHash).limit(1).get();
-    return snapshot.docs[0] ? toFirestoreRecord<PasswordRecoveryTokenRecord>(snapshot.docs[0]) : null;
+    const token = snapshot.docs[0] ? toFirestoreRecord<PasswordRecoveryTokenRecord>(snapshot.docs[0]) : null;
+    return token ? normalizePasswordRecoveryTokenRecord(token) : null;
   }
 
   async findLatestPasswordRecoveryTokenByUserId(userId: string): Promise<PasswordRecoveryTokenRecord | null> {
-    const tokens = await getAllFirestoreRecords<PasswordRecoveryTokenRecord>(this.passwordRecoveryTokens.where("userId", "==", userId));
+    const tokens = (await getAllFirestoreRecords<PasswordRecoveryTokenRecord>(this.passwordRecoveryTokens.where("userId", "==", userId))).map(
+      normalizePasswordRecoveryTokenRecord
+    );
     return tokens.sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0] ?? null;
   }
 
@@ -247,12 +258,30 @@ export class FirestoreAuthRepository implements AuthRepository {
     await batch.commit();
   }
 
-  private async updateUser(id: string, input: Partial<Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt">>): Promise<AuthUserRecord | null> {
-    const user = await this.findUserById(id);
-    if (!user) return null;
-    const updated: AuthUserRecord = { ...user, ...input, updatedAt: new Date() };
-    await this.users.doc(id).set(cleanFirestoreData(updated as unknown as Record<string, unknown>), { merge: false });
-    return updated;
+  private async updateUser(
+    id: string,
+    input: Partial<Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt" | "credentialGeneration">>
+  ): Promise<AuthUserRecord | null> {
+    return this.updateUserFields(id, input as Record<string, unknown>, []);
+  }
+
+  private async updateUserFields(
+    id: string,
+    input: Record<string, unknown>,
+    fieldsToDelete: string[]
+  ): Promise<AuthUserRecord | null> {
+    if (!(await this.findUserById(id))) return null;
+
+    const { credentialGeneration: _credentialGeneration, ...safeInput } = input;
+    void _credentialGeneration;
+    const update = cleanFirestoreData({
+      ...safeInput,
+      updatedAt: safeInput.updatedAt ?? new Date()
+    });
+    for (const field of fieldsToDelete) update[field] = FieldValue.delete();
+
+    await this.users.doc(id).update(update);
+    return this.findUserById(id);
   }
 
   private get users(): CollectionReference<DocumentData> {

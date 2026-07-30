@@ -156,6 +156,7 @@ export class AuthApplicationService {
     await this.authRepository.invalidatePasswordRecoveryTokensByUserId(user.id, now);
     await this.authRepository.createPasswordRecoveryToken({
       userId: user.id,
+      credentialGeneration: user.credentialGeneration,
       tokenHash: recoveryToken.tokenHash,
       expiresAt: recoveryToken.expiresAt,
       resendAvailableAt: new Date(now.getTime() + PASSWORD_RECOVERY_RESEND_SECONDS * 1000)
@@ -361,7 +362,13 @@ export class AuthApplicationService {
   }
 
   private async createSession(
-    user: { id: string; fullName: string; email: string; role: "student" | "content_editor" | "university_admin" | "super_admin" },
+    user: {
+      id: string;
+      credentialGeneration: number;
+      fullName: string;
+      email: string;
+      role: "student" | "content_editor" | "university_admin" | "super_admin";
+    },
     deviceId: string,
     ipAddress?: string,
     userAgent?: string,
@@ -370,6 +377,7 @@ export class AuthApplicationService {
     const refreshToken = this.tokenService.issueRefreshToken(familyId);
     const refreshTokenRecord: Omit<RefreshTokenRecord, "id" | "createdAt"> = {
       userId: user.id,
+      credentialGeneration: user.credentialGeneration,
       tokenHash: refreshToken.tokenHash,
       familyId: refreshToken.familyId,
       deviceId,

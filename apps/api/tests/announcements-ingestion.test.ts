@@ -284,6 +284,7 @@ function createAuthRepository(): AuthRepository {
   const now = new Date();
   const user: AuthUserRecord = {
     id: "student-1",
+    credentialGeneration: 0,
     fullName: "Student",
     email: "student@agu.edu.tr",
     passwordHash: "hash",

@@ -95,6 +95,20 @@ When resend is still cooling down, the `429` response preserves the original top
 
 Registration passwords are strings with a minimum length of 10 JavaScript UTF-16 code units; the input string is not trimmed. `passwordConfirmation` is required and must match. The shared backend value is exported as `AUTH_PASSWORD_MIN_LENGTH`. No additional password-complexity rule is currently enforced by the API.
 
+### Credential-Generation Persistence Substrate (Phase 1 Task A1)
+
+The auth persistence contract contains a non-negative integer `credentialGeneration` on user, refresh-token, and password-recovery records. Repository reads interpret a missing legacy value as `0`; new users initialize the field to `0`. When the service creates a refresh-token or password-recovery record, it stamps the current user's generation onto that record.
+
+Task A1 makes every existing-user writer generation-safe without advancing the value:
+
+- Firestore uses document field updates instead of full-document replacement. Personal-data and hierarchy clearing use explicit field deletions, so removing a university or faculty still removes all omitted descendants without copying a stale generation over the stored value.
+- Mongo retains partial `$set`/`$unset` updates and strips `credentialGeneration` from the general user-update input before writing. No user path replaces the whole Mongo document with a stale domain object.
+- The in-memory adapter takes the current map entry and writes its replacement synchronously, with no internal await between read and write. This prevents a delayed user object from restoring an older generation.
+
+The protected writer set includes verification, Google identity, administrative changes, profile changes, password changes, academic selection, app-data clearing, admin deletion, and account deletion/anonymization. There is no production migration, new index, or new environment setting for this additive field; legacy data remains usable as generation `0`.
+
+This substrate is not yet a revocation boundary. Task A1 does not increment `credentialGeneration`, reject a refresh/recovery record on a mismatch, change the current password-reset ordering, or alter existing access JWT contents/validation. Task A2 owns generation advancement, mismatch enforcement, and atomic password-reset completion. The timing-safe recovery-request design remains separate Task B work, and Phase 2 is untouched. Consequently the known request-latency channel and reset partial-state risk below remain open.
+
 ### Password-Recovery API And Storage Contract
 
 Password recovery is a two-step public contract. Both routes use the strict endpoint-catalog rate policy: at most 10 requests per 60 seconds for each client/route key. A limit breach returns HTTP `429` with `AUTH_RATE_LIMITED`; production proxy trust/client-IP configuration remains a deployment gate.
