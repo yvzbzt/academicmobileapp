@@ -3,52 +3,59 @@ import http from "node:http";
 import https from "node:https";
 import tls from "node:tls";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
+import {
+  canonicalContentKey,
+  canonicalizeContentUrl,
+  compareAcademicContentDuplicateRecency,
+  createContentDedupeKey,
+  evaluateContentTrust,
+  isNavigationOrChromeTitle,
+  isOfficialContentUrl,
+  normalizeDisplayText,
+  toIsoString
+} from "./announcement-content-trust.js";
 import type { AnnouncementItem, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
 
 ensureCrawlerSystemCa();
 
 export interface ParsedAnnouncementItem {
   title: string;
+  rawTitle?: string;
   link: string;
   publishedAt?: Date;
+  sourceUpdatedAt?: Date;
   summary?: string;
 }
 
 export async function fetchSourceItems(sourceUrl: string, parser: AnnouncementSourceParser, timeoutMs = 7000): Promise<ParsedAnnouncementItem[]> {
-  const atuItems = await fetchAtuContentItems(sourceUrl, timeoutMs);
+  const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
+  const atuItems = await fetchAtuContentItems(officialSourceUrl, timeoutMs);
   if (atuItems) return atuItems.slice(0, 30);
 
-  const body = await fetchText(sourceUrl, timeoutMs, { accept: "text/html,application/json,application/rss+xml,application/xml;q=0.9,*/*;q=0.8" });
+  const body = await fetchText(officialSourceUrl, timeoutMs, { accept: "text/html,application/json,application/rss+xml,application/xml;q=0.9,*/*;q=0.8" });
   if (parser === "auto" && looksLikeJson(body.text)) return parseJsonAnnouncements(body.text, body.finalUrl).slice(0, 30);
   const resolvedParser = parser === "auto" ? (looksLikeXmlFeed(body.text) ? "rss" : "html") : parser;
-  if (resolvedParser === "rss") return parseRssOrAtom(body.text).slice(0, 30);
-  return parseHtmlAnchors(body.text, body.finalUrl).slice(0, 30);
+  if (resolvedParser === "rss") return parseSyndicatedAnnouncements(body.text, body.finalUrl).slice(0, 30);
+  if (isYokSourceUrl(body.finalUrl)) return parseYokAnnouncementHtml(body.text, body.finalUrl).slice(0, 30);
+  if (isAnkaraUniversitySourceUrl(body.finalUrl)) return parseAnkaraUniversityAnnouncementHtml(body.text, body.finalUrl).slice(0, 30);
+  return parseGenericAnnouncementHtml(body.text, body.finalUrl).slice(0, 30);
 }
 
 export async function fetchText(sourceUrl: string, timeoutMs = 7000, input: { accept?: string } = {}): Promise<{ text: string; finalUrl: string; status: number }> {
+  const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(sourceUrl, {
-      method: "GET",
-      headers: {
-        Accept: input.accept ?? "text/html,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
-        "User-Agent": crawlerUserAgent
-      },
-      redirect: "follow",
-      signal: controller.signal
-    });
-
-    if (!response.ok) throw new Error(`SOURCE_FETCH_FAILED:${response.status}`);
-    return { text: await response.text(), finalUrl: response.url || sourceUrl, status: response.status };
+    return await fetchTextWithFetch(officialSourceUrl, timeoutMs, input, controller.signal);
   } catch (error) {
-    if (isHttpFetchStatusError(error)) throw error;
+    if (isNonRetryableSourceError(error)) throw error;
     try {
-      return await fetchTextWithNodeClient(sourceUrl, timeoutMs, input, 0, false);
+      return await fetchTextWithNodeClient(officialSourceUrl, officialSourceUrl, timeoutMs, input, 0, false);
     } catch (nodeError) {
-      if (shouldRetryWithInvalidTls(sourceUrl, error) || shouldRetryWithInvalidTls(sourceUrl, nodeError)) return fetchTextWithNodeClient(sourceUrl, timeoutMs, input, 0, true);
+      if (shouldRetryWithInvalidTls(officialSourceUrl, error) || shouldRetryWithInvalidTls(officialSourceUrl, nodeError)) {
+        return fetchTextWithNodeClient(officialSourceUrl, officialSourceUrl, timeoutMs, input, 0, true);
+      }
       throw error;
     }
   } finally {
@@ -56,48 +63,72 @@ export async function fetchText(sourceUrl: string, timeoutMs = 7000, input: { ac
   }
 }
 
-function isHttpFetchStatusError(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith("SOURCE_FETCH_FAILED:");
+function isNonRetryableSourceError(error: unknown): boolean {
+  return error instanceof Error && /^(?:SOURCE_FETCH_FAILED:|SOURCE_URL_|SOURCE_REDIRECT_)/u.test(error.message);
 }
 
 export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItems: ParsedAnnouncementItem[], fetchedAt = new Date()): AnnouncementItem[] {
-  return dedupeAnnouncements(parsedItems
-    .filter((item) => isFreshAcademicContent({ title: item.title, url: item.link, publishedAt: item.publishedAt, fetchedAt }).accepted)
-    .map((item) => ({
-      id: createAnnouncementId(source.id, item.link, item.title),
+  const officialSourceUrl = canonicalizeContentUrl(source.canonicalUrl ?? source.sourceUrl);
+  if (!officialSourceUrl || !isOfficialContentUrl(officialSourceUrl, officialSourceUrl)) return [];
+  const fetchedAtIso = fetchedAt.toISOString();
+  const contentType = source.contentType ?? "announcement";
+
+  return dedupeAnnouncements(parsedItems.flatMap((item): AnnouncementItem[] => {
+    const trust = evaluateContentTrust({
+      rawTitle: item.rawTitle ?? item.title,
+      url: item.link,
+      officialSourceUrl,
+      contentType
+    });
+    if (trust.status !== "trusted" || !trust.title || !trust.canonicalUrl || !trust.dedupeKey) return [];
+    const summary = normalizeDisplayText(item.summary, 1_200);
+    const freshness = isFreshAcademicContent({
+      title: trust.title,
+      url: trust.canonicalUrl,
+      ...(summary ? { text: summary } : {}),
+      ...(item.publishedAt ? { publishedAt: item.publishedAt } : {})
+    });
+    if (!freshness.accepted) return [];
+
+    return [{
+      id: createAnnouncementId(source.id, trust.canonicalUrl, trust.title),
       sourceId: source.id,
-      sourceName: source.sourceName,
-      contentType: source.contentType ?? "announcement",
+      sourceName: normalizeDisplayText(source.sourceName, 160) || source.sourceName,
+      contentType,
       scopeType: source.scopeType,
       scopeId: source.scopeId,
-      title: item.title,
-      link: item.link,
-      publishedAt: (item.publishedAt ?? fetchedAt).toISOString(),
-      ...(item.summary ? { summary: item.summary } : {}),
-      fetchedAt: fetchedAt.toISOString()
-    })));
+      title: trust.title,
+      rawTitle: trust.rawTitle,
+      link: trust.canonicalUrl,
+      canonicalUrl: trust.canonicalUrl,
+      officialSourceUrl,
+      ...(item.publishedAt ? { publishedAt: item.publishedAt.toISOString(), publicationTimeSource: "source" as const } : {}),
+      ...(item.sourceUpdatedAt ? { sourceUpdatedAt: item.sourceUpdatedAt.toISOString(), sourceUpdateTimeSource: "source" as const } : {}),
+      discoveredAt: fetchedAtIso,
+      ...(summary ? { summary } : {}),
+      fetchedAt: fetchedAtIso,
+      freshness: "fresh",
+      trustStatus: "trusted",
+      trustReasonCodes: [],
+      dedupeKey: trust.dedupeKey
+    }];
+  }));
 }
 
 export function parseHtmlAnchors(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
-  const anchors = [...input.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
-  const results: ParsedAnnouncementItem[] = [];
+  return parseGenericAnnouncementHtml(input, sourceUrl);
+}
 
-  for (const anchor of anchors) {
-    const href = cleanText(anchor[1]);
-    const title = cleanText(stripHtml(anchor[2] ?? ""));
-    if (!href || !title || title.length < 6 || isLowValueAnchorTitle(title)) continue;
+export function parseYokAnnouncementHtml(input: string, sourceUrl = "https://www.yok.gov.tr/tr/announcements"): ParsedAnnouncementItem[] {
+  return parseHtmlDocument(input, sourceUrl, "yok");
+}
 
-    const normalizedLink = toAbsoluteUrl(href, sourceUrl);
-    if (!normalizedLink) continue;
+export function parseAnkaraUniversityAnnouncementHtml(input: string, sourceUrl = "https://oidb.ankara.edu.tr/gecmis-duyurular/"): ParsedAnnouncementItem[] {
+  return parseHtmlDocument(input, sourceUrl, "ankara");
+}
 
-    if (!containsAnnouncementHint(title, normalizedLink)) continue;
-    const publishedAt = parseDateMaybe(title);
-    if (!isFreshAcademicContent({ title, url: normalizedLink, publishedAt }).accepted) continue;
-    results.push({ title, link: normalizedLink, ...(publishedAt ? { publishedAt } : {}) });
-    if (results.length >= 80) break;
-  }
-
-  return dedupeParsedItems(results);
+export function parseGenericAnnouncementHtml(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
+  return parseHtmlDocument(input, sourceUrl, "generic");
 }
 
 export function containsAnnouncementHint(title: string, link: string): boolean {
@@ -106,29 +137,27 @@ export function containsAnnouncementHint(title: string, link: string): boolean {
 }
 
 export function createAnnouncementId(sourceId: string, link: string, title: string): string {
-  return createHash("sha1").update(`${sourceId}|${link}|${title}`).digest("hex").slice(0, 20);
+  void title;
+  return createHash("sha1").update(`${sourceId}|${canonicalContentKey(link) ?? link}`).digest("hex").slice(0, 20);
 }
 
 export function dedupeAnnouncements(items: AnnouncementItem[]): AnnouncementItem[] {
   const unique = new Map<string, AnnouncementItem>();
   for (const item of items) {
-    const key = item.link.toLocaleLowerCase("en-US");
+    const key = item.dedupeKey ?? createContentDedupeKey(item.canonicalUrl ?? item.link) ?? item.link.toLocaleLowerCase("en-US");
     if (!unique.has(key)) {
       unique.set(key, item);
       continue;
     }
 
     const existing = unique.get(key);
-    const existingTime = existing?.publishedAt ? Date.parse(existing.publishedAt) : 0;
-    const nextTime = item.publishedAt ? Date.parse(item.publishedAt) : 0;
-    if (nextTime > existingTime) unique.set(key, item);
+    if (!existing || preferAnnouncementItem(item, existing)) unique.set(key, item);
   }
   return [...unique.values()];
 }
 
 export function cleanText(input?: string): string {
-  if (!input) return "";
-  return decodeHtmlEntities(input).replace(/\s+/g, " ").trim();
+  return normalizeDisplayText(input);
 }
 
 export function parseJsonAnnouncements(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
@@ -142,6 +171,203 @@ export function parseJsonAnnouncements(input: string, sourceUrl: string): Parsed
   const items: ParsedAnnouncementItem[] = [];
   collectJsonAnnouncementItems(data, sourceUrl, items, 0);
   return dedupeParsedItems(items);
+}
+
+type HtmlParserProfile = "yok" | "ankara" | "generic";
+
+interface ParsedItemCandidate {
+  rawTitle: string;
+  link: string;
+  publishedAt?: Date;
+  sourceUpdatedAt?: Date;
+  summary?: string;
+}
+
+function parseHtmlDocument(input: string, sourceUrl: string, profile: HtmlParserProfile): ParsedAnnouncementItem[] {
+  const officialSourceUrl = canonicalizeContentUrl(sourceUrl);
+  if (!officialSourceUrl || !isOfficialContentUrl(officialSourceUrl, officialSourceUrl)) return [];
+  const document = stripChromeRegions(input, profile);
+  const anchors = [...document.matchAll(/<a\b([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/giu)];
+  const results: ParsedAnnouncementItem[] = [];
+
+  for (const anchor of anchors) {
+    const attributes = `${anchor[1] ?? ""} ${anchor[3] ?? ""}`;
+    if (isChromeAnchor(attributes)) continue;
+    const href = normalizeDisplayText(anchor[2], 2_048);
+    const rawTitle = anchor[4] ?? "";
+    const normalizedTitle = normalizeDisplayText(rawTitle, 500);
+    if (!href || !normalizedTitle || isLowValueAnchorTitle(normalizedTitle)) continue;
+
+    const candidateUrl = canonicalizeContentUrl(href, officialSourceUrl);
+    if (!candidateUrl) continue;
+    if (!containsAnnouncementHint(normalizedTitle, candidateUrl) && !containsAnnouncementHint("", officialSourceUrl)) continue;
+
+    const context = findContainingContentBlock(document, anchor.index ?? 0) ?? anchor[0];
+    const timestamps = extractHtmlTimestamps(context, normalizedTitle, officialSourceUrl);
+    const summary = extractHtmlSummary(context);
+    const item = finalizeParsedItem({
+      rawTitle,
+      link: candidateUrl,
+      ...(timestamps.publishedAt ? { publishedAt: timestamps.publishedAt } : {}),
+      ...(timestamps.sourceUpdatedAt ? { sourceUpdatedAt: timestamps.sourceUpdatedAt } : {}),
+      ...(summary ? { summary } : {})
+    }, officialSourceUrl);
+    if (item) results.push(item);
+    if (results.length >= 80) break;
+  }
+
+  return dedupeParsedItems(results);
+}
+
+function finalizeParsedItem(input: ParsedItemCandidate, officialSourceUrl: string): ParsedAnnouncementItem | null {
+  const normalizedTitle = normalizeDisplayText(input.rawTitle, 500);
+  if (!normalizedTitle || isLowValueAnchorTitle(normalizedTitle) || isNavigationOrChromeTitle(normalizedTitle)) return null;
+  const decision = evaluateContentTrust({
+    rawTitle: input.rawTitle,
+    url: input.link,
+    officialSourceUrl
+  });
+  if (decision.status !== "trusted" || !decision.title || !decision.canonicalUrl) return null;
+  const summary = normalizeDisplayText(input.summary, 1_200);
+  const freshness = isFreshAcademicContent({
+    title: decision.title,
+    url: decision.canonicalUrl,
+    ...(summary ? { text: summary } : {}),
+    ...(input.publishedAt ? { publishedAt: input.publishedAt } : {})
+  });
+  if (!freshness.accepted) return null;
+
+  return {
+    title: decision.title,
+    rawTitle: decision.rawTitle,
+    link: decision.canonicalUrl,
+    ...(input.publishedAt ? { publishedAt: input.publishedAt } : {}),
+    ...(input.sourceUpdatedAt ? { sourceUpdatedAt: input.sourceUpdatedAt } : {}),
+    ...(summary ? { summary } : {})
+  };
+}
+
+function stripChromeRegions(input: string, profile: HtmlParserProfile): string {
+  let output = input
+    .replace(/<!--([\s\S]*?)-->/gu, " ")
+    .replace(/<(?:script|style|template|noscript)\b[^>]*>[\s\S]*?<\/(?:script|style|template|noscript)\s*>/giu, " ");
+  const profileMarkers = profile === "yok"
+    ? "quick-links|corporate-links|related-links|bagli-kurulus"
+    : profile === "ankara"
+      ? "main-navigation|site-footer|widget-area|related-links"
+      : "related-links";
+  const chromeMarkers = `nav(?:igation)?|navbar|menu|breadcrumb|sidebar|footer|pagination|pager|page-numbers|${profileMarkers}`;
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    const previous = output;
+    output = output
+      .replace(/<(nav|footer|aside)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, " ")
+      .replace(new RegExp(`<(div|section|ul|ol|header)\\b(?=[^>]*(?:(?:class|id)=["'][^"']*(?:${chromeMarkers})[^"']*["']|role=["'](?:navigation|menu|menubar|contentinfo)["']))[^>]*>[\\s\\S]*?<\\/\\1\\s*>`, "giu"), " ");
+    if (output === previous) break;
+  }
+  return output;
+}
+
+function isChromeAnchor(attributes: string): boolean {
+  const normalized = normalizeDisplayText(attributes, 1_000).toLocaleLowerCase("tr-TR");
+  return /\b(?:breadcrumb|footer|menu|nav(?:igation)?|next|page-numbers|pager|pagination|previous|sidebar)\b/u.test(normalized)
+    || /\brel\s*=\s*["']?(?:next|prev)/iu.test(attributes)
+    || /\brole\s*=\s*["']?(?:menuitem|navigation)/iu.test(attributes);
+}
+
+function findContainingContentBlock(input: string, anchorIndex: number): string | undefined {
+  const before = input.slice(0, anchorIndex);
+  const candidates: Array<{ start: number; end: number }> = [];
+  for (const tag of ["article", "li"] as const) {
+    const openings = [...before.matchAll(new RegExp(`<${tag}\\b`, "giu"))];
+    const start = openings.at(-1)?.index;
+    if (start === undefined) continue;
+    const closingsBefore = [...before.matchAll(new RegExp(`<\\/${tag}\\s*>`, "giu"))];
+    if ((closingsBefore.at(-1)?.index ?? -1) > start) continue;
+    const after = input.slice(anchorIndex);
+    const closing = after.match(new RegExp(`<\\/${tag}\\s*>`, "iu"));
+    if (closing?.index === undefined) continue;
+    candidates.push({ start, end: anchorIndex + closing.index + closing[0].length });
+  }
+  const selected = candidates.sort((left, right) => (left.end - left.start) - (right.end - right.start))[0];
+  return selected ? input.slice(selected.start, selected.end) : undefined;
+}
+
+function extractHtmlTimestamps(context: string, title: string, sourceUrl: string): { publishedAt?: Date; sourceUpdatedAt?: Date } {
+  let publishedAt = parseHtmlDateAttribute(context, ["data-published-at", "data-publish-date", "data-date"]);
+  let sourceUpdatedAt = parseHtmlDateAttribute(context, ["data-updated-at", "data-modified-at", "data-update-date"]);
+
+  for (const match of context.matchAll(/<time\b([^>]*)>([\s\S]*?)<\/time>/giu)) {
+    const attributes = match[1] ?? "";
+    const value = readHtmlAttribute(attributes, "datetime") ?? normalizeDisplayText(match[2], 200);
+    const parsed = value ? parseDateMaybe(value) : undefined;
+    if (!parsed) continue;
+    const foldedTimeContext = foldAnchorTitle(`${attributes} ${normalizeDisplayText(match[2], 300)}`);
+    if (/(?:updated|modified|guncel|degistiril)/u.test(foldedTimeContext)) sourceUpdatedAt ??= parsed;
+    else publishedAt ??= parsed;
+  }
+
+  const visibleText = normalizeDisplayText(context, 5_000);
+  sourceUpdatedAt ??= parseLabeledDate(visibleText, /(?:guncellenme|guncelleme|degistirilme|updated|modified)\s+tarihi?/u);
+  publishedAt ??= parseLabeledDate(visibleText, /(?:yayin|yayim|publication)\s+tarihi?/u);
+  if (!publishedAt && isKnownLeadingListingDateSource(sourceUrl)) {
+    const leadingDate = title.match(/^\s*((?:\d{1,2}[./-]){2}20\d{2})(?:\s+|$)/u)?.[1];
+    publishedAt = leadingDate ? parseDateMaybe(leadingDate) : undefined;
+  }
+  return {
+    ...(publishedAt ? { publishedAt } : {}),
+    ...(sourceUpdatedAt ? { sourceUpdatedAt } : {})
+  };
+}
+
+function isKnownLeadingListingDateSource(sourceUrl: string): boolean {
+  try {
+    const url = new URL(sourceUrl);
+    return (url.hostname === "selcuk.edu.tr" || url.hostname.endsWith(".selcuk.edu.tr"))
+      && /^\/icerik\/ogrenciduyurulari(?:\/|$)/iu.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function parseHtmlDateAttribute(context: string, names: string[]): Date | undefined {
+  for (const name of names) {
+    const match = context.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, "iu"));
+    const value = match?.[1] ? normalizeDisplayText(match[1], 200) : "";
+    const parsed = value ? parseDateMaybe(value) : undefined;
+    if (parsed) return parsed;
+  }
+  return undefined;
+}
+
+function readHtmlAttribute(attributes: string, name: string): string | undefined {
+  return attributes.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, "iu"))?.[1];
+}
+
+function parseLabeledDate(input: string, label: RegExp): Date | undefined {
+  const folded = foldAnchorTitle(input);
+  const match = folded.match(new RegExp(`${label.source}\\s*[: -]*((?:\\d{1,2}[./-]){2}20\\d{2}|\\d{1,2}\\s+[a-z]+\\s+20\\d{2}|20\\d{2}-\\d{2}-\\d{2}(?:t\\d{2}:\\d{2}(?::\\d{2})?(?:z|[+-]\\d{2}:?\\d{2})?)?)`, "u"));
+  return match?.[1] ? parseDateMaybe(match[1]) : undefined;
+}
+
+function extractHtmlSummary(context: string): string | undefined {
+  const match = context.match(/<p\b(?=[^>]*(?:class|itemprop)=["'][^"']*(?:summary|excerpt|description|ozet)[^"']*["'])[^>]*>([\s\S]*?)<\/p>/iu);
+  const summary = match?.[1] ? normalizeDisplayText(match[1], 1_200) : "";
+  return summary || undefined;
+}
+
+function isYokSourceUrl(input: string): boolean {
+  const canonical = canonicalizeContentUrl(input);
+  if (!canonical) return false;
+  const hostname = new URL(canonical).hostname;
+  return hostname === "yok.gov.tr" || hostname.endsWith(".yok.gov.tr");
+}
+
+function isAnkaraUniversitySourceUrl(input: string): boolean {
+  const canonical = canonicalizeContentUrl(input);
+  if (!canonical) return false;
+  const hostname = new URL(canonical).hostname;
+  return hostname === "ankara.edu.tr" || hostname.endsWith(".ankara.edu.tr");
 }
 
 const crawlerUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36 AcademicCalendarAnnouncementCrawler/1.0";
@@ -186,8 +412,8 @@ async function fetchAtuContentItems(sourceUrl: string, timeoutMs: number): Promi
   const rows = parseAtuODataPayload<AtuContentRow>((await fetchText(contentUrl, timeoutMs, { accept: "application/json" })).text);
 
   return dedupeParsedItems(rows.flatMap((row) => {
-    const title = cleanText(row.Baslik);
-    if (!title) return [];
+    const rawTitle = row.Baslik;
+    if (!rawTitle) return [];
 
     const embeddedLink = firstHtmlLink(row.HTMLicerik ?? row.MetinIcerik, descriptor.sourceUrl.toString());
     const guid = cleanText(row.GuID);
@@ -197,14 +423,16 @@ async function fetchAtuContentItems(sourceUrl: string, timeoutMs: number): Promi
     const link = embeddedLink ?? generatedLink;
     if (!link) return [];
 
-    const publishedAt = firstPlausibleAtuDate(row.BaslamaTarihi, row.EklenmeTarihi);
-    const summary = cleanText(row.AltBaslik);
-    return [{
-      title,
+    const publishedAt = firstPlausibleAtuDate(row.BaslamaTarihi);
+    const sourceUpdatedAt = firstPlausibleAtuDate(row.EklenmeTarihi);
+    const item = finalizeParsedItem({
+      rawTitle,
       link,
       ...(publishedAt ? { publishedAt } : {}),
-      ...(summary && summary !== "-" ? { summary } : {})
-    }];
+      ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
+      ...(row.AltBaslik && normalizeDisplayText(row.AltBaslik) !== "-" ? { summary: row.AltBaslik } : {})
+    }, descriptor.sourceUrl.toString());
+    return item ? [item] : [];
   }));
 }
 
@@ -250,7 +478,7 @@ function parseAtuODataPayload<T>(input: string): T[] {
 function firstHtmlLink(input: string | undefined, sourceUrl: string): string | undefined {
   if (!input) return undefined;
   const href = input.match(/<a\b[^>]*href=["']([^"']+)["']/iu)?.[1];
-  return href ? toAbsoluteUrl(cleanText(href), sourceUrl) ?? undefined : undefined;
+  return href ? canonicalizeContentUrl(href, sourceUrl) ?? undefined : undefined;
 }
 
 function firstPlausibleAtuDate(...values: Array<string | undefined>): Date | undefined {
@@ -275,51 +503,57 @@ function looksLikeJson(input: string): boolean {
   return text.startsWith("{") || text.startsWith("[");
 }
 
-function parseRssOrAtom(input: string): ParsedAnnouncementItem[] {
+export function parseSyndicatedAnnouncements(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
   const rssItems = [...input.matchAll(/<item\b[\s\S]*?<\/item>/gi)]
-    .map((match) => parseRssItem(match[0]))
+    .map((match) => parseRssItem(match[0], sourceUrl))
     .filter((item): item is ParsedAnnouncementItem => Boolean(item));
 
   const atomItems = [...input.matchAll(/<entry\b[\s\S]*?<\/entry>/gi)]
-    .map((match) => parseAtomEntry(match[0]))
+    .map((match) => parseAtomEntry(match[0], sourceUrl))
     .filter((item): item is ParsedAnnouncementItem => Boolean(item));
 
   return dedupeParsedItems([...rssItems, ...atomItems]);
 }
 
-function parseRssItem(input: string): ParsedAnnouncementItem | null {
-  const title = cleanText(extractTagValue(input, "title"));
-  const link = cleanText(extractTagValue(input, "link"));
-  if (!title || !link) return null;
+function parseRssItem(input: string, sourceUrl: string): ParsedAnnouncementItem | null {
+  const rawTitle = extractTagValue(input, "title");
+  const link = extractTagValue(input, "link");
+  if (!rawTitle || !link) return null;
 
-  const published = cleanText(extractTagValue(input, "pubDate"));
-  const summary = cleanText(extractTagValue(input, "description"));
-  const publishedAt = published ? parseDateMaybe(published) : undefined;
+  const published = extractTagValue(input, "pubDate") ?? extractTagValue(input, "published") ?? extractTagValue(input, "dc:date");
+  const updated = extractTagValue(input, "updated") ?? extractTagValue(input, "modified");
+  const summary = extractTagValue(input, "description");
+  const publishedAt = published ? parseDateMaybe(normalizeDisplayText(published)) : undefined;
+  const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
 
-  return {
-    title,
+  return finalizeParsedItem({
+    rawTitle,
     link,
     ...(publishedAt ? { publishedAt } : {}),
+    ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
     ...(summary ? { summary } : {})
-  };
+  }, sourceUrl);
 }
 
-function parseAtomEntry(input: string): ParsedAnnouncementItem | null {
-  const title = cleanText(extractTagValue(input, "title"));
+function parseAtomEntry(input: string, sourceUrl: string): ParsedAnnouncementItem | null {
+  const rawTitle = extractTagValue(input, "title");
   const linkFromHref = input.match(/<link[^>]*href=["']([^"']+)["'][^>]*>/i)?.[1];
-  const link = cleanText(linkFromHref ?? extractTagValue(input, "link"));
-  if (!title || !link) return null;
+  const link = linkFromHref ?? extractTagValue(input, "link");
+  if (!rawTitle || !link) return null;
 
-  const published = cleanText(extractTagValue(input, "updated") ?? extractTagValue(input, "published"));
-  const summary = cleanText(extractTagValue(input, "summary") ?? extractTagValue(input, "content"));
-  const publishedAt = published ? parseDateMaybe(published) : undefined;
+  const published = extractTagValue(input, "published");
+  const updated = extractTagValue(input, "updated");
+  const summary = extractTagValue(input, "summary") ?? extractTagValue(input, "content");
+  const publishedAt = published ? parseDateMaybe(normalizeDisplayText(published)) : undefined;
+  const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
 
-  return {
-    title,
+  return finalizeParsedItem({
+    rawTitle,
     link,
     ...(publishedAt ? { publishedAt } : {}),
+    ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
     ...(summary ? { summary } : {})
-  };
+  }, sourceUrl);
 }
 
 function extractTagValue(input: string, tagName: string): string | undefined {
@@ -331,7 +565,11 @@ function extractTagValue(input: string, tagName: string): string | undefined {
 function parseDateMaybe(input: string): Date | undefined {
   const leadingNumericDate = input.trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b/u);
   if (leadingNumericDate?.[1] && leadingNumericDate[2] && leadingNumericDate[3]) {
-    return new Date(Date.UTC(Number(leadingNumericDate[3]), Number(leadingNumericDate[2]) - 1, Number(leadingNumericDate[1])));
+    return createUtcCalendarDate(Number(leadingNumericDate[3]), Number(leadingNumericDate[2]), Number(leadingNumericDate[1]));
+  }
+  if (/^\d{4}-\d{2}-\d{2}/u.test(input.trim())) {
+    const iso = toIsoString(input.trim());
+    return iso ? new Date(iso) : undefined;
   }
   const timestamp = Date.parse(input);
   if (!Number.isNaN(timestamp)) return new Date(timestamp);
@@ -344,19 +582,17 @@ function parseTurkishDate(input: string): Date | undefined {
   if (!match?.[1] || !match[2] || !match[3]) return undefined;
   const month = turkishMonths[match[2]];
   if (!month) return undefined;
-  return new Date(Date.UTC(Number(match[3]), month - 1, Number(match[1])));
+  return createUtcCalendarDate(Number(match[3]), month, Number(match[1]));
 }
 
-function toAbsoluteUrl(candidate: string, base: string): string | null {
-  try {
-    if (candidate.startsWith("mailto:") || candidate.startsWith("tel:") || candidate.startsWith("javascript:")) return null;
-    return new URL(candidate, base).toString();
-  } catch {
-    return null;
-  }
+function createUtcCalendarDate(year: number, month: number, day: number): Date | undefined {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day) || month < 1 || month > 12 || day < 1) return undefined;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? date : undefined;
 }
 
 function isLowValueAnchorTitle(title: string): boolean {
+  if (isNavigationOrChromeTitle(title)) return true;
   const normalized = foldAnchorTitle(title);
   if (/^page \d+$/u.test(normalized)) return true;
   if (normalized.endsWith(" icin tiklayiniz")) return true;
@@ -394,6 +630,10 @@ function isLowValueAnchorTitle(title: string): boolean {
     "duyurular",
     "duyuru arşivi",
     "duyuru arsivi",
+    "bağlı kuruluşlar",
+    "bagli kuruluslar",
+    "geçmiş duyurular",
+    "gecmis duyurular",
     "english",
     "e posta",
     "eposta",
@@ -461,27 +701,12 @@ function foldAnchorTitle(value: string): string {
     .trim();
 }
 
-function stripHtml(input: string): string {
-  return input.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
-}
-
-function decodeHtmlEntities(input: string): string {
-  return input
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", "\"")
-    .replaceAll("&#39;", "'")
-    .replaceAll("&nbsp;", " ");
-}
-
 function dedupeParsedItems(items: ParsedAnnouncementItem[]): ParsedAnnouncementItem[] {
   const unique = new Map<string, ParsedAnnouncementItem>();
   for (const item of items) {
-    const key = item.link.toLocaleLowerCase("en-US");
-    if (!unique.has(key)) unique.set(key, item);
+    const key = createContentDedupeKey(item.link) ?? item.link.toLocaleLowerCase("en-US");
+    const existing = unique.get(key);
+    if (!existing || preferParsedItem(item, existing)) unique.set(key, item);
   }
   return [...unique.values()];
 }
@@ -494,22 +719,24 @@ function collectJsonAnnouncementItems(value: unknown, sourceUrl: string, output:
   }
 
   if (!isJsonRecord(value)) return;
-  const title = readJsonText(value, ["title", "baslik", "başlık", "name", "subject", "headline"]);
-  const link = readJsonText(value, ["link", "url", "href", "permalink", "slug"]);
-  const summary = readJsonText(value, ["summary", "description", "excerpt", "ozet", "özet", "icerik", "içerik"]);
-  const published = readJsonText(value, ["publishedAt", "publishDate", "pubDate", "date", "createdAt", "baslamaTarihi", "BaşlamaTarihi"]);
-  const absoluteLink = link ? toAbsoluteUrl(link, sourceUrl) : null;
+  const rawTitle = readJsonRawText(value, ["title", "baslik", "başlık", "name", "subject", "headline"]);
+  const link = readJsonRawText(value, ["link", "url", "href", "permalink", "slug"]);
+  const summary = readJsonRawText(value, ["summary", "description", "excerpt", "ozet", "özet", "icerik", "içerik"]);
+  const published = readJsonRawText(value, ["publishedAt", "publishDate", "pubDate", "date", "createdAt", "baslamaTarihi", "BaşlamaTarihi"]);
+  const updated = readJsonRawText(value, ["sourceUpdatedAt", "updatedAt", "modifiedAt", "updateDate", "lastModified", "guncellenmeTarihi", "GüncellenmeTarihi"]);
+  const absoluteLink = link ? canonicalizeContentUrl(link, sourceUrl) : null;
 
-  if (title && absoluteLink && (containsAnnouncementHint(title, absoluteLink) || containsAnnouncementHint("", sourceUrl))) {
-    const publishedAt = published ? parseDateMaybe(published) : undefined;
-    if (isFreshAcademicContent({ title, url: absoluteLink, text: summary, publishedAt }).accepted) {
-      output.push({
-        title,
-        link: absoluteLink,
-        ...(publishedAt ? { publishedAt } : {}),
-        ...(summary ? { summary } : {})
-      });
-    }
+  if (rawTitle && absoluteLink && (containsAnnouncementHint(normalizeDisplayText(rawTitle), absoluteLink) || containsAnnouncementHint("", sourceUrl))) {
+    const publishedAt = published ? parseDateMaybe(normalizeDisplayText(published)) : undefined;
+    const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
+    const item = finalizeParsedItem({
+      rawTitle,
+      link: absoluteLink,
+      ...(publishedAt ? { publishedAt } : {}),
+      ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
+      ...(summary ? { summary } : {})
+    }, sourceUrl);
+    if (item) output.push(item);
   }
 
   for (const nested of Object.values(value)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1);
@@ -530,13 +757,13 @@ const turkishMonths: Record<string, number> = {
   aralik: 12
 };
 
-function readJsonText(record: Record<string, unknown>, keys: string[]): string | undefined {
+function readJsonRawText(record: Record<string, unknown>, keys: string[]): string | undefined {
   for (const [key, value] of Object.entries(record)) {
     if (!keys.some((candidate) => candidate.toLocaleLowerCase("tr-TR") === key.toLocaleLowerCase("tr-TR"))) continue;
-    if (typeof value === "string" || typeof value === "number") return cleanText(String(value).replace(/<[^>]+>/g, " "));
+    if (typeof value === "string" || typeof value === "number") return String(value);
     if (isJsonRecord(value)) {
       const rendered = value.rendered;
-      if (typeof rendered === "string") return cleanText(rendered.replace(/<[^>]+>/g, " "));
+      if (typeof rendered === "string") return rendered;
     }
   }
   return undefined;
@@ -544,6 +771,88 @@ function readJsonText(record: Record<string, unknown>, keys: string[]): string |
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function requireOfficialSourceUrl(sourceUrl: string): string {
+  const canonical = canonicalizeContentUrl(sourceUrl);
+  if (!canonical) throw new Error("SOURCE_URL_UNSAFE");
+  if (!isOfficialContentUrl(canonical, canonical)) throw new Error("SOURCE_URL_UNOFFICIAL");
+  return preserveFetchTrailingSlash(canonical, sourceUrl);
+}
+
+function requireOfficialRedirectUrl(candidate: string, officialSourceUrl: string, baseUrl = officialSourceUrl): string {
+  const canonical = canonicalizeContentUrl(candidate, baseUrl);
+  if (!canonical) throw new Error("SOURCE_REDIRECT_UNSAFE");
+  if (!isOfficialContentUrl(canonical, officialSourceUrl)) throw new Error("SOURCE_REDIRECT_UNOFFICIAL");
+  return preserveFetchTrailingSlash(canonical, candidate, baseUrl);
+}
+
+function preserveFetchTrailingSlash(canonicalUrl: string, candidate: string, baseUrl?: string): string {
+  try {
+    const requested = baseUrl ? new URL(candidate, baseUrl) : new URL(candidate);
+    if (requested.pathname.length <= 1 || !requested.pathname.endsWith("/")) return canonicalUrl;
+    const fetchUrl = new URL(canonicalUrl);
+    if (!fetchUrl.pathname.endsWith("/")) fetchUrl.pathname += "/";
+    return fetchUrl.toString();
+  } catch {
+    return canonicalUrl;
+  }
+}
+
+async function fetchTextWithFetch(
+  sourceUrl: string,
+  timeoutMs: number,
+  input: { accept?: string },
+  signal: AbortSignal
+): Promise<{ text: string; finalUrl: string; status: number }> {
+  let currentUrl = sourceUrl;
+  for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+    const response = await fetch(currentUrl, {
+      method: "GET",
+      headers: {
+        Accept: input.accept ?? "text/html,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
+        "User-Agent": crawlerUserAgent
+      },
+      redirect: "manual",
+      signal
+    });
+    const location = response.headers.get("location");
+    if (location && response.status >= 300 && response.status < 400) {
+      if (redirectCount >= 5) throw new Error("SOURCE_REDIRECT_LIMIT");
+      currentUrl = requireOfficialRedirectUrl(location, sourceUrl, currentUrl);
+      await response.body?.cancel().catch(() => undefined);
+      continue;
+    }
+    if (response.status >= 300 && response.status < 400) throw new Error("SOURCE_REDIRECT_LOCATION_MISSING");
+    if (!response.ok) throw new Error(`SOURCE_FETCH_FAILED:${response.status}`);
+    const finalUrl = requireOfficialRedirectUrl(response.url || currentUrl, sourceUrl);
+    return { text: await response.text(), finalUrl, status: response.status };
+  }
+  throw new Error("SOURCE_REDIRECT_LIMIT");
+}
+
+function preferParsedItem(candidate: ParsedAnnouncementItem, current: ParsedAnnouncementItem): boolean {
+  const candidateTime = parsedItemTimestamp(candidate);
+  const currentTime = parsedItemTimestamp(current);
+  if (candidateTime !== currentTime) return candidateTime > currentTime;
+  if (candidate.link.startsWith("https://") !== current.link.startsWith("https://")) return candidate.link.startsWith("https://");
+  return parsedItemRichness(candidate) > parsedItemRichness(current);
+}
+
+function parsedItemTimestamp(item: ParsedAnnouncementItem): number {
+  return Math.max(item.publishedAt?.getTime() ?? 0, item.sourceUpdatedAt?.getTime() ?? 0);
+}
+
+function parsedItemRichness(item: ParsedAnnouncementItem): number {
+  return item.title.length + (item.summary?.length ?? 0) + (item.publishedAt ? 30 : 0) + (item.sourceUpdatedAt ? 20 : 0);
+}
+
+function preferAnnouncementItem(candidate: AnnouncementItem, current: AnnouncementItem): boolean {
+  const recency = compareAcademicContentDuplicateRecency(candidate, current);
+  if (recency !== 0) return recency > 0;
+  if (candidate.link.startsWith("https://") !== current.link.startsWith("https://")) return candidate.link.startsWith("https://");
+  return candidate.title.length + (candidate.summary?.length ?? 0) > current.title.length + (current.summary?.length ?? 0);
 }
 
 function shouldRetryWithInvalidTls(sourceUrl: string, error: unknown): boolean {
@@ -566,9 +875,9 @@ function ensureCrawlerSystemCa(): void {
   }
 }
 
-function fetchTextWithNodeClient(sourceUrl: string, timeoutMs: number, input: { accept?: string }, redirectCount: number, allowInvalidTls: boolean): Promise<{ text: string; finalUrl: string; status: number }> {
+function fetchTextWithNodeClient(sourceUrl: string, officialSourceUrl: string, timeoutMs: number, input: { accept?: string }, redirectCount: number, allowInvalidTls: boolean): Promise<{ text: string; finalUrl: string; status: number }> {
   if (redirectCount > 5) return Promise.reject(new Error("SOURCE_FETCH_REDIRECT_LIMIT"));
-  const url = new URL(sourceUrl);
+  const url = new URL(requireOfficialRedirectUrl(sourceUrl, officialSourceUrl));
   const client = url.protocol === "http:" ? http : https;
 
   return new Promise((resolve, reject) => {
@@ -586,8 +895,14 @@ function fetchTextWithNodeClient(sourceUrl: string, timeoutMs: number, input: { 
       const location = response.headers.location;
       if (location && status >= 300 && status < 400) {
         response.resume();
-        const nextUrl = new URL(location, sourceUrl).toString();
-        void fetchTextWithNodeClient(nextUrl, timeoutMs, input, redirectCount + 1, allowInvalidTls).then(resolve, reject);
+        let nextUrl: string;
+        try {
+          nextUrl = requireOfficialRedirectUrl(location, officialSourceUrl, sourceUrl);
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        void fetchTextWithNodeClient(nextUrl, officialSourceUrl, timeoutMs, input, redirectCount + 1, allowInvalidTls).then(resolve, reject);
         return;
       }
 

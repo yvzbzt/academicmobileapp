@@ -6,6 +6,7 @@ import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repos
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
+import type { AnnouncementItem } from "../src/modules/announcements/announcements.types.js";
 import { CalendarService } from "../src/modules/calendars/calendar.service.js";
 import { InMemoryCalendarRepository } from "../src/modules/calendars/in-memory-calendar.repository.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../src/modules/catalog/catalog.types.js";
@@ -253,16 +254,40 @@ describe("CalendarService", () => {
       priority: 20,
       status: "active"
     });
-    await announcementRepository.replaceItemsForSource(ownSource, [{
-      id: "own-summer-announcement",
-      sourceId: ownSource.id,
-      sourceName: ownSource.sourceName,
-      scopeType: "university",
-      scopeId: "sample-university-1",
-      title: "Yaz Okulu basvuru duyurusu",
-      link: "https://ornek.edu.tr/duyuru/yaz-okulu",
-      fetchedAt
-    }]);
+    await announcementRepository.replaceItemsForSource(ownSource, [
+      {
+        id: "own-summer-announcement",
+        sourceId: ownSource.id,
+        sourceName: ownSource.sourceName,
+        scopeType: "university",
+        scopeId: "sample-university-1",
+        title: "Yaz Okulu basvuru duyurusu",
+        link: "https://ornek.edu.tr/duyuru/yaz-okulu",
+        fetchedAt
+      },
+      {
+        id: "forged-summer-announcement",
+        sourceId: ownSource.id,
+        sourceName: "YÖK",
+        scopeType: "university",
+        scopeId: "yok",
+        title: "Bilgisayar Yaz Okulu duyurusu",
+        link: "https://www.yok.gov.tr/tr/duyuru/yaz-okulu",
+        officialSourceUrl: "https://www.yok.gov.tr/tr/announcements",
+        fetchedAt
+      },
+      {
+        id: "quarantined-summer-announcement",
+        sourceId: ownSource.id,
+        sourceName: ownSource.sourceName,
+        scopeType: "university",
+        scopeId: ownSource.scopeId,
+        title: "Bilgisayar Yaz Okulu karantina",
+        link: "https://ornek.edu.tr/duyuru/karantina",
+        fetchedAt,
+        trustStatus: "quarantined"
+      }
+    ]);
     await announcementRepository.replaceItemsForSource(otherSource, [
       {
         id: "other-same-department-summer-announcement",
@@ -285,6 +310,60 @@ describe("CalendarService", () => {
         fetchedAt
       }
     ]);
+    const storedItems = (announcementRepository as unknown as { items: Map<string, AnnouncementItem[]> }).items;
+    storedItems.set(ownSource.id, [
+      ...(storedItems.get(ownSource.id) ?? []),
+      {
+        id: "legacy-summer-announcement",
+        sourceId: ownSource.id,
+        sourceName: ownSource.sourceName,
+        scopeType: "university",
+        scopeId: ownSource.scopeId,
+        title: "Bilgisayar Yaz Okulu eski guven kaydi",
+        link: "https://ornek.edu.tr/duyuru/legacy-yaz-okulu",
+        fetchedAt
+      },
+      {
+        id: "stored-rejected-summer-announcement",
+        sourceId: ownSource.id,
+        sourceName: ownSource.sourceName,
+        scopeType: "university",
+        scopeId: ownSource.scopeId,
+        title: "Bilgisayar Yaz Okulu reddedilen kayit",
+        link: "https://ornek.edu.tr/duyuru/rejected-yaz-okulu",
+        fetchedAt,
+        trustStatus: "rejected"
+      },
+      {
+        id: "stored-quarantined-summer-announcement",
+        sourceId: ownSource.id,
+        sourceName: ownSource.sourceName,
+        scopeType: "university",
+        scopeId: ownSource.scopeId,
+        title: "Bilgisayar Yaz Okulu karantina kaydi",
+        link: "https://ornek.edu.tr/duyuru/quarantined-yaz-okulu",
+        fetchedAt,
+        trustStatus: "quarantined"
+      }
+    ]);
+    storedItems.set("missing-source", [{
+      id: "missing-source-summer-announcement",
+      sourceId: "missing-source",
+      sourceName: "Kaydi olmayan kaynak",
+      scopeType: "university",
+      scopeId: ownSource.scopeId,
+      title: "Bilgisayar Yaz Okulu kaynaksiz kayit",
+      link: "https://ornek.edu.tr/duyuru/missing-source-yaz-okulu",
+      fetchedAt,
+      trustStatus: "trusted"
+    }]);
+    await announcementRepository.recordSourceCheck(otherSource.id, {
+      healthStatus: "failed",
+      lastCheckedAt: new Date("2026-07-05T10:00:00.000Z"),
+      lastError: "SOURCE_FETCH_FAILED:503",
+      consecutiveFailures: 0,
+      itemCount: 2
+    });
     const service = new CalendarService(calendarRepository, authRepository, createCatalogRepository(), undefined, announcementRepository);
 
     const response = await service.getMySummerSchool(session.user.id);
@@ -302,6 +381,14 @@ describe("CalendarService", () => {
       ])
     );
     expect(response.sameDepartmentAnnouncements.some((item) => item.id === "other-different-department-summer-announcement")).toBe(false);
+    expect(response.announcementStatus).toEqual({ state: "partial", sourceCount: 2, failedSourceCount: 1 });
+    expect(JSON.stringify(response)).not.toContain("forged-summer-announcement");
+    expect(JSON.stringify(response)).not.toContain("quarantined-summer-announcement");
+    expect(JSON.stringify(response)).not.toContain("legacy-summer-announcement");
+    expect(JSON.stringify(response)).not.toContain("missing-source-summer-announcement");
+    expect(JSON.stringify(response)).not.toContain("stored-rejected-summer-announcement");
+    expect(JSON.stringify(response)).not.toContain("stored-quarantined-summer-announcement");
+    expect(JSON.stringify(response)).not.toContain("trustStatus");
     expect(response.sameDepartmentOptions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

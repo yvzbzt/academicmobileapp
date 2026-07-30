@@ -19,9 +19,21 @@ export class AnnouncementsController {
     return this.announcementsService.getMyAnnouncements(user.id, query.limit);
   }
 
+  @Get("my/trusted")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMyTrustedAnnouncementCollection(@CurrentUser() user: AuthenticatedUser, @Query() query: MyAnnouncementsQueryDto) {
+    return this.announcementsService.getMyAnnouncementsCollection(user.id, query.limit);
+  }
+
   @Get("yok")
   getYokAnnouncements(@Query() query: MyAnnouncementsQueryDto) {
     return this.announcementsService.getYokAnnouncements(query.limit);
+  }
+
+  @Get("yok/trusted")
+  getYokTrustedAnnouncementCollection(@Query() query: MyAnnouncementsQueryDto) {
+    return this.announcementsService.getYokAnnouncementsCollection(query.limit);
   }
 }
 

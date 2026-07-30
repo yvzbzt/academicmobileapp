@@ -75,4 +75,24 @@ describe("mongoIndexDefinitions", () => {
       })
     ]));
   });
+
+  it("contains canonical and trust indexes for announcement content", () => {
+    expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collection: "announcement_sources",
+        keys: { canonicalUrl: 1, scopeType: 1, scopeId: 1 },
+        name: "announcement_sources_canonical_scope"
+      }),
+      expect.objectContaining({
+        collection: "announcement_items",
+        keys: { sourceId: 1, canonicalUrl: 1 },
+        name: "announcement_items_source_canonical"
+      }),
+      expect.objectContaining({
+        collection: "announcement_items",
+        keys: { trustStatus: 1, dedupeKey: 1 },
+        name: "announcement_items_trust_dedupe"
+      })
+    ]));
+  });
 });

@@ -32,6 +32,52 @@ export interface AcademicEventDto {
   term: "fall" | "spring" | "summer" | "full_year" | "unknown";
 }
 
+export type AcademicContentType = "announcement" | "news" | "event";
+export type AcademicContentScopeType = "university" | "faculty" | "department";
+export type AcademicContentFreshness = "fresh" | "stale";
+export type AcademicContentCollectionState = "fresh" | "stale" | "partial";
+
+/**
+ * Additive, mobile-facing presentation contract for source-derived academic
+ * content. Persistence-only trust/audit fields such as raw titles and
+ * quarantine reasons must never be serialized into this shape.
+ */
+export interface TrustedAcademicContentDto {
+  id: string;
+  sourceId: string;
+  sourceName: string;
+  officialSourceUrl: string;
+  contentType: AcademicContentType;
+  scopeType: AcademicContentScopeType;
+  scopeId: string;
+  title: string;
+  summary?: string;
+  /** Backward-compatible alias of canonicalUrl. */
+  link: string;
+  canonicalUrl: string;
+  /** Source-declared publication time only. */
+  publishedAt?: string;
+  /** Source-declared modification time only. */
+  sourceUpdatedAt?: string;
+  /** First time this canonical item was observed by this service. */
+  discoveredAt?: string;
+  /** Most recent crawler retrieval time. Never a publication-time fallback. */
+  fetchedAt?: string;
+  freshness: AcademicContentFreshness;
+}
+
+/**
+ * Additive native feed envelope. The legacy array endpoints remain available,
+ * while this shape makes a source failure observable even when that source has
+ * no trusted cached item to carry a stale marker.
+ */
+export interface TrustedAcademicContentCollectionDto {
+  items: TrustedAcademicContentDto[];
+  state: AcademicContentCollectionState;
+  sourceCount: number;
+  failedSourceCount: number;
+}
+
 export interface NotificationPreferenceDto {
   enabled: boolean;
   categories: Record<string, boolean>;

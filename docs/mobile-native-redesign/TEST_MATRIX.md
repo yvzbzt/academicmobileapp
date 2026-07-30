@@ -341,6 +341,37 @@ No Expo Web image or pre-existing APK/AAB is substituted for native evidence. Na
 
 Text evidence index: [`evidence/phase-01-native/README.md`](./evidence/phase-01-native/README.md). Native result register: [`evidence/phase-01-native/native-qa-results.md`](./evidence/phase-01-native/native-qa-results.md).
 
+## Phase 2 content-trust evidence — senior re-audit 31 July 2026
+
+| Contract | Deterministic evidence | Acceptance boundary |
+|---|---|---|
+| Entity decoding and display sanitation | Named (`&raquo;`, `&amp;`, `&nbsp;`, `&deg;`), deeply nested, decimal, hexadecimal, Turkish/Latin entities, markup/control removal, and residual entity-syntax removal | Byte-exact raw titles remain persistence-only audit fields; unknown entity syntax cannot leak to display titles |
+| Navigation/chrome rejection | Required Turkish labels plus menu, breadcrumb, sidebar, footer, arrows, listing labels, compound pagination, and `6 of 10 --` prefix removal across HTML, JSON, RSS, Atom, API, and native normalization | Rejected/quarantined rows fail closed; four-digit academic-year prefixes are retained |
+| Timestamp honesty | Publication, source update, discovery, and fetch fields; update-only markup; arbitrary title-date rejection; source-scoped listing-date convention; invalid/ambiguous date rejection; persisted source health; no crawl fallback | Discovery/fetch may be shown only as operational metadata, never publication copy |
+| URL and source trust | HTTP/HTTPS only; credentials, unsafe ports/schemes, loopback/private/link-local IPv4 and IPv6-mapped hosts rejected; official `edu.tr`/`gov.tr` source authority and redirect validation | Source record, scope, source ID, status, trust state, and official domain must all agree |
+| Canonicalization and duplicates | Tracking removal, query ordering, host/`www` equivalence, path/query case preservation, source-authored-time winner over later discovery/fetch, deterministic canonical survivor | Legacy unique indexes remain supported by collision-safe reconciliation projections |
+| Source-specific parsing | `yok.html`, `ankara-university.html`, and `generic.html` fixtures plus source-specific and explicit generic fallback auto-dispatch | No live source or production crawl is claimed by fixture tests |
+| Persistence and API | Trust/canonical schema/index assertions; quarantined direct-insert defaults; explicit trusted-only Mongo/in-memory reads; source-authoritative DTOs; persisted degraded/failed state in fresh-cache/YÖK/Summer envelopes | API tests call controllers/services with test repositories; they are not deployed HTTP/Mongo integration evidence |
+| Reconciliation | CLI parsing/database-name guards, BSON/string timestamp shape, exact raw-title preservation, missing/untrusted-source repair, runtime catalog/YÖK scope authority, real apply-helper preimage/`updatedAt` conflicts, all-status collision handling, deterministic idempotence | No database was connected; main keeps the source-before-item write barrier; apply remains optimistic and non-transactional |
+| Native presentation | Entity decoding, honest timestamp labels, unsafe-link containment, path-case duplicate semantics, partial/stale state, retained data after refresh error, Summer dual refresh/source status, non-pressable URL-less content | Pure helper/source tests plus current signed-out runtime launch; authenticated content visual QA is blocked under MN-032 |
+| Regression boundaries | Agenda/Announcements, YÖK, Summer School, calendar source reads, source discovery, auth/password recovery, FCM-related tests, and Google Calendar sync tests | Authentication, recovery, push delivery, OAuth, and Google Calendar behavior were not changed |
+
+### Phase 2 final validation ledger — senior re-audit 31 July 2026
+
+| Exact command or check | Final result | Evidence boundary |
+|---|---|---|
+| `npx.cmd vitest run apps/api/tests/announcement-content-trust.test.ts apps/api/tests/announcement-content-reconciliation.test.ts apps/api/tests/announcements-ingestion.test.ts apps/api/tests/announcements-api.test.ts apps/api/tests/calendar.test.ts apps/api/tests/mongoose-schemas.test.ts apps/api/tests/database-indexes.test.ts tests/unit/mobile-native-content-trust.test.ts --configLoader runner` | PASS, 8 files / 135 tests | Focused trust, parser fixtures/dispatch, persistence, API/Summer source health, executable reconciliation helpers, and native compatibility normalization |
+| `npm.cmd run typecheck` | PASS, exit 0 | Workspace/API/shared/script TypeScript, including the reconciliation CLI |
+| `npm.cmd run typecheck:mobile:native` | PASS, exit 0 | Mobile-native TypeScript graph |
+| `npm.cmd test -- --configLoader runner` | PASS, 36 files / 400 tests | Exceeds the required 32-file / 299-test baseline by 4 files / 101 tests |
+| `npm.cmd run build:admin` | PASS outside the restricted filesystem view, 1,742 modules | Final admin web bundle |
+| `npm.cmd run build:mobile` | PASS outside the restricted filesystem view, 1,754 modules | Final responsive mobile web bundle; not native visual evidence |
+| `.\gradlew.bat --no-daemon app:assembleDebug -PreactNativeArchitectures=x86_64` from `apps/mobile-native/android` | PASS outside the restricted Android SDK view, `BUILD SUCCESSFUL` in 50 s; 174 tasks | Current native debug APK; SDK location/XML and Gradle deprecation notices remain environment/toolchain warnings |
+| Controlled `npx.cmd tsx scripts/reconcile-announcement-content.ts --unknown-option` harness | PASS: command exited 1 with `CONTENT_RECONCILIATION_ARGUMENT_INVALID`; harness reported `CLI_NO_DATABASE_SMOKE=PASS` | Argument parsing stopped before environment lookup or database connection |
+| Initial Phase 2 APK install + offline local Metro + `uiautomator` hierarchy + fatal-log filter on `AcademicPhase1Low` | PASS for build/install/start/hydration/signed-out Turkish Login; no fatal React/native error matched. The senior-hardening source reassembled but was not relaunched because no emulator was attached | `VISIBLE_NATIVE_QA_ENVIRONMENT_BLOCKED` for authenticated content states: no authorized local API/session fixture; no production data used |
+| Expanded Phase 2 production-source sensitive-log scan | PASS: count-only reconciliation summaries and controlled error codes only; no credential/token/password/authorization payload logging | `MONGODB_URI` is read but never printed |
+| `git diff --check` and final cached-diff check | PASS, no whitespace errors; expected LF-to-CRLF notices only | Repeated after documentation and before commit |
+
 ## Required coverage by phase
 
 | Scenario family | Unit/contract | Component | Native flow | Native visual | Owning phase |

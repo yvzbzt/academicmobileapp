@@ -1,10 +1,25 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity } from "../src/modules/announcements/announcement-ingestion.service.js";
+import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID } from "../src/modules/announcements/announcement-ingestion.service.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
-import { fetchSourceItems, parseHtmlAnchors } from "../src/modules/announcements/announcement-parser.js";
+import {
+  cleanText,
+  fetchSourceItems,
+  fetchText,
+  parseAnkaraUniversityAnnouncementHtml,
+  parseGenericAnnouncementHtml,
+  parseHtmlAnchors,
+  parseJsonAnnouncements,
+  parseSyndicatedAnnouncements,
+  parseYokAnnouncementHtml,
+  toAnnouncementItems
+} from "../src/modules/announcements/announcement-parser.js";
 import { AnnouncementsService } from "../src/modules/announcements/announcements.service.js";
+import type { AnnouncementSourceRecord } from "../src/modules/announcements/announcements.types.js";
 import type { AuthRepository, AuthUserRecord } from "../src/modules/auth/auth.types.js";
 import type { CatalogRepository, UniversityRecord } from "../src/modules/catalog/catalog.types.js";
+
+const fixture = (name: string) => readFileSync(new URL(`./fixtures/announcements/${name}`, import.meta.url), "utf8");
 
 const sampleUniversity: UniversityRecord = {
   id: "u-agu",
@@ -22,6 +37,28 @@ afterEach(() => {
 });
 
 describe("announcement discovery and ingestion", () => {
+  it("does not bootstrap the known Tekirdağ-to-YÖK anomaly or unrelated academic-unit scopes", async () => {
+    const tekirdag: UniversityRecord = {
+      id: "tekirdag-namik-kemal-universitesi",
+      name: "TEKİRDAĞ NAMIK KEMAL ÜNİVERSİTESİ",
+      slug: "tekirdag-namik-kemal-universitesi",
+      city: "Tekirdağ",
+      type: "state",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    const catalog = createCatalogRepository([tekirdag]);
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(catalog, repository);
+
+    await service.ensureStaticAnnouncementSources();
+    const sources = await repository.listAllSources({ status: "active", limit: 5_000 });
+
+    expect(sources.some((source) => source.scopeId === tekirdag.id && new URL(source.sourceUrl).hostname.endsWith("yok.gov.tr"))).toBe(false);
+    expect(sources.every((source) => source.scopeId === YOK_ANNOUNCEMENT_SCOPE_ID || source.scopeId === tekirdag.id)).toBe(true);
+  });
+
   it("discovers a university announcement page and parses items", async () => {
     stubFetch({
       "https://agu.edu.tr": `<html><title>Abdullah Gül Üniversitesi</title><body><a href="/duyurular">Duyurular</a></body></html>`,
@@ -227,6 +264,194 @@ describe("announcement discovery and ingestion", () => {
       title: "2026-2027 Akademik Takvim Duyurusu",
       link: "https://www.agri.edu.tr/detail.aspx?id=70000"
     }));
+  });
+
+  it("decodes named, decimal, hexadecimal, and nested HTML entities safely", () => {
+    expect(cleanText("&amp;amp;amp;raquo;&nbsp;A &amp; B &deg;&ensp;&#304; &#x15F; &#99999999; &unknown;"))
+      .toBe("» A & B ° İ ş");
+  });
+
+  it("does not infer source publication time from an arbitrary date in a title", () => {
+    const items = parseGenericAnnouncementHtml(
+      `<article><a href="/duyuru/sinav">31.07.2026 Sınav ve Başvuru Duyurusu</a></article>`,
+      "https://example.edu.tr/duyurular"
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.title).toBe("31.07.2026 Sınav ve Başvuru Duyurusu");
+    expect(items[0]?.publishedAt).toBeUndefined();
+  });
+
+  it("keeps the exact source title markup as audit evidence while displaying normalized text", () => {
+    const rawTitle = "<strong>&raquo;&nbsp;Burs &amp; Başvuru Duyurusu</strong>";
+    const items = parseGenericAnnouncementHtml(
+      `<article><a href="/duyuru/burs">${rawTitle}</a></article>`,
+      "https://example.edu.tr/duyurular"
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.rawTitle).toBe(rawTitle);
+    expect(items[0]?.title).toBe("Burs & Başvuru Duyurusu");
+  });
+
+  it("parses the YÖK fixture, strips chrome, keeps source timestamps, and canonicalizes duplicates", () => {
+    const items = parseYokAnnouncementHtml(fixture("yok.html"));
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual(expect.objectContaining({
+      title: "Yükseköğretim Kurulu & Üniversiteler için İş Birliği Duyurusu ş",
+      link: "https://www.yok.gov.tr/tr/announcements/yuksekogretim-kurulu-bilgilendirme-duyurusu?id=42",
+      publishedAt: new Date("2026-07-28T05:30:00.000Z"),
+      sourceUpdatedAt: new Date("2026-07-29T11:45:00.000Z")
+    }));
+    expect(items[0]?.rawTitle).toContain("&raquo;");
+    expect(items[0]?.summary).toBe("Öğrenciler & akademisyenler için resmî bilgilendirme.");
+  });
+
+  it("parses the Ankara University fixture with publication and update time kept separate", () => {
+    const items = parseAnkaraUniversityAnnouncementHtml(fixture("ankara-university.html"));
+
+    expect(items).toEqual([expect.objectContaining({
+      title: "2026-2027 Eğitim-Öğretim Yılı Yatay Geçiş Başvuru Duyurusu",
+      link: "https://oidb.ankara.edu.tr/2026-2027-yatay-gecis-duyurusu?a=1&b=2",
+      publishedAt: new Date("2026-07-21T06:00:00.000Z"),
+      sourceUpdatedAt: new Date("2026-07-23T13:15:00.000Z"),
+      summary: "Başvuru koşulları, belgeler & değerlendirme takvimi açıklanmıştır."
+    })]);
+  });
+
+  it("classifies a visible update-only time element without fabricating publication time", () => {
+    const items = parseGenericAnnouncementHtml(`
+      <article>
+        <a href="/duyuru/kayit-yenileme">Kayıt Yenileme Duyurusu</a>
+        <time datetime="2026-07-23T13:15:00Z">Güncellenme Tarihi: 23 Temmuz 2026</time>
+      </article>
+    `, "https://example.edu.tr/duyurular");
+    expect(items).toHaveLength(1);
+    expect(items[0]?.publishedAt).toBeUndefined();
+    expect(items[0]?.sourceUpdatedAt?.toISOString()).toBe("2026-07-23T13:15:00.000Z");
+  });
+
+  it("dispatches fetched YÖK and Ankara University HTML to their source-specific parsers and other HTML to the generic fallback", async () => {
+    stubFetch({
+      "https://www.yok.gov.tr/tr/announcements": fixture("yok.html"),
+      "https://oidb.ankara.edu.tr/gecmis-duyurular": fixture("ankara-university.html"),
+      "https://example.edu.tr/duyurular": fixture("generic.html")
+    });
+
+    const [yokItems, ankaraItems, genericItems] = await Promise.all([
+      fetchSourceItems("https://www.yok.gov.tr/tr/announcements", "auto", 1_000),
+      fetchSourceItems("https://oidb.ankara.edu.tr/gecmis-duyurular/", "auto", 1_000),
+      fetchSourceItems("https://example.edu.tr/duyurular", "auto", 1_000)
+    ]);
+
+    expect(yokItems).toHaveLength(1);
+    expect(yokItems[0]?.sourceUpdatedAt?.toISOString()).toBe("2026-07-29T11:45:00.000Z");
+    expect(ankaraItems).toHaveLength(1);
+    expect(ankaraItems[0]?.publishedAt?.toISOString()).toBe("2026-07-21T06:00:00.000Z");
+    expect(genericItems).toHaveLength(1);
+    expect(genericItems[0]?.link).toBe("https://example.edu.tr/duyuru/uluslararasi-ogrenciler-icin-kayit-ve-uyum-programi?a=1&z=9");
+    expect(genericItems[0]?.publishedAt).toBeUndefined();
+  });
+
+  it("parses the generic fixture with a long Turkish title and rejects unsafe or unofficial links", () => {
+    const items = parseGenericAnnouncementHtml(fixture("generic.html"), "https://example.edu.tr/duyurular/");
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.title).toBe("Uluslararası Öğrenciler İçin Kayıt, Akademik Danışmanlık, Kampüs Yaşamı ve Uyum Programı Hakkında Ayrıntılı Bilgilendirme Duyurusu & Başvuru Rehberi Şı");
+    expect(items[0]?.link).toBe("https://example.edu.tr/duyuru/uluslararasi-ogrenciler-icin-kayit-ve-uyum-programi?a=1&z=9");
+    expect(items[0]?.publishedAt).toBeUndefined();
+  });
+
+  it("rejects every required navigation and chrome label in HTML, JSON, RSS, and Atom", () => {
+    const labels = [
+      "Sonraki",
+      "Önceki",
+      "Ana Sayfa",
+      "Bağlı Kuruluşlar",
+      "Geçmiş Duyurular",
+      "Tüm Duyurular",
+      "Devamını Oku",
+      "1 / 10",
+      "Sayfa 2 / 10",
+      "6 of 10 --",
+      "Alt Bilgi",
+      "Yan Menü"
+    ];
+    const sourceUrl = "https://example.edu.tr/duyurular";
+    const html = labels.map((title, index) => `<a href="/duyuru/${index}">${title}</a>`).join("");
+    const json = JSON.stringify(labels.map((title, index) => ({ title, url: `/duyuru/${index}` })));
+    const feed = [
+      "<rss><channel>",
+      ...labels.map((title, index) => `<item><title>${title}</title><link>${sourceUrl}/${index}</link></item>`),
+      "</channel></rss><feed>",
+      ...labels.map((title, index) => `<entry><title>${title}</title><link href="${sourceUrl}/atom-${index}" /></entry>`),
+      "</feed>"
+    ].join("");
+
+    expect(parseHtmlAnchors(html, sourceUrl)).toEqual([]);
+    expect(parseJsonAnnouncements(json, sourceUrl)).toEqual([]);
+    expect(parseSyndicatedAnnouncements(feed, sourceUrl)).toEqual([]);
+  });
+
+  it("keeps Atom publication and source-update timestamps distinct", () => {
+    const items = parseSyndicatedAnnouncements(
+      `<feed><entry>
+        <title>2026 Öğrenci Kayıt Duyurusu</title>
+        <link href="/duyuru/kayit?utm_source=feed" />
+        <published>2026-07-18T09:00:00+03:00</published>
+        <updated>2026-07-20T11:30:00+03:00</updated>
+      </entry></feed>`,
+      "https://example.edu.tr/duyurular"
+    );
+
+    expect(items).toEqual([expect.objectContaining({
+      publishedAt: new Date("2026-07-18T06:00:00.000Z"),
+      sourceUpdatedAt: new Date("2026-07-20T08:30:00.000Z")
+    })]);
+  });
+
+  it("never substitutes crawl time for a missing source publication time", () => {
+    const source: AnnouncementSourceRecord = {
+      id: "source-generic",
+      scopeType: "university",
+      scopeId: "example-university",
+      sourceName: "Example Üniversitesi Duyuruları",
+      sourceUrl: "https://example.edu.tr/duyurular",
+      canonicalUrl: "https://example.edu.tr/duyurular",
+      contentType: "announcement",
+      parser: "html",
+      priority: 10,
+      status: "active",
+      createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-01T00:00:00.000Z")
+    };
+    const parsed = parseGenericAnnouncementHtml(fixture("generic.html"), source.sourceUrl);
+    const fetchedAt = new Date("2026-07-30T12:00:00.000Z");
+    const items = toAnnouncementItems(source, parsed, fetchedAt);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual(expect.objectContaining({
+      canonicalUrl: "https://example.edu.tr/duyuru/uluslararasi-ogrenciler-icin-kayit-ve-uyum-programi?a=1&z=9",
+      officialSourceUrl: "https://example.edu.tr/duyurular",
+      discoveredAt: fetchedAt.toISOString(),
+      fetchedAt: fetchedAt.toISOString(),
+      trustStatus: "trusted",
+      freshness: "fresh",
+      dedupeKey: expect.any(String)
+    }));
+    expect(items[0]?.publishedAt).toBeUndefined();
+    expect(items[0]?.publicationTimeSource).toBeUndefined();
+  });
+
+  it("rejects unsafe fetch sources and cross-official-domain redirects before reading content", async () => {
+    await expect(fetchText("javascript:alert(1)", 100)).rejects.toThrow("SOURCE_URL_UNSAFE");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, {
+      status: 302,
+      headers: { Location: "https://evil.example/duyurular" }
+    })));
+
+    await expect(fetchText("https://example.edu.tr/duyurular", 100)).rejects.toThrow("SOURCE_REDIRECT_UNOFFICIAL");
   });
 });
 

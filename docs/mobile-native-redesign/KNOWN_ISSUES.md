@@ -47,6 +47,7 @@ Baseline date: 29 July 2026. Severity reflects user trust, privacy, data integri
 | MN-025 | Phase 0 had no native launch target; Phase 1 now has an accelerated Android AVD, current-source build/install, required flow evidence, and the complete 200%-font surface set | official Studio/SDK/AVD evidence and native-QA register | Resolved in Phase 1 closure |
 | MN-028 | The final API 24 Google APIs image/emulator overrides the requested 256 MB heap / 2,047 MB data: post-boot config is 256 MB / 6,442,450,944-byte data and runtime is 384 MB / approximately 5.8 GB `/data` | prelaunch request, post-boot `config.ini`, `getprop dalvik.vm.heapsize`, and `df -h /data`; API 36/34/30/28 attempts also exceeded the budget | Phase 1 closure environment limitation |
 | MN-029 | Required Android flows and 360/320/full six-surface 200%-font evidence pass; Home nav labels wrap/truncate at 2.0 and TalkBack is unavailable with an exact blocker record, so no screen-reader acceptance is claimed | `evidence/phase-01-native/native-qa-results.md`; `evidence/phase-01-native/talkback-blocker.md` | Large-font navigation presentation: Phase 4/5; TalkBack rerun when an image/service is available |
+| MN-032 | Phase 2 content screens lack current native visual acceptance because the authorized QA run had no local authenticated content API fixture; production-data access was prohibited | Current-source APK/Metro launch reached the signed-out Turkish Login surface; content loading/empty/partial/stale/error screens require an authenticated fixture | Rerun Phase 2 content-state visual/accessibility checks when an authorized local fixture is available |
 
 ## Baseline disposition
 
@@ -105,6 +106,28 @@ R1C1 supersedes the R1A/R1B statements that Firestore database adapters remain i
 Exactly eleven adapter-only test executions were removed: one academic descendant-clearing case, one legacy-generation/admin-update case, and nine stale-writer rows covering verification, Google identity, admin, profile, password, academic selection, personal-data clearing, admin deletion, and account deletion. The shared rules remain covered by strengthened Mongo academic field-operator assertions, Mongo legacy normalization, nine one-for-one Mongo stale-writer cases, and existing in-memory contract cases. Two retained-service module-resolution cases keep the suite at 32 files / 299 tests.
 
 Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, `FirebaseAdminService`, `firebase`, `firebase-admin`, and their configuration remain supported. Package files are intentionally unchanged; retained Firebase dependencies may continue to bring Firestore-related transitive packages without exposing a runtime database adapter. No migration, deployment, publish, push, or production-data access occurred. R1C2 still owns relocation of runtime-unreachable in-memory repositories, and R1D still owns reconnect/durable Mongo verification. A2, Task B, Phase 2, and UI work remain unstarted.
+
+## Phase 2 disposition — senior re-audit 31 July 2026
+
+| ID | Phase 2 status | Evidence / remaining boundary |
+|---|---|---|
+| MN-014 | Resolved in ingestion, persistence, API, shared contract, and native presentation | Deep entity decoding/residual removal, exact captured raw-title audit preservation, pagination-prefix handling, strict timestamp provenance, official-source validation, authoritative-time canonical duplicate handling, trusted-only reads, and DTO suppression have deterministic fixtures/tests. Crawl/discovery and arbitrary title dates are never generic publication fallbacks. |
+| MN-015 | Resolved in code and automated tests | Native handoff revalidates credential-free official HTTP/HTTPS URLs, rejects private/unsafe targets, checks device support, catches `Linking` failures, and reports controlled feedback. |
+| MN-016 | Content-state portion resolved | Content loading, error, empty/no-results, partial, stale, retained-after-error, and retry states are explicit. Fresh cached items cannot hide persisted degraded/failed source state, including YÖK and Summer School. Phase 10 still owns the broader selector visual redesign. |
+| MN-018 | Content-integrity portion resolved | Summer refresh reloads both the Summer response and visible calendar ownership; URL-less records are non-pressable and explicitly say no official link is available. Phase 8/9 still own later visual/feed work. |
+| MN-032 | Open evidence limitation | The initial Phase 2 APK built, installed, loaded its Metro bundle, settled hydration, and exposed labelled Turkish login controls without a fatal React/native error. The senior-hardening source reassembled successfully but was not relaunched because no emulator was attached. No authorized local authenticated content fixture existed, and production access was prohibited, so no content-screen visual or screen-reader acceptance is claimed. |
+
+### Remaining Phase 2 limitations
+
+- No database, including production, was accessed or reconciled. The command was verified through pure planning tests, direct executable apply-helper conflict tests, runtime catalog/YÖK authority tests, and a controlled invalid-argument/no-database smoke.
+- Reconciliation is optimistic per document, not transactional. An apply can partially complete before a conflict; create and verify a backup, use an authorized non-production clone first, treat exit code 2 as partial/conflicted, rerun dry-run, and repeat until zero mutations.
+- Exact database-name confirmation prevents accidental name mismatch but does not prove an environment is non-production.
+- Existing array announcement endpoints remain for compatibility. The native app uses additive trusted collection envelopes; direct controller/service tests verify the envelope, but no live deployed Nest/Mongo endpoint was contacted.
+- Native compatibility parsing tolerates an absent additive `officialSourceUrl`; the API's explicit trusted source record remains the authority and always emits it in the trusted DTO.
+- Pure native helper/source-wiring tests cover entity decoding, timestamp labels, URL containment, partial/stale/error behavior, Summer refresh ownership, and URL-less cards. They are not rendered content-component or screen-reader evidence; MN-019 and MN-032 remain visible.
+- `VISIBLE_NATIVE_QA_ENVIRONMENT_BLOCKED`: the initial Phase 2 app launched on `AcademicPhase1Low`; the senior-hardening source passed native assembly but was not relaunched because no emulator was attached. Representative authenticated loading/empty/partial/stale/error content screens still cannot be reached without an authorized local API/session fixture. Production data and credentials were not used.
+
+The 31 July senior re-audit closed implementation/evidence gaps for compound pagination, residual entities, arbitrary title-date inference, exact raw-title retention, persisted source health, generic fallback dispatch, and missing/untrusted-source reconciliation. MN-032 remains an evidence limitation, not a claim of authenticated content-screen visual acceptance.
 
 ### Remaining Phase 1 limitations
 

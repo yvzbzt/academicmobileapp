@@ -118,12 +118,23 @@ describe("mongoose schemas", () => {
   it("defines announcement source and item indexes", () => {
     expect(announcementSourceSchema.get("collection")).toBe("announcement_sources");
     expect(announcementItemSchema.get("collection")).toBe("announcement_items");
-    expect(announcementSourceSchema.indexes()).toEqual(
-      expect.arrayContaining([[{ sourceUrl: 1, scopeType: 1, scopeId: 1 }, expect.objectContaining({ unique: true })]])
-    );
-    expect(announcementItemSchema.indexes()).toEqual(
-      expect.arrayContaining([[{ sourceId: 1, link: 1 }, expect.objectContaining({ unique: true })]])
-    );
+    expect(announcementSourceSchema.path("canonicalUrl")).toBeDefined();
+    expect(announcementSourceSchema.path("trustStatus").options.enum).toEqual(["trusted", "rejected", "quarantined"]);
+    expect(announcementSourceSchema.path("trustStatus").options.default).toBe("quarantined");
+    expect(announcementSourceSchema.path("duplicateOfId")).toBeDefined();
+    for (const path of ["rawTitle", "canonicalUrl", "officialSourceUrl", "publishedAt", "publicationTimeSource", "sourceUpdatedAt", "sourceUpdateTimeSource", "discoveredAt", "fetchedAt", "freshness", "trustStatus", "trustReasonCodes", "dedupeKey", "duplicateOfId"]) {
+      expect(announcementItemSchema.path(path), `announcement item path ${path}`).toBeDefined();
+    }
+    expect(announcementItemSchema.path("trustStatus").options.default).toBe("quarantined");
+    expect(announcementSourceSchema.indexes()).toEqual(expect.arrayContaining([
+      [{ sourceUrl: 1, scopeType: 1, scopeId: 1 }, expect.objectContaining({ unique: true })],
+      [{ canonicalUrl: 1, scopeType: 1, scopeId: 1 }, expect.objectContaining({ name: "announcement_sources_canonical_scope" })]
+    ]));
+    expect(announcementItemSchema.indexes()).toEqual(expect.arrayContaining([
+      [{ sourceId: 1, link: 1 }, expect.objectContaining({ unique: true })],
+      [{ sourceId: 1, canonicalUrl: 1 }, expect.objectContaining({ name: "announcement_items_source_canonical" })],
+      [{ trustStatus: 1, dedupeKey: 1 }, expect.objectContaining({ name: "announcement_items_trust_dedupe" })]
+    ]));
   });
 
   it("defines notification device, preference and job indexes", () => {

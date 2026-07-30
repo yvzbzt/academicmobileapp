@@ -7,7 +7,7 @@ import {
   isErrorWithCode,
   statusCodes
 } from "@react-native-google-signin/google-signin";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type ReactNode, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -65,6 +65,19 @@ import {
   serializeManualExamEnvelope,
   type ManualExamRecord
 } from "./src/session-integrity/manual-exam-storage";
+import {
+  canonicalizeOfficialAcademicUrl,
+  contentTimestampLabel,
+  isNavigationContentTitle,
+  normalizeDisplayText,
+  normalizeTrustedContentCollection,
+  normalizeTrustedContentEnvelope,
+  type ContentCollectionState,
+  type MobileContentCollectionInput,
+  type MobileContentRecordInput,
+  type TrustedContentCollection,
+  type TrustedMobileContentRecord
+} from "./src/content/content-trust";
 
 type AuthMode = "login" | "register";
 type AlarmMode = "all_calendar" | "selected_fields";
@@ -140,19 +153,9 @@ type DepartmentRecord = {
   name: string;
 };
 
-type AnnouncementRecord = {
-  id: string;
-  sourceId: string;
-  sourceName: string;
-  contentType?: AnnouncementContentType;
-  scopeType: AnnouncementScopeType;
-  scopeId: string;
-  title: string;
-  link: string;
-  publishedAt?: string;
-  fetchedAt?: string;
-  summary?: string;
-};
+type AnnouncementApiRecord = MobileContentRecordInput;
+type AnnouncementCollectionApiPayload = MobileContentCollectionInput;
+type AnnouncementRecord = TrustedMobileContentRecord;
 
 type CalendarRecord = {
   id: string;
@@ -185,7 +188,7 @@ type GoogleCalendarConnectionRecord = {
   warnings?: string[];
 };
 
-type SummerSchoolPayload = {
+type SummerSchoolApiPayload = {
   profile: {
     universityId: string;
     universityName?: string;
@@ -200,8 +203,13 @@ type SummerSchoolPayload = {
     sourceUrl?: string;
     eventId?: string;
   }>;
-  ownAnnouncements: AnnouncementRecord[];
-  sameDepartmentAnnouncements: AnnouncementRecord[];
+  ownAnnouncements: AnnouncementApiRecord[];
+  sameDepartmentAnnouncements: AnnouncementApiRecord[];
+  announcementStatus?: {
+    state: ContentCollectionState;
+    sourceCount: number;
+    failedSourceCount: number;
+  };
   sameDepartmentOptions: Array<{
     universityId: string;
     universityName: string;
@@ -217,6 +225,12 @@ type SummerSchoolPayload = {
     }>;
   }>;
   generatedAt: string;
+};
+
+type SummerSchoolPayload = Omit<SummerSchoolApiPayload, "ownAnnouncements" | "sameDepartmentAnnouncements"> & {
+  ownAnnouncements: AnnouncementRecord[];
+  sameDepartmentAnnouncements: AnnouncementRecord[];
+  contentState: ContentCollectionState;
 };
 
 type NotificationPreferencePayload = {
@@ -241,6 +255,8 @@ type Loadable<T> = {
   loading: boolean;
   data?: T;
   error?: string;
+  attempted?: boolean;
+  stale?: boolean;
 };
 
 const SESSION_STORAGE_KEY = "native_session";
@@ -647,6 +663,106 @@ function formatDateTimeShort(value?: string): string {
   return date.toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function normalizeEventRecordsForDisplay(events: EventRecord[]): EventRecord[] {
+  return events.flatMap((event) => {
+    const title = normalizeDisplayText(event.title);
+    if (!title || isNavigationContentTitle(title)) return [];
+    return [{ ...event, title }];
+  });
+}
+
+function normalizeCalendarPayloadForDisplay(payload: CalendarPayload): CalendarPayload {
+  return {
+    ...payload,
+    calendar: {
+      ...payload.calendar,
+      title: normalizeDisplayText(payload.calendar.title) || "Akademik takvim"
+    },
+    events: normalizeEventRecordsForDisplay(payload.events)
+  };
+}
+
+function normalizeSummerSchoolPayloadForDisplay(payload: SummerSchoolApiPayload): SummerSchoolPayload {
+  const ownAnnouncements = normalizeTrustedContentCollection(payload.ownAnnouncements);
+  const sameDepartmentAnnouncements = normalizeTrustedContentCollection(payload.sameDepartmentAnnouncements);
+  let omittedContentCount = 0;
+
+  const requirements = payload.requirements.flatMap((requirement) => {
+    const message = normalizeDisplayText(requirement.message);
+    if (!message || isNavigationContentTitle(message)) {
+      omittedContentCount += 1;
+      return [];
+    }
+    const { sourceUrl: rawSourceUrl, ...safeRequirement } = requirement;
+    const sourceUrl = canonicalizeOfficialAcademicUrl(rawSourceUrl);
+    if (rawSourceUrl && !sourceUrl) omittedContentCount += 1;
+    return [{
+      ...safeRequirement,
+      message,
+      ...(sourceUrl ? { sourceUrl } : {})
+    }];
+  });
+
+  const sameDepartmentOptions = payload.sameDepartmentOptions.map((option) => {
+    const { sourceUrl: rawSourceUrl, ...safeOption } = option;
+    const sourceUrl = canonicalizeOfficialAcademicUrl(rawSourceUrl);
+    if (rawSourceUrl && !sourceUrl) omittedContentCount += 1;
+    const events = normalizeEventRecordsForDisplay(option.events);
+    omittedContentCount += option.events.length - events.length;
+    const matchingDepartments = option.matchingDepartments?.map((match) => ({
+      ...match,
+      facultyName: normalizeDisplayText(match.facultyName) || "Fakülte",
+      departmentName: normalizeDisplayText(match.departmentName) || "Bölüm"
+    }));
+    return {
+      ...safeOption,
+      universityName: normalizeDisplayText(option.universityName) || "Üniversite",
+      events,
+      ...(matchingDepartments ? { matchingDepartments } : {}),
+      ...(sourceUrl ? { sourceUrl } : {})
+    };
+  });
+
+  const announcementCollections = [ownAnnouncements, sameDepartmentAnnouncements];
+  const announcementItems = announcementCollections.flatMap((collection) => collection.items);
+  const hasStale = announcementItems.some((item) => item.freshness === "stale");
+  const hasFresh = announcementItems.some((item) => item.freshness !== "stale");
+  const contentState: ContentCollectionState = omittedContentCount > 0
+    || announcementCollections.some((collection) => collection.state === "partial")
+    || payload.announcementStatus?.state === "partial"
+    || (payload.announcementStatus?.failedSourceCount ?? 0) > 0
+    || (hasFresh && hasStale)
+    ? "partial"
+    : hasStale || payload.announcementStatus?.state === "stale"
+      ? "stale"
+      : "fresh";
+
+  const profile = payload.profile;
+  return {
+    ...payload,
+    profile: {
+      universityId: profile.universityId,
+      ...(profile.universityName ? { universityName: normalizeDisplayText(profile.universityName) } : {}),
+      ...(profile.facultyId ? { facultyId: profile.facultyId } : {}),
+      ...(profile.facultyName ? { facultyName: normalizeDisplayText(profile.facultyName) } : {}),
+      ...(profile.departmentId ? { departmentId: profile.departmentId } : {}),
+      ...(profile.departmentName ? { departmentName: normalizeDisplayText(profile.departmentName) } : {})
+    },
+    requirements,
+    ownAnnouncements: ownAnnouncements.items,
+    sameDepartmentAnnouncements: sameDepartmentAnnouncements.items,
+    sameDepartmentOptions,
+    contentState
+  };
+}
+
+function contentAvailabilityMessage(state: ContentCollectionState | undefined, retainedAfterError: boolean | undefined): string | null {
+  if (retainedAfterError) return "Yenileme tamamlanamadı. Son doğrulanmış içerik gösteriliyor.";
+  if (state === "partial") return "Bazı kaynaklar doğrulanamadı. Kullanılabilir resmî içerik gösteriliyor.";
+  if (state === "stale") return "Kaynakların son doğrulanmış içeriği gösteriliyor.";
+  return null;
+}
+
 function formatDuration(totalSeconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(safeSeconds / 60);
@@ -775,8 +891,8 @@ export default function App() {
   const [departments, setDepartments] = useState<Loadable<DepartmentRecord[]>>({ loading: false });
   const [calendar, setCalendar] = useState<Loadable<CalendarPayload>>({ loading: false });
   const [upcoming, setUpcoming] = useState<Loadable<EventRecord[]>>({ loading: false });
-  const [announcements, setAnnouncements] = useState<Loadable<AnnouncementRecord[]>>({ loading: false });
-  const [yokAnnouncements, setYokAnnouncements] = useState<Loadable<AnnouncementRecord[]>>({ loading: false });
+  const [announcements, setAnnouncements] = useState<Loadable<TrustedContentCollection>>({ loading: false });
+  const [yokAnnouncements, setYokAnnouncements] = useState<Loadable<TrustedContentCollection>>({ loading: false });
   const [summerSchool, setSummerSchool] = useState<Loadable<SummerSchoolPayload>>({ loading: false });
   const [preferences, setPreferences] = useState<Loadable<NotificationPreferencePayload>>({ loading: false });
   const [manualExams, setManualExams] = useState<ManualExamRecord[]>([]);
@@ -854,7 +970,7 @@ export default function App() {
       .sort((left, right) => Date.parse(left.examDate) - Date.parse(right.examDate));
   }, [calendar.data?.events, manualExams, manualExamOwnerId, manualExamsHydrated, session?.user.id]);
   const announcementFeed = useMemo(
-    () => announcements.data ?? [],
+    () => announcements.data?.items ?? [],
     [announcements.data]
   );
   const announcementContentCounts = useMemo(() => ({
@@ -874,7 +990,7 @@ export default function App() {
     [filteredAnnouncementFeed]
   );
   const yokAnnouncementItems = useMemo(
-    () => yokAnnouncements.data ?? [],
+    () => yokAnnouncements.data?.items ?? [],
     [yokAnnouncements.data]
   );
   const summerSchoolEvents = useMemo(
@@ -882,12 +998,18 @@ export default function App() {
     [calendar.data?.events]
   );
   const summerSchoolAnnouncements = useMemo(
-    () => [
+    () => normalizeTrustedContentCollection([
       ...(summerSchool.data?.ownAnnouncements ?? []),
       ...(summerSchool.data?.sameDepartmentAnnouncements ?? [])
-    ],
+    ]).items,
     [summerSchool.data]
   );
+  const announcementAvailabilityMessage = contentAvailabilityMessage(announcements.data?.state, announcements.stale);
+  const yokAvailabilityMessage = contentAvailabilityMessage(yokAnnouncements.data?.state, yokAnnouncements.stale);
+  const summerAvailabilityMessage = contentAvailabilityMessage(summerSchool.data?.contentState, summerSchool.stale);
+  const summerDateAvailabilityMessage = contentAvailabilityMessage(undefined, calendar.stale);
+  const calendarAvailabilityMessage = contentAvailabilityMessage(undefined, calendar.stale);
+  const upcomingAvailabilityMessage = contentAvailabilityMessage(undefined, upcoming.stale);
   const nextUpcomingEvent = useMemo(() => {
     return (upcoming.data ?? [])
       .filter((event) => !Number.isNaN(Date.parse(event.startDate)))
@@ -1709,26 +1831,28 @@ export default function App() {
   }
 
   async function withLoadable<T>(
-    setter: (state: Loadable<T>) => void,
+    setter: Dispatch<SetStateAction<Loadable<T>>>,
     action: () => Promise<T>,
-    ownerSnapshot: AccountGenerationSnapshot | null = accountGuardRef.current.capture()
+    ownerSnapshot: AccountGenerationSnapshot | null = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = false
   ): Promise<T | null> {
     if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) return null;
-    setter({ loading: true });
+    setter((previous) => preserveDataOnRefresh && previous.data !== undefined
+      ? { loading: true, data: previous.data, attempted: true, stale: Boolean(previous.stale) }
+      : { loading: true, attempted: true });
     try {
       const data = await action();
       if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) return null;
-      setter({ loading: false, data });
+      setter({ loading: false, data, attempted: true, stale: false });
       return data;
     } catch (error) {
       if (error instanceof StaleAccountRequestError || (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot))) {
-        setter({ loading: false });
         return null;
       }
-      setter({
-        loading: false,
-        error: userMessageFromError(error, "İşlem tamamlanamadı. Lütfen tekrar dene.")
-      });
+      const message = userMessageFromError(error, "İşlem tamamlanamadı. Lütfen tekrar dene.");
+      setter((previous) => preserveDataOnRefresh && previous.data !== undefined
+        ? { loading: false, data: previous.data, error: message, attempted: true, stale: true }
+        : { loading: false, error: message, attempted: true, stale: false });
       return null;
     }
   }
@@ -2898,66 +3022,78 @@ export default function App() {
 
   async function loadMyCalendar(
     tokenOverride?: string,
-    ownerSnapshot = accountGuardRef.current.capture()
+    ownerSnapshot = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = tokenOverride === undefined
   ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
     await withLoadable(
       setCalendar,
-      () => apiRequest<CalendarPayload>("/calendar/my", {}, token, { ownerSnapshot }),
-      ownerSnapshot
+      () => apiRequest<CalendarPayload>("/calendar/my", {}, token, { ownerSnapshot })
+        .then(normalizeCalendarPayloadForDisplay),
+      ownerSnapshot,
+      preserveDataOnRefresh
     );
   }
 
   async function loadUpcoming(
     tokenOverride?: string,
-    ownerSnapshot = accountGuardRef.current.capture()
+    ownerSnapshot = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = tokenOverride === undefined
   ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
     await withLoadable(
       setUpcoming,
-      () => apiRequest<EventRecord[]>("/calendar/upcoming?limit=10", {}, token, { ownerSnapshot }),
-      ownerSnapshot
+      () => apiRequest<EventRecord[]>("/calendar/upcoming?limit=10", {}, token, { ownerSnapshot })
+        .then(normalizeEventRecordsForDisplay),
+      ownerSnapshot,
+      preserveDataOnRefresh
     );
   }
 
   async function loadAnnouncements(
     tokenOverride?: string,
     universityIdOverride?: string,
-    ownerSnapshot = accountGuardRef.current.capture()
+    ownerSnapshot = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = tokenOverride === undefined && universityIdOverride === undefined
   ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
 
     const universityId = universityIdOverride ?? registerUniversityId;
     if (!universityId) {
-      setAnnouncements({ loading: false, data: [] });
+      setAnnouncements({ loading: false, data: normalizeTrustedContentCollection([]), attempted: true, stale: false });
       return;
     }
 
     await withLoadable(
       setAnnouncements,
-      () => apiRequest<AnnouncementRecord[]>("/announcements/my?limit=60", {}, token, { ownerSnapshot }),
-      ownerSnapshot
+      () => apiRequest<AnnouncementCollectionApiPayload>("/announcements/my/trusted?limit=60", {}, token, { ownerSnapshot })
+        .then(normalizeTrustedContentEnvelope),
+      ownerSnapshot,
+      preserveDataOnRefresh
     );
   }
 
-  async function loadYokAnnouncements(): Promise<void> {
+  async function loadYokAnnouncements(preserveDataOnRefresh = true): Promise<void> {
     const ownerSnapshot = accountGuardRef.current.capture();
     await withLoadable(
       setYokAnnouncements,
-      () => apiRequest<AnnouncementRecord[]>("/announcements/yok?limit=30", {}, undefined, { ownerSnapshot }),
-      ownerSnapshot
+      () => apiRequest<AnnouncementCollectionApiPayload>("/announcements/yok/trusted?limit=30", {}, undefined, { ownerSnapshot })
+        .then(normalizeTrustedContentEnvelope),
+      ownerSnapshot,
+      preserveDataOnRefresh
     );
   }
 
   async function loadSummerSchool(
     tokenOverride?: string,
     universityIdOverride?: string,
-    ownerSnapshot = accountGuardRef.current.capture()
+    ownerSnapshot = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = tokenOverride === undefined && universityIdOverride === undefined
   ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token) return;
@@ -2970,9 +3106,20 @@ export default function App() {
 
     await withLoadable(
       setSummerSchool,
-      () => apiRequest<SummerSchoolPayload>("/calendar/summer-school/my", {}, token, { ownerSnapshot }),
-      ownerSnapshot
+      () => apiRequest<SummerSchoolApiPayload>("/calendar/summer-school/my", {}, token, { ownerSnapshot })
+        .then(normalizeSummerSchoolPayloadForDisplay),
+      ownerSnapshot,
+      preserveDataOnRefresh
     );
+  }
+
+  async function refreshSummerSchool(): Promise<void> {
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!ownerSnapshot) return;
+    await Promise.all([
+      loadMyCalendar(undefined, ownerSnapshot, true),
+      loadSummerSchool(undefined, undefined, ownerSnapshot, true)
+    ]);
   }
 
   async function loadPreferences(
@@ -3084,8 +3231,8 @@ export default function App() {
           currentSession.accessToken,
           { ownerSnapshot }
         ),
-        apiRequest<AnnouncementRecord[]>(
-          "/announcements/my?limit=100",
+        apiRequest<AnnouncementCollectionApiPayload>(
+          "/announcements/my/trusted?limit=100",
           { signal: syncController.signal },
           currentSession.accessToken,
           { ownerSnapshot }
@@ -3097,28 +3244,42 @@ export default function App() {
       }
 
       const calendarEvents = calendarResult.status === "fulfilled" ? calendarResult.value.events : [];
-      const announcementItems = announcementResult.status === "fulfilled" ? announcementResult.value : [];
+      const announcementItems = announcementResult.status === "fulfilled" ? [...announcementResult.value.items] : [];
       const replaceSourceTypes: Array<"academic_event" | "announcement" | "event"> = [];
       const warnings: string[] = [];
 
       if (calendarResult.status === "fulfilled") {
         replaceSourceTypes.push("academic_event");
-        setCalendar({ loading: false, data: calendarResult.value });
+        setCalendar({
+          loading: false,
+          data: normalizeCalendarPayloadForDisplay(calendarResult.value),
+          attempted: true,
+          stale: false
+        });
       } else {
         warnings.push("Akademik takvim kaynağı bu eşitlemede alınamadı.");
         setCalendar({
           loading: false,
-          error: userMessageFromError(calendarResult.reason, "Akademik takvim şu anda alınamadı.")
+          error: userMessageFromError(calendarResult.reason, "Akademik takvim şu anda alınamadı."),
+          attempted: true,
+          stale: false
         });
       }
       if (announcementResult.status === "fulfilled") {
         replaceSourceTypes.push("announcement", "event");
-        setAnnouncements({ loading: false, data: announcementResult.value });
+        setAnnouncements({
+          loading: false,
+          data: normalizeTrustedContentEnvelope(announcementResult.value),
+          attempted: true,
+          stale: false
+        });
       } else {
         warnings.push("Duyuru ve etkinlik kaynakları bu eşitlemede alınamadı.");
         setAnnouncements({
           loading: false,
-          error: userMessageFromError(announcementResult.reason, "Duyurular şu anda alınamadı.")
+          error: userMessageFromError(announcementResult.reason, "Duyurular şu anda alınamadı."),
+          attempted: true,
+          stale: false
         });
       }
 
@@ -3255,12 +3416,21 @@ export default function App() {
   }
 
   async function openAnnouncement(link: string): Promise<void> {
-    const supported = await Linking.canOpenURL(link);
-    if (!supported) {
-      setMessage({ text: "Bu bağlantı cihazda açılamıyor.", tone: "error" });
+    const safeLink = canonicalizeOfficialAcademicUrl(link);
+    if (!safeLink) {
+      setMessage({ text: "Yalnızca doğrulanmış HTTP veya HTTPS bağlantıları açılabilir.", tone: "error" });
       return;
     }
-    await Linking.openURL(link);
+    try {
+      const supported = await Linking.canOpenURL(safeLink);
+      if (!supported) {
+        setMessage({ text: "Bu resmî bağlantı cihazda açılamıyor.", tone: "error" });
+        return;
+      }
+      await Linking.openURL(safeLink);
+    } catch {
+      setMessage({ text: "Resmî bağlantı açılamadı. Lütfen tekrar dene.", tone: "error" });
+    }
   }
 
   function renderAnnouncementCard(item: AnnouncementRecord) {
@@ -3268,7 +3438,7 @@ export default function App() {
       <Pressable key={item.id} style={styles.announcementCard} onPress={() => void openAnnouncement(item.link)}>
         <View style={styles.announcementTopRow}>
           <Text style={styles.announcementSourcePill}>{item.sourceName}</Text>
-          <Text style={styles.announcementDate}>{formatDateTimeShort(item.publishedAt)}</Text>
+          <Text style={styles.announcementDate}>{contentTimestampLabel(item)}</Text>
         </View>
         <Text style={styles.announcementTitle}>{item.title}</Text>
         {item.summary && <Text style={styles.announcementSummary}>{item.summary}</Text>}
@@ -4122,6 +4292,7 @@ export default function App() {
 
                 {upcoming.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
                 {upcoming.error && <Text style={styles.errorText}>{upcoming.error}</Text>}
+                {upcomingAvailabilityMessage && <Text style={styles.caption}>{upcomingAvailabilityMessage}</Text>}
 
                 {nextUpcomingEvent && (
                   <View style={styles.eventHighlightRow}>
@@ -4162,6 +4333,7 @@ export default function App() {
 
                 {calendar.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
                 {calendar.error && <Text style={styles.errorText}>{calendar.error}</Text>}
+                {calendarAvailabilityMessage && <Text style={styles.caption}>{calendarAvailabilityMessage}</Text>}
 
                 <View style={styles.calendarMiniGrid}>
                   <View style={styles.calendarMiniCard}>
@@ -4277,7 +4449,7 @@ export default function App() {
                     <Text style={styles.caption}>{formatDateShort(event.startDate)}</Text>
                   </View>
                 ))}
-                {!calendar.loading && (calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).length === 0 && (
+                {calendar.attempted && !calendar.loading && !calendar.error && (calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).length === 0 && (
                   <View style={styles.emptyStatePanel}>
                     <Ionicons name="calendar-clear-outline" size={24} color="#2563eb" />
                     <Text style={styles.emptyStateTitle}>Takvim tarihi bulunamadı</Text>
@@ -4308,17 +4480,19 @@ export default function App() {
                   style={[
                     styles.button,
                     styles.secondaryButton,
-                    (!registerUniversityId || summerSchool.loading || busy) && styles.buttonDisabled
+                    (!registerUniversityId || summerSchool.loading || calendar.loading || busy) && styles.buttonDisabled
                   ]}
-                  onPress={() => void loadSummerSchool()}
-                  disabled={!registerUniversityId || summerSchool.loading || busy}
+                  onPress={() => void refreshSummerSchool()}
+                  disabled={!registerUniversityId || summerSchool.loading || calendar.loading || busy}
                 >
                   <Ionicons name="refresh-outline" size={18} color="#1e293b" />
-                  <Text style={styles.secondaryButtonText}>Yaz Okulunu Yenile</Text>
+                  <Text style={styles.secondaryButtonText}>{summerSchool.error || calendar.error ? "Tekrar Dene" : "Yaz Okulunu Yenile"}</Text>
                 </Pressable>
 
-                {summerSchool.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+                {(summerSchool.loading || calendar.loading) && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
                 {summerSchool.error && registerUniversityId && <Text style={styles.errorText}>{summerSchool.error}</Text>}
+                {calendar.error && registerUniversityId && <Text style={styles.errorText}>{calendar.error}</Text>}
+                {summerAvailabilityMessage && <Text style={styles.caption}>{summerAvailabilityMessage}</Text>}
 
                 {!registerUniversityId && (
                   <View style={styles.emptyStatePanel}>
@@ -4332,6 +4506,7 @@ export default function App() {
               {registerUniversityId && (
                 <>
                   <Section title="Yaz Okulu Tarihleri">
+                    {summerDateAvailabilityMessage && <Text style={styles.caption}>{summerDateAvailabilityMessage}</Text>}
                     {summerSchoolEvents.map((event) => (
                       <View key={event.id} style={styles.eventCard}>
                         <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
@@ -4340,7 +4515,7 @@ export default function App() {
                       </View>
                     ))}
 
-                    {!calendar.loading && summerSchoolEvents.length === 0 && (
+                    {calendar.attempted && !calendar.loading && !calendar.error && summerSchoolEvents.length === 0 && (
                       <View style={styles.emptyStatePanel}>
                         <Ionicons name="sunny-outline" size={24} color="#ea580c" />
                         <Text style={styles.emptyStateTitle}>Henüz yaz okulu tarihi yok</Text>
@@ -4350,22 +4525,35 @@ export default function App() {
                   </Section>
 
                   <Section title="Yaz Okulu Duyuruları">
-                    {(summerSchool.data?.requirements ?? []).map((item) => (
-                      <Pressable
-                        key={`${item.eventId ?? item.message}-${item.date ?? "date"}`}
-                        style={styles.announcementCard}
-                        onPress={() => item.sourceUrl ? void openAnnouncement(item.sourceUrl) : undefined}
-                      >
-                        <View style={styles.announcementTopRow}>
-                          <Text style={styles.announcementSourcePill}>Koşul</Text>
-                          <Text style={styles.announcementDate}>{formatDateShort(item.date)}</Text>
+                    {(summerSchool.data?.requirements ?? []).map((item) => {
+                      const sourceUrl = item.sourceUrl;
+                      const content = (
+                        <>
+                          <View style={styles.announcementTopRow}>
+                            <Text style={styles.announcementSourcePill}>Koşul</Text>
+                            <Text style={styles.announcementDate}>{formatDateShort(item.date)}</Text>
+                          </View>
+                          <Text style={styles.announcementTitle}>{item.message}</Text>
+                          {!sourceUrl && <Text style={styles.caption}>Resmî bağlantı mevcut değil.</Text>}
+                        </>
+                      );
+                      return sourceUrl ? (
+                        <Pressable
+                          key={`${item.eventId ?? item.message}-${item.date ?? "date"}`}
+                          style={styles.announcementCard}
+                          onPress={() => void openAnnouncement(sourceUrl)}
+                        >
+                          {content}
+                        </Pressable>
+                      ) : (
+                        <View key={`${item.eventId ?? item.message}-${item.date ?? "date"}`} style={styles.announcementCard}>
+                          {content}
                         </View>
-                        <Text style={styles.announcementTitle}>{item.message}</Text>
-                      </Pressable>
-                    ))}
+                      );
+                    })}
                     {summerSchoolAnnouncements.map(renderAnnouncementCard)}
 
-                    {!summerSchool.loading && (summerSchool.data?.requirements ?? []).length === 0 && summerSchoolAnnouncements.length === 0 && (
+                    {summerSchool.attempted && !summerSchool.loading && !summerSchool.error && (summerSchool.data?.requirements ?? []).length === 0 && summerSchoolAnnouncements.length === 0 && (
                       <View style={styles.emptyStatePanel}>
                         <Ionicons name="megaphone-outline" size={24} color="#b45309" />
                         <Text style={styles.emptyStateTitle}>Henüz yaz okulu duyurusu yok</Text>
@@ -4375,24 +4563,37 @@ export default function App() {
                   </Section>
 
                   <Section title="Aynı Bölümde Seçenekler">
-                    {(summerSchool.data?.sameDepartmentOptions ?? []).map((option) => (
-                      <Pressable
-                        key={`${option.universityId}-${option.academicYear}`}
-                        style={styles.announcementCard}
-                        onPress={() => option.sourceUrl ? void openAnnouncement(option.sourceUrl) : undefined}
-                      >
-                        <View style={styles.announcementTopRow}>
-                          <Text style={styles.announcementSourcePill}>{option.academicYear}</Text>
-                          <Text style={styles.announcementDate}>{option.events.length} tarih</Text>
+                    {(summerSchool.data?.sameDepartmentOptions ?? []).map((option) => {
+                      const sourceUrl = option.sourceUrl;
+                      const content = (
+                        <>
+                          <View style={styles.announcementTopRow}>
+                            <Text style={styles.announcementSourcePill}>{option.academicYear}</Text>
+                            <Text style={styles.announcementDate}>{option.events.length} tarih</Text>
+                          </View>
+                          <Text style={styles.announcementTitle}>{option.universityName}</Text>
+                          <Text style={styles.announcementSummary}>
+                            {(option.matchingDepartments ?? []).map((item) => item.departmentName).slice(0, 3).join(", ") || "Benzer bölüm bilgisi"}
+                          </Text>
+                          {!sourceUrl && <Text style={styles.caption}>Resmî bağlantı mevcut değil.</Text>}
+                        </>
+                      );
+                      return sourceUrl ? (
+                        <Pressable
+                          key={`${option.universityId}-${option.academicYear}`}
+                          style={styles.announcementCard}
+                          onPress={() => void openAnnouncement(sourceUrl)}
+                        >
+                          {content}
+                        </Pressable>
+                      ) : (
+                        <View key={`${option.universityId}-${option.academicYear}`} style={styles.announcementCard}>
+                          {content}
                         </View>
-                        <Text style={styles.announcementTitle}>{option.universityName}</Text>
-                        <Text style={styles.announcementSummary}>
-                          {(option.matchingDepartments ?? []).map((item) => item.departmentName).slice(0, 3).join(", ") || "Benzer bölüm bilgisi"}
-                        </Text>
-                      </Pressable>
-                    ))}
+                      );
+                    })}
 
-                    {!summerSchool.loading && (summerSchool.data?.sameDepartmentOptions ?? []).length === 0 && (
+                    {summerSchool.attempted && !summerSchool.loading && !summerSchool.error && (summerSchool.data?.sameDepartmentOptions ?? []).length === 0 && (
                       <View style={styles.emptyStatePanel}>
                         <Ionicons name="search-outline" size={24} color="#2563eb" />
                         <Text style={styles.emptyStateTitle}>Eşleşen bölüm bulunmadı</Text>
@@ -4424,14 +4625,15 @@ export default function App() {
                 disabled={yokAnnouncements.loading || busy}
               >
                 <Ionicons name="refresh-outline" size={18} color="#1e293b" />
-                <Text style={styles.secondaryButtonText}>YÖK Duyurularını Yenile</Text>
+                <Text style={styles.secondaryButtonText}>{yokAnnouncements.error ? "Tekrar Dene" : "YÖK Duyurularını Yenile"}</Text>
               </Pressable>
 
               {yokAnnouncements.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
               {yokAnnouncements.error && <Text style={styles.errorText}>{yokAnnouncements.error}</Text>}
+              {yokAvailabilityMessage && <Text style={styles.caption}>{yokAvailabilityMessage}</Text>}
               {yokAnnouncementItems.map(renderAnnouncementCard)}
 
-              {!yokAnnouncements.loading && yokAnnouncementItems.length === 0 && (
+              {yokAnnouncements.attempted && !yokAnnouncements.loading && !yokAnnouncements.error && yokAnnouncementItems.length === 0 && (
                 <View style={styles.emptyStatePanel}>
                   <Ionicons name="newspaper-outline" size={24} color="#0f766e" />
                   <Text style={styles.emptyStateTitle}>YÖK duyurusu bulunamadı</Text>
@@ -4483,11 +4685,12 @@ export default function App() {
                 disabled={!registerUniversityId || announcements.loading || busy}
               >
                 <Ionicons name="refresh-outline" size={18} color="#1e293b" />
-                <Text style={styles.secondaryButtonText}>Kaynakları Yenile</Text>
+                <Text style={styles.secondaryButtonText}>{announcements.error ? "Tekrar Dene" : "Kaynakları Yenile"}</Text>
               </Pressable>
 
               {announcements.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
               {announcements.error && registerUniversityId && <Text style={styles.errorText}>{announcements.error}</Text>}
+              {announcementAvailabilityMessage && <Text style={styles.caption}>{announcementAvailabilityMessage}</Text>}
 
               {announcementSections.map((section) => (
                 <View key={section.key} style={styles.announcementGroup}>
@@ -4499,7 +4702,7 @@ export default function App() {
                 </View>
               ))}
 
-              {!announcements.loading && filteredAnnouncementFeed.length === 0 && (
+              {announcements.attempted && !announcements.loading && !announcements.error && filteredAnnouncementFeed.length === 0 && (
                 <View style={styles.emptyStatePanel}>
                   <Ionicons
                     name={announcementContentFilter === "news" ? "newspaper-outline" : announcementContentFilter === "event" ? "calendar-outline" : "megaphone-outline"}
@@ -4509,6 +4712,8 @@ export default function App() {
                   <Text style={styles.emptyStateTitle}>
                     {!registerUniversityId
                       ? "Üniversite seçildiğinde hazır"
+                      : announcementFeed.length > 0
+                        ? "Bu filtrede sonuç yok"
                       : announcementContentFilter === "news"
                         ? "Henüz haber yok"
                         : announcementContentFilter === "event"
@@ -4519,7 +4724,9 @@ export default function App() {
                   </Text>
                   <Text style={styles.caption}>
                     {registerUniversityId
-                      ? "Resmi kaynaklar güncellendiğinde yeni içerikler burada listelenecek."
+                      ? announcementFeed.length > 0
+                        ? "Diğer içerik türlerini görmek için farklı bir filtre seç."
+                        : "Resmi kaynaklar güncellendiğinde yeni içerikler burada listelenecek."
                       : "Profil sekmesinden üniversiteni seçtiğinde içerikler burada listelenecek."}
                   </Text>
                 </View>
@@ -4639,6 +4846,8 @@ export default function App() {
                         placeholder="Üniversite ara"
                         style={styles.input}
                       />
+                      {universities.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+                      {universities.error && <Text style={styles.errorText}>{universities.error}</Text>}
                       {filteredUniversities.map((university) => (
                         <Pressable
                           key={university.id}
@@ -4650,6 +4859,9 @@ export default function App() {
                           <Text style={styles.universityMeta}>{university.city} | {UNIVERSITY_TYPE_LABELS[university.type] ?? university.type}</Text>
                         </Pressable>
                       ))}
+                      {universities.attempted && !universities.loading && !universities.error && filteredUniversities.length === 0 && (
+                        <Text style={styles.caption}>Eşleşen üniversite bulunamadı.</Text>
+                      )}
                     </View>
                   )}
 
@@ -4671,6 +4883,7 @@ export default function App() {
                         style={styles.input}
                       />
                       {faculties.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+                      {faculties.error && <Text style={styles.errorText}>{faculties.error}</Text>}
                       {filteredFaculties.map((faculty) => (
                         <Pressable
                           key={faculty.id}
@@ -4681,6 +4894,9 @@ export default function App() {
                           <Text style={styles.universityName}>{faculty.name}</Text>
                         </Pressable>
                       ))}
+                      {faculties.attempted && !faculties.loading && !faculties.error && filteredFaculties.length === 0 && (
+                        <Text style={styles.caption}>Eşleşen fakülte bulunamadı.</Text>
+                      )}
                     </View>
                   )}
 
@@ -4702,6 +4918,7 @@ export default function App() {
                         style={styles.input}
                       />
                       {departments.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
+                      {departments.error && <Text style={styles.errorText}>{departments.error}</Text>}
                       {filteredDepartments.map((department) => (
                         <Pressable
                           key={department.id}
@@ -4712,6 +4929,9 @@ export default function App() {
                           <Text style={styles.universityName}>{department.name}</Text>
                         </Pressable>
                       ))}
+                      {departments.attempted && !departments.loading && !departments.error && filteredDepartments.length === 0 && (
+                        <Text style={styles.caption}>Eşleşen bölüm bulunamadı.</Text>
+                      )}
                     </View>
                   )}
                   </View>

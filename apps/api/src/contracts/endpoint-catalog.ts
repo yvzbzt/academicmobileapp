@@ -38,6 +38,8 @@ export const endpointCatalog: EndpointContract[] = [
   { method: "GET", path: "/calendar/upcoming", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/calendar/events", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/announcements/my", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/announcements/my/trusted", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/announcements/yok/trusted", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "POST", path: "/devices/register", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/notification-preferences", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "PATCH", path: "/notification-preferences", authRequired: true, roles: ["student"], rateLimit: "standard" },

@@ -203,6 +203,7 @@ export const announcementSourceSchema = new Schema(
     scopeId: { type: String, required: true, index: true },
     sourceName: { type: String, required: true, trim: true },
     sourceUrl: { type: String, required: true, trim: true },
+    canonicalUrl: { type: String, required: false, trim: true },
     contentType: { type: String, required: false, enum: ["announcement", "news", "event"], default: "announcement", index: true },
     parser: { type: String, required: true, enum: ["auto", "rss", "html"], default: "auto" },
     priority: { type: Number, required: true, default: 10 },
@@ -214,13 +215,18 @@ export const announcementSourceSchema = new Schema(
     lastSuccessAt: { type: Date, required: false },
     lastError: { type: String, required: false, trim: true },
     consecutiveFailures: { type: Number, required: false, min: 0 },
-    itemCount: { type: Number, required: false, min: 0 }
+    itemCount: { type: Number, required: false, min: 0 },
+    discoveredAt: { type: Date, required: false },
+    trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
+    trustReasonCodes: [{ type: String, required: false }],
+    duplicateOfId: { type: String, required: false }
   },
   { collection: "announcement_sources", timestamps: true }
 );
 
 announcementSourceSchema.index({ scopeType: 1, scopeId: 1, status: 1 }, { name: "announcement_sources_scope_status" });
 announcementSourceSchema.index({ sourceUrl: 1, scopeType: 1, scopeId: 1 }, { unique: true, name: "announcement_sources_unique_scope_url" });
+announcementSourceSchema.index({ canonicalUrl: 1, scopeType: 1, scopeId: 1 }, { name: "announcement_sources_canonical_scope" });
 
 export const announcementItemSchema = new Schema(
   {
@@ -230,15 +236,29 @@ export const announcementItemSchema = new Schema(
     scopeType: { type: String, required: true, enum: ["university", "faculty", "department"], index: true },
     scopeId: { type: String, required: true, index: true },
     title: { type: String, required: true, trim: true },
+    rawTitle: { type: String, required: false },
     link: { type: String, required: true, trim: true },
+    canonicalUrl: { type: String, required: false, trim: true },
+    officialSourceUrl: { type: String, required: false, trim: true },
     publishedAt: { type: String, required: false },
+    publicationTimeSource: { type: String, required: false, enum: ["source"] },
+    sourceUpdatedAt: { type: String, required: false },
+    sourceUpdateTimeSource: { type: String, required: false, enum: ["source"] },
+    discoveredAt: { type: String, required: false },
     summary: { type: String, required: false, trim: true },
-    fetchedAt: { type: String, required: false }
+    fetchedAt: { type: String, required: false },
+    freshness: { type: String, required: false, enum: ["fresh", "stale"], default: "fresh" },
+    trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
+    trustReasonCodes: [{ type: String, required: false }],
+    dedupeKey: { type: String, required: false, trim: true, index: true },
+    duplicateOfId: { type: String, required: false }
   },
   { collection: "announcement_items", timestamps: true }
 );
 
 announcementItemSchema.index({ sourceId: 1, link: 1 }, { unique: true, name: "announcement_items_source_link_unique" });
+announcementItemSchema.index({ sourceId: 1, canonicalUrl: 1 }, { name: "announcement_items_source_canonical" });
+announcementItemSchema.index({ trustStatus: 1, dedupeKey: 1 }, { name: "announcement_items_trust_dedupe" });
 announcementItemSchema.index({ scopeType: 1, scopeId: 1 }, { name: "announcement_items_scope" });
 
 export const academicCalendarSchema = new Schema(

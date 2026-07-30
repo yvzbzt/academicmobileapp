@@ -1,6 +1,6 @@
 # Redesign Decisions
 
-Last updated: 30 July 2026
+Last updated: 31 July 2026
 
 ## Accepted decisions
 
@@ -166,6 +166,34 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 
 **Operations and remaining boundary:** R1C1 runs no migration, deployment, publish, push, or production-data access. Existing historical Firestore-only data, if any, is not inspected or migrated. Production in-memory repository source remains runtime-unreachable and moves to test-only support only in R1C2. Mongo reconnect and durable persistence smoke evidence remain R1D. Task A2, Task B, Phase 2, and UI work remain unstarted.
 
+### D-028 — Source-derived academic content has one fail-closed trust boundary
+
+**Decision:** Source publication time, source update time, discovery time, and crawl/fetch time are separate fields. `publishedAt` and `sourceUpdatedAt` are emitted only when their provenance is the source itself. `discoveredAt` and `fetchedAt` are operational observations and may never become publication labels.
+
+**Trust contract:** The stored source record is authoritative for identity, academic scope, official homepage, and domain. Both item and source must be explicitly `trusted`; absent, rejected, quarantined, inactive, mismatched, unsafe, unofficial, or source-less records fail closed before the mobile DTO boundary. Display text is recursively entity-decoded and sanitized, navigation/chrome titles are rejected, and normalized display titles retain a persistence-only `rawTitle` for audit. Direct legacy Mongo inserts default to quarantine.
+
+**URL and duplicate contract:** Only credential-free HTTP/HTTPS URLs on the source's official `edu.tr` or `gov.tr` authority are accepted. Private, loopback, link-local, IPv4/IPv6-mapped, unsafe-scheme, and nonstandard-port URLs are rejected. Canonicalization removes fragments and tracking noise, sorts query parameters, normalizes host aliases, and preserves case-sensitive path/query semantics. Canonical duplicates select one deterministic trusted survivor.
+
+**Mobile availability contract:** Existing array endpoints remain compatible. Additive `/announcements/my/trusted` and `/announcements/yok/trusted` envelopes expose item state, source count, and failed-source count so a failed source with no cache is not mislabeled as an empty feed. Summer School adds the same source-health semantics. Native rendering revalidates URLs, preserves verified data after refresh failure, and represents partial/stale states without redesigning the screens.
+
+**Unchanged boundaries:** MongoDB remains the only runtime database. Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, password recovery, Google Calendar behavior, navigation, and visual design are unchanged.
+
+### D-029 — Stored content repair is explicit, optimistic, and repeatable
+
+**Decision:** Historical announcement repair is performed only by `npm.cmd run reconcile:content-trust`. It is dry-run by default; apply mode requires `--apply` plus an exact `--confirm-database=<name>`. The planner is deterministic and idempotent, preserves raw titles and explicit rejection/quarantine decisions, separates timestamp provenance, resolves canonical collisions without violating legacy unique indexes, and validates scope authority including the runtime YÖK scope.
+
+**Safety boundary:** Apply mode batches per-document writes and verifies a preimage plus `updatedAt` before each mutation. Any source conflict prevents item mutations for that plan, returns a conflict exit status, and requires a new dry-run. The operation is not a transaction, creates no backup, and exact database-name confirmation is not proof that an environment is non-production. Operators must back up first, use an authorized non-production clone, and repeat dry-run/apply until the plan reports zero mutations. Phase 2 did not connect to or reconcile any database.
+
+### D-030 — Audit evidence, source time, and source health remain distinct
+
+**Decision:** `rawTitle` is the exact source-title string captured by the parser and is never normalized, Unicode-folded, or truncated before persistence. Display title and summary are separately decoded, sanitized, length-bounded fields. Unrecognized residual entity syntax is removed from display output rather than passed through; audit evidence remains available only in persistence and never crosses the mobile DTO.
+
+**Timestamp boundary:** A date appearing in arbitrary title text is not publication provenance. Generic parsing accepts publication/update time only from source metadata, labelled text, or explicit time attributes. A leading title date may be treated as publication time only in a narrowly identified source adapter whose listing convention is covered by a deterministic fixture/test. Discovery and fetch time remain operational fields.
+
+**Duplicate and health boundary:** Canonical duplicates prefer source publication/update evidence before discovery/fetch recency. A fresh cache does not erase persisted source failure: explicit `degraded`/`failed` health or a nonzero failure count makes the collection partial. Re-registering static/YÖK sources must preserve existing health metadata.
+
+**Reconciliation boundary:** Missing, rejected, or quarantined source ownership still blocks API presentation, but it no longer short-circuits repair. The reconciliation planner sanitizes titles/summaries, canonicalizes or removes unsafe URLs, removes false source authority/dedupe values, and validates timestamp provenance before retaining the fail-closed status. The executable mutation helper and runtime scope-authority builder are tested directly without connecting to MongoDB.
+
 ## Open questions with decision owners
 
 | Question | Required by | Resolution owner/gate |
@@ -178,7 +206,6 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 | Should Share use only the native share sheet or also a backend short link? | Phase 8 | Start with privacy-reviewed native share payload; never share crawler/internal URLs blindly |
 | Is native device-calendar sync retained, replaced, or removed as dormant code? | Phase 3 | Decide from real product requirement and platform permission model |
 | What analytics provider and consent model will implement page views? | Separate approved instrumentation work | Follow the privacy-safe taxonomy in `docs/20-mobile-native-in-app-user-activity-report.md` |
-| What is the source-of-truth publication timestamp when crawlers only provide fetch time? | Phase 2 | Content contract must distinguish publication, update, and retrieval timestamps |
 
 ## Rejected directions
 
