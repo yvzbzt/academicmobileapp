@@ -2,6 +2,8 @@
 
 Date: 2026-07-01
 
+> **Superseding note — 30 July 2026:** This report preserves the adapter inventory and deployment evidence that existed on 1 July. Phase 1 R1C1 later deleted the Firestore database infrastructure and announcement repository adapter; MongoDB is now the only API runtime database. The historical Firestore wording below is not current architecture. R1C1 ran no migration or deployment and accessed no production data. Firebase Authentication, FCM, Hosting, and Google Sign-In/OAuth remain supported independently of database persistence.
+
 ## What was added
 
 - Background announcement discovery and ingestion service for university announcement pages.

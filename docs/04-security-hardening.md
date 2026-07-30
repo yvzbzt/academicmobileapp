@@ -101,11 +101,12 @@ The auth persistence contract contains a non-negative integer `credentialGenerat
 
 Task A1 makes every existing-user writer generation-safe without advancing the value:
 
-- Firestore uses document field updates instead of full-document replacement. Personal-data and hierarchy clearing use explicit field deletions, so removing a university or faculty still removes all omitted descendants without copying a stale generation over the stored value.
 - Mongo retains partial `$set`/`$unset` updates and strips `credentialGeneration` from the general user-update input before writing. No user path replaces the whole Mongo document with a stale domain object.
-- The in-memory adapter takes the current map entry and writes its replacement synchronously, with no internal await between read and write. This prevents a delayed user object from restoring an older generation.
+- The in-memory test adapter takes the current map entry and writes its replacement synchronously, with no internal await between read and write. This prevents a delayed user object from restoring an older generation while the adapter remains runtime-unreachable pending R1C2.
 
 The protected writer set includes verification, Google identity, administrative changes, profile changes, password changes, academic selection, app-data clearing, admin deletion, and account deletion/anonymization. There is no production migration, new index, or new environment setting for this additive field; legacy data remains usable as generation `0`.
+
+R1C1 removed the API's Firestore database service and repository adapters. Historical A1 evidence for that retired adapter remains in the dated Phase 1 records, but Mongo is now the only production implementation of this persistence contract. Firebase Authentication, Google identity verification, FCM, and Hosting remain separate supported services.
 
 This substrate is not yet a revocation boundary. Task A1 does not increment `credentialGeneration`, reject a refresh/recovery record on a mismatch, change the current password-reset ordering, or alter existing access JWT contents/validation. Task A2 owns generation advancement, mismatch enforcement, and atomic password-reset completion. The timing-safe recovery-request design remains separate Task B work, and Phase 2 is untouched. Consequently the known request-latency channel and reset partial-state risk below remain open.
 
@@ -157,7 +158,7 @@ The request contains `email`, the six-digit `code`, `newPassword`, and `password
 | `AUTH_PASSWORD_INVALID` | 400 | The new password is shorter than the shared minimum of ten JavaScript UTF-16 code units. The input string is not trimmed. |
 | `AUTH_RATE_LIMITED` | 429 | The strict per-client/route request budget is exceeded. |
 
-Single use is enforced by a conditional consume operation before password replacement: Mongo performs a `findOneAndUpdate` constrained to unconsumed, non-invalidated, unexpired material; Firestore uses a transaction with the same guards; and the in-memory test adapter applies the equivalent guarded update. A second confirmation therefore receives the generic invalid-code result.
+Single use is enforced by a conditional consume operation before password replacement: Mongo performs a `findOneAndUpdate` constrained to unconsumed, non-invalidated, unexpired material, and the runtime-unreachable in-memory test adapter applies the equivalent guarded update. A second confirmation therefore receives the generic invalid-code result.
 
 Only that consume operation is atomic. Password-hash replacement, refresh-session revocation, and invalidation of remaining recovery material are separate awaited repository operations, not one cross-record transaction. A later repository failure can therefore leave partial completion—for example, a consumed code before the password update, or an updated password before all sessions are revoked. The HTTP success result is returned only after all steps complete; after a successful result, the old password and all pre-reset refresh sessions must fail. Production hardening should add an adapter-appropriate transaction/saga or an idempotent recovery job with reconciliation before claiming all-or-nothing reset semantics.
 

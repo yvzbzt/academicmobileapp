@@ -1,7 +1,5 @@
-import { FieldValue } from "firebase-admin/firestore";
 import { describe, expect, it, vi } from "vitest";
 import type { AuthUserRecord } from "../src/modules/auth/auth.types.js";
-import { FirestoreAuthRepository } from "../src/modules/auth/firestore-auth.repository.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import { MongoAuthRepository } from "../src/modules/auth/mongo-auth.repository.js";
 
@@ -171,100 +169,8 @@ describe("credential-generation repository contract", () => {
     expect(state.users.get(user.id)).toEqual(expect.objectContaining({ credentialGeneration: 9 }));
   });
 
-  it("normalizes legacy Firestore records and excludes generation from field-level user updates", async () => {
-    const collections: Record<string, Map<string, Record<string, unknown>>> = {
-      users: new Map([
-        [
-          "user-1",
-          {
-            ...userInput("firestore-generation@example.com"),
-            credentialGeneration: 13,
-            createdAt: past,
-            updatedAt: past
-          }
-        ],
-        [
-          "legacy-user",
-          {
-            ...userInput("firestore-legacy@example.com"),
-            createdAt: past,
-            updatedAt: past
-          }
-        ]
-      ]),
-      refresh_tokens: new Map([
-        [
-          "refresh-1",
-          {
-            userId: "legacy-user",
-            tokenHash: "firestore-refresh",
-            familyId: "family-1",
-            deviceId: "device-1",
-            expiresAt: future,
-            createdAt: past
-          }
-        ]
-      ]),
-      password_recovery_tokens: new Map([
-        [
-          "recovery-1",
-          {
-            userId: "legacy-user",
-            tokenHash: "firestore-recovery",
-            expiresAt: future,
-            resendAvailableAt: past,
-            createdAt: past
-          }
-        ]
-      ])
-    };
-    const updates: Record<string, unknown>[] = [];
-    const snapshot = (id: string, value: Record<string, unknown> | undefined) => ({
-      exists: Boolean(value),
-      id,
-      data: () => value
-    });
-    const firestore = {
-      getDb: () => ({
-        collection: (name: string) => ({
-          doc: (id: string) => ({
-            get: async () => snapshot(id, collections[name]?.get(id)),
-            update: async (value: Record<string, unknown>) => {
-              updates.push(value);
-              collections[name]?.set(id, { ...collections[name]?.get(id), ...value });
-            }
-          }),
-          where: (field: string, _operator: string, expected: unknown) => ({
-            limit: () => ({
-              get: async () => ({
-                docs: [...(collections[name]?.entries() ?? [])]
-                  .filter(([, value]) => value[field] === expected)
-                  .map(([id, value]) => snapshot(id, value))
-              })
-            })
-          })
-        })
-      })
-    };
-    const repository = new FirestoreAuthRepository(firestore as never);
-
-    await expect(repository.findUserById("legacy-user")).resolves.toEqual(expect.objectContaining({ credentialGeneration: 0 }));
-    await expect(repository.findRefreshTokenByHash("firestore-refresh")).resolves.toEqual(
-      expect.objectContaining({ credentialGeneration: 0 })
-    );
-    await expect(repository.findPasswordRecoveryTokenByHash("firestore-recovery")).resolves.toEqual(
-      expect.objectContaining({ credentialGeneration: 0 })
-    );
-
-    const updated = await repository.updateUserByAdmin("user-1", { fullName: "Firestore Name", credentialGeneration: 1 } as never);
-
-    expect(updates).toHaveLength(1);
-    expect(updates[0]).not.toHaveProperty("credentialGeneration");
-    expect(updated).toEqual(expect.objectContaining({ credentialGeneration: 13, fullName: "Firestore Name" }));
-  });
-
-  type FirestoreWriter = (repository: FirestoreAuthRepository) => Promise<unknown>;
-  const firestoreWriters: Array<[string, FirestoreWriter]> = [
+  type MongoWriter = (repository: MongoAuthRepository) => Promise<unknown>;
+  const mongoWriters: Array<[string, MongoWriter]> = [
     ["email verification", (repository) => repository.markUserEmailVerified("user-1", past)],
     [
       "Google identity update",
@@ -286,7 +192,11 @@ describe("credential-generation repository contract", () => {
     ["password update", (repository) => repository.updateUserPassword("user-1", "new-hash")],
     [
       "academic update",
-      (repository) => repository.updateUserAcademicSelection("user-1", { universityId: "university-2" })
+      (repository) =>
+        repository.updateUserAcademicSelection("user-1", {
+          universityId: "university-2",
+          credentialGeneration: 1
+        } as never)
     ],
     ["personal-data clearing", (repository) => repository.clearUserAppData("user-1")],
     ["admin deletion", (repository) => repository.deleteUserByAdmin("user-1")],
@@ -302,45 +212,62 @@ describe("credential-generation repository contract", () => {
     ]
   ];
 
-  it.each(firestoreWriters)("keeps a concurrently advanced Firestore generation across the %s writer", async (_name, write) => {
+  it.each(mongoWriters)("keeps a concurrently advanced Mongo generation across the %s writer", async (_name, write) => {
     let storedUser: Record<string, unknown> = {
-      ...userInput(`firestore-${String(_name).replaceAll(" ", "-")}@example.com`),
+      ...userInput(`mongo-${String(_name).replaceAll(" ", "-")}@example.com`),
       credentialGeneration: 8,
+      authProvider: "google",
       emailVerifiedAt: past,
       firebaseAuthUid: "firebase-old",
       lastLoginAt: past,
       createdAt: past,
       updatedAt: past
     };
-    let firstRead = true;
-    const deleteField = FieldValue.delete();
-    const userDocument = {
-      get: vi.fn(async () => {
-        const valueAtRead = { ...storedUser };
-        if (firstRead) {
-          firstRead = false;
-          storedUser = { ...storedUser, credentialGeneration: 21 };
-        }
-        return { exists: true, id: "user-1", data: () => valueAtRead };
-      }),
-      update: vi.fn(async (value: Record<string, unknown>) => {
-        expect(value).not.toHaveProperty("credentialGeneration");
-        for (const [field, fieldValue] of Object.entries(value)) {
-          if (fieldValue instanceof FieldValue && fieldValue.isEqual(deleteField)) {
-            delete storedUser[field];
-          } else {
-            storedUser[field] = fieldValue;
-          }
-        }
-      })
+    let generationAdvanced = false;
+    const updatePayloads: Record<string, unknown>[] = [];
+    const document = (value: Record<string, unknown>) => ({
+      id: "user-1",
+      toObject: () => ({ ...value })
+    });
+    const advanceGeneration = () => {
+      if (generationAdvanced) return;
+      generationAdvanced = true;
+      storedUser = { ...storedUser, credentialGeneration: 21 };
     };
-    const repository = new FirestoreAuthRepository({
-      getDb: () => ({ collection: () => ({ doc: () => userDocument }) })
-    } as never);
+    const applyUpdate = (update: Record<string, unknown>) => {
+      updatePayloads.push(update);
+      expect(update).not.toHaveProperty("credentialGeneration");
+
+      const hasOperators = Object.keys(update).some((field) => field.startsWith("$"));
+      const fieldsToSet = hasOperators ? ((update.$set as Record<string, unknown> | undefined) ?? {}) : update;
+      const fieldsToUnset = (update.$unset as Record<string, unknown> | undefined) ?? {};
+      expect(fieldsToSet).not.toHaveProperty("credentialGeneration");
+
+      storedUser = { ...storedUser, ...fieldsToSet };
+      for (const field of Object.keys(fieldsToUnset)) delete storedUser[field];
+    };
+    const updateUser = vi.fn(async (_filter: unknown, update: Record<string, unknown>) => {
+      advanceGeneration();
+      applyUpdate(update);
+      return document(storedUser);
+    });
+    const findUser = vi.fn(async () => {
+      const valueAtRead = { ...storedUser };
+      advanceGeneration();
+      return document(valueAtRead);
+    });
+    const models = {
+      User: {
+        findOne: findUser,
+        findByIdAndUpdate: updateUser,
+        findOneAndUpdate: updateUser
+      }
+    };
+    const repository = new MongoAuthRepository({ getConnection: () => ({ models }) } as never);
 
     const result = await write(repository);
 
-    expect(userDocument.update).toHaveBeenCalled();
+    expect(updatePayloads).toHaveLength(1);
     expect(storedUser).toEqual(expect.objectContaining({ credentialGeneration: 21 }));
     if (result && typeof result === "object") {
       expect(result).toEqual(expect.objectContaining({ credentialGeneration: 21 }));

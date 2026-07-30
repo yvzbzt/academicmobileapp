@@ -154,6 +154,18 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 
 **Evidence boundary:** R1B combines deterministic Mongoose model doubles and a test-only `UserDataRepository` fixture with a focused create/read, index, concurrent-upsert, and cleanup integration test against the existing local/CI Mongo 7 service. That integration test uses a guarded `academic_user_data_r1b_test_<pid>` database and drops only that database before and after the test. It does not claim a Mongo reconnect, API-process restart, or durable-disk smoke. Firestore adapter removal remains R1C, and Mongo reconnect plus full live persistence smoke verification remains R1D. No deployment, production-data access, dependency/lockfile change, native application change, Task A2, Task B, Phase 2, or UI work is part of R1B.
 
+### D-027 — Firestore database persistence is removed from the API
+
+**Decision:** R1C1 deletes the Firestore database service, its shared conversion utilities, and the auth, catalog, calendar, announcement, PDF, notification, and audit Firestore repository adapters. The seven runtime repository tokens remain direct Mongo bindings, and `MongoUserDataRepository` remains the sole runtime user-data implementation. No production API source can import or instantiate a Firestore database adapter.
+
+**Supersession:** The Firestore writer details in D-024 and the temporary source boundary in D-025 remain historical A1/R1A evidence. This decision supersedes them for the current source tree. The A1 `credentialGeneration` contract is unchanged on Mongo: missing values still read as `0`, refresh and recovery records retain their stamped generation, and Mongo user writers preserve a concurrently newer stored generation.
+
+**Coverage:** Eleven adapter-only test executions were removed: one legacy-generation/update case, nine stale-writer rows, and one academic-descendant case. Shared behavior remains covered by a Mongo legacy-generation case, nine one-for-one Mongo stale-writer cases, strengthened Mongo `$set`/`$unset` descendant assertions, and the existing in-memory repository-contract tests. Two explicit module-resolution tests retain Firebase Authentication verification and FCM coverage. The full suite remains 32 files / 299 tests.
+
+**Retained services and dependencies:** Firebase Authentication, `FirebaseAdminService`, Google Sign-In/OAuth, Firebase Cloud Messaging, Firebase Hosting, `firebase`, `firebase-admin`, their environment values, `firebase.json`, and `.firebaserc` remain supported. Firestore-related packages may remain transitively in the unchanged lockfile because retained Firebase packages depend on them; they do not provide an API persistence path.
+
+**Operations and remaining boundary:** R1C1 runs no migration, deployment, publish, push, or production-data access. Existing historical Firestore-only data, if any, is not inspected or migrated. Production in-memory repository source remains runtime-unreachable and moves to test-only support only in R1C2. Mongo reconnect and durable persistence smoke evidence remain R1D. Task A2, Task B, Phase 2, and UI work remain unstarted.
+
 ## Open questions with decision owners
 
 | Question | Required by | Resolution owner/gate |

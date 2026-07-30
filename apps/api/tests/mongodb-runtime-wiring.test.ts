@@ -1,5 +1,7 @@
 import "reflect-metadata";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +9,6 @@ import { AppModule } from "../src/app.module.js";
 import { BootstrapSeedService } from "../src/bootstrap/bootstrap-seed.service.js";
 import type { TurkiyeCatalogSeed } from "../src/bootstrap/yok-atlas-catalog-importer.js";
 import { MongoConnectionService } from "../src/database/mongo-connection.service.js";
-import { FirestoreDatabaseService } from "../src/database/firestore.service.js";
 import { MongoAnnouncementRepository } from "../src/modules/announcements/mongo-announcement.repository.js";
 import { MongoAuditRepository } from "../src/modules/audit/mongo-audit.repository.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
@@ -47,6 +48,14 @@ function appProviders(): unknown[] {
 
 function isProviderFor(value: unknown, token: string): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && "provide" in value && value.provide === token;
+}
+
+function collectTypeScriptFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = join(directory, entry.name);
+    if (entry.isDirectory()) return collectTypeScriptFiles(entryPath);
+    return entry.isFile() && entry.name.endsWith(".ts") ? [entryPath] : [];
+  });
 }
 
 describe("MongoDB-only runtime repository wiring", () => {
@@ -91,8 +100,6 @@ describe("MongoDB-only runtime repository wiring", () => {
     expect(userDataMatches[0]).toStrictEqual(userDataBinding);
     expect(userDataMatches[0]).not.toHaveProperty("useFactory");
     expect(userDataMatches[0]).not.toHaveProperty("inject");
-
-    expect(providers.some((provider) => provider === FirestoreDatabaseService || (typeof provider === "object" && provider !== null && "provide" in provider && provider.provide === FirestoreDatabaseService))).toBe(false);
   });
 
   it("resolves every repository token to its Mongo implementation in isolation", async () => {
@@ -107,11 +114,31 @@ describe("MongoDB-only runtime repository wiring", () => {
     }
   });
 
-  it("contains no Firestore-specific catalog bootstrap branch", () => {
-    const source = readFileSync(new URL("../src/bootstrap/bootstrap-seed.service.ts", import.meta.url), "utf8");
+  it("contains no retired database persistence source or imports", () => {
+    const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
+    const retiredDatabaseWord = ["fire", "store"].join("");
+    const offenders = collectTypeScriptFiles(sourceRoot).filter((file) => {
+      const pathAndSource = `${file}\n${readFileSync(file, "utf8")}`.toLowerCase();
+      return pathAndSource.includes(retiredDatabaseWord);
+    });
+    const bootstrapSource = readFileSync(new URL("../src/bootstrap/bootstrap-seed.service.ts", import.meta.url), "utf8");
 
-    expect(source).not.toContain("FirestoreCatalogRepository");
-    expect(source).not.toContain("BOOTSTRAP_CATALOG_SEED_REFRESH");
+    expect(offenders).toEqual([]);
+    expect(bootstrapSource).not.toContain("BOOTSTRAP_CATALOG_SEED_REFRESH");
+  });
+
+  it("resolves the retained Firebase Authentication verifier", async () => {
+    const module = await import("../src/modules/auth/firebase-google-identity.verifier.js");
+
+    expect(module.FirebaseGoogleIdentityVerifier).toBeTypeOf("function");
+    expect(appProviders()).toContain(module.FirebaseGoogleIdentityVerifier);
+  });
+
+  it("resolves the retained FCM sender", async () => {
+    const module = await import("../src/modules/notifications/push-sender.service.js");
+
+    expect(module.FirebasePushSender).toBeTypeOf("function");
+    expect(appProviders()).toContain(module.FirebasePushSender);
   });
 
   it("keeps user suggestions and followed scopes out of UsersService process memory", () => {

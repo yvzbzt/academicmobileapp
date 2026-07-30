@@ -1,7 +1,7 @@
 # Phase 01 — Authentication, Session, Storage, and Academic-Profile Integrity
 
 Status date: 30 July 2026\
-Status: Complete through R1B. Required Phase 1 Android evidence, A1 generation safety, and the seven R1A Mongo bindings remain intact. Firestore/in-memory source cleanup remains R1C; Mongo reconnect and live persistence smoke remain R1D.
+Status: Complete through R1C1. Required Phase 1 Android evidence, A1 generation safety, the seven R1A Mongo bindings, and R1B Mongo user data remain intact. Firestore database persistence source is removed; in-memory relocation remains R1C2, and Mongo reconnect/live persistence smoke remains R1D.
 Scope gate: Phase 1 only. Phase 2 has not started.
 
 ## Outcome
@@ -339,6 +339,48 @@ The Mongo repository tests use deterministic Mongoose model doubles, and service
 | `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
 
 No deployment, publish, push, migration, production-data access, Android emulator, Task A2, Task B, Phase 2, or UI work is included in R1B.
+
+## R1C1 addendum — Firestore database persistence removal
+
+R1C1 removes the runtime-unreachable Firestore database source retained after R1A. Mongo remains the sole runtime database for auth/users, catalog, calendars, announcements, PDF processing, notifications, audit logs, suggestions, and followed scopes. `AppModule` required no composition change because those bindings were already direct Mongo classes.
+
+Deleted database infrastructure and adapters:
+
+- `apps/api/src/database/firestore.service.ts`
+- `apps/api/src/database/firestore-utils.ts`
+- `apps/api/src/modules/auth/firestore-auth.repository.ts`
+- `apps/api/src/modules/catalog/firestore-catalog.repository.ts`
+- `apps/api/src/modules/calendars/firestore-calendar.repository.ts`
+- `apps/api/src/modules/announcements/firestore-announcement.repository.ts`
+- `apps/api/src/modules/pdf/firestore-pdf.repository.ts`
+- `apps/api/src/modules/notifications/firestore-notification.repository.ts`
+- `apps/api/src/modules/audit/firestore-audit.repository.ts`
+
+No other production source imported or instantiated those classes. The final static scan over API source and tests has no Firestore database persistence match. A recursive wiring test also scans every production TypeScript path and body for the retired database term, while the existing legacy-selector rows continue proving that old `REPOSITORY_MODE` values cannot change direct Mongo bindings.
+
+### R1C1 test replacement and compatibility boundary
+
+Exactly eleven adapter-only executions were removed: one legacy-generation/admin-update case, nine stale-writer rows, and one academic descendant-clearing case. Nine new Mongo stale-writer rows replace the writer cases one-for-one. The existing Mongo legacy normalization test remains authoritative, and the Mongo academic test now proves `$set`/`$unset` operations preserve `credentialGeneration` and unrelated stored data. Existing in-memory contract cases remain unchanged. Two explicit dynamic-import cases prove that the retained Firebase Authentication verifier and FCM sender still resolve. The full count therefore remains 32 files / 299 tests.
+
+The A1 contract is unchanged: missing Mongo generation values read as `0`, issued refresh/recovery records retain their current-generation stamp, writers cannot decrease a newer stored generation, access JWTs are unaffected, and generation advance/enforcement remain Task A2. R1B suggestions and followed scopes remain Mongo-backed and their isolated real-Mongo test remains green.
+
+Firebase Authentication, `FirebaseAdminService`, Google Sign-In/OAuth, FCM, Hosting, `firebase`, `firebase-admin`, related environment values, `firebase.json`, and `.firebaserc` are retained. Package and lock files are unchanged; Firestore-related transitive packages required by retained Firebase packages are not runtime database support.
+
+No data migration was designed or run, no historical Firestore-only data was inspected, and no deployment or production access occurred. Reverting this scoped commit is the code rollback path, but it would restore unsupported adapters rather than reconcile data. Production in-memory repository files remain runtime-unreachable and move only in R1C2. R1D still owns Mongo reconnect and durable persistence smoke evidence. Task A2, Task B, Phase 2, and UI work remain unstarted.
+
+### R1C1 validation ledger
+
+| Exact command or check | Result |
+|---|---|
+| Focused generation/academic/wiring suite | PASS, 3 files / 35 tests |
+| Affected auth/repository/R1B suite | PASS, 9 files / 115 tests |
+| `npm.cmd test -- apps/api/tests --configLoader runner` | PASS, 26 files / 216 tests |
+| Workspace and native TypeScript checks | PASS, exit 0 for both |
+| `npx.cmd vitest run --configLoader runner` | PASS, 32 files / 299 tests |
+| `npm.cmd run build:admin` | PASS, 1,742 modules |
+| `npm.cmd run build:mobile` | PASS, 1,754 modules |
+| Required removal scan and retained Firebase import scan | PASS: no retired persistence matches; auth and messaging imports retained |
+| Whitespace and expanded production-source sensitive-log checks | PASS; no whitespace errors and `SENSITIVE_LOG_SCAN_NO_MATCHES` |
 
 ## Tests added and updated
 

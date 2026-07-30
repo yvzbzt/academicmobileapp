@@ -236,6 +236,47 @@ R1B replaces only the two `UsersService` process-local user-data arrays. The pro
 | Expanded production-source sensitive-log scan | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
 | `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
 
+### Phase 1 R1C1 Firestore database removal coverage
+
+R1C1 deletes the two Firestore database infrastructure files and the seven repository adapters. Production in-memory repositories remain present but runtime-unreachable until R1C2. Firebase Authentication, FCM, Hosting, Google Sign-In/OAuth, and their required packages/configuration remain in place.
+
+| Contract | Deterministic evidence | Deferred boundary |
+|---|---|---|
+| Mongo runtime wiring | Five legacy-selector variants retain exactly one direct Mongo class for each of the seven repository tokens; isolated Nest resolution returns every expected Mongo implementation | R1D owns reconnect and durable persistence smoke evidence |
+| Persistence-source removal | A recursive `apps/api/src/**/*.ts` test rejects any retired database term in a source path or file body; the required external source/test scan returns no match | Transitive packages in the unchanged lockfile are not runtime adapters |
+| R1B compatibility | User suggestions and followed scopes remain delegated to `MongoUserDataRepository`; real isolated-Mongo create/read, concurrent idempotency, and cleanup tests remain green | No migration or production-data inspection |
+| A1 compatibility | Mongo legacy user/refresh/recovery records normalize missing generation to `0`; nine Mongo stale-writer cases preserve a concurrently advanced generation; issuance/login/refresh/recovery tests stay green | Increment/enforcement and atomic reset remain Task A2 |
+| Retained Firebase services | Dynamic module-resolution tests load the Firebase Authentication verifier and FCM sender without initializing credentials; production source retains the official auth and messaging imports | No Firebase service is invoked against production |
+
+#### Removed test and replacement ledger
+
+| Removed adapter-only execution | Count | Shared replacement |
+|---|---:|---|
+| Legacy generation normalization and admin field-update case | 1 | Existing Mongo user/refresh/recovery normalization plus hostile-generation exclusion case |
+| Verification, Google identity, admin, profile, password, academic, personal-data clear, admin deletion, and account deletion stale-writer rows | 9 | Nine one-for-one Mongo stale-writer rows plus the existing in-memory writer contract |
+| Academic selection field-delete case | 1 | Strengthened Mongo `$set`/`$unset` result assertions plus existing in-memory descendant-clearing behavior |
+
+The old deleted-service wiring sentinel was converted in place to the recursive source scan, so it is not a removed business-rule test. Two module-resolution cases were added for retained Firebase Authentication and FCM imports. Removing 11 adapter-only executions, adding nine Mongo writer executions, and adding two retained-service executions keeps the baseline at 32 files / 299 tests.
+
+#### R1C1 final validation ledger — 30 July 2026
+
+| Exact command or check | Result |
+|---|---|
+| `npx.cmd vitest run apps/api/tests/auth-credential-generation.test.ts apps/api/tests/auth-academic-selection-repositories.test.ts apps/api/tests/mongodb-runtime-wiring.test.ts` | PASS, 3 files / 35 tests |
+| `npx.cmd vitest run apps/api/tests/mongodb-runtime-wiring.test.ts apps/api/tests/operations.test.ts apps/api/tests/auth-credential-generation.test.ts apps/api/tests/auth-academic-selection-repositories.test.ts apps/api/tests/auth-application.service.test.ts apps/api/tests/password-recovery.test.ts apps/api/tests/mongoose-schemas.test.ts apps/api/tests/mongo-user-data.repository.test.ts apps/api/tests/auth-http-contract.integration.test.ts --configLoader runner` | PASS, 9 files / 115 tests |
+| `npm.cmd test -- apps/api/tests --configLoader runner` | PASS, 26 files / 216 tests |
+| `npm.cmd run typecheck` | PASS, exit 0 |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS, exit 0; no native source changed |
+| `npx.cmd vitest run --configLoader runner` | PASS, 32 files / 299 tests; baseline preserved exactly |
+| `npm.cmd run build:admin` | PASS, 1,742 modules |
+| `npm.cmd run build:mobile` | PASS, 1,754 modules |
+| Required Firestore database persistence scan over `apps/api/src apps/api/tests` | PASS: no matches |
+| Retained `firebase-admin/auth` / `firebase-admin/messaging` scan over `apps/api/src` | PASS: exactly the Google identity verifier and FCM sender imports |
+| Expanded production-source sensitive-log scan | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
+| `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
+
+No package/lockfile, migration, deployment, production-data, native application, A2, Task B, Phase 2, or UI change is included in R1C1.
+
 ### Earlier Phase 1 reconciliation before password-recovery closure
 
 | Command | Final result |

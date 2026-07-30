@@ -7,6 +7,8 @@ This repo is closest to a Firebase Hosting + Cloud Run deployment:
 - `apps/api`: NestJS container, deployed to Cloud Run.
 - Database/queue: MongoDB is required in every environment. Redis is recommended for a real environment; only queue and rate-limit storage may use process-local memory for a temporary demo.
 
+As of Phase 1 R1C1, Firestore database persistence is not supported by the API: no Firestore database service, repository adapter, runtime selector, index configuration, or deployment step remains. Firebase Authentication and Firebase Admin SDK token verification, Firebase Cloud Messaging, Firebase Hosting, Google Sign-In/OAuth, and their existing configuration remain supported. The R1C1 source cleanup did not run a migration, deploy an application, or access production data; `MONGODB_URI` remains the sole API database configuration.
+
 ## 1. Install CLIs
 
 ```powershell

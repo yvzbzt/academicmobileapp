@@ -98,6 +98,14 @@ Personal-data clearing, self-account deletion whether or not the caller requests
 
 R1B's deterministic behavior evidence uses Mongoose model doubles and a test-only repository fixture. A separate focused integration case uses the existing local/CI Mongo 7 service and a guarded PID-named database to prove real schema/index initialization, suggestion create/read, concurrent follow idempotency, stored private-key behavior, and cleanup; it drops only that test database before and after the case. This is not a live-daemon reconnect, API-process restart, or durable-disk persistence smoke. Firestore adapter/config/test/document removal remains R1C; Mongo reconnect and full live persistence smoke verification remains R1D. No deployment, production-data access, dependency/lockfile, native application, Task A2, Task B, Phase 2, or UI change is included.
 
+### Phase 1 R1C1 Firestore-removal disposition — 30 July 2026
+
+R1C1 supersedes the R1A/R1B statements that Firestore database adapters remain in the source tree. The API database service, shared database utilities, and all seven Firestore repository implementations are deleted. A recursive production-source test and the required external static scan find no Firestore database persistence import, filename, service, or repository. All seven runtime repository tokens still resolve directly to Mongo, and R1B suggestions/followed scopes remain Mongo-backed.
+
+Exactly eleven adapter-only test executions were removed: one academic descendant-clearing case, one legacy-generation/admin-update case, and nine stale-writer rows covering verification, Google identity, admin, profile, password, academic selection, personal-data clearing, admin deletion, and account deletion. The shared rules remain covered by strengthened Mongo academic field-operator assertions, Mongo legacy normalization, nine one-for-one Mongo stale-writer cases, and existing in-memory contract cases. Two retained-service module-resolution cases keep the suite at 32 files / 299 tests.
+
+Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, `FirebaseAdminService`, `firebase`, `firebase-admin`, and their configuration remain supported. Package files are intentionally unchanged; retained Firebase dependencies may continue to bring Firestore-related transitive packages without exposing a runtime database adapter. No migration, deployment, publish, push, or production-data access occurred. R1C2 still owns relocation of runtime-unreachable in-memory repositories, and R1D still owns reconnect/durable Mongo verification. A2, Task B, Phase 2, and UI work remain unstarted.
+
 ### Remaining Phase 1 limitations
 
 - `DELETE /me` and `DELETE /me/data` have no backend recent-authentication/reauthentication challenge. The client cannot manufacture this guarantee; add it only with a server contract (MN-026).
