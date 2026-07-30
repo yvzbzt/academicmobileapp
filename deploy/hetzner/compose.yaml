@@ -68,7 +68,6 @@ services:
       NODE_ENV: production
       PORT: "3000"
       TZ: Europe/Istanbul
-      REPOSITORY_MODE: mongo
       QUEUE_MODE: memory
       RATE_LIMIT_STORE: memory
       MONGODB_URI: mongodb://${MONGO_APP_USERNAME}:${MONGO_APP_PASSWORD}@anssoft-mongodb:27017/${MONGO_APP_DATABASE}?authSource=${MONGO_APP_DATABASE}

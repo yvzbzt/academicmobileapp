@@ -5,7 +5,7 @@ This repo is closest to a Firebase Hosting + Cloud Run deployment:
 - `apps/admin`: static Vite admin console, deployed to Firebase Hosting.
 - `apps/mobile`: static Vite student web app, deployed to Firebase Hosting.
 - `apps/api`: NestJS container, deployed to Cloud Run.
-- Database/queue: use managed MongoDB and Redis for a real environment. Use memory modes only for a temporary demo because data disappears on restart.
+- Database/queue: MongoDB is required in every environment. Redis is recommended for a real environment; only queue and rate-limit storage may use process-local memory for a temporary demo.
 
 ## 1. Install CLIs
 
@@ -38,7 +38,7 @@ Those `target:apply` commands create `.firebaserc` locally. Commit it only after
 
 ## 3. Deploy API To Cloud Run
 
-For a durable MVP, set `REPOSITORY_MODE=mongo` with MongoDB Atlas and set Redis if using BullMQ/rate limiting. For an immediate smoke demo, set memory modes.
+The API runtime uses MongoDB exclusively. Configure `MONGODB_URI` for MongoDB Atlas or another supported Mongo deployment, and configure Redis if using BullMQ or Redis-backed rate limiting.
 
 ```powershell
 gcloud config set project YOUR_FIREBASE_PROJECT_ID
@@ -53,11 +53,10 @@ gcloud builds submit `
 
 ```
 
-Before deployment, create the referenced JWT/recovery secrets in Secret Manager. Put only non-secret configuration in an untracked file outside the repository, for example `C:\secure\academic-calendar-api.nonsensitive.yaml`:
+Before deployment, create the referenced Mongo URI and JWT/recovery secrets in Secret Manager. Put only non-secret configuration in an untracked file outside the repository, for example `C:\secure\academic-calendar-api.nonsensitive.yaml`:
 
 ```yaml
 NODE_ENV: "production"
-REPOSITORY_MODE: "memory"
 QUEUE_MODE: "memory"
 RATE_LIMIT_STORE: "memory"
 BOOTSTRAP_SEED_ENABLED: "false"
@@ -73,10 +72,10 @@ gcloud run deploy academic-calendar-api `
   --region europe-west1 `
   --allow-unauthenticated `
   --env-vars-file "C:\secure\academic-calendar-api.nonsensitive.yaml" `
-  --set-secrets "JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest,PASSWORD_RECOVERY_TOKEN_PEPPER=password-recovery-pepper:latest"
+  --set-secrets "MONGODB_URI=mongodb-uri:latest,JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest,PASSWORD_RECOVERY_TOKEN_PEPPER=password-recovery-pepper:latest"
 ```
 
-Do not pass real JWT secrets, the recovery pepper, SMTP credentials, or bootstrap credentials through `--set-env-vars`/`--update-env-vars`; command lines and shell history are not secret stores. Using the YAML file also avoids misparsing the comma-separated two-origin `CORS_ORIGIN` value.
+Do not pass a credential-bearing Mongo URI, real JWT secrets, the recovery pepper, SMTP credentials, or bootstrap credentials through `--set-env-vars`/`--update-env-vars`; command lines and shell history are not secret stores. Using the YAML file also avoids misparsing the comma-separated two-origin `CORS_ORIGIN` value.
 
 After deploy, copy the Cloud Run service URL. Verify:
 
@@ -95,7 +94,6 @@ firebase deploy --only hosting:admin,hosting:mobile
 
 ## 5. Production Values To Add Before Real Users
 
-- `REPOSITORY_MODE=mongo`
 - `MONGODB_URI`
 - `QUEUE_MODE=bullmq`
 - `RATE_LIMIT_STORE=redis`

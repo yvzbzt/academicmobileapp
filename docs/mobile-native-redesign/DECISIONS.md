@@ -136,6 +136,14 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 
 **Unchanged boundaries:** MN-031 remains open because the password-reset execution order is still consume, password update, refresh-session revocation, then remaining-token invalidation. MN-030 remains open because recovery-request latency is not equalized. Task B and Phase 2 are not started by this decision.
 
+### D-025 — MongoDB is the sole API runtime persistence
+
+**Decision:** The API binds all seven runtime repository tokens—auth/users, catalog, calendars, announcements, PDF processing, notifications, and audit logs—directly to their Mongo implementations. `REPOSITORY_MODE` and `repositoryMode` are no longer runtime inputs, `MONGODB_URI` is required at every API startup, Mongo readiness is unconditional, and catalog bootstrap always uses the shared repository contract.
+
+**Temporary source boundary:** Firestore and in-memory repository source files remain physically present during R1A but are unreachable from `AppModule`; removing or relocating them is deferred to R1C. This wiring checkpoint does not reconcile adapter behavior, change repository contracts, or alter the A1 `credentialGeneration` substrate.
+
+**Compatibility and operations:** Firebase Authentication, Google Sign-In/OAuth, Firebase Cloud Messaging, Firebase Hosting, `firebase`, and `firebase-admin` remain supported. No migration, dependency removal, deployment, production-data access, Task A2, Task B, Phase 2, or UI work is part of R1A.
+
 ## Open questions with decision owners
 
 | Question | Required by | Resolution owner/gate |

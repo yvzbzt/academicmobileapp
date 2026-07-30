@@ -1,7 +1,6 @@
 import { Inject, Injectable, OnApplicationShutdown, Optional } from "@nestjs/common";
 import { Redis } from "ioredis";
 import { readRuntimeConfig } from "../../config/runtime-config.js";
-import { FirestoreDatabaseService } from "../../database/firestore.service.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
 
 export interface DependencyHealthRecord {
@@ -16,7 +15,6 @@ export class InfrastructureHealthService implements OnApplicationShutdown {
 
   constructor(
     @Inject(MongoConnectionService) private readonly mongo: MongoConnectionService,
-    @Optional() @Inject(FirestoreDatabaseService) private readonly firestore?: FirestoreDatabaseService,
     @Optional() @Inject("REDIS_URL") redisUrl?: string
   ) {
     if (redisUrl) this.redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
@@ -25,8 +23,7 @@ export class InfrastructureHealthService implements OnApplicationShutdown {
   async readiness(): Promise<{ status: "ok" | "degraded"; dependencies: DependencyHealthRecord[] }> {
     const config = readRuntimeConfig();
     const dependencies: DependencyHealthRecord[] = [{ name: "api", status: "ok" }];
-    dependencies.push(await this.mongoHealth(config.repositoryMode === "mongo"));
-    dependencies.push(await this.firestoreHealth(config.repositoryMode === "firestore"));
+    dependencies.push(await this.mongoHealth());
     dependencies.push(await this.redisHealth(config.queueMode === "bullmq" || config.rateLimitStoreMode === "redis"));
     return { status: dependencies.some((dependency) => dependency.status === "down") ? "degraded" : "ok", dependencies };
   }
@@ -35,8 +32,7 @@ export class InfrastructureHealthService implements OnApplicationShutdown {
     await this.redis?.quit();
   }
 
-  private async mongoHealth(required: boolean): Promise<DependencyHealthRecord> {
-    if (!required) return { name: "mongodb", status: "skipped", detail: "REPOSITORY_MODE is not mongo" };
+  private async mongoHealth(): Promise<DependencyHealthRecord> {
     try {
       const connection = this.mongo.getConnection() ?? (await this.mongo.connect());
       if (!connection?.db) return { name: "mongodb", status: "down", detail: "not connected" };
@@ -59,14 +55,4 @@ export class InfrastructureHealthService implements OnApplicationShutdown {
     }
   }
 
-  private async firestoreHealth(required: boolean): Promise<DependencyHealthRecord> {
-    if (!required) return { name: "firestore", status: "skipped", detail: "REPOSITORY_MODE is not firestore" };
-    if (!this.firestore) return { name: "firestore", status: "down", detail: "Firestore service is not configured" };
-    try {
-      await this.firestore.ping();
-      return { name: "firestore", status: "ok" };
-    } catch (error) {
-      return { name: "firestore", status: "down", detail: error instanceof Error ? error.message : String(error) };
-    }
-  }
 }

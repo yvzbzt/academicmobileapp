@@ -72,11 +72,10 @@ The production compose file builds three application containers: API, admin stat
 - Production secrets must come from a secret manager.
 - Rotate JWT, FCM and object storage credentials on incident.
 - Separate credentials per environment.
-- Infrastructure runtime modes are explicit:
-	- `REPOSITORY_MODE=memory|mongo`
+- API persistence is MongoDB-only; queue and rate-limit runtime modes remain explicit:
 	- `QUEUE_MODE=memory|bullmq`
 	- `RATE_LIMIT_STORE=memory|redis`
-- `MONGODB_URI` is required when `REPOSITORY_MODE=mongo`.
+- `MONGODB_URI` is required for every API runtime.
 - `REDIS_URL` is required when `QUEUE_MODE=bullmq` or `RATE_LIMIT_STORE=redis`.
 - `BOOTSTRAP_SEED_ENABLED=true` enables startup seeding for the sample catalog and first admin account.
 - `BOOTSTRAP_ADMIN_PASSWORD` must be supplied before first-admin seeding can create a user.
@@ -116,7 +115,7 @@ Recommended deployment stages still pending for production rollout:
 | Redis | Ping and queue latency |
 | Object Storage | Bucket access check |
 
-`/health/ready` is mode-aware. In in-memory development mode it returns MongoDB and Redis as `skipped`; in Mongo/Redis-backed modes it pings the configured dependencies and returns `degraded` if any required dependency is down.
+`/health/ready` always checks MongoDB. Redis is reported as `skipped` unless required by queue or rate-limit configuration; an unavailable required dependency returns `degraded`.
 
 ## 6. Backup And Retention
 

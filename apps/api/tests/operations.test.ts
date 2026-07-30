@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, type ExecutionContext } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RateLimitGuard } from "../src/common/guards/rate-limit.guard.js";
 import { MongoConnectionService } from "../src/database/mongo-connection.service.js";
 import { AdminCalendarService } from "../src/modules/calendars/admin-calendar.service.js";
@@ -16,7 +16,7 @@ import { InMemoryQueueService } from "../src/queue/in-memory-queue.service.js";
 import { BullMqQueueService } from "../src/queue/bullmq-queue.service.js";
 import { FirebasePushSender, type PushMessageInput, type PushSender } from "../src/modules/notifications/push-sender.service.js";
 import { readRuntimeConfig } from "../src/config/runtime-config.js";
-import { validateEnvironment } from "../src/config/environment-validation.js";
+import { assertValidEnvironment, validateEnvironment } from "../src/config/environment-validation.js";
 import { InfrastructureHealthService } from "../src/modules/health/infrastructure-health.service.js";
 import { BootstrapSeedService } from "../src/bootstrap/bootstrap-seed.service.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
@@ -104,6 +104,10 @@ async function createPublishableCalendar(input: { auditService?: AuditService; n
 }
 
 describe("operation services", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("queues due notification jobs for worker processing", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
     const { service, draft } = await createPublishableCalendar({ notificationRepository });
@@ -322,33 +326,90 @@ describe("operation services", () => {
     expect(deliveries[0]).toEqual(expect.objectContaining({ jobId: job.id, status: "sent", token: "device-token-1" }));
   });
 
-  it("reads runtime adapter modes from environment with safe defaults", () => {
-    expect(readRuntimeConfig({}).repositoryMode).toBe("memory");
-    expect(readRuntimeConfig({ REPOSITORY_MODE: "mongo", QUEUE_MODE: "bullmq", RATE_LIMIT_STORE: "redis", REDIS_URL: "redis://localhost:6379" })).toEqual({
-      repositoryMode: "mongo",
+  it.each([
+    ["missing", undefined],
+    ["memory", "memory"],
+    ["mongo", "mongo"],
+    ["firestore", "firestore"],
+    ["invalid", "invalid"]
+  ] as const)("ignores the legacy %s repository selector in runtime configuration", (_label, repositoryMode) => {
+    const env: NodeJS.ProcessEnv = {
+      QUEUE_MODE: "bullmq",
+      RATE_LIMIT_STORE: "redis",
+      REDIS_URL: "redis://localhost:6379"
+    };
+    if (repositoryMode !== undefined) env.REPOSITORY_MODE = repositoryMode;
+
+    expect(readRuntimeConfig(env)).toStrictEqual({
       queueMode: "bullmq",
       rateLimitStoreMode: "redis",
       redisUrl: "redis://localhost:6379"
     });
+    expect(readRuntimeConfig(env)).not.toHaveProperty("repositoryMode");
   });
 
-  it("validates infrastructure environment requirements", () => {
-    const invalid = validateEnvironment({ REPOSITORY_MODE: "mongo", QUEUE_MODE: "bullmq", RATE_LIMIT_STORE: "redis" });
-    const valid = validateEnvironment({ REPOSITORY_MODE: "mongo", QUEUE_MODE: "bullmq", RATE_LIMIT_STORE: "redis", MONGODB_URI: "mongodb://localhost:27017/test", REDIS_URL: "redis://localhost:6379" });
+  it.each([
+    ["missing", undefined],
+    ["memory", "memory"],
+    ["mongo", "mongo"],
+    ["firestore", "firestore"],
+    ["invalid", "invalid"]
+  ] as const)("requires a Mongo URI with the legacy %s repository selector", (_label, repositoryMode) => {
+    const selectorEnv: NodeJS.ProcessEnv = {};
+    if (repositoryMode !== undefined) selectorEnv.REPOSITORY_MODE = repositoryMode;
 
-    expect(invalid.valid).toBe(false);
-    expect(invalid.errors).toContain("MONGODB_URI is required when REPOSITORY_MODE=mongo.");
-    expect(invalid.errors).toContain("REDIS_URL is required when QUEUE_MODE=bullmq.");
-    expect(valid.valid).toBe(true);
+    for (const uri of [undefined, "", "   "]) {
+      const env = { ...selectorEnv };
+      if (uri !== undefined) env.MONGODB_URI = uri;
+      const result = validateEnvironment(env);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain("MONGODB_URI is required.");
+      expect(() => assertValidEnvironment(env)).toThrow("ENVIRONMENT_INVALID: MONGODB_URI is required.");
+    }
+
+    expect(validateEnvironment({ ...selectorEnv, MONGODB_URI: "mongodb://127.0.0.1:27017/academic_test" }).valid).toBe(true);
   });
 
-  it("reports skipped infrastructure readiness for in-memory runtime", async () => {
-    const service = new InfrastructureHealthService(new MongoConnectionService(), undefined);
+  it.each([undefined, "memory", "mongo", "firestore", "invalid"] as const)("checks Mongo readiness for legacy repository selector %s", async (repositoryMode) => {
+    vi.stubEnv("REPOSITORY_MODE", repositoryMode);
+    vi.stubEnv("QUEUE_MODE", "memory");
+    vi.stubEnv("RATE_LIMIT_STORE", "memory");
+    const ping = vi.fn().mockResolvedValue(undefined);
+    const connect = vi.fn();
+    const mongo = {
+      getConnection: vi.fn(() => ({ db: { admin: () => ({ ping }) } })),
+      connect
+    } as unknown as MongoConnectionService;
+    const service = new InfrastructureHealthService(mongo);
 
     const readiness = await service.readiness();
 
     expect(readiness.status).toBe("ok");
-    expect(readiness.dependencies).toEqual(expect.arrayContaining([expect.objectContaining({ name: "mongodb", status: "skipped" }), expect.objectContaining({ name: "redis", status: "skipped" })]));
+    expect(readiness.dependencies.map((dependency) => dependency.name)).toStrictEqual(["api", "mongodb", "redis"]);
+    expect(readiness.dependencies).toContainEqual({ name: "mongodb", status: "ok" });
+    expect(readiness.dependencies.some((dependency) => dependency.name === "firestore")).toBe(false);
+    expect(ping).toHaveBeenCalledTimes(1);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("reports Mongo as down even when the legacy repository selector requests memory", async () => {
+    vi.stubEnv("REPOSITORY_MODE", "memory");
+    vi.stubEnv("QUEUE_MODE", "memory");
+    vi.stubEnv("RATE_LIMIT_STORE", "memory");
+    const connect = vi.fn().mockRejectedValue(new Error("MONGO_UNAVAILABLE"));
+    const mongo = {
+      getConnection: vi.fn(() => null),
+      connect
+    } as unknown as MongoConnectionService;
+    const service = new InfrastructureHealthService(mongo);
+
+    const readiness = await service.readiness();
+
+    expect(readiness.status).toBe("degraded");
+    expect(readiness.dependencies).toContainEqual({ name: "mongodb", status: "down", detail: "MONGO_UNAVAILABLE" });
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(readiness.dependencies.some((dependency) => dependency.name === "mongodb" && dependency.status === "skipped")).toBe(false);
   });
 
   it("seeds only the bootstrap admin user when explicitly invoked", async () => {

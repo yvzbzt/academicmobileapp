@@ -177,6 +177,33 @@ Task A1 adds backend persistence and stale-writer coverage only; it does not cha
 | Expanded production-source sensitive-log scan | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
 | `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
 
+### Phase 1 R1A MongoDB-only runtime coverage
+
+R1A changes runtime composition only. Firestore and in-memory adapters remain available to existing adapter-focused tests but cannot be selected or instantiated through `AppModule`.
+
+| Contract | Deterministic evidence | Deferred boundary |
+|---|---|---|
+| Seven direct bindings | Exactly one direct `useClass` binding maps each auth, catalog, calendar, announcement, PDF, notification, and audit token to its Mongo implementation; isolated Nest resolution returns each expected class | Adapter deletion/relocation remains R1C |
+| Selector immunity | Missing, `memory`, `mongo`, `firestore`, and invalid legacy `REPOSITORY_MODE` values do not alter configuration or repository bindings; no repository selector factory remains | Obsolete historical references outside active runtime configuration remain R1C |
+| Startup validation | Missing, empty, or whitespace `MONGODB_URI` fails with the mode-neutral startup error; a plausible URI passes validation without connecting | No migration or live-database access |
+| Readiness | Mongo ping runs for every legacy selector value; unavailability reports `mongodb/down` and `degraded`; active dependencies contain no Firestore check | Redis queue/rate-limit selection is unchanged |
+| Bootstrap | The Firestore-specific branch and refresh flag are absent; deterministic generic seeding remains idempotent | Firestore adapter source remains until R1C |
+| A1 compatibility | Generation normalization, issuance stamping, stale-writer safety, login, refresh, verification, and password-recovery tests remain green | Increment/enforcement and atomic reset remain Task A2 |
+
+#### R1A final validation ledger — 30 July 2026
+
+| Exact command | Result |
+|---|---|
+| `npx.cmd vitest run apps/api/tests/mongodb-runtime-wiring.test.ts apps/api/tests/operations.test.ts apps/api/tests/auth-credential-generation.test.ts apps/api/tests/auth-application.service.test.ts apps/api/tests/password-recovery.test.ts apps/api/tests/mongoose-schemas.test.ts --configLoader runner` | PASS, 6 files / 100 tests |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS, 25 files / 203 tests |
+| `npm.cmd run typecheck` | PASS, exit 0 |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS, exit 0; no native source changed |
+| `npx.cmd vitest run --configLoader runner` | PASS, 31 files / 286 tests; exceeds the 30/265 checkpoint baseline |
+| `npm.cmd run build:admin` | PASS outside the restricted sandbox, 1,742 modules |
+| `npm.cmd run build:mobile` | Initial restricted-sandbox esbuild parent-directory denial; approved identical rerun PASS, 1,754 modules |
+| Expanded production-source sensitive-log scan | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
+| `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
+
 ### Earlier Phase 1 reconciliation before password-recovery closure
 
 | Command | Final result |

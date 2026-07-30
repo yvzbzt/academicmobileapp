@@ -84,6 +84,12 @@ Task A1 adds a backward-compatible `credentialGeneration` substrate to user, ref
 
 This checkpoint deliberately does not increment or enforce the generation, change access JWTs, or make password reset atomic. MN-031 therefore remains open with the same consume-before-password/session/invalidation order. MN-030 also remains open: known and unknown requests still have unequal work and SMTP timing. No production migration, index, environment, Task B, native application, or Phase 2 change is part of A1.
 
+### Phase 1 R1A MongoDB-runtime disposition — 30 July 2026
+
+All seven API repository tokens now bind directly to Mongo classes. The API no longer reads `REPOSITORY_MODE`, cannot select Firestore or in-memory persistence through legacy selector values, requires `MONGODB_URI` for every startup, always reports Mongo readiness, and uses only the generic catalog bootstrap path.
+
+Firestore and in-memory adapters remain in the source tree but are unreachable from runtime composition; their physical removal or test-only relocation remains R1C. R1B still owns repository behavior reconciliation and user-data review. R1A ran no migration and accessed no production data. Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, and their required Firebase dependencies remain unchanged, as do A1 generation behavior and all Task A2/Task B boundaries.
+
 ### Remaining Phase 1 limitations
 
 - `DELETE /me` and `DELETE /me/data` have no backend recent-authentication/reauthentication challenge. The client cannot manufacture this guarantee; add it only with a server contract (MN-026).

@@ -1,7 +1,7 @@
 # Phase 01 — Authentication, Session, Storage, and Academic-Profile Integrity
 
-Status date: 29 July 2026\
-Status: Complete. Required Phase 1 Android flow/width/font evidence, final automation, sensitive-log scan, evidence reconciliation, and resource cleanup pass. The exact TalkBack blocker is documented without claiming screen-reader acceptance. The scoped commit SHA is reported in the final response because a commit cannot contain its own hash.
+Status date: 30 July 2026\
+Status: Complete through R1A. Required Phase 1 Android evidence and A1 generation safety remain intact; R1A additionally makes MongoDB the sole API runtime persistence. Firestore/in-memory source cleanup remains R1C, and the scoped commit SHA is reported in the final response because a commit cannot contain its own hash.
 Scope gate: Phase 1 only. Phase 2 has not started.
 
 ## Outcome
@@ -233,6 +233,36 @@ University and faculty replacement still clears all omitted descendants. Task A1
 | Whitespace and expanded production-source sensitive-log checks | PASS; no whitespace errors and `SENSITIVE_LOG_SCAN_NO_MATCHES` |
 
 The plain `npm.cmd test` form was blocked before Vitest startup because the sandbox denied esbuild access to the parent directory/config. The unchanged runner-loader form passed twice, so this is recorded as an environment-only startup limitation rather than a failed product test.
+
+## R1A addendum — MongoDB-only runtime repository wiring
+
+R1A removes runtime repository selection without deleting adapters. `AppModule` now binds the seven repository families directly:
+
+| Runtime token | Sole runtime implementation |
+|---|---|
+| `AuthRepository` | `MongoAuthRepository` |
+| `CatalogRepository` | `MongoCatalogRepository` |
+| `CalendarRepository` | `MongoCalendarRepository` |
+| `AnnouncementRepository` | `MongoAnnouncementRepository` |
+| `PdfRepository` | `MongoPdfRepository` |
+| `NotificationRepository` | `MongoNotificationRepository` |
+| `AuditRepository` | `MongoAuditRepository` |
+
+`RepositoryMode`, `repositoryMode`, and active `REPOSITORY_MODE` declarations are removed. API startup now requires a nonblank `MONGODB_URI` regardless of legacy selector input. Readiness always checks Mongo and exposes no active Firestore dependency. Catalog bootstrap retains the shared idempotent seed algorithm but no longer imports or branches on the Firestore adapter.
+
+Firestore and in-memory repository files remain physically present for R1C, but `AppModule` cannot reach them. No repository contract, Mongo adapter behavior, A1 generation semantics, dependency, migration, native source, or production data changed. Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, `firebase`, and `firebase-admin` are preserved. R1B owns behavior/user-data reconciliation; R1C owns adapter/config/test/document cleanup. Task A2, Task B, Phase 2, and UI work remain unstarted.
+
+### R1A validation ledger
+
+| Command | Result |
+|---|---|
+| Focused wiring/operations/A1 auth regression suite | PASS, 6 files / 100 tests |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS, 25 files / 203 tests |
+| Workspace and native TypeScript checks | PASS, exit 0 for both |
+| `npx.cmd vitest run --configLoader runner` | PASS, 31 files / 286 tests; exceeds the 30/265 checkpoint baseline |
+| `npm.cmd run build:admin` | PASS, 1,742 modules |
+| `npm.cmd run build:mobile` | Initial restricted-sandbox esbuild denial; approved identical rerun PASS, 1,754 modules |
+| Whitespace and expanded production-source sensitive-log checks | PASS; no whitespace errors and `SENSITIVE_LOG_SCAN_NO_MATCHES` |
 
 ## Tests added and updated
 
