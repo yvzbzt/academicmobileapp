@@ -4,6 +4,12 @@ import type { AuthRepository, AuthUserRecord } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import type { NotificationRepository } from "../notifications/notification.types.js";
 import { assertClassLevelAllowed, classLevelOptionsForDepartment } from "../catalog/academic-levels.js";
+import {
+  normalizeFollowedAcademicScope,
+  type AcademicUnitSuggestionRecord,
+  type FollowedAcademicScopeRecord,
+  type UserDataRepository
+} from "./user-data.types.js";
 
 export interface UserProfileResponse {
   id: string;
@@ -20,36 +26,12 @@ export interface UserProfileResponse {
   emailVerifiedAt?: string;
 }
 
-interface AcademicUnitSuggestion {
-  id: string;
-  userId: string;
-  userEmail: string;
-  universityId: string;
-  facultyName: string;
-  departmentName?: string;
-  educationLevel: "associate" | "bachelor" | "master" | "doctorate";
-  status: "pending" | "approved" | "rejected";
-  createdAt: Date;
-  reviewedAt?: Date;
-}
-
-interface FollowedAcademicScope {
-  id: string;
-  userId: string;
-  universityId: string;
-  facultyId?: string;
-  departmentId?: string;
-  createdAt: Date;
-}
-
 @Injectable()
 export class UsersService {
-  private readonly academicUnitSuggestions: AcademicUnitSuggestion[] = [];
-  private readonly followedScopes: FollowedAcademicScope[] = [];
-
   constructor(
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Inject("CatalogRepository") private readonly catalogRepository: CatalogRepository,
+    @Inject("UserDataRepository") private readonly userDataRepository: UserDataRepository,
     @Optional() @Inject("NotificationRepository") private readonly notificationRepository?: NotificationRepository
   ) {}
 
@@ -160,6 +142,7 @@ export class UsersService {
   async deleteUserByAdmin(userId: string): Promise<{ status: "deleted" }> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
+    await this.userDataRepository.deleteUserData(userId);
     await this.authRepository.deleteUserByAdmin(userId);
     return { status: "deleted" };
   }
@@ -168,8 +151,8 @@ export class UsersService {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
     await this.notificationRepository?.deleteUserData(userId);
+    await this.userDataRepository.deleteUserData(userId);
     await this.authRepository.clearUserAppData(userId);
-    this.deleteInMemoryUserData(userId);
     return { status: "deleted" };
   }
 
@@ -181,7 +164,7 @@ export class UsersService {
       await this.deleteMyData(userId);
     } else {
       await this.notificationRepository?.deleteUserData(userId);
-      this.deleteInMemoryUserData(userId);
+      await this.userDataRepository.deleteUserData(userId);
     }
 
     const deletedAt = new Date();
@@ -246,31 +229,26 @@ export class UsersService {
     if (!user) throw new NotFoundException("User not found.");
     const university = await this.catalogRepository.findUniversityById(input.universityId);
     if (!university || university.status !== "active") throw new BadRequestException("University is not valid.");
-    const suggestion: AcademicUnitSuggestion = {
-      id: randomUUID(),
+    const suggestionInput = {
       userId,
       userEmail: user.email,
       universityId: input.universityId,
       facultyName: input.facultyName.trim(),
       ...(input.departmentName?.trim() ? { departmentName: input.departmentName.trim() } : {}),
-      educationLevel: input.educationLevel ?? "bachelor",
-      status: "pending",
-      createdAt: new Date()
+      educationLevel: input.educationLevel ?? "bachelor"
     };
-    if (suggestion.facultyName.length < 2) throw new BadRequestException("Faculty name is required.");
-    this.academicUnitSuggestions.push(suggestion);
+    if (suggestionInput.facultyName.length < 2) throw new BadRequestException("Faculty name is required.");
+    const suggestion = await this.userDataRepository.createAcademicUnitSuggestion(suggestionInput);
     return this.toSuggestionResponse(suggestion);
   }
 
   async listAcademicUnitSuggestions(status: "pending" | "approved" | "rejected" = "pending") {
-    return this.academicUnitSuggestions
-      .filter((suggestion) => suggestion.status === status)
-      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+    return (await this.userDataRepository.listAcademicUnitSuggestions(status))
       .map((suggestion) => this.toSuggestionResponse(suggestion));
   }
 
   async approveAcademicUnitSuggestion(id: string) {
-    const suggestion = this.academicUnitSuggestions.find((candidate) => candidate.id === id);
+    const suggestion = await this.userDataRepository.findAcademicUnitSuggestionById(id);
     if (!suggestion) throw new NotFoundException("Suggestion not found.");
     const faculty = await this.catalogRepository.createFaculty({
       universityId: suggestion.universityId,
@@ -297,39 +275,35 @@ export class UsersService {
         if (!String(error).includes("DEPARTMENT_SLUG_EXISTS")) throw error;
       });
     }
-    suggestion.status = "approved";
-    suggestion.reviewedAt = new Date();
-    return this.toSuggestionResponse(suggestion);
+    const reviewed = await this.userDataRepository.updateAcademicUnitSuggestionReview(id, {
+      status: "approved",
+      reviewedAt: new Date()
+    });
+    if (!reviewed) throw new NotFoundException("Suggestion not found.");
+    return this.toSuggestionResponse(reviewed);
   }
 
   async rejectAcademicUnitSuggestion(id: string) {
-    const suggestion = this.academicUnitSuggestions.find((candidate) => candidate.id === id);
-    if (!suggestion) throw new NotFoundException("Suggestion not found.");
-    suggestion.status = "rejected";
-    suggestion.reviewedAt = new Date();
-    return this.toSuggestionResponse(suggestion);
+    const reviewed = await this.userDataRepository.updateAcademicUnitSuggestionReview(id, {
+      status: "rejected",
+      reviewedAt: new Date()
+    });
+    if (!reviewed) throw new NotFoundException("Suggestion not found.");
+    return this.toSuggestionResponse(reviewed);
   }
 
   async listFollowedScopes(userId: string) {
-    return this.followedScopes.filter((scope) => scope.userId === userId).map((scope) => ({ ...scope, createdAt: scope.createdAt.toISOString() }));
+    return (await this.userDataRepository.listFollowedAcademicScopesByUserId(userId))
+      .map((scope) => this.toFollowedScopeResponse(scope));
   }
 
   async addFollowedScope(userId: string, input: { universityId: string; facultyId?: string; departmentId?: string }) {
     await this.validateAcademicSelection(input);
-    const existing = this.followedScopes.find((scope) => scope.userId === userId && scope.universityId === input.universityId && scope.facultyId === input.facultyId && scope.departmentId === input.departmentId);
-    if (existing) return { ...existing, createdAt: existing.createdAt.toISOString() };
-    const scope: FollowedAcademicScope = { id: randomUUID(), userId, universityId: input.universityId, ...(input.facultyId ? { facultyId: input.facultyId } : {}), ...(input.departmentId ? { departmentId: input.departmentId } : {}), createdAt: new Date() };
-    this.followedScopes.push(scope);
-    return { ...scope, createdAt: scope.createdAt.toISOString() };
-  }
-
-  private deleteInMemoryUserData(userId: string): void {
-    for (let index = this.academicUnitSuggestions.length - 1; index >= 0; index -= 1) {
-      if (this.academicUnitSuggestions[index]?.userId === userId) this.academicUnitSuggestions.splice(index, 1);
-    }
-    for (let index = this.followedScopes.length - 1; index >= 0; index -= 1) {
-      if (this.followedScopes[index]?.userId === userId) this.followedScopes.splice(index, 1);
-    }
+    const scope = await this.userDataRepository.upsertFollowedAcademicScope({
+      userId,
+      ...normalizeFollowedAcademicScope(input)
+    });
+    return this.toFollowedScopeResponse(scope);
   }
 
   private async validateAcademicSelection(input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }): Promise<void> {
@@ -353,12 +327,16 @@ export class UsersService {
     assertClassLevelAllowed(input.classLevel, department);
   }
 
-  private toSuggestionResponse(suggestion: AcademicUnitSuggestion) {
+  private toSuggestionResponse(suggestion: AcademicUnitSuggestionRecord) {
     return {
       ...suggestion,
       createdAt: suggestion.createdAt.toISOString(),
       ...(suggestion.reviewedAt ? { reviewedAt: suggestion.reviewedAt.toISOString() } : {})
     };
+  }
+
+  private toFollowedScopeResponse(scope: FollowedAcademicScopeRecord) {
+    return { ...scope, createdAt: scope.createdAt.toISOString() };
   }
 
   private toProfileResponse(user: AuthUserRecord): UserProfileResponse {

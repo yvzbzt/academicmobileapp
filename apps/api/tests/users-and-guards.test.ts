@@ -9,6 +9,7 @@ import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repos
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
 import { UsersService } from "../src/modules/users/users.service.js";
+import { TestUserDataRepository } from "./support/test-user-data.repository.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
 import { InMemoryNotificationRepository } from "../src/modules/notifications/in-memory-notification.repository.js";
 
@@ -83,7 +84,7 @@ describe("UsersService", () => {
     const [department] = await catalogRepository.listDepartments(faculty!.id, "active");
     const sender = new FakeEmailVerificationSenderService();
     const authService = new AuthApplicationService(authRepository, new PasswordHasher(), new TokenService(), sender);
-    const usersService = new UsersService(authRepository, catalogRepository);
+    const usersService = new UsersService(authRepository, catalogRepository, new TestUserDataRepository());
     const registerResult = await authService.register({
       email: "profile@campus.edu.tr",
       password: "StrongPass123!",
@@ -132,7 +133,7 @@ describe("UsersService", () => {
       departmentId: firstDepartment.id,
       classLevel: 2
     });
-    const usersService = new UsersService(authRepository, catalogRepository);
+    const usersService = new UsersService(authRepository, catalogRepository, new TestUserDataRepository());
 
     const universityChanged = await usersService.updateMyUniversity(user.id, { universityId: secondUniversity.id });
     expect(universityChanged).toEqual(expect.objectContaining({ universityId: secondUniversity.id }));
@@ -192,7 +193,7 @@ describe("UsersService", () => {
 
   it("lists, updates and deletes users for admin management", async () => {
     const authRepository = new InMemoryAuthRepository();
-    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository());
+    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), new TestUserDataRepository());
     const createdUser = await authRepository.createUser({
       fullName: "Managed User",
       email: "managed@campus.edu.tr",
@@ -222,7 +223,7 @@ describe("UsersService", () => {
   it("lets users erase app data before deleting their own account", async () => {
     const authRepository = new InMemoryAuthRepository();
     const notificationRepository = new InMemoryNotificationRepository();
-    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), notificationRepository);
+    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), new TestUserDataRepository(), notificationRepository);
     const createdUser = await authRepository.createUser({
       fullName: "Deleting Student",
       email: "deleting.student@example.com",

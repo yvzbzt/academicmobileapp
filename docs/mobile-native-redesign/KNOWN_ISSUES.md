@@ -88,7 +88,15 @@ This checkpoint deliberately does not increment or enforce the generation, chang
 
 All seven API repository tokens now bind directly to Mongo classes. The API no longer reads `REPOSITORY_MODE`, cannot select Firestore or in-memory persistence through legacy selector values, requires `MONGODB_URI` for every startup, always reports Mongo readiness, and uses only the generic catalog bootstrap path.
 
-Firestore and in-memory adapters remain in the source tree but are unreachable from runtime composition; their physical removal or test-only relocation remains R1C. R1B still owns repository behavior reconciliation and user-data review. R1A ran no migration and accessed no production data. Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, and their required Firebase dependencies remain unchanged, as do A1 generation behavior and all Task A2/Task B boundaries.
+Firestore and in-memory adapters remain in the source tree but are unreachable from runtime composition; their physical removal or test-only relocation remains R1C. At the R1A checkpoint, R1B still owned repository behavior reconciliation and user-data review; the disposition below records that scoped follow-up. R1A ran no migration and accessed no production data. Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, and their required Firebase dependencies remain unchanged, as do A1 generation behavior and all Task A2/Task B boundaries.
+
+### Phase 1 R1B Mongo user-data disposition — 30 July 2026
+
+Academic-unit suggestions and followed academic scopes are no longer authoritative process-local arrays. A focused repository contract now delegates both families to Mongo, preserves the existing suggestion review and academic-scope behavior, and makes repeated follows for the same owner and normalized scope idempotent. The seven R1A runtime repository bindings remain Mongo-only; R1B adds the focused Mongo user-data binding without restoring a runtime selector.
+
+Personal-data clearing, self-account deletion whether or not the caller requests the broader data-clearing branch, and administrative account deletion now remove both user-data families. Another owner's suggestions and follows are preserved by owner-scoped deletion. The former arrays were ephemeral and provide no trustworthy migration source, so no migration was designed or run and no production data was accessed.
+
+R1B's deterministic behavior evidence uses Mongoose model doubles and a test-only repository fixture. A separate focused integration case uses the existing local/CI Mongo 7 service and a guarded PID-named database to prove real schema/index initialization, suggestion create/read, concurrent follow idempotency, stored private-key behavior, and cleanup; it drops only that test database before and after the case. This is not a live-daemon reconnect, API-process restart, or durable-disk persistence smoke. Firestore adapter/config/test/document removal remains R1C; Mongo reconnect and full live persistence smoke verification remains R1D. No deployment, production-data access, dependency/lockfile, native application, Task A2, Task B, Phase 2, or UI change is included.
 
 ### Remaining Phase 1 limitations
 

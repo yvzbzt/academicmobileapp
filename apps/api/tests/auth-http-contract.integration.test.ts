@@ -19,8 +19,9 @@ import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repos
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
-import { UsersController } from "../src/modules/users/users.controller.js";
+import { AdminUsersController, UsersController } from "../src/modules/users/users.controller.js";
 import { UsersService } from "../src/modules/users/users.service.js";
+import { TestUserDataRepository } from "./support/test-user-data.repository.js";
 
 class CapturingEmailSender extends EmailVerificationSenderService {
   readonly sent: SendVerificationEmailInput[] = [];
@@ -71,11 +72,12 @@ describe("auth and academic-profile HTTP contracts", () => {
       undefined,
       catalogRepository
     );
-    const usersService = new UsersService(authRepository, catalogRepository);
+    const userDataRepository = new TestUserDataRepository();
+    const usersService = new UsersService(authRepository, catalogRepository, userDataRepository);
 
     class ContractTestModule {}
     Module({
-      controllers: [AuthController, UsersController],
+      controllers: [AuthController, UsersController, AdminUsersController],
       providers: [
         { provide: AuthApplicationService, useValue: authService },
         { provide: UsersService, useValue: usersService },
@@ -226,6 +228,20 @@ describe("auth and academic-profile HTTP contracts", () => {
     });
     expect(rotated.status).toBe(201);
     expect(rotated.body.refreshToken).not.toBe(login.body.refreshToken);
+
+    await userDataRepository.createAcademicUnitSuggestion({
+      userId: "other-http-student",
+      userEmail: "other.http.student@example.com",
+      universityId: firstUniversity.id,
+      facultyName: "Private Faculty Suggestion",
+      educationLevel: "bachelor"
+    });
+    const forbiddenSuggestionList = await request("/admin/users/academic-unit-suggestions?status=pending", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${rotated.body.accessToken as string}` }
+    });
+    expect(forbiddenSuggestionList.status).toBe(403);
+    expect(JSON.stringify(forbiddenSuggestionList.body)).not.toContain("other.http.student@example.com");
 
     const selected = await request("/me/university", {
       method: "PATCH",

@@ -44,4 +44,35 @@ describe("mongoIndexDefinitions", () => {
       })
     ]));
   });
+
+  it("contains academic-unit suggestion review and ownership indexes", () => {
+    expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collection: "academic_unit_suggestions",
+        keys: { status: 1, createdAt: -1 },
+        name: "academic_unit_suggestions_status_created"
+      }),
+      expect.objectContaining({
+        collection: "academic_unit_suggestions",
+        keys: { userId: 1 },
+        name: "academic_unit_suggestions_user"
+      })
+    ]));
+  });
+
+  it("contains followed-scope uniqueness and ordered-list indexes", () => {
+    expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collection: "followed_academic_scopes",
+        keys: { userId: 1, normalizedScopeKey: 1 },
+        unique: true,
+        name: "followed_academic_scopes_user_scope_unique"
+      }),
+      expect.objectContaining({
+        collection: "followed_academic_scopes",
+        keys: { userId: 1, createdAt: 1 },
+        name: "followed_academic_scopes_user_created"
+      })
+    ]));
+  });
 });

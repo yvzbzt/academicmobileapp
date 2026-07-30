@@ -1,7 +1,7 @@
 # Phase 01 — Authentication, Session, Storage, and Academic-Profile Integrity
 
 Status date: 30 July 2026\
-Status: Complete through R1A. Required Phase 1 Android evidence and A1 generation safety remain intact; R1A additionally makes MongoDB the sole API runtime persistence. Firestore/in-memory source cleanup remains R1C, and the scoped commit SHA is reported in the final response because a commit cannot contain its own hash.
+Status: Complete through R1B. Required Phase 1 Android evidence, A1 generation safety, and the seven R1A Mongo bindings remain intact. Firestore/in-memory source cleanup remains R1C; Mongo reconnect and live persistence smoke remain R1D.
 Scope gate: Phase 1 only. Phase 2 has not started.
 
 ## Outcome
@@ -250,7 +250,7 @@ R1A removes runtime repository selection without deleting adapters. `AppModule` 
 
 `RepositoryMode`, `repositoryMode`, and active `REPOSITORY_MODE` declarations are removed. API startup now requires a nonblank `MONGODB_URI` regardless of legacy selector input. Readiness always checks Mongo and exposes no active Firestore dependency. Catalog bootstrap retains the shared idempotent seed algorithm but no longer imports or branches on the Firestore adapter.
 
-Firestore and in-memory repository files remain physically present for R1C, but `AppModule` cannot reach them. No repository contract, Mongo adapter behavior, A1 generation semantics, dependency, migration, native source, or production data changed. Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, `firebase`, and `firebase-admin` are preserved. R1B owns behavior/user-data reconciliation; R1C owns adapter/config/test/document cleanup. Task A2, Task B, Phase 2, and UI work remain unstarted.
+Firestore and in-memory repository files remain physically present for R1C, but `AppModule` cannot reach them. No repository contract, Mongo adapter behavior, A1 generation semantics, dependency, migration, native source, or production data changed. Firebase Authentication, Google Sign-In/OAuth, FCM, Hosting, `firebase`, and `firebase-admin` are preserved. At the R1A checkpoint, R1B still owned behavior/user-data reconciliation; the addendum below records that scoped follow-up. R1C owns adapter/config/test/document cleanup. Task A2, Task B, Phase 2, and UI work remain unstarted.
 
 ### R1A validation ledger
 
@@ -263,6 +263,82 @@ Firestore and in-memory repository files remain physically present for R1C, but 
 | `npm.cmd run build:admin` | PASS, 1,742 modules |
 | `npm.cmd run build:mobile` | Initial restricted-sandbox esbuild denial; approved identical rerun PASS, 1,754 modules |
 | Whitespace and expanded production-source sensitive-log checks | PASS; no whitespace errors and `SENSITIVE_LOG_SCAN_NO_MATCHES` |
+
+## R1B addendum — Mongo persistence for user academic data
+
+R1B introduces a focused `UserDataRepository` for the two user-owned data families that `UsersService` previously held in process-local arrays. `AppModule` binds that token directly to `MongoUserDataRepository`; the seven repository bindings established by R1A remain direct Mongo bindings and no runtime repository selector returns.
+
+The existing API contract is unchanged. Students still create academic-unit suggestions and create/list followed scopes through the same routes and shapes. Suggestion listing and review remain `super_admin` operations. Approval/rejection rules, catalog side effects, response serialization, and university/faculty/department validation are preserved. No follow-removal endpoint or other product behavior was added.
+
+### Collections and indexes
+
+| Collection | Persisted existing behavior | Required indexes |
+|---|---|---|
+| `academic_unit_suggestions` | ID, owner ID, submitter email, university ID, faculty name, optional department name, education level, pending/approved/rejected status, creation time, and optional existing review time | `academic_unit_suggestions_status_created` on status/descending creation time; `academic_unit_suggestions_user` on owner ID |
+| `followed_academic_scopes` | ID, owner ID, university ID, optional faculty/department IDs, hidden normalized-scope key, and creation time | Unique `followed_academic_scopes_user_scope_unique` on owner/normalized key; `followed_academic_scopes_user_created` on owner/ascending creation time |
+
+The normalized key treats absent/empty optional descendants consistently, so repeating the same owner and academic scope is idempotent while university-only, faculty, and department scopes remain distinct. Suggestion queues retain newest-first order; followed scopes retain oldest-first order.
+
+### Lifecycle, compatibility, and migration
+
+| Operation | R1B cleanup behavior |
+|---|---|
+| `DELETE /me/data` | Deletes the authenticated owner's suggestions and followed scopes in addition to the pre-existing profile/preference cleanup |
+| `DELETE /me` with default/true `deleteData` | Reuses personal-data clearing, then completes existing token/account deletion |
+| `DELETE /me` with `deleteData: false` | Still deletes both user-data collections before the existing token/account deletion |
+| Administrative user deletion | Deletes both user-data collections before the existing administrative account deletion |
+
+Owner-scoped cleanup preserves other users' records. The former arrays existed only for one API-process lifetime and are not a reliable persistent source, so R1B creates or runs no migration for them. No production data was accessed. Existing routes, DTOs, response fields, authorization rules, native source, dependencies, lockfile, environment contract, A1 `credentialGeneration`, access JWT behavior, and the seven R1A repository families remain compatible.
+
+### R1B implementation files
+
+Runtime and persistence:
+
+- `apps/api/src/app.module.ts`
+- `apps/api/src/database/collection-indexes.ts`
+- `apps/api/src/database/mongoose-schemas.ts`
+- `apps/api/src/modules/users/mongo-user-data.repository.ts`
+- `apps/api/src/modules/users/user-data.types.ts`
+- `apps/api/src/modules/users/users.service.ts`
+
+Deterministic tests and test-only fixtures:
+
+- `apps/api/tests/auth-http-contract.integration.test.ts`
+- `apps/api/tests/database-indexes.test.ts`
+- `apps/api/tests/mongo-user-data.repository.test.ts`
+- `apps/api/tests/mongodb-runtime-wiring.test.ts`
+- `apps/api/tests/mongoose-schemas.test.ts`
+- `apps/api/tests/public-pages.controller.test.ts`
+- `apps/api/tests/users-and-guards.test.ts`
+- `apps/api/tests/support/mongo-user-data-model.fixture.ts`
+- `apps/api/tests/support/test-user-data.repository.ts`
+
+Documentation:
+
+- `docs/mobile-native-redesign/DECISIONS.md`
+- `docs/mobile-native-redesign/KNOWN_ISSUES.md`
+- `docs/mobile-native-redesign/TEST_MATRIX.md`
+- `docs/mobile-native-redesign/phases/phase-01-auth-session-integrity.md`
+
+### R1B evidence boundary and final validation ledger
+
+The Mongo repository tests use deterministic Mongoose model doubles, and service/HTTP tests use the test fixture under `apps/api/tests/support`. A focused integration case additionally initializes the real schemas/indexes and proves suggestion create/read, eight-way concurrent follow idempotency, stored private-key behavior, and cleanup against the existing local/CI Mongo 7 service. It guards and drops only the PID-named `academic_user_data_r1b_test_<pid>` database. Rebuilding `UsersService` against one shared model context demonstrates that service-local arrays are no longer authoritative, but neither case is a Mongo reconnect, API-process restart, or durable-disk persistence smoke. Firestore adapter/config/test/document removal remains R1C; Mongo reconnect and full live persistence smoke verification remains R1D.
+
+| Exact command or check | Result |
+|---|---|
+| `npx.cmd vitest run apps/api/tests/mongo-user-data.repository.test.ts apps/api/tests/auth-http-contract.integration.test.ts apps/api/tests/public-pages.controller.test.ts apps/api/tests/users-and-guards.test.ts apps/api/tests/mongodb-runtime-wiring.test.ts apps/api/tests/mongoose-schemas.test.ts apps/api/tests/database-indexes.test.ts --configLoader runner` | PASS, 7 files / 47 tests |
+| `npx.cmd vitest run apps/api/tests/mongodb-runtime-wiring.test.ts apps/api/tests/operations.test.ts --configLoader runner` | PASS, 2 files / 42 tests |
+| `npx.cmd vitest run apps/api/tests/auth-credential-generation.test.ts apps/api/tests/auth-academic-selection-repositories.test.ts apps/api/tests/mongoose-schemas.test.ts apps/api/tests/auth-application.service.test.ts apps/api/tests/password-recovery.test.ts --configLoader runner` | PASS, 5 files / 64 tests |
+| `npm.cmd test -- apps/api/tests --configLoader runner` | PASS, 26 files / 216 tests |
+| `npm.cmd run typecheck` | PASS, exit 0 |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS, exit 0; no native source changed |
+| `npx.cmd vitest run --configLoader runner` | PASS, 32 files / 299 tests; exceeds the 31-file/286-test baseline |
+| `npm.cmd run build:admin` | PASS outside the restricted sandbox, 1,742 modules |
+| `npm.cmd run build:mobile` | Initial restricted-sandbox Vite/esbuild parent-directory denial; approved identical rerun PASS, 1,754 modules |
+| Expanded production-source sensitive-log scan (exact PowerShell later in this report) | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
+| `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
+
+No deployment, publish, push, migration, production-data access, Android emulator, Task A2, Task B, Phase 2, or UI work is included in R1B.
 
 ## Tests added and updated
 
@@ -395,7 +471,7 @@ Earlier 28-file/220-test/build/export rows below predate the password-recovery c
 | Expanded production-source sensitive-log scan (exact PowerShell below) | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
 
 ```powershell
-$scanPattern = '(VERIFY_EMAIL_CODE\s|ACCOUNT_DELETION_CODE\s|PASSWORD_RECOVERY_CODE\s|logger\.(log|warn|error|debug).*(\$\{input\.(email|fullName|code|password|newPassword|passwordConfirmation)\}|accessToken|refreshToken|verificationCode|previewVerificationToken|recoveryCode|previewRecoveryCode|recoveryToken|examTitle)|console\.(log|warn|error|info).*\b(email|fullName|password|newPassword|passwordConfirmation|accessToken|refreshToken|verificationCode|previewVerificationToken|recoveryCode|previewRecoveryCode|recoveryToken|examTitle)\b)'
+$scanPattern = '(VERIFY_EMAIL_CODE\s|ACCOUNT_DELETION_CODE\s|PASSWORD_RECOVERY_CODE\s|logger\.(log|warn|error|debug).*(\$\{input\.(email|userEmail|fullName|code|password|newPassword|passwordConfirmation|universityId|facultyName|departmentName)\}|accessToken|refreshToken|verificationCode|previewVerificationToken|recoveryCode|previewRecoveryCode|recoveryToken|examTitle)|console\.(log|warn|error|info).*\b(email|userEmail|fullName|password|newPassword|passwordConfirmation|accessToken|refreshToken|verificationCode|previewVerificationToken|recoveryCode|previewRecoveryCode|recoveryToken|examTitle|facultyName|departmentName)\b)'
 rg -n $scanPattern apps/api/src apps/mobile-native
 if ($LASTEXITCODE -eq 1) { Write-Output 'SENSITIVE_LOG_SCAN_NO_MATCHES'; exit 0 }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

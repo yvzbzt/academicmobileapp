@@ -144,6 +144,16 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 
 **Compatibility and operations:** Firebase Authentication, Google Sign-In/OAuth, Firebase Cloud Messaging, Firebase Hosting, `firebase`, and `firebase-admin` remain supported. No migration, dependency removal, deployment, production-data access, Task A2, Task B, Phase 2, or UI work is part of R1A.
 
+### D-026 — User academic suggestions and followed scopes are Mongo-backed
+
+**Decision:** Academic-unit suggestions and followed academic scopes live behind a focused `UserDataRepository` contract whose sole runtime implementation is `MongoUserDataRepository`. `UsersService` delegates these operations to the repository instead of retaining process-local arrays. Existing routes, request/response fields, role gates, suggestion review behavior, and university/faculty/department semantics remain unchanged.
+
+**Persistence contract:** `academic_unit_suggestions` retains ownership, submitter email, university, faculty/department names, education level, pending/approved/rejected status, creation time, and the existing review time. `followed_academic_scopes` retains owner plus university/faculty/department scope and creation time. A stored normalized-scope key and a unique owner/key index make repeated follows idempotent while keeping distinct valid hierarchy scopes separate.
+
+**Lifecycle and migration:** Personal-data clearing, self-account deletion with either value of `deleteData`, and administrative account deletion remove both data families. Records formerly held in `UsersService` existed only for the lifetime of one API process and provide no reliable persistent migration source, so R1B deliberately creates and runs no migration for them.
+
+**Evidence boundary:** R1B combines deterministic Mongoose model doubles and a test-only `UserDataRepository` fixture with a focused create/read, index, concurrent-upsert, and cleanup integration test against the existing local/CI Mongo 7 service. That integration test uses a guarded `academic_user_data_r1b_test_<pid>` database and drops only that database before and after the test. It does not claim a Mongo reconnect, API-process restart, or durable-disk smoke. Firestore adapter removal remains R1C, and Mongo reconnect plus full live persistence smoke verification remains R1D. No deployment, production-data access, dependency/lockfile change, native application change, Task A2, Task B, Phase 2, or UI work is part of R1B.
+
 ## Open questions with decision owners
 
 | Question | Required by | Resolution owner/gate |

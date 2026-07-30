@@ -82,6 +82,66 @@ passwordRecoveryTokenSchema.index({ tokenHash: 1 }, { unique: true, name: "passw
 passwordRecoveryTokenSchema.index({ userId: 1, createdAt: -1 }, { name: "password_recovery_tokens_user_latest" });
 passwordRecoveryTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "password_recovery_tokens_expires_ttl" });
 
+export const academicUnitSuggestionSchema = new Schema(
+  {
+    _id: { type: String, required: true },
+    userId: { type: String, required: true },
+    userEmail: { type: String, required: true, lowercase: true, trim: true },
+    universityId: { type: String, required: true },
+    facultyName: { type: String, required: true, trim: true },
+    departmentName: { type: String, required: false, trim: true },
+    educationLevel: {
+      type: String,
+      required: true,
+      enum: ["associate", "bachelor", "master", "doctorate"]
+    },
+    status: {
+      type: String,
+      required: true,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending"
+    },
+    reviewedAt: { type: Date, required: false }
+  },
+  {
+    collection: "academic_unit_suggestions",
+    timestamps: { createdAt: true, updatedAt: false }
+  }
+);
+
+academicUnitSuggestionSchema.index(
+  { status: 1, createdAt: -1 },
+  { name: "academic_unit_suggestions_status_created" }
+);
+academicUnitSuggestionSchema.index(
+  { userId: 1 },
+  { name: "academic_unit_suggestions_user" }
+);
+
+export const followedAcademicScopeSchema = new Schema(
+  {
+    _id: { type: String, required: true },
+    userId: { type: String, required: true },
+    universityId: { type: String, required: true },
+    facultyId: { type: String, required: false },
+    departmentId: { type: String, required: false },
+    normalizedScopeKey: { type: String, required: true, select: false }
+  },
+  {
+    collection: "followed_academic_scopes",
+    timestamps: { createdAt: true, updatedAt: false }
+  }
+);
+
+followedAcademicScopeSchema.index(
+  { userId: 1, normalizedScopeKey: 1 },
+  { unique: true, name: "followed_academic_scopes_user_scope_unique" }
+);
+followedAcademicScopeSchema.index(
+  { userId: 1, createdAt: 1 },
+  { name: "followed_academic_scopes_user_created" }
+);
+
 export const universitySchema = new Schema(
   {
     _id: { type: String, required: true },

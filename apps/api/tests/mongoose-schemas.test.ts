@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { academicCalendarSchema, academicEventSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
+import { academicCalendarSchema, academicEventSchema, academicUnitSuggestionSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, followedAcademicScopeSchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
 
 describe("mongoose schemas", () => {
   it("defaults credential generations to zero and rejects negative values", () => {
@@ -32,6 +32,52 @@ describe("mongoose schemas", () => {
       [{ tokenHash: 1 }, expect.objectContaining({ unique: true, name: "password_recovery_tokens_hash_unique" })],
       [{ userId: 1, createdAt: -1 }, expect.objectContaining({ name: "password_recovery_tokens_user_latest" })],
       [{ expiresAt: 1 }, expect.objectContaining({ expireAfterSeconds: 0, name: "password_recovery_tokens_expires_ttl" })]
+    ]));
+  });
+
+  it("defines academic-unit suggestion persistence and review indexes", () => {
+    expect(academicUnitSuggestionSchema.get("collection")).toBe("academic_unit_suggestions");
+    expect(academicUnitSuggestionSchema.path("_id").instance).toBe("String");
+    expect(academicUnitSuggestionSchema.path("userId").isRequired).toBe(true);
+    expect(academicUnitSuggestionSchema.path("userEmail").isRequired).toBe(true);
+    expect(academicUnitSuggestionSchema.path("universityId").isRequired).toBe(true);
+    expect(academicUnitSuggestionSchema.path("facultyName").isRequired).toBe(true);
+    expect(academicUnitSuggestionSchema.path("educationLevel").options.enum).toEqual([
+      "associate",
+      "bachelor",
+      "master",
+      "doctorate"
+    ]);
+    expect(academicUnitSuggestionSchema.path("status").options).toEqual(expect.objectContaining({
+      required: true,
+      default: "pending",
+      enum: ["pending", "approved", "rejected"]
+    }));
+    expect(academicUnitSuggestionSchema.path("createdAt")).toBeDefined();
+    expect(academicUnitSuggestionSchema.path("updatedAt")).toBeUndefined();
+    expect(academicUnitSuggestionSchema.indexes()).toEqual(expect.arrayContaining([
+      [{ status: 1, createdAt: -1 }, expect.objectContaining({ name: "academic_unit_suggestions_status_created" })],
+      [{ userId: 1 }, expect.objectContaining({ name: "academic_unit_suggestions_user" })]
+    ]));
+  });
+
+  it("defines followed-scope persistence with a private normalized uniqueness key", () => {
+    expect(followedAcademicScopeSchema.get("collection")).toBe("followed_academic_scopes");
+    expect(followedAcademicScopeSchema.path("_id").instance).toBe("String");
+    expect(followedAcademicScopeSchema.path("userId").isRequired).toBe(true);
+    expect(followedAcademicScopeSchema.path("universityId").isRequired).toBe(true);
+    expect(followedAcademicScopeSchema.path("normalizedScopeKey").options).toEqual(expect.objectContaining({
+      required: true,
+      select: false
+    }));
+    expect(followedAcademicScopeSchema.path("createdAt")).toBeDefined();
+    expect(followedAcademicScopeSchema.path("updatedAt")).toBeUndefined();
+    expect(followedAcademicScopeSchema.indexes()).toEqual(expect.arrayContaining([
+      [
+        { userId: 1, normalizedScopeKey: 1 },
+        expect.objectContaining({ unique: true, name: "followed_academic_scopes_user_scope_unique" })
+      ],
+      [{ userId: 1, createdAt: 1 }, expect.objectContaining({ name: "followed_academic_scopes_user_created" })]
     ]));
   });
 

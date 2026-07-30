@@ -126,7 +126,7 @@ The table below records the earlier Phase 1 integrity snapshot before password-r
 | 11 | Targeted sensitive-log scan (exact PowerShell below) | PASS, no matches | Production-source scan; ripgrep no-match exit 1 was handled as a successful empty result. |
 
 ```powershell
-$scanPattern = '(VERIFY_EMAIL_CODE\s|ACCOUNT_DELETION_CODE\s|PASSWORD_RECOVERY_CODE\s|logger\.(log|warn|error|debug).*(\$\{input\.(email|fullName|code|password|newPassword|passwordConfirmation)\}|accessToken|refreshToken|verificationCode|previewVerificationToken|recoveryCode|previewRecoveryCode|recoveryToken|examTitle)|console\.(log|warn|error|info).*\b(email|fullName|password|newPassword|passwordConfirmation|accessToken|refreshToken|verificationCode|previewVerificationToken|recoveryCode|previewRecoveryCode|recoveryToken|examTitle)\b)'
+$scanPattern = '(VERIFY_EMAIL_CODE\s|ACCOUNT_DELETION_CODE\s|PASSWORD_RECOVERY_CODE\s|logger\.(log|warn|error|debug).*(\$\{input\.(email|userEmail|fullName|code|password|newPassword|passwordConfirmation|universityId|facultyName|departmentName)\}|accessToken|refreshToken|verificationCode|previewVerificationToken|recoveryCode|previewRecoveryCode|recoveryToken|examTitle)|console\.(log|warn|error|info).*\b(email|userEmail|fullName|password|newPassword|passwordConfirmation|accessToken|refreshToken|verificationCode|previewVerificationToken|recoveryCode|previewRecoveryCode|recoveryToken|examTitle|facultyName|departmentName)\b)'
 rg -n $scanPattern apps/api/src apps/mobile-native
 if ($LASTEXITCODE -eq 1) { Write-Output 'SENSITIVE_LOG_SCAN_NO_MATCHES'; exit 0 }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -201,6 +201,38 @@ R1A changes runtime composition only. Firestore and in-memory adapters remain av
 | `npx.cmd vitest run --configLoader runner` | PASS, 31 files / 286 tests; exceeds the 30/265 checkpoint baseline |
 | `npm.cmd run build:admin` | PASS outside the restricted sandbox, 1,742 modules |
 | `npm.cmd run build:mobile` | Initial restricted-sandbox esbuild parent-directory denial; approved identical rerun PASS, 1,754 modules |
+| Expanded production-source sensitive-log scan | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
+| `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
+
+### Phase 1 R1B Mongo user-data persistence coverage
+
+R1B replaces only the two `UsersService` process-local user-data arrays. The production adapter is Mongo-backed. Deterministic repository tests exercise behavior through Mongoose model doubles, service/HTTP tests use a fixture under `apps/api/tests/support`, and one focused integration case exercises real schemas, indexes, create/read, concurrent upsert, and cleanup against the existing local/CI Mongo 7 service. The integration case guards and drops only `academic_user_data_r1b_test_<pid>`; it is not reconnect, process-restart, or durable-disk evidence, which remains R1D.
+
+| Contract | Deterministic evidence | Deferred boundary |
+|---|---|---|
+| Focused runtime binding | `UserDataRepository` resolves directly to `MongoUserDataRepository`; the seven existing R1A bindings remain direct Mongo classes with no selector factory | Firestore/in-memory adapter removal remains R1C |
+| Suggestion persistence | A real isolated-Mongo create/read proves serialization and timestamps; model-double coverage retains owner, submitter email, hierarchy names, education level, pending status, and newest-first pending/approved/rejected lists | Reconnect/full live persistence smoke remains R1D |
+| Existing review transitions | Approval and rejection update the persisted status and existing `reviewedAt` field while preserving the existing catalog and response behavior | No new review rules or notifications |
+| Private-data authorization | The existing student route creates only for its authenticated owner, while the suggestion list/review routes retain their `super_admin` gate | No new student suggestion-read endpoint |
+| Followed-scope semantics | Real Mongo enforces one record during an eight-way concurrent upsert and persists the private normalized key; model-double coverage proves university/faculty/department distinctions, empty-descendant normalization, response privacy, and oldest-first listing | No new follow endpoint or product behavior |
+| Lifecycle cleanup | Personal-data clearing, both self-account-deletion branches, and admin deletion remove both collections for the target owner without deleting another owner's records | Historical process-memory records cannot be migrated |
+| Service lifetime | A rebuilt `UsersService` sees data retained by the same repository, and source assertions show no suggestion/follow array remains authoritative | This is not process-restart or reconnect evidence |
+| Schema and indexes | Both collection schemas retain the current fields; status/time and owner indexes support review/cleanup, and a unique owner/normalized-scope index enforces follow idempotency | No migration is run |
+| A1 compatibility | Credential-generation normalization, issuance stamping, and stale-writer tests remain unchanged and green | Generation advancement/enforcement remains Task A2 |
+
+#### R1B final validation ledger — 30 July 2026
+
+| Exact command | Result |
+|---|---|
+| `npx.cmd vitest run apps/api/tests/mongo-user-data.repository.test.ts apps/api/tests/auth-http-contract.integration.test.ts apps/api/tests/public-pages.controller.test.ts apps/api/tests/users-and-guards.test.ts apps/api/tests/mongodb-runtime-wiring.test.ts apps/api/tests/mongoose-schemas.test.ts apps/api/tests/database-indexes.test.ts --configLoader runner` | PASS, 7 files / 47 tests |
+| `npx.cmd vitest run apps/api/tests/mongodb-runtime-wiring.test.ts apps/api/tests/operations.test.ts --configLoader runner` | PASS, 2 files / 42 tests |
+| `npx.cmd vitest run apps/api/tests/auth-credential-generation.test.ts apps/api/tests/auth-academic-selection-repositories.test.ts apps/api/tests/mongoose-schemas.test.ts apps/api/tests/auth-application.service.test.ts apps/api/tests/password-recovery.test.ts --configLoader runner` | PASS, 5 files / 64 tests |
+| `npm.cmd test -- apps/api/tests --configLoader runner` | PASS, 26 files / 216 tests |
+| `npm.cmd run typecheck` | PASS, exit 0 |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS, exit 0; no native source changed |
+| `npx.cmd vitest run --configLoader runner` | PASS, 32 files / 299 tests; exceeds the 31-file/286-test R1A baseline |
+| `npm.cmd run build:admin` | PASS outside the restricted sandbox, 1,742 modules |
+| `npm.cmd run build:mobile` | Initial restricted-sandbox Vite/esbuild parent-directory denial; approved identical rerun PASS, 1,754 modules |
 | Expanded production-source sensitive-log scan | PASS: `SENSITIVE_LOG_SCAN_NO_MATCHES` |
 | `git diff --check` | PASS, no whitespace errors; expected LF-to-CRLF notices only |
 

@@ -18,6 +18,7 @@ import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-cata
 import { MongoCatalogRepository } from "../src/modules/catalog/mongo-catalog.repository.js";
 import { MongoNotificationRepository } from "../src/modules/notifications/mongo-notification.repository.js";
 import { MongoPdfRepository } from "../src/modules/pdf/mongo-pdf.repository.js";
+import { MongoUserDataRepository } from "../src/modules/users/mongo-user-data.repository.js";
 
 const repositoryBindings = [
   { provide: "AuthRepository", useClass: MongoAuthRepository },
@@ -29,10 +30,13 @@ const repositoryBindings = [
   { provide: "AuditRepository", useClass: MongoAuditRepository }
 ] as const;
 
+const userDataBinding = { provide: "UserDataRepository", useClass: MongoUserDataRepository } as const;
+
 @Module({
   providers: [
     { provide: MongoConnectionService, useValue: {} },
-    ...repositoryBindings
+    ...repositoryBindings,
+    userDataBinding
   ]
 })
 class MongoRepositoryResolutionModule {}
@@ -61,6 +65,18 @@ describe("MongoDB-only runtime repository wiring", () => {
     if (repositoryMode === undefined) vi.stubEnv("REPOSITORY_MODE", undefined);
     else vi.stubEnv("REPOSITORY_MODE", repositoryMode);
     const providers = appProviders();
+    const r1aTokens = new Set(repositoryBindings.map((binding) => binding.provide));
+    const r1aProviders = providers.filter(
+      (provider) =>
+        typeof provider === "object" &&
+        provider !== null &&
+        "provide" in provider &&
+        typeof provider.provide === "string" &&
+        r1aTokens.has(provider.provide as typeof repositoryBindings[number]["provide"])
+    );
+
+    expect(repositoryBindings).toHaveLength(7);
+    expect(r1aProviders).toHaveLength(7);
 
     for (const binding of repositoryBindings) {
       const matches = providers.filter((provider) => isProviderFor(provider, binding.provide));
@@ -69,6 +85,12 @@ describe("MongoDB-only runtime repository wiring", () => {
       expect(matches[0]).not.toHaveProperty("useFactory");
       expect(matches[0]).not.toHaveProperty("inject");
     }
+
+    const userDataMatches = providers.filter((provider) => isProviderFor(provider, userDataBinding.provide));
+    expect(userDataMatches).toHaveLength(1);
+    expect(userDataMatches[0]).toStrictEqual(userDataBinding);
+    expect(userDataMatches[0]).not.toHaveProperty("useFactory");
+    expect(userDataMatches[0]).not.toHaveProperty("inject");
 
     expect(providers.some((provider) => provider === FirestoreDatabaseService || (typeof provider === "object" && provider !== null && "provide" in provider && provider.provide === FirestoreDatabaseService))).toBe(false);
   });
@@ -79,6 +101,7 @@ describe("MongoDB-only runtime repository wiring", () => {
       for (const binding of repositoryBindings) {
         expect(context.get(binding.provide)).toBeInstanceOf(binding.useClass);
       }
+      expect(context.get(userDataBinding.provide)).toBeInstanceOf(userDataBinding.useClass);
     } finally {
       await context.close();
     }
@@ -89,6 +112,16 @@ describe("MongoDB-only runtime repository wiring", () => {
 
     expect(source).not.toContain("FirestoreCatalogRepository");
     expect(source).not.toContain("BOOTSTRAP_CATALOG_SEED_REFRESH");
+  });
+
+  it("keeps user suggestions and followed scopes out of UsersService process memory", () => {
+    const source = readFileSync(new URL("../src/modules/users/users.service.ts", import.meta.url), "utf8");
+
+    expect(source).not.toContain("private readonly academicUnitSuggestions");
+    expect(source).not.toContain("private readonly followedScopes");
+    expect(source).not.toContain("deleteInMemoryUserData");
+    expect(source).not.toContain("academicUnitSuggestions.push");
+    expect(source).not.toContain("followedScopes.push");
   });
 
   it("keeps catalog bootstrap generic and idempotent", async () => {

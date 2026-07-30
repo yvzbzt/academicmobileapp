@@ -9,6 +9,7 @@ import { TokenService } from "../src/modules/auth/token.service.js";
 import { UsersService } from "../src/modules/users/users.service.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
 import { InMemoryNotificationRepository } from "../src/modules/notifications/in-memory-notification.repository.js";
+import { TestUserDataRepository } from "./support/test-user-data.repository.js";
 
 class FakeEmailVerificationSenderService extends EmailVerificationSenderService {
   public readonly deletionCodes: SendVerificationEmailInput[] = [];
@@ -43,7 +44,8 @@ describe("AccountDeletionService", () => {
     const notificationRepository = new InMemoryNotificationRepository();
     const passwordHasher = new PasswordHasher();
     const sender = new FakeEmailVerificationSenderService();
-    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), notificationRepository);
+    const userDataRepository = new TestUserDataRepository();
+    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), userDataRepository, notificationRepository);
     const accountDeletionService = new AccountDeletionService(authRepository, passwordHasher, new TokenService(), sender, usersService);
     const user = await authRepository.createUser({
       fullName: "Deletion Test",
@@ -61,6 +63,17 @@ describe("AccountDeletionService", () => {
       enabled: true,
       categories: { final_exam: true },
       reminderOffsets: [60]
+    });
+    const suggestion = await userDataRepository.createAcademicUnitSuggestion({
+      userId: user.id,
+      userEmail: user.email,
+      universityId: "uni-1",
+      facultyName: "Deletion Faculty",
+      educationLevel: "bachelor"
+    });
+    await userDataRepository.upsertFollowedAcademicScope({
+      userId: user.id,
+      universityId: "uni-1"
     });
 
     const requestResult = await accountDeletionService.requestCode({ email: user.email, password: "StrongPass123!" });
@@ -84,6 +97,8 @@ describe("AccountDeletionService", () => {
       classLevel: 3
     }));
     await expect(notificationRepository.findPreferencesByUserId(user.id)).resolves.toBeNull();
+    await expect(userDataRepository.findAcademicUnitSuggestionById(suggestion.id)).resolves.toBeNull();
+    await expect(userDataRepository.listFollowedAcademicScopesByUserId(user.id)).resolves.toEqual([]);
   });
 
   it("deletes the account after verifying the code", async () => {
@@ -91,7 +106,8 @@ describe("AccountDeletionService", () => {
     const notificationRepository = new InMemoryNotificationRepository();
     const passwordHasher = new PasswordHasher();
     const sender = new FakeEmailVerificationSenderService();
-    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), notificationRepository);
+    const userDataRepository = new TestUserDataRepository();
+    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), userDataRepository, notificationRepository);
     const accountDeletionService = new AccountDeletionService(authRepository, passwordHasher, new TokenService(), sender, usersService);
     const user = await authRepository.createUser({
       fullName: "Delete Account",
@@ -99,6 +115,17 @@ describe("AccountDeletionService", () => {
       passwordHash: await passwordHasher.hash("StrongPass123!"),
       role: "student",
       status: "active"
+    });
+    const suggestion = await userDataRepository.createAcademicUnitSuggestion({
+      userId: user.id,
+      userEmail: user.email,
+      universityId: "uni-1",
+      facultyName: "Account Deletion Faculty",
+      educationLevel: "bachelor"
+    });
+    await userDataRepository.upsertFollowedAcademicScope({
+      userId: user.id,
+      universityId: "uni-1"
     });
 
     await accountDeletionService.requestCode({ email: user.email, password: "StrongPass123!" });
@@ -110,6 +137,8 @@ describe("AccountDeletionService", () => {
     });
 
     await expect(authRepository.findUserByEmail(user.email)).resolves.toBeNull();
+    await expect(userDataRepository.findAcademicUnitSuggestionById(suggestion.id)).resolves.toBeNull();
+    await expect(userDataRepository.listFollowedAcademicScopesByUserId(user.id)).resolves.toEqual([]);
     await expect(authRepository.createUser({
       fullName: "New Owner",
       email: user.email,
@@ -128,7 +157,7 @@ describe("AccountDeletionService", () => {
       passwordHasher,
       new TokenService(),
       sender,
-      new UsersService(authRepository, new InMemoryCatalogRepository(), new InMemoryNotificationRepository())
+      new UsersService(authRepository, new InMemoryCatalogRepository(), new TestUserDataRepository(), new InMemoryNotificationRepository())
     );
     const user = await authRepository.createUser({
       fullName: "Bad Password",

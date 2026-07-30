@@ -20,6 +20,7 @@ import { readRuntimeConfig } from "./config/runtime-config.js";
 import { FirebaseAdminService } from "./database/firebase-admin.service.js";
 import { MongoConnectionService } from "./database/mongo-connection.service.js";
 import { AdminUsersController, UsersController } from "./modules/users/users.controller.js";
+import { MongoUserDataRepository } from "./modules/users/mongo-user-data.repository.js";
 import { UsersService } from "./modules/users/users.service.js";
 import { AdminAnnouncementsController, AnnouncementsController } from "./modules/announcements/announcements.controller.js";
 import { AnnouncementIngestionService } from "./modules/announcements/announcement-ingestion.service.js";
@@ -98,6 +99,10 @@ const MONGO_REPOSITORY_PROVIDERS = [
       useExisting: RateLimitGuard
     },
     ...MONGO_REPOSITORY_PROVIDERS,
+    {
+      provide: "UserDataRepository",
+      useClass: MongoUserDataRepository
+    },
     {
       provide: "GoogleIdentityVerifier",
       useExisting: FirebaseGoogleIdentityVerifier
