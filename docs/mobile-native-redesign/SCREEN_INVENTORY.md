@@ -73,6 +73,27 @@ The pure contracts name normalized roots `Hydration` and `Unknown`; `AppNavigato
 
 Approved static URLs are exactly `academicpulse://tab/home`, `/announcements`, `/calendar`, `/profile`; `academicpulse://announcements/summer-school`, `/yok`; and `academicpulse://settings/academic-profile`, `/notifications`, `/google-calendar`, `/account-data` (with the full scheme/authority shown by the first item in each group). Extra queries, fragments, encoding tricks, detail paths, and non-`academicpulse` origins are rejected rather than normalized broadly.
 
+## Phase 5 final app-shell map and behavior
+
+The authenticated primary navigation is defined once and contains exactly these four destinations, in this order:
+
+| Primary tab route | Product destination | Turkish label | Owned root |
+|---|---|---|---|
+| `HomeTab` | Home | Ana Sayfa | `Home` |
+| `AnnouncementsTab` | Announcements | Duyurular | `Announcements` |
+| `CalendarTab` | Calendar | Takvim | `Calendar` |
+| `ProfileTab` | Profile | Profil | `Profile` |
+
+`SummerSchool` and the YÖK procedures capability, concretely routed as `YokAnnouncements`, remain nested destinations in the Announcements stack. They retain their existing screens, protected-route ownership, and strict static-link reachability; neither is a fifth primary tab. Phase 5 changes shell presentation and navigation behavior only. It does not redesign the Home, Announcements, Calendar, Profile, Summer School, or YÖK screen bodies.
+
+Every tab retains its own native stack while the tab navigator keeps most-recently-used history. Android Back first pops the active nested stack, then returns through tab history, and is left unhandled at the Home root so normal platform exit behavior remains available. Re-selecting an active tab while it is nested returns that tab to its root without pushing another route. Re-selecting an already-rooted tab scrolls its supported `Screen` scroll container to the top; repeated taps do not add route or tab-history entries. Protected deep-link and verified notification requests continue to enter the owning stack without discarding the other tabs' histories.
+
+The reusable `AdaptiveTopBar` is the shell header contract. It accepts a title, optional subtitle or context, an optional leading action, and optional trailing action descriptors. It owns the top/side safe area in the phone shell and the top of its scene beside the Android large-width rail; routed content and the navigator split the remaining edges. It exposes toolbar/header/button semantics, explicit action labels and disabled state, and 48×48 logical-unit minimum action targets. Below 375 dp it uses compact title typography and moves trailing actions to a wrapping second row; at regular widths title and actions share a wrapping row. Title and context text remain scalable, uncapped, and untruncated.
+
+Navigation and top-bar chrome use `NavigationSurface`: eligible iOS runtimes may select Liquid Glass only when its APIs are available and Reduce Transparency is off; unavailable/reduced-transparency iOS and Android use opaque tonal chrome. Android actions use native ripple; shell actions retain the 48×48 minimum on both platforms. Phone tab labels remain one line at 12 logical units on Android and 11 on iOS. The ordinary visual multiplier cap is 1.35; below 375 logical units, requested larger text uses a 1.20 compact cap, an 80 dp Android content bar plus bottom system inset, and the full Turkish accessible name. Selection also has selected accessibility state plus filled/outline icon differences, and Android adds a fixed tonal indicator, so it does not rely on color alone.
+
+Pure and native-renderer tests cover the exact four-item map, Turkish labels, selected/unselected semantics, 320 dp compact and 200%-font fallback contracts, top-bar wrapping/actions/material selection, nested Back, tab re-selection, root scroll-to-top, repeated-tap deduplication, per-tab stack preservation, nested Summer School/YÖK reachability, and protected destination preservation. The reviewed [Phase 5 native evidence matrix](./evidence/phase-05-native/README.md) adds 13 PNG/UIAutomator XML pairs from the `AcademicPhase1Low` Android 7 / API 24 / x86_64 AVD: all four selected states at 360 dp; 320 dp at font scales 1.0 and 2.0; nested YÖK ordinary Back; selected nested-tab re-selection to root; selected root-tab re-selection from rows 7–10 back to the top; and an explicit development-only dark renderer. The initial font-2 capture exposed a roughly 49 dp bottom bar with `Ana Sayfa` ellipsized and label geometry entering the system-navigation area. The implementation was corrected to reserve 80 dp plus the bottom system inset and to use the 1.20 compact cap, then reloaded through Metro and recaptured; the final font-2 hierarchy contains all four full labels with no ellipsis, wrapping, clipping, or overlap. The filtered runtime log is clean, and font scale, display size/density, ADB reverse, app, Metro, and emulator state were restored and stopped. The API 24 system clock still clips at 200%, so this is bottom-navigation acceptance rather than full-screen large-text acceptance. The dark frame proves the native renderer under the explicit preview override, not OS theme switching.
+
 ## Major state inventory
 
 | Area | Loading state | Empty state | Error state | Connected/special state | Current evidence/gap |
@@ -155,3 +176,5 @@ At minimum, capture on a real native renderer:
 Phase 0 did not capture these: `VISIBLE_NATIVE_QA_ENVIRONMENT_BLOCKED` because no Android device was attached, no Android emulator binary/AVD was available, and iOS simulation is unavailable on Windows.
 
 Phase 3 native launch and strict signed-out notification-URL handoff passed on `AcademicPhase1Low`; the captured Login/Register surface and exact boundary are indexed in [`evidence/phase-03-native`](./evidence/phase-03-native/README.md). The sole authorized AVD is API 24, so it cannot demonstrate API 26+ notification channels or the API 33+ runtime permission prompt. iOS remains unavailable on Windows/Xcode and lacks an authorized `GoogleService-Info.plist`. No authorized non-production Firebase/APNs delivery credentials or Google account/calendar fixture were supplied, so real token delivery and provider chooser/mutation/revoke visuals are not claimed.
+
+Phase 5 native shell acceptance and its exact commands, hashes, semantic assertions, clean-log scan, restoration proof, and unavailable-evidence boundaries are indexed in the [Phase 5 native evidence README](./evidence/phase-05-native/README.md). Windows/iOS runtime, predictive Back, API 33 notification permission, provider integrations, TalkBack, tablet/rail, and full-screen large-text acceptance remain unclaimed.

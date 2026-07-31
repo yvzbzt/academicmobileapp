@@ -30,6 +30,7 @@ import {
   type AppScreenSlots,
   type AppVisibleRoute
 } from "./src/navigation/AppNavigator";
+import { AppShellPreview } from "./src/navigation/AppShellPreview";
 import { useAppRouteRequest } from "./src/navigation/useAppRouteRequest";
 import {
   parseAcademicPulseRouteUrl,
@@ -6939,8 +6940,29 @@ function MainApplication() {
 }
 
 export default function App() {
+  const showPhase5AppShellPreview = __DEV__
+    && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
+
+  if (showPhase5AppShellPreview) {
+    const previewTheme = process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW_THEME === "dark"
+      ? "dark"
+      : process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW_THEME === "light"
+        ? "light"
+        : "system";
+
+    return (
+      <SafeAreaProvider>
+        <ThemeProvider preference={previewTheme}>
+          <StatusBar
+            style={previewTheme === "dark" ? "light" : previewTheme === "light" ? "dark" : "auto"}
+          />
+          <AppShellPreview />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    );
+  }
 
   if (showPhase4DesignPreview) {
     return (

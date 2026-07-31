@@ -1,3 +1,4 @@
+export * from "./app-shell";
 export * from "./back-policy";
 export * from "./deep-link";
 export * from "./route-intent";

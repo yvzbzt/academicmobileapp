@@ -1,6 +1,6 @@
 # Mobile Native Design System Contract
 
-Status: Phase 4 semantic foundation implemented; full screen migration remains phased.
+Status: Phase 5 app-shell presentation implemented; full screen migration remains phased.
 Last updated: 31 July 2026
 
 ## Principles
@@ -179,3 +179,34 @@ The isolated native component stack is Jest 29 + `jest-expo` 54 + React Native T
 ### Migration and rollback
 
 This phase introduces no persistent design preference, database migration, backend behavior, or screen-data rewrite. A rollback removes the provider/surface/primitive imports and the new Expo modules/navigation packages while leaving every Phase 1–3 storage key and server contract intact. Until later screen phases migrate legacy body styles, removing this foundation returns those screens to their previous presentation without a data conversion.
+
+## Phase 5 app-shell presentation contract
+
+Phase 5 adds the authenticated shell presentation around the Phase 4 route tree. It does not represent the Home, Announcements, Calendar, Profile, auth, or onboarding screen-body redesigns as complete.
+
+### Primary navigation ownership
+
+- `src/navigation/app-shell.ts` is the single presentation source for the four primary destinations and their selected/unselected icons: `Ana Sayfa` → `Home`, `Duyurular` → `Announcements`, `Takvim` → `Calendar`, and `Profil` → `Profile`.
+- `AppNavigator` builds the tab screens, visible labels, and full accessibility labels from that same ordered definition. Do not copy or independently rename the four tabs in screen code.
+- Summer School and YÖK remain reachable inside the Announcements stack; they are not additional primary tabs.
+- Each tab retains its own native-stack history. Reselecting a selected nested tab returns that stack to its root; reselecting a selected root scrolls its routed `ScrollView` to the top without pushing another route.
+
+### Shared shell components and semantic styling
+
+- `AdaptiveTopBar` is the reusable authenticated native-stack header. It accepts a wrapping title, optional subtitle/context, a named leading action, and named trailing actions; back behavior remains navigation-owned.
+- App-shell text, borders, selected state, canvas, raised surface, spacing, radii, and elevation come from semantic theme roles. Shell components do not establish a second palette or use screen-meaning raw colors.
+- `NavigationSurface` remains a navigation/control-chrome boundary. On eligible iOS runtimes it may render Liquid Glass only for that chrome. Reduce Transparency, missing component/runtime support, and every non-iOS platform select the opaque tonal semantic fallback. Content cards and reading surfaces do not become glass.
+- Android expresses the same semantics with Material 3 tonal navigation surfaces, native ripple feedback, and a fixed selected-icon pill using `state.selected`; the unselected icon remains outline-only. Phone bottom navigation reserves 80 dp of Material content height plus the bottom system inset. Top-bar actions are at least 48×48 logical units, tab items are at least 48 high, and icons may remain optically smaller inside those targets.
+
+### Insets, compact width, and large text
+
+- In the authenticated phone shell, `AdaptiveTopBar` owns the top/left/right safe-area inset, routed `Screen` content owns left/right, and React Navigation's bottom tab bar owns the bottom inset. In the Android large-width rail layout, the rail owns the left navigation edge while routed content owns right/bottom; the header continues to own the top of its scene. Screen bodies must not add duplicate navigation-edge padding. Non-shell/auth surfaces continue to own all requested edges themselves.
+- Android remains edge to edge, but drawing edge to edge does not transfer status-bar, navigation-bar, keyboard, or gesture-inset ownership to arbitrary content. The shell and navigator boundaries must continue to apply those insets deliberately.
+- Widths below 375 logical units use compact top-bar density, the compact semantic title role, a 16-unit screen gutter, and wrapping action layout. Width 375 and above uses the regular contract; text is not clipped merely to preserve one row.
+- Top-bar titles and supporting text scale and wrap. Navigation labels use one visual line at 11 pt on iOS or 12 sp on Android. The ordinary visual cap is 1.35; below 375 logical units, a requested scale above 1.35 selects the compact large-text cap of 1.20. That bounded label sits inside the 80 dp Android navigation content area while the tab control retains its exact full accessible name and selected state.
+
+### Back and evidence boundary
+
+- `backBehavior="history"`, nested native-stack Back, tab reselect, navigation locking, and strict one-shot protected requests remain behavioral contracts beneath this presentation. A navigation lock disables the custom top-bar Back action as well as gesture/hardware Back abandonment. Android currently supports ordinary system Back through those stacks.
+- Phase 5 does not enable predictive Back. `predictiveBackGestureEnabled` remains false pending supported navigator behavior and API 33+ device validation.
+- Renderer and pure-contract tests validate shell structure, semantics, adaptive decisions, and fallback selection. They are not evidence that Liquid Glass or the iOS shell ran natively on this Windows host.

@@ -75,6 +75,35 @@ Do not duplicate business/data logic in platform files. Platform wrappers receiv
 - `DesignSystemPreview` supplies a deterministic primitive matrix behind the dual `__DEV__` plus `EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW=1` gate; it is evidence tooling, not a product route or Phase 5 screen.
 - Reduce Motion, Reduce Transparency, system appearance, 320 dp gutters, tablet width, and material selection have deterministic tests. Native renderer tests cover route/back/tab behavior and primitive semantics.
 
+## Phase 5 implemented app-shell adaptation
+
+Phase 5 presents the existing route mechanics through one centralized four-destination shell. `src/navigation/app-shell.ts` owns the exact order, Turkish visible/accessibility labels, root-route mapping, and selected/unselected icons for `Ana Sayfa`, `Duyurular`, `Takvim`, and `Profil`. Summer School and YÖK remain nested under Announcements rather than becoming extra tabs.
+
+### Shared layout and accessibility
+
+- `AdaptiveTopBar` is the reusable native-stack header. Titles and optional supporting text scale and wrap; leading/trailing actions expose full accessible names and minimum 48×48 logical-unit targets.
+- Below 375 logical units the header uses compact density, the compact title role, a 16-unit gutter, and a wrapping action layout. At 375 and above it uses the regular contract.
+- Tab items are at least 48 logical units high. Visible navigation labels remain one line at 11 pt on iOS or 12 sp on Android. Their ordinary multiplier cap is 1.35; below 375 logical units, a requested scale above 1.35 selects a 1.20 compact cap while the tab control continues to expose the exact full accessible name and selected state.
+- Each tab owns an independent nested history. A selected nested-tab reselect pops to its root; a selected root reselect scrolls its internal `ScrollView` to `{ y: 0, animated: true }` and does not create Back history.
+
+### Safe-area and navigation ownership
+
+- In the phone layout the top bar owns top/left/right safe-area insets, authenticated routed content owns left/right, and the bottom tab bar owns bottom. In the Android large-width layout the rail owns the left navigation edge, routed content owns right/bottom, and the header owns the top of its scene. This conditional split prevents duplicated or missing navigation-edge padding.
+- Android edge-to-edge remains enabled. Status/navigation-bar, gesture, keyboard, and content insets stay deliberate shell/navigator responsibilities; edge-to-edge is not permission for arbitrary content to render under system controls.
+- Ordinary Android system Back follows the current nested stack and then tab history. Navigation locks disable the custom top-bar Back action and continue to prevent gesture/hardware abandonment of an owning operation. Predictive Back remains disabled and is not claimed as API 33+ evidence.
+
+### iOS presentation
+
+- Liquid Glass is restricted to eligible `NavigationSurface` navigation/control chrome. It is selected only when the component and runtime API are available and Reduce Transparency is off.
+- Missing eligibility or enabled Reduce Transparency produces the same hierarchy with an opaque tonal semantic surface and divider/elevation treatment. Feed, form, calendar, alert, and destructive content remains opaque.
+- The shell uses native tab/stack conventions and platform icons/feedback while retaining the shared routes, semantic tokens, accessibility names, and behavior. Deterministic renderer tests on Windows validate selection and fallback logic only; no native iOS runtime or screenshot acceptance is claimed.
+
+### Android presentation
+
+- The phone shell uses Material 3 tonal navigation chrome, native ripple feedback, and a fixed 64×30 selected-icon pill colored from the semantic selected-state role. It reserves 80 dp for navigation content plus the bottom system inset so icon and bounded large-text label geometry cannot enter system navigation. Unselected icons use their outline variants; selected icons use their filled variants. Android top-bar actions and navigation items retain the 48 dp minimum target.
+- The same four destinations move to the existing Material navigation rail policy at the documented large-width breakpoint without changing route ownership or accessibility names.
+- Phase 5 renderer and pure-contract tests cover exact tabs and selected states, independent nested histories, tab reselect behavior, internal destinations, simulated ordinary hardware Back dispatch, and protected-request gating. They do not demonstrate predictive Back or API 33 behavior.
+
 ## Predictive-back compatibility boundary
 
 React Native 0.81 exposes Android predictive-back plumbing, but the selected React Navigation 7 integration still documents predictive back as unsupported and requires `android:enableOnBackInvokedCallback="false"`. Phase 4 therefore deliberately retains `android.predictiveBackGestureEnabled: false`; the generated manifest has `android:enableOnBackInvokedCallback="false"`. This is the supported compatibility path, not a claim that a predictive animation ran. A pure immutable back-policy preview is tested so later enablement has one decision contract, while actual Android system-back and tab/stack history are tested independently. Enabling the OS predictive callback is gated on upstream navigator support plus API 33+ device validation in Phase 11.

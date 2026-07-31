@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { BackHandler, Text } from "react-native";
+import { BackHandler, ScrollView, Text } from "react-native";
 import {
   act,
   fireEvent,
@@ -53,6 +53,16 @@ function createScreenSlots(): AppScreenSlots {
 
 const screens = createScreenSlots();
 
+const primaryTabRoutes = [
+  { label: "Ana Sayfa", route: "Home" },
+  { label: "Duyurular", route: "Announcements" },
+  { label: "Takvim", route: "Calendar" },
+  { label: "Profil", route: "Profile" },
+] as const satisfies ReadonlyArray<{
+  label: string;
+  route: AppVisibleRoute;
+}>;
+
 function NavigatorHarness(props: AppNavigatorProps) {
   const stableScreens = useMemo(() => screens, []);
   return (
@@ -74,11 +84,33 @@ async function renderNavigator(props: Omit<AppNavigatorProps, "screens">) {
   return renderAsync(<NavigatorHarness {...props} screens={screens} />);
 }
 
-function expectVisibleRoute(route: AppVisibleRoute) {
-  return waitFor(() => {
+function getTabControl(label: string) {
+  return screen.getByRole("button", { name: label });
+}
+
+async function pressTab(label: string) {
+  await act(async () => {
+    fireEvent.press(getTabControl(label));
+    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+  });
+}
+
+function expectSelectedTab(label: string) {
+  for (const tab of primaryTabRoutes) {
+    const control = getTabControl(tab.label);
+    if (tab.label === label) expect(control).toBeSelected();
+    else expect(control).not.toBeSelected();
+  }
+}
+
+async function expectVisibleRoute(route: AppVisibleRoute) {
+  await waitFor(() => {
     expect(
       screen.getByRole("header", { name: `SCREEN:${route}` }),
     ).toBeVisible();
+  });
+  await act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
   });
 }
 
@@ -137,6 +169,27 @@ describe("AppNavigator", () => {
     expect(onRequestHandled).toHaveBeenCalledTimes(1);
   });
 
+  it("maps exactly four Turkish tab controls to their authenticated roots", async () => {
+    await renderNavigator({
+      activeRoute: "Home",
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Home");
+
+    expect(screen.getAllByRole("button")).toHaveLength(4);
+    expectSelectedTab("Ana Sayfa");
+
+    for (const tab of primaryTabRoutes.slice(1)) {
+      await pressTab(tab.label);
+      await expectVisibleRoute(tab.route);
+      expectSelectedTab(tab.label);
+    }
+
+    await pressTab("Ana Sayfa");
+    await expectVisibleRoute("Home");
+    expectSelectedTab("Ana Sayfa");
+  });
+
   it("exposes four accessible authenticated tabs and switches their routes", async () => {
     const hardwareBackHandlers = captureHardwareBackHandlers();
     const onVisibleRouteChange = jest.fn();
@@ -148,24 +201,25 @@ describe("AppNavigator", () => {
     await expectVisibleRoute("Home");
 
     for (const label of ["Ana Sayfa", "Duyurular", "Takvim", "Profil"]) {
-      expect(
-        screen.getByRole("button", { name: new RegExp(`^${label}, tab,`) }),
-      ).toBeVisible();
+      expect(getTabControl(label)).toBeVisible();
     }
+    expectSelectedTab("Ana Sayfa");
 
-    fireEvent.press(
-      screen.getByRole("button", { name: /^Duyurular, tab,/ }),
-    );
+    await pressTab("Duyurular");
     await expectVisibleRoute("Announcements");
+    expectSelectedTab("Duyurular");
 
-    fireEvent.press(screen.getByRole("button", { name: /^Takvim, tab,/ }));
+    await pressTab("Takvim");
     await expectVisibleRoute("Calendar");
+    expectSelectedTab("Takvim");
 
     expect(hardwareBackHandlers).toHaveLength(1);
     await act(async () => {
       expect(hardwareBackHandlers[0]()).toBe(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
     });
     await expectVisibleRoute("Announcements");
+    expectSelectedTab("Duyurular");
     expect(onVisibleRouteChange).toHaveBeenCalledWith("Announcements");
     expect(onVisibleRouteChange).toHaveBeenCalledWith("Calendar");
   });
@@ -200,6 +254,252 @@ describe("AppNavigator", () => {
     expect(hardwareBackHandlers).toHaveLength(1);
     await act(async () => {
       expect(hardwareBackHandlers[0]()).toBe(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+    await expectVisibleRoute("Announcements");
+  });
+
+  it("keeps Summer School and YÖK reachable inside the Announcements tab", async () => {
+    const onRequestHandled = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Announcements",
+      onRequestHandled,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Announcements");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Announcements"
+        onRequestHandled={onRequestHandled}
+        request={{ key: "summer-school", route: "SummerSchool" }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("SummerSchool");
+    expectSelectedTab("Duyurular");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Announcements"
+        onRequestHandled={onRequestHandled}
+        request={{ key: "yok-announcements", route: "YokAnnouncements" }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("YokAnnouncements");
+    expectSelectedTab("Duyurular");
+    expect(onRequestHandled.mock.calls).toEqual([
+      ["summer-school"],
+      ["yok-announcements"],
+    ]);
+  });
+
+  it("preserves independent nested histories while switching tabs", async () => {
+    const onRequestHandled = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Announcements",
+      onRequestHandled,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Announcements");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Announcements"
+        onRequestHandled={onRequestHandled}
+        request={{
+          key: "announcement-history",
+          params: { announcementId: "announcement-42" },
+          route: "AnnouncementDetail",
+        }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("AnnouncementDetail");
+
+    await pressTab("Takvim");
+    await expectVisibleRoute("Calendar");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Announcements"
+        onRequestHandled={onRequestHandled}
+        request={{
+          key: "calendar-history",
+          params: { eventId: "event-17" },
+          route: "CalendarEventDetail",
+        }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("CalendarEventDetail");
+
+    await pressTab("Duyurular");
+    await expectVisibleRoute("AnnouncementDetail");
+    expectSelectedTab("Duyurular");
+
+    await pressTab("Takvim");
+    await expectVisibleRoute("CalendarEventDetail");
+    expectSelectedTab("Takvim");
+    expect(onRequestHandled.mock.calls).toEqual([
+      ["announcement-history"],
+      ["calendar-history"],
+    ]);
+  });
+
+  it("reselects a nested tab back to its root without pushing another route", async () => {
+    const onVisibleRouteChange = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Announcements",
+      onVisibleRouteChange,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Announcements");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Announcements"
+        onVisibleRouteChange={onVisibleRouteChange}
+        request={{
+          key: "reselect-announcement",
+          params: { announcementId: "announcement-42" },
+          route: "AnnouncementDetail",
+        }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("AnnouncementDetail");
+    expectSelectedTab("Duyurular");
+
+    await pressTab("Duyurular");
+    await expectVisibleRoute("Announcements");
+    expectSelectedTab("Duyurular");
+    expect(onVisibleRouteChange).toHaveBeenCalledWith("AnnouncementDetail");
+    expect(onVisibleRouteChange).toHaveBeenCalledWith("Announcements");
+  });
+
+  it("scrolls a reselected root tab to top and repeated taps do not add history", async () => {
+    const hardwareBackHandlers = captureHardwareBackHandlers();
+    const onVisibleRouteChange = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Home",
+      onVisibleRouteChange,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Home");
+    const scrollTo = jest.spyOn(
+      view.UNSAFE_root.findAllByType(ScrollView)[0].instance,
+      "scrollTo",
+    );
+    const visibleRouteCallCount = onVisibleRouteChange.mock.calls.length;
+
+    await pressTab("Ana Sayfa");
+    await pressTab("Ana Sayfa");
+
+    await waitFor(() => {
+      expect(scrollTo).toHaveBeenCalledTimes(2);
+    });
+    expect(scrollTo).toHaveBeenNthCalledWith(1, { y: 0, animated: true });
+    expect(scrollTo).toHaveBeenNthCalledWith(2, { y: 0, animated: true });
+    expect(onVisibleRouteChange).toHaveBeenCalledTimes(visibleRouteCallCount);
+    expectSelectedTab("Ana Sayfa");
+
+    expect(hardwareBackHandlers).toHaveLength(1);
+    await act(async () => {
+      expect(hardwareBackHandlers[0]()).toBe(false);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+    await expectVisibleRoute("Home");
+  });
+
+  it("returns from a nested calendar destination with Android hardware Back", async () => {
+    const hardwareBackHandlers = captureHardwareBackHandlers();
+    const onRequestHandled = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Calendar",
+      onRequestHandled,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Calendar");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Calendar"
+        onRequestHandled={onRequestHandled}
+        request={{
+          key: "calendar-event-back",
+          params: { eventId: "event-17" },
+          route: "CalendarEventDetail",
+        }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("CalendarEventDetail");
+    expectSelectedTab("Takvim");
+    expect(onRequestHandled).toHaveBeenCalledWith("calendar-event-back");
+
+    expect(hardwareBackHandlers).toHaveLength(1);
+    await act(async () => {
+      expect(hardwareBackHandlers[0]()).toBe(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+    await expectVisibleRoute("Calendar");
+    expectSelectedTab("Takvim");
+  });
+
+  it("keeps the top-bar Back action disabled while navigation is locked", async () => {
+    const lockedRequest: AppNavigationRequest = {
+      key: "locked-announcement-detail",
+      params: { announcementId: "announcement-42" },
+      route: "AnnouncementDetail",
+    };
+    const view = await renderNavigator({
+      activeRoute: "Announcements",
+      navigationLocked: true,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Announcements");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Announcements"
+        navigationLocked
+        request={lockedRequest}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("AnnouncementDetail");
+
+    const lockedBack = screen.getByRole("button", { name: "Geri d\u00f6n" });
+    expect(lockedBack).toBeDisabled();
+    await act(async () => {
+      fireEvent.press(lockedBack);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+    await expectVisibleRoute("AnnouncementDetail");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Announcements"
+        navigationLocked={false}
+        request={lockedRequest}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    const unlockedBack = screen.getByRole("button", { name: "Geri d\u00f6n" });
+    expect(unlockedBack).toBeEnabled();
+    await act(async () => {
+      fireEvent.press(unlockedBack);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
     });
     await expectVisibleRoute("Announcements");
   });
@@ -235,7 +535,7 @@ describe("AppNavigator", () => {
     expect(onRequestHandled).toHaveBeenCalledWith("malformed-detail");
   });
 
-  it("holds protected post-auth work until the authenticated route tree exists", async () => {
+  it("holds protected post-auth work through hydration and auth, then handles it once", async () => {
     const onRequestHandled = jest.fn();
     const protectedRequest: AppNavigationRequest = {
       key: "pending-calendar-event",
@@ -254,6 +554,18 @@ describe("AppNavigator", () => {
 
     await view.rerenderAsync(
       <NavigatorHarness
+        activeRoute="Login"
+        onRequestHandled={onRequestHandled}
+        request={{ ...protectedRequest }}
+        rootSurface="auth"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("Login");
+    expect(onRequestHandled).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <NavigatorHarness
         activeRoute="Home"
         onRequestHandled={onRequestHandled}
         request={protectedRequest}
@@ -263,6 +575,19 @@ describe("AppNavigator", () => {
     );
 
     await expectVisibleRoute("CalendarEventDetail");
+    expect(onRequestHandled).toHaveBeenCalledTimes(1);
     expect(onRequestHandled).toHaveBeenCalledWith("pending-calendar-event");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Home"
+        onRequestHandled={onRequestHandled}
+        request={{ ...protectedRequest }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("CalendarEventDetail");
+    expect(onRequestHandled).toHaveBeenCalledTimes(1);
   });
 });

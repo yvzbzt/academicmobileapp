@@ -4,10 +4,15 @@ import {
   NavigationContainer,
   createNavigationContainerRef,
   type NavigationState,
-  type PartialState
+  type PartialState,
+  useScrollToTop,
 } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  createNativeStackNavigator,
+  type NativeStackHeaderProps,
+} from "@react-navigation/native-stack";
 import {
   createContext,
   useContext,
@@ -17,7 +22,15 @@ import {
   useState,
   type ReactNode
 } from "react";
-import { BackHandler, Platform, StyleSheet, View } from "react-native";
+import {
+  BackHandler,
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type ScrollView,
+} from "react-native";
 import {
   NavigationSurface,
   Screen,
@@ -26,6 +39,12 @@ import {
   useTheme
 } from "../design-system";
 import { isSafeRouteIdentifier } from "./routes";
+import {
+  PRIMARY_TABS,
+  primaryTabDefinition,
+  resolveAppShellLayoutContract,
+} from "./app-shell";
+import { AdaptiveTopBar } from "./AdaptiveTopBar";
 
 export type AppRootSurface =
   | "hydration_loading"
@@ -148,15 +167,14 @@ function useRouteContent(): RouteContentValue {
 
 function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   const { screens, globalFeedback } = useRouteContent();
+  const adaptation = usePlatformAdaptation();
+  const scrollRef = useRef<ScrollView | null>(null);
+  useScrollToTop(scrollRef);
   const isBootstrap = route === "BootstrapLoading" || route === "BootstrapError";
-  const hasNativeHeader = route === "SummerSchool"
-    || route === "YokAnnouncements"
-    || route === "AnnouncementDetail"
-    || route === "CalendarEventDetail"
-    || route === "AcademicProfileSettings"
-    || route === "NotificationSettings"
-    || route === "GoogleCalendarSettings"
-    || route === "AccountDataSettings";
+  const hasAuthenticatedShell = isAuthenticatedRoute(route);
+  const authenticatedEdges = adaptation.navigationLayout === "navigation-rail"
+    ? ["right", "bottom"] as const
+    : ["left", "right"] as const;
 
   if (isBootstrap) {
     return (
@@ -169,8 +187,9 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   return (
     <Screen
       scroll
-      edges={hasNativeHeader ? ["left", "right", "bottom"] : ["top", "left", "right", "bottom"]}
+      edges={hasAuthenticatedShell ? [...authenticatedEdges] : ["top", "left", "right", "bottom"]}
       contentStyle={styles.content}
+      scrollViewRef={scrollRef}
       scrollViewProps={{
         contentInsetAdjustmentBehavior: "automatic",
         keyboardDismissMode: Platform.OS === "ios" ? "interactive" : "on-drag"
@@ -207,6 +226,43 @@ const NotificationSettingsScreen = routeComponent("NotificationSettings");
 const GoogleCalendarSettingsScreen = routeComponent("GoogleCalendarSettings");
 const AccountDataSettingsScreen = routeComponent("AccountDataSettings");
 const UnknownRouteScreen = routeComponent("UnknownRoute");
+
+function ShellStackHeader({
+  back,
+  navigation,
+  options,
+  route,
+}: NativeStackHeaderProps) {
+  const { navigationLocked } = useRouteContent();
+  const adaptation = usePlatformAdaptation();
+  const theme = useTheme();
+  const title = options.title ?? route.name;
+
+  return (
+    <AdaptiveTopBar
+      title={title}
+      leadingAction={back ? {
+        accessibilityHint: back.title
+          ? `${back.title} ekran\u0131na d\u00f6ner.`
+          : "\u00d6nceki ekrana d\u00f6ner.",
+        accessibilityLabel: "Geri d\u00f6n",
+        disabled: navigationLocked,
+        icon: (
+          <Ionicons
+            color={theme.colors.text.primary}
+            name={adaptation.platform === "ios" ? "chevron-back" : "arrow-back"}
+            size={22}
+          />
+        ),
+        onPress: () => navigation.goBack(),
+      } : undefined}
+    />
+  );
+}
+
+function renderShellStackHeader(props: NativeStackHeaderProps) {
+  return <ShellStackHeader {...props} />;
+}
 
 function AuthNavigator() {
   const { navigationLocked } = useRouteContent();
@@ -254,10 +310,10 @@ function HomeNavigator() {
     <HomeStack.Navigator
       screenOptions={{
         contentStyle: { backgroundColor: theme.colors.background.canvas },
-        headerShown: false
+        header: renderShellStackHeader
       }}
     >
-      <HomeStack.Screen name="Home" component={HomeScreen} />
+      <HomeStack.Screen name="Home" component={HomeScreen} options={{ title: "Ana Sayfa" }} />
     </HomeStack.Navigator>
   );
 }
@@ -272,13 +328,11 @@ function AnnouncementsNavigator() {
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
         gestureEnabled: !navigationLocked,
+        header: renderShellStackHeader,
         headerBackTitle: "Gündem",
-        headerStyle: { backgroundColor: theme.colors.background.surface },
-        headerTintColor: theme.colors.text.primary,
-        headerTitleStyle: theme.typography.cardTitle
       }}
     >
-      <AnnouncementStack.Screen name="Announcements" component={AnnouncementsScreen} options={{ headerShown: false }} />
+      <AnnouncementStack.Screen name="Announcements" component={AnnouncementsScreen} options={{ title: "Duyurular" }} />
       <AnnouncementStack.Screen name="SummerSchool" component={SummerSchoolScreen} options={{ title: "Yaz Okulu" }} />
       <AnnouncementStack.Screen name="YokAnnouncements" component={YokAnnouncementsScreen} options={{ title: "YÖK" }} />
       <AnnouncementStack.Screen name="AnnouncementDetail" component={AnnouncementDetailScreen} options={{ title: "Duyuru" }} />
@@ -296,13 +350,11 @@ function CalendarNavigator() {
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
         gestureEnabled: !navigationLocked,
+        header: renderShellStackHeader,
         headerBackTitle: "Takvim",
-        headerStyle: { backgroundColor: theme.colors.background.surface },
-        headerTintColor: theme.colors.text.primary,
-        headerTitleStyle: theme.typography.cardTitle
       }}
     >
-      <CalendarStack.Screen name="Calendar" component={CalendarScreen} options={{ headerShown: false }} />
+      <CalendarStack.Screen name="Calendar" component={CalendarScreen} options={{ title: "Takvim" }} />
       <CalendarStack.Screen name="CalendarEventDetail" component={CalendarEventDetailScreen} options={{ title: "Takvim Ayrıntısı" }} />
     </CalendarStack.Navigator>
   );
@@ -318,13 +370,11 @@ function SettingsNavigator() {
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
         gestureEnabled: !navigationLocked,
+        header: renderShellStackHeader,
         headerBackTitle: "Profil",
-        headerStyle: { backgroundColor: theme.colors.background.surface },
-        headerTintColor: theme.colors.text.primary,
-        headerTitleStyle: theme.typography.cardTitle
       }}
     >
-      <SettingsStack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
+      <SettingsStack.Screen name="Profile" component={ProfileScreen} options={{ title: "Profil" }} />
       <SettingsStack.Screen name="AcademicProfileSettings" component={AcademicProfileSettingsScreen} options={{ title: "Akademik Profil" }} />
       <SettingsStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: "Bildirimler" }} />
       <SettingsStack.Screen name="GoogleCalendarSettings" component={GoogleCalendarSettingsScreen} options={{ title: "Google Takvim" }} />
@@ -333,60 +383,155 @@ function SettingsNavigator() {
   );
 }
 
-const tabIcons: Record<keyof MainTabParamList, keyof typeof Ionicons.glyphMap> = {
-  HomeTab: "home-outline",
-  AnnouncementsTab: "newspaper-outline",
-  CalendarTab: "calendar-outline",
-  ProfileTab: "person-outline"
+function ShellTabIcon({
+  color,
+  focused,
+  route,
+  size,
+}: {
+  color: string;
+  focused: boolean;
+  route: keyof MainTabParamList;
+  size: number;
+}) {
+  const adaptation = usePlatformAdaptation();
+  const theme = useTheme();
+  const definition = primaryTabDefinition(route);
+  const usesMaterialIndicator = adaptation.platform === "android";
+
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[
+        styles.tabIconIndicator,
+        usesMaterialIndicator && styles.tabIconIndicatorAndroid,
+        focused && usesMaterialIndicator && {
+          backgroundColor: theme.colors.state.selected,
+        },
+      ]}
+    >
+      <Ionicons
+        name={focused ? definition.selectedIcon : definition.icon}
+        color={color}
+        size={size}
+      />
+    </View>
+  );
+}
+
+function ShellTabLabel({
+  color,
+  label,
+}: {
+  color: string;
+  label: string;
+}) {
+  const adaptation = usePlatformAdaptation();
+  const { fontScale, width } = useWindowDimensions();
+  const contract = resolveAppShellLayoutContract({
+    platform: adaptation.platform,
+    windowWidth: width,
+    fontScale,
+  });
+
+  return (
+    <Text
+      allowFontScaling
+      maxFontSizeMultiplier={contract.navigationLabelMaxFontSizeMultiplier}
+      numberOfLines={contract.navigationLabelLines}
+      style={[
+        styles.tabLabel,
+        {
+          color,
+          fontSize: contract.navigationLabelFontSize,
+          lineHeight: contract.navigationLabelFontSize + 4,
+        },
+      ]}
+    >
+      {label}
+    </Text>
+  );
+}
+
+const tabNavigators: Record<keyof MainTabParamList, () => React.JSX.Element> = {
+  HomeTab: HomeNavigator,
+  AnnouncementsTab: AnnouncementsNavigator,
+  CalendarTab: CalendarNavigator,
+  ProfileTab: SettingsNavigator,
 };
 
 function AuthenticatedNavigator() {
   const adaptation = usePlatformAdaptation();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const { fontScale, width } = useWindowDimensions();
   const useNavigationRail = adaptation.navigationLayout === "navigation-rail";
+  const shellLayout = resolveAppShellLayoutContract({
+    platform: adaptation.platform,
+    windowWidth: width,
+    fontScale,
+  });
+  const bottomNavigationHeight =
+    !useNavigationRail && shellLayout.bottomNavigationContentHeight
+      ? shellLayout.bottomNavigationContentHeight + insets.bottom
+      : undefined;
   return (
     <MainTabs.Navigator
       initialRouteName="HomeTab"
       backBehavior="history"
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        sceneStyle: { backgroundColor: theme.colors.background.canvas },
-        tabBarHideOnKeyboard: true,
-        tabBarIcon: ({ color, size, focused }) => (
-          <Ionicons
-            name={focused ? tabIcons[route.name].replace("-outline", "") as keyof typeof Ionicons.glyphMap : tabIcons[route.name]}
-            color={color}
-            size={size}
-          />
-        ),
-        tabBarLabelStyle: styles.tabLabel,
-        tabBarItemStyle: styles.tabItem,
-        tabBarActiveTintColor: theme.colors.action.primary,
-        tabBarInactiveTintColor: theme.colors.text.secondary,
-        tabBarActiveBackgroundColor: theme.colors.state.selected,
-        tabBarPosition: useNavigationRail ? "left" : "bottom",
-        tabBarVariant: useNavigationRail ? "material" : "uikit",
-        tabBarStyle: {
-          backgroundColor: "transparent",
-          borderColor: theme.colors.border.default
-        },
-        tabBarBackground: () => (
-          <NavigationSurface
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            kind="tab-bar"
-            pointerEvents="none"
-            style={StyleSheet.absoluteFill}
-          >
-            {null}
-          </NavigationSurface>
-        )
-      })}
+      screenOptions={({ route }) => {
+        const definition = primaryTabDefinition(route.name);
+        return {
+          headerShown: false,
+          sceneStyle: { backgroundColor: theme.colors.background.canvas },
+          tabBarAccessibilityLabel: definition.label,
+          tabBarActiveBackgroundColor: "transparent",
+          tabBarActiveTintColor: theme.colors.action.primary,
+          tabBarBackground: () => (
+            <NavigationSurface
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              kind="tab-bar"
+              pointerEvents="none"
+              style={StyleSheet.absoluteFill}
+            >
+              {null}
+            </NavigationSurface>
+          ),
+          tabBarHideOnKeyboard: true,
+          tabBarIcon: ({ color, size, focused }) => (
+            <ShellTabIcon
+              color={color}
+              focused={focused}
+              route={route.name}
+              size={size}
+            />
+          ),
+          tabBarInactiveBackgroundColor: "transparent",
+          tabBarInactiveTintColor: theme.colors.text.secondary,
+          tabBarItemStyle: styles.tabItem,
+          tabBarLabel: ({ color }) => (
+            <ShellTabLabel color={color} label={definition.label} />
+          ),
+          tabBarPosition: useNavigationRail ? "left" : "bottom",
+          tabBarStyle: {
+            backgroundColor: "transparent",
+            borderColor: theme.colors.border.default,
+            height: bottomNavigationHeight,
+          },
+          tabBarVariant: useNavigationRail ? "material" : "uikit",
+        };
+      }}
     >
-      <MainTabs.Screen name="HomeTab" component={HomeNavigator} options={{ title: "Ana Sayfa" }} />
-      <MainTabs.Screen name="AnnouncementsTab" component={AnnouncementsNavigator} options={{ title: "Duyurular" }} />
-      <MainTabs.Screen name="CalendarTab" component={CalendarNavigator} options={{ title: "Takvim" }} />
-      <MainTabs.Screen name="ProfileTab" component={SettingsNavigator} options={{ title: "Profil" }} />
+      {PRIMARY_TABS.map((definition) => (
+        <MainTabs.Screen
+          key={definition.route}
+          name={definition.route}
+          component={tabNavigators[definition.route]}
+          options={{ title: definition.label }}
+        />
+      ))}
     </MainTabs.Navigator>
   );
 }
@@ -499,6 +644,7 @@ export function AppNavigator({
     const controlledKey = `${rootSurface}:${activeRoute}`;
     if (lastControlledRouteRef.current === controlledKey) return;
     lastControlledRouteRef.current = controlledKey;
+    if (getLeafRouteName(navigationRef.getRootState()) === activeRoute) return;
     navigationRef.dispatch(requestAction({ key: controlledKey, route: activeRoute }));
   }, [activeRoute, ready, rootSurface]);
 
@@ -506,7 +652,12 @@ export function AppNavigator({
     if (!ready || !request || !navigationRef.isReady()) return;
     if (!requestMatchesRootSurface(request.route, rootSurface)) return;
     if (handledRequestKeyRef.current === request.key) return;
-    navigationRef.dispatch(requestAction(request));
+    if (
+      !isControlledBaseRoute(request.route)
+      || getLeafRouteName(navigationRef.getRootState()) !== request.route
+    ) {
+      navigationRef.dispatch(requestAction(request));
+    }
     handledRequestKeyRef.current = request.key;
     onRequestHandled?.(request.key);
   }, [onRequestHandled, ready, request, rootSurface]);
@@ -605,6 +756,21 @@ function isVisibleRoute(value: string): value is AppVisibleRoute {
   ].includes(value);
 }
 
+function isAuthenticatedRoute(route: AppVisibleRoute): boolean {
+  return route === "Home"
+    || route === "Announcements"
+    || route === "SummerSchool"
+    || route === "YokAnnouncements"
+    || route === "AnnouncementDetail"
+    || route === "Calendar"
+    || route === "CalendarEventDetail"
+    || route === "Profile"
+    || route === "AcademicProfileSettings"
+    || route === "NotificationSettings"
+    || route === "GoogleCalendarSettings"
+    || route === "AccountDataSettings";
+}
+
 const styles = StyleSheet.create({
   bootstrap: {
     alignSelf: "stretch",
@@ -615,10 +781,23 @@ const styles = StyleSheet.create({
     gap: 14
   },
   tabItem: {
-    minHeight: Platform.OS === "ios" ? 44 : 48
+    minHeight: 48,
   },
   tabLabel: {
-    fontSize: Platform.OS === "ios" ? 11 : 12,
-    fontWeight: "600"
-  }
+    fontWeight: "600",
+    marginTop: 1,
+    maxWidth: 76,
+    textAlign: "center",
+  },
+  tabIconIndicator: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 30,
+    justifyContent: "center",
+    minWidth: 44,
+    paddingHorizontal: 8,
+  },
+  tabIconIndicatorAndroid: {
+    minWidth: 64,
+  },
 });

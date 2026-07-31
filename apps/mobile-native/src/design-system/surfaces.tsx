@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -25,6 +25,7 @@ export interface ScreenProps extends Omit<ViewProps, "style"> {
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
   scrollViewProps?: Omit<ScrollViewProps, "contentContainerStyle">;
+  scrollViewRef?: RefObject<ScrollView | null>;
 }
 
 function resolveReadableWidth(
@@ -44,6 +45,7 @@ export function Screen({
   style,
   contentStyle,
   scrollViewProps,
+  scrollViewRef,
   ...viewProps
 }: ScreenProps) {
   const theme = useTheme();
@@ -68,6 +70,7 @@ export function Screen({
     >
       {scroll ? (
         <ScrollView
+          ref={scrollViewRef}
           keyboardShouldPersistTaps="handled"
           {...scrollViewProps}
           contentContainerStyle={styles.scrollContent}
