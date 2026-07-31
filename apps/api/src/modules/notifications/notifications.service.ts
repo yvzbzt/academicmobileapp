@@ -1,10 +1,12 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import type { AcademicEventRecord, AcademicCalendarRecord } from "../calendars/calendar.types.js";
 import type { CalendarRepository } from "../calendars/calendar.types.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
-import type { NotificationPreferenceDto, StudentAlarmDto } from "../../../../../packages/shared/src/contracts.js";
+import type { DeviceRegistrationDto, DeviceUnregistrationDto, NotificationPreferenceDto, StudentAlarmDto } from "../../../../../packages/shared/src/contracts.js";
+import { DeviceRegistrationConflictError, NOTIFICATION_DELIVERY_CONSENT_VERSION } from "./notification.types.js";
 import type { NotificationJobRecord, NotificationPreferenceRecord, NotificationRepository, ReminderPreferenceRuleRecord, StudentAlarmRecord } from "./notification.types.js";
-import type { CreateStudentAlarmDto, RegisterDeviceDto, UpdateNotificationPreferencesDto } from "./notifications.dto.js";
+import type { CreateStudentAlarmDto, RegisterDeviceDto, UnregisterDeviceDto, UpdateNotificationPreferencesDto } from "./notifications.dto.js";
 
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: ReminderPreferenceRuleRecord[] = [
@@ -20,8 +22,40 @@ export class NotificationsService {
     @Optional() @Inject("CalendarRepository") private readonly calendarRepository?: CalendarRepository
   ) {}
 
-  registerDevice(user: AuthenticatedUser, input: RegisterDeviceDto) {
-    return this.notificationRepository.upsertDeviceToken({ userId: user.id, platform: input.platform, token: input.token.trim() });
+  async registerDevice(user: AuthenticatedUser, input: RegisterDeviceDto): Promise<DeviceRegistrationDto> {
+    const token = normalizePushToken(input.token);
+    const installationHash = hashNotificationDeviceId(normalizeRegistrationDeviceId(input.deviceId));
+    try {
+      const device = await this.notificationRepository.upsertDeviceToken({
+        userId: user.id,
+        platform: input.platform,
+        token,
+        installationHash
+      });
+      return {
+        status: "registered",
+        platform: device.platform,
+        lastSeenAt: device.lastSeenAt.toISOString()
+      };
+    } catch (error) {
+      if (error instanceof DeviceRegistrationConflictError) {
+        throw new ConflictException("This device is already registered to another active installation or account.");
+      }
+      throw error;
+    }
+  }
+
+  async unregisterCurrentDevice(user: AuthenticatedUser, input: UnregisterDeviceDto): Promise<DeviceUnregistrationDto> {
+    const installationHash = hashNotificationDeviceId(normalizeRegistrationDeviceId(input.deviceId));
+    try {
+      await this.notificationRepository.disableDeviceInstallation(user.id, installationHash);
+      return { status: "unregistered" };
+    } catch (error) {
+      if (error instanceof DeviceRegistrationConflictError) {
+        throw new ConflictException("This device registration belongs to another active account.");
+      }
+      throw error;
+    }
   }
 
   async getPreferences(user: AuthenticatedUser): Promise<NotificationPreferenceRecord> {
@@ -29,7 +63,7 @@ export class NotificationsService {
     if (existing) return existing;
     return this.notificationRepository.upsertPreferences({
       userId: user.id,
-      enabled: true,
+      enabled: false,
       categories: {},
       reminderOffsets: DEFAULT_REMINDER_OFFSETS,
       reminderRules: DEFAULT_REMINDER_RULES
@@ -37,11 +71,17 @@ export class NotificationsService {
   }
 
   async updatePreferences(user: AuthenticatedUser, input: UpdateNotificationPreferencesDto): Promise<NotificationPreferenceRecord> {
+    if (input.enabled && input.deliveryConsentVersion !== NOTIFICATION_DELIVERY_CONSENT_VERSION) {
+      throw new BadRequestException(`Enabling notifications requires deliveryConsentVersion=${NOTIFICATION_DELIVERY_CONSENT_VERSION}.`);
+    }
     const reminderRules = normalizePreferenceReminderRules(input.reminderOffsets, input.reminderRules ?? []);
     if (reminderRules.length === 0) throw new BadRequestException("At least one reminder rule is required.");
     return this.notificationRepository.upsertPreferences({
       userId: user.id,
       enabled: input.enabled,
+      ...(input.deliveryConsentVersion === NOTIFICATION_DELIVERY_CONSENT_VERSION
+        ? { deliveryConsentVersion: NOTIFICATION_DELIVERY_CONSENT_VERSION }
+        : {}),
       categories: input.categories,
       reminderOffsets: normalizedReminderOffsets(input.reminderOffsets),
       reminderRules,
@@ -50,8 +90,11 @@ export class NotificationsService {
   }
 
   toPreferenceDto(preferences: NotificationPreferenceRecord): NotificationPreferenceDto {
+    const deliveryConsentCurrent = preferences.deliveryConsentVersion === NOTIFICATION_DELIVERY_CONSENT_VERSION;
+    const enabled = preferences.enabled && deliveryConsentCurrent;
     return {
-      enabled: preferences.enabled,
+      enabled,
+      ...(enabled ? { deliveryConsentVersion: NOTIFICATION_DELIVERY_CONSENT_VERSION } : {}),
       categories: Object.fromEntries(Object.entries(preferences.categories).filter((entry): entry is [string, boolean] => entry[1] !== undefined)),
       reminderOffsets: preferences.reminderOffsets,
       ...(preferences.reminderRules ? { reminderRules: preferences.reminderRules } : {}),
@@ -102,6 +145,8 @@ export class NotificationsService {
     await this.notificationRepository.createNotificationJobs([{
       calendarId: resolvedEvent?.calendarId ?? "student-custom-alarm",
       eventId: alarm.id,
+      destinationType: input.eventType === "announcement" ? "announcement" : "calendar_event",
+      destinationId: input.targetId,
       userId: user.id,
       alarmId: alarm.id,
       eventType: input.eventType,
@@ -139,6 +184,8 @@ export class NotificationSchedulingService {
         .map((rule) => ({
           calendarId: calendar.id,
           eventId: event.id,
+          destinationType: "calendar_event" as const,
+          destinationId: event.id,
           universityId: event.universityId,
           ...(event.facultyId ? { facultyId: event.facultyId } : {}),
           ...(event.departmentId ? { departmentId: event.departmentId } : {}),
@@ -157,6 +204,28 @@ export class NotificationSchedulingService {
   listCalendarJobs(calendarId: string) {
     return this.notificationRepository.listJobsByCalendar(calendarId);
   }
+}
+
+export function hashNotificationDeviceId(deviceId: string): string {
+  const normalized = deviceId.trim();
+  if (!normalized) throw new BadRequestException("deviceId is required.");
+  return createHash("sha256").update("academic-mobile-notification-device:v1\0").update(normalized).digest("hex");
+}
+
+function normalizePushToken(token: string): string {
+  const normalized = token.trim();
+  if (normalized.length < 16 || normalized.length > 4096) {
+    throw new BadRequestException("token must be between 16 and 4096 characters after trimming.");
+  }
+  return normalized;
+}
+
+function normalizeRegistrationDeviceId(deviceId: string): string {
+  const normalized = deviceId.trim();
+  if (normalized.length < 8 || normalized.length > 256) {
+    throw new BadRequestException("deviceId must be between 8 and 256 characters after trimming.");
+  }
+  return normalized;
 }
 
 function normalizedReminderOffsets(offsets: number[]): number[] {

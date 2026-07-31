@@ -30,6 +30,32 @@ describe("mongoIndexDefinitions", () => {
     );
   });
 
+  it("contains the expired notification claim recovery index", () => {
+    expect(mongoIndexDefinitions).toContainEqual(expect.objectContaining({
+      collection: "notification_jobs",
+      keys: { status: 1, processingLeaseUntil: 1, scheduledAt: 1 },
+      name: "notification_jobs_claim_recovery"
+    }));
+  });
+
+  it("contains sparse uniqueness for hashed notification installations", () => {
+    expect(mongoIndexDefinitions).toContainEqual(expect.objectContaining({
+      collection: "device_tokens",
+      keys: { installationHash: 1 },
+      unique: true,
+      sparse: true,
+      name: "device_tokens_installation_unique"
+    }));
+  });
+
+  it("contains the sent-recipient retry lookup index", () => {
+    expect(mongoIndexDefinitions).toContainEqual(expect.objectContaining({
+      collection: "notification_deliveries",
+      keys: { jobId: 1, status: 1, deviceTokenId: 1 },
+      name: "notification_deliveries_job_status_device"
+    }));
+  });
+
   it("contains digest lookup and TTL indexes for password recovery", () => {
     expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
       expect.objectContaining({

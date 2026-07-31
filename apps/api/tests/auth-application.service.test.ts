@@ -8,6 +8,8 @@ import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repos
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
+import { InMemoryNotificationRepository } from "../src/modules/notifications/in-memory-notification.repository.js";
+import { hashNotificationDeviceId } from "../src/modules/notifications/notifications.service.js";
 
 class FakeEmailVerificationSenderService extends EmailVerificationSenderService {
   public readonly sent: SendVerificationEmailInput[] = [];
@@ -29,15 +31,17 @@ class FakeGoogleIdentityVerifier implements GoogleIdentityVerifier {
 function createAuthService(googleIdentity?: VerifiedGoogleIdentity, catalogRepository?: InMemoryCatalogRepository) {
   const sender = new FakeEmailVerificationSenderService();
   const authRepository = new InMemoryAuthRepository();
+  const notificationRepository = new InMemoryNotificationRepository();
   const service = new AuthApplicationService(
     authRepository,
     new PasswordHasher(),
     new TokenService(),
     sender,
     googleIdentity ? new FakeGoogleIdentityVerifier(googleIdentity) : undefined,
-    catalogRepository
+    catalogRepository,
+    notificationRepository
   );
-  return { service, sender, authRepository };
+  return { service, sender, authRepository, notificationRepository };
 }
 
 function setStoredCredentialGeneration(
@@ -465,8 +469,8 @@ describe("AuthApplicationService", () => {
     )).resolves.toEqual(expect.objectContaining({ credentialGeneration: 9 }));
   });
 
-  it("revokes refresh token on logout", async () => {
-    const { service: authService, sender } = createAuthService();
+  it("revokes the refresh token and detaches its hashed device installation on logout", async () => {
+    const { service: authService, sender, notificationRepository } = createAuthService();
 
     const registerResult = await authService.register({
       email: "logout@campus.edu.tr",
@@ -476,8 +480,16 @@ describe("AuthApplicationService", () => {
 
     await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
     const session = await authService.login({ email: "logout@campus.edu.tr", password: "StrongPass123!", deviceId: "device-1" });
+    await notificationRepository.upsertDeviceToken({
+      userId: session.user.id,
+      platform: "android",
+      token: "logout-device-token",
+      installationHash: hashNotificationDeviceId("device-1")
+    });
 
     await authService.logout(session.refreshToken);
+
+    await expect(notificationRepository.listActiveDeviceTokens(10, 0)).resolves.toEqual([]);
 
     await expect(
       authService.refresh({

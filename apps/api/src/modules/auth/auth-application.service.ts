@@ -9,6 +9,9 @@ import { PasswordHasher } from "./password-hasher.js";
 import { TokenService } from "./token.service.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import { assertClassLevelAllowed } from "../catalog/academic-levels.js";
+import { hashNotificationDeviceId } from "../notifications/notifications.service.js";
+import { DeviceRegistrationConflictError } from "../notifications/notification.types.js";
+import type { NotificationRepository } from "../notifications/notification.types.js";
 
 @Injectable()
 export class AuthApplicationService {
@@ -19,7 +22,8 @@ export class AuthApplicationService {
     @Inject(TokenService) private readonly tokenService: TokenService,
     @Inject(EmailVerificationSenderService) private readonly emailVerificationSender: EmailVerificationSenderService,
     @Optional() @Inject("GoogleIdentityVerifier") private readonly googleIdentityVerifier?: GoogleIdentityVerifier,
-    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository
+    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
+    @Optional() @Inject("NotificationRepository") private readonly notificationRepository?: NotificationRepository
   ) {}
 
   async register(input: RegisterInput): Promise<RegisterResult> {
@@ -250,6 +254,19 @@ export class AuthApplicationService {
     const existingToken = await this.authRepository.findRefreshTokenByHash(tokenHash);
     if (existingToken && !existingToken.revokedAt) {
       await this.authRepository.revokeRefreshToken(existingToken.id, new Date());
+    }
+    if (existingToken && this.notificationRepository) {
+      try {
+        await this.notificationRepository.disableDeviceInstallation(
+          existingToken.userId,
+          hashNotificationDeviceId(existingToken.deviceId)
+        );
+      } catch (error) {
+        // A late logout from an old account must never detach a newer owner's
+        // active installation. The repository conflict proves there is
+        // nothing left for this refresh-token owner to detach.
+        if (!(error instanceof DeviceRegistrationConflictError)) throw error;
+      }
     }
   }
 

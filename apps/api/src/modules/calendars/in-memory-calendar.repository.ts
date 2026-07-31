@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarRepository, UpcomingEventFilters } from "./calendar.types.js";
+import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, UpcomingEventFilters } from "./calendar.types.js";
 
 @Injectable()
 export class InMemoryCalendarRepository implements CalendarRepository {
@@ -101,11 +101,29 @@ export class InMemoryCalendarRepository implements CalendarRepository {
   async findPublishedEventById(eventId: string): Promise<AcademicEventRecord | null> {
     return this.events.find((event) => event.id === eventId && event.status === "published") ?? null;
   }
+
+  async findPublishedEventByIdInScope(eventId: string, scope: CalendarEventScope): Promise<AcademicEventRecord | null> {
+    return this.events.find((event) => (
+      event.id === eventId
+      && event.status === "published"
+      && event.universityId === scope.universityId
+      && matchesExactScope(event, scope.facultyId, scope.departmentId)
+    )) ?? null;
+  }
 }
 
 function matchesScope(event: AcademicEventRecord, facultyId?: string, departmentId?: string): boolean {
   if (!facultyId && !departmentId) return true;
   if (event.departmentId) return Boolean(departmentId && event.departmentId === departmentId);
+  if (event.facultyId) return Boolean(facultyId && event.facultyId === facultyId);
+  return true;
+}
+
+function matchesExactScope(event: AcademicEventRecord, facultyId?: string, departmentId?: string): boolean {
+  if (event.departmentId) {
+    if (!departmentId || event.departmentId !== departmentId) return false;
+    return !event.facultyId || Boolean(facultyId && event.facultyId === facultyId);
+  }
   if (event.facultyId) return Boolean(facultyId && event.facultyId === facultyId);
   return true;
 }

@@ -7,6 +7,10 @@ const SOURCE_ID_PROPERTY = "amaSourceId";
 const SOURCE_TYPE_PROPERTY = "amaSourceType";
 const FINGERPRINT_PROPERTY = "amaFingerprint";
 
+export const GOOGLE_CALENDAR_SOURCE_TYPES = ["academic_event", "announcement", "event"] as const;
+
+export type GoogleCalendarSourceType = (typeof GOOGLE_CALENDAR_SOURCE_TYPES)[number];
+
 export type GoogleCalendarAcademicEvent = {
   id: string;
   title: string;
@@ -20,14 +24,14 @@ export type GoogleCalendarAnnouncement = {
   title: string;
   link: string;
   publishedAt?: string;
-  fetchedAt?: string;
+  sourceUpdatedAt?: string;
   summary?: string;
   contentType?: "announcement" | "news" | "event";
 };
 
 export type GoogleCalendarSyncItem = {
   sourceId: string;
-  sourceType: "academic_event" | "announcement" | "event";
+  sourceType: GoogleCalendarSourceType;
   summary: string;
   description: string;
   startDate: string;
@@ -35,13 +39,34 @@ export type GoogleCalendarSyncItem = {
   fingerprint: string;
 };
 
+export type GoogleCalendarEventMapping = {
+  sourceId: string;
+  sourceType: GoogleCalendarSourceType;
+  googleEventId: string;
+  fingerprint: string;
+};
+
+export type GoogleCalendarMutationOperation = "create" | "update" | "delete" | "verify";
+
+export type GoogleCalendarMutationFailure = {
+  operation: GoogleCalendarMutationOperation;
+  code: GoogleCalendarErrorCode;
+  sourceId?: string;
+  googleEventId?: string;
+  status?: number;
+};
+
 export type GoogleCalendarSyncResult = {
   created: number;
   updated: number;
   deleted: number;
   skipped: number;
+  failed: number;
   total: number;
   verified: number;
+  partial: boolean;
+  failures: GoogleCalendarMutationFailure[];
+  mappings: GoogleCalendarEventMapping[];
 };
 
 export type GoogleCalendarSyncInput = {
@@ -49,8 +74,29 @@ export type GoogleCalendarSyncInput = {
   ownerId: string;
   calendarEvents: GoogleCalendarAcademicEvent[];
   announcements: GoogleCalendarAnnouncement[];
-  replaceSourceTypes?: Array<GoogleCalendarSyncItem["sourceType"]>;
+  /**
+   * Only source families known to be complete may delete missing remote events.
+   * Items from incomplete/partial families are still safe to create or update.
+   */
+  deletionEligibleSourceTypes?: GoogleCalendarSourceType[];
+  /** @deprecated Use deletionEligibleSourceTypes. Retained for the current App caller. */
+  replaceSourceTypes?: GoogleCalendarSourceType[];
   signal?: AbortSignal;
+};
+
+export type GoogleCalendarAuthorizationVerification = {
+  authorized: true;
+  managedEventCount: number;
+  mappings: GoogleCalendarEventMapping[];
+};
+
+export type GoogleCalendarRemoveManagedEventsResult = {
+  deleted: number;
+  failed: number;
+  remaining: number;
+  partial: boolean;
+  failures: GoogleCalendarMutationFailure[];
+  mappings: GoogleCalendarEventMapping[];
 };
 
 export type GoogleCalendarErrorCode =
@@ -77,6 +123,8 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 type GoogleApiEvent = {
   id?: string;
   status?: string;
+  summary?: string;
+  description?: string;
   extendedProperties?: {
     private?: Record<string, string>;
   };
@@ -90,18 +138,37 @@ type GoogleApiEventList = {
 export class GoogleCalendarService {
   constructor(private readonly fetchImpl: FetchLike = fetch) {}
 
+  /** A live, non-mutating Calendar API check. Historical local metadata is not consulted. */
+  async verifyAuthorization(input: {
+    accessToken: string;
+    ownerId: string;
+    signal?: AbortSignal;
+  }): Promise<GoogleCalendarAuthorizationVerification> {
+    const managedEvents = (await this.listManagedEvents(input.accessToken, input.signal))
+      .filter((event) => isOwnedManagedEvent(event, input.ownerId));
+    return {
+      authorized: true,
+      managedEventCount: managedEvents.length,
+      mappings: collectEventMappings(managedEvents)
+    };
+  }
+
   async sync(input: GoogleCalendarSyncInput): Promise<GoogleCalendarSyncResult> {
-    const replaceSourceTypes = new Set<GoogleCalendarSyncItem["sourceType"]>(
-      input.replaceSourceTypes ?? ["academic_event", "announcement", "event"]
+    const deletionEligibleSourceTypes = new Set<GoogleCalendarSourceType>(
+      input.deletionEligibleSourceTypes
+        ?? input.replaceSourceTypes
+        ?? GOOGLE_CALENDAR_SOURCE_TYPES
     );
-    const desiredItems = buildGoogleCalendarSyncItems(input.calendarEvents, input.announcements)
-      .filter((item) => replaceSourceTypes.has(item.sourceType));
-    const existing = (await this.listManagedEvents(input.accessToken, input.signal))
-      .filter((event) => event.extendedProperties?.private?.[OWNER_PROPERTY] === input.ownerId);
+    const desiredItems = buildGoogleCalendarSyncItems(input.calendarEvents, input.announcements);
+    const initiallyManaged = (await this.listManagedEvents(input.accessToken, input.signal))
+      .filter((event) => isOwnedManagedEvent(event, input.ownerId));
+    const observedEvents = new Map(
+      initiallyManaged.flatMap((event) => event.id ? [[event.id, event] as const] : [])
+    );
     const existingBySourceId = new Map<string, GoogleApiEvent>();
     const duplicates: GoogleApiEvent[] = [];
 
-    for (const event of existing) {
+    for (const event of initiallyManaged) {
       const sourceId = event.extendedProperties?.private?.[SOURCE_ID_PROPERTY];
       if (!sourceId || !event.id) continue;
       if (existingBySourceId.has(sourceId)) duplicates.push(event);
@@ -110,7 +177,9 @@ export class GoogleCalendarService {
 
     let created = 0;
     let updated = 0;
+    let deleted = 0;
     let skipped = 0;
+    const failures: GoogleCalendarMutationFailure[] = [];
     const desiredIds = new Set(desiredItems.map((item) => item.sourceId));
 
     await mapWithConcurrency(desiredItems, 4, async (item) => {
@@ -123,77 +192,199 @@ export class GoogleCalendarService {
 
       const body = toGoogleEventBody(item, input.ownerId);
       if (existingEvent?.id) {
-        await this.request(
-          input.accessToken,
-          `/calendars/primary/events/${encodeURIComponent(existingEvent.id)}`,
-          { method: "PATCH", body: JSON.stringify(body) },
-          [],
-          input.signal
-        );
-        updated += 1;
+        try {
+          const updatedEvent = await this.request<GoogleApiEvent>(
+            input.accessToken,
+            `/calendars/primary/events/${encodeURIComponent(existingEvent.id)}`,
+            { method: "PATCH", body: JSON.stringify(body) },
+            [],
+            input.signal
+          );
+          observedEvents.set(existingEvent.id, { id: existingEvent.id, ...body, ...updatedEvent });
+          updated += 1;
+        } catch (error) {
+          rethrowFatalGoogleCalendarError(error, input.signal);
+          failures.push(toMutationFailure("update", error, item.sourceId, existingEvent.id));
+        }
         return;
       }
 
-      await this.request(
-        input.accessToken,
-        "/calendars/primary/events",
-        { method: "POST", body: JSON.stringify(body) },
-        [],
-        input.signal
-      );
-      created += 1;
+      try {
+        const createdEvent = await this.request<GoogleApiEvent>(
+          input.accessToken,
+          "/calendars/primary/events",
+          { method: "POST", body: JSON.stringify(body) },
+          [],
+          input.signal
+        );
+        if (createdEvent.id) observedEvents.set(createdEvent.id, { ...body, ...createdEvent });
+        created += 1;
+      } catch (error) {
+        rethrowFatalGoogleCalendarError(error, input.signal);
+        failures.push(toMutationFailure("create", error, item.sourceId));
+      }
     });
 
-    const stale = [
-      ...duplicates.filter((event) => {
-        const sourceType = event.extendedProperties?.private?.[SOURCE_TYPE_PROPERTY] as GoogleCalendarSyncItem["sourceType"] | undefined;
-        return Boolean(sourceType && replaceSourceTypes.has(sourceType));
-      }),
+    const stale = uniqueEventsById([
+      // Duplicate app-owned mappings are always safe to collapse. Source
+      // completeness gates only deletion for a source item that is absent.
+      ...duplicates,
       ...[...existingBySourceId.entries()]
         .filter(([sourceId, event]) => {
-          const sourceType = event.extendedProperties?.private?.[SOURCE_TYPE_PROPERTY] as GoogleCalendarSyncItem["sourceType"] | undefined;
-          return !desiredIds.has(sourceId) && Boolean(sourceType && replaceSourceTypes.has(sourceType));
+          const sourceType = readSourceType(event);
+          return !desiredIds.has(sourceId) && Boolean(sourceType && deletionEligibleSourceTypes.has(sourceType));
         })
         .map(([, event]) => event)
-    ].filter((event) => Boolean(event.id));
+    ]);
 
     await mapWithConcurrency(stale, 4, async (event) => {
-      await this.request(
-        input.accessToken,
-        `/calendars/primary/events/${encodeURIComponent(event.id!)}`,
-        { method: "DELETE" },
-        [404, 410],
-        input.signal
-      );
+      if (!event.id) return;
+      try {
+        await this.request(
+          input.accessToken,
+          `/calendars/primary/events/${encodeURIComponent(event.id)}`,
+          { method: "DELETE" },
+          [404, 410],
+          input.signal
+        );
+        observedEvents.delete(event.id);
+        deleted += 1;
+      } catch (error) {
+        rethrowFatalGoogleCalendarError(error, input.signal);
+        failures.push(toMutationFailure(
+          "delete",
+          error,
+          event.extendedProperties?.private?.[SOURCE_ID_PROPERTY],
+          event.id
+        ));
+      }
     });
 
-    const verifiedEvents = (await this.listManagedEvents(input.accessToken, input.signal))
-      .filter((event) => event.extendedProperties?.private?.[OWNER_PROPERTY] === input.ownerId);
-    const verifiedSourceIds = new Set(
-      verifiedEvents
-        .filter((event) => {
-          const properties = event.extendedProperties?.private;
-          const sourceId = properties?.[SOURCE_ID_PROPERTY];
-          const desired = desiredItems.find((item) => item.sourceId === sourceId);
-          return Boolean(desired && properties?.[FINGERPRINT_PROPERTY] === desired.fingerprint);
-        })
-        .map((event) => event.extendedProperties!.private![SOURCE_ID_PROPERTY]!)
-    );
+    let finalEvents: GoogleApiEvent[];
+    try {
+      finalEvents = (await this.listManagedEvents(input.accessToken, input.signal))
+        .filter((event) => isOwnedManagedEvent(event, input.ownerId));
+    } catch (error) {
+      rethrowFatalGoogleCalendarError(error, input.signal);
+      failures.push(toMutationFailure("verify", error));
+      finalEvents = [...observedEvents.values()];
+    }
 
-    if (verifiedSourceIds.size !== desiredItems.length) {
-      throw new GoogleCalendarSyncError(
-        "GOOGLE_CALENDAR_VERIFICATION_FAILED",
-        `Expected ${desiredItems.length} managed events but verified ${verifiedSourceIds.size}.`
-      );
+    const mappings = collectEventMappings(finalEvents);
+    const mappingsBySourceId = groupMappingsBySourceId(mappings);
+    const failedSourceIds = new Set(failures.flatMap((failure) => failure.sourceId ? [failure.sourceId] : []));
+    let verified = 0;
+    for (const desired of desiredItems) {
+      const matches = mappingsBySourceId.get(desired.sourceId) ?? [];
+      if (matches.some((mapping) => mapping.fingerprint === desired.fingerprint)) {
+        verified += 1;
+      } else if (!failedSourceIds.has(desired.sourceId)) {
+        failures.push({
+          operation: "verify",
+          code: "GOOGLE_CALENDAR_VERIFICATION_FAILED",
+          sourceId: desired.sourceId
+        });
+      }
+    }
+
+    const remainingIds = new Set(finalEvents.flatMap((event) => event.id ? [event.id] : []));
+    const failedGoogleEventIds = new Set(failures.flatMap((failure) => failure.googleEventId ? [failure.googleEventId] : []));
+    for (const event of stale) {
+      if (
+        event.id
+        && remainingIds.has(event.id)
+        && !failedGoogleEventIds.has(event.id)
+      ) {
+        failures.push({
+          operation: "verify",
+          code: "GOOGLE_CALENDAR_VERIFICATION_FAILED",
+          googleEventId: event.id,
+          ...(event.extendedProperties?.private?.[SOURCE_ID_PROPERTY]
+            ? { sourceId: event.extendedProperties.private[SOURCE_ID_PROPERTY] }
+            : {})
+        });
+      }
     }
 
     return {
       created,
       updated,
-      deleted: stale.length,
+      deleted,
       skipped,
+      failed: failures.length,
       total: desiredItems.length,
-      verified: verifiedSourceIds.size
+      verified,
+      partial: failures.length > 0,
+      failures,
+      mappings
+    };
+  }
+
+  async removeManagedEvents(input: {
+    accessToken: string;
+    ownerId: string;
+    signal?: AbortSignal;
+  }): Promise<GoogleCalendarRemoveManagedEventsResult> {
+    const managedEvents = (await this.listManagedEvents(input.accessToken, input.signal))
+      .filter((event) => isOwnedManagedEvent(event, input.ownerId));
+    const failures: GoogleCalendarMutationFailure[] = [];
+    let deleted = 0;
+
+    await mapWithConcurrency(managedEvents, 4, async (event) => {
+      if (!event.id) return;
+      try {
+        await this.request(
+          input.accessToken,
+          `/calendars/primary/events/${encodeURIComponent(event.id)}`,
+          { method: "DELETE" },
+          [404, 410],
+          input.signal
+        );
+        deleted += 1;
+      } catch (error) {
+        rethrowFatalGoogleCalendarError(error, input.signal);
+        failures.push(toMutationFailure(
+          "delete",
+          error,
+          event.extendedProperties?.private?.[SOURCE_ID_PROPERTY],
+          event.id
+        ));
+      }
+    });
+
+    let remainingEvents: GoogleApiEvent[];
+    try {
+      remainingEvents = (await this.listManagedEvents(input.accessToken, input.signal))
+        .filter((event) => isOwnedManagedEvent(event, input.ownerId));
+    } catch (error) {
+      rethrowFatalGoogleCalendarError(error, input.signal);
+      failures.push(toMutationFailure("verify", error));
+      const failedIds = new Set(failures.flatMap((failure) => failure.googleEventId ? [failure.googleEventId] : []));
+      remainingEvents = managedEvents.filter((event) => Boolean(event.id && failedIds.has(event.id)));
+    }
+
+    const failedIds = new Set(failures.flatMap((failure) => failure.googleEventId ? [failure.googleEventId] : []));
+    for (const event of remainingEvents) {
+      if (event.id && !failedIds.has(event.id)) {
+        failures.push({
+          operation: "verify",
+          code: "GOOGLE_CALENDAR_VERIFICATION_FAILED",
+          googleEventId: event.id,
+          ...(event.extendedProperties?.private?.[SOURCE_ID_PROPERTY]
+            ? { sourceId: event.extendedProperties.private[SOURCE_ID_PROPERTY] }
+            : {})
+        });
+      }
+    }
+
+    const mappings = collectEventMappings(remainingEvents);
+    return {
+      deleted,
+      failed: failures.length,
+      remaining: remainingEvents.length,
+      partial: failures.length > 0 || remainingEvents.length > 0,
+      failures,
+      mappings
     };
   }
 
@@ -242,20 +433,20 @@ export class GoogleCalendarService {
         }
       });
     } catch (error) {
-      if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+      if (signal?.aborted || isAbortError(error)) throw error;
       throw new GoogleCalendarSyncError(
         "GOOGLE_CALENDAR_NETWORK_ERROR",
-        error instanceof Error ? error.message : "Google Calendar request failed."
+        "Google Calendar network request failed."
       );
     }
 
     if (acceptedFailureStatuses.includes(response.status)) return undefined as T;
-    const text = await response.text();
-    if (!response.ok) throwGoogleCalendarApiError(response.status, text);
-    if (!text) return undefined as T;
+    const responseText = await response.text();
+    if (!response.ok) throwGoogleCalendarApiError(response.status, responseText);
+    if (!responseText) return undefined as T;
 
     try {
-      return JSON.parse(text) as T;
+      return JSON.parse(responseText) as T;
     } catch {
       throw new GoogleCalendarSyncError(
         "GOOGLE_CALENDAR_REQUEST_FAILED",
@@ -291,7 +482,9 @@ export function buildGoogleCalendarSyncItems(
   for (const announcement of announcements) {
     const contentType = announcement.contentType ?? "announcement";
     if (contentType === "news") continue;
-    const startDate = dateOnly(announcement.publishedAt ?? announcement.fetchedAt);
+    // Only a source-authored publication/update timestamp may become a calendar date.
+    // Discovery/fetch/crawl timestamps are deliberately ignored.
+    const startDate = dateOnly(announcement.publishedAt ?? announcement.sourceUpdatedAt);
     if (!startDate) continue;
     const sourceType = contentType === "event" ? "event" : "announcement";
     const sourceId = `${sourceType}:${announcement.id}`;
@@ -299,7 +492,9 @@ export function buildGoogleCalendarSyncItems(
     const details = [
       label,
       announcement.summary,
-      !announcement.publishedAt && announcement.fetchedAt ? "Kaynakta yayın tarihi bulunamadığı için uygulamaya alınma tarihi kullanıldı." : undefined,
+      !announcement.publishedAt && announcement.sourceUpdatedAt
+        ? "Kaynakta yayın tarihi bulunmadığı için kaynak güncelleme tarihi kullanıldı."
+        : undefined,
       announcement.link ? `Kaynak: ${announcement.link}` : undefined
     ].filter((value): value is string => Boolean(value));
     const item = createSyncItem({
@@ -332,7 +527,7 @@ function createSyncItem(input: Omit<GoogleCalendarSyncItem, "fingerprint">): Goo
   };
 }
 
-function toGoogleEventBody(item: GoogleCalendarSyncItem, ownerId: string) {
+function toGoogleEventBody(item: GoogleCalendarSyncItem, ownerId: string): GoogleApiEvent {
   return {
     summary: item.summary,
     description: item.description,
@@ -348,7 +543,63 @@ function toGoogleEventBody(item: GoogleCalendarSyncItem, ownerId: string) {
         [FINGERPRINT_PROPERTY]: item.fingerprint
       }
     }
-  };
+  } as GoogleApiEvent;
+}
+
+function collectEventMappings(events: GoogleApiEvent[]): GoogleCalendarEventMapping[] {
+  return events.flatMap((event) => {
+    const properties = event.extendedProperties?.private;
+    const sourceType = readSourceType(event);
+    if (
+      !event.id
+      || !properties?.[SOURCE_ID_PROPERTY]
+      || !sourceType
+      || !properties[FINGERPRINT_PROPERTY]
+    ) {
+      return [];
+    }
+    return [{
+      sourceId: properties[SOURCE_ID_PROPERTY],
+      sourceType,
+      googleEventId: event.id,
+      fingerprint: properties[FINGERPRINT_PROPERTY]
+    }];
+  }).sort((left, right) =>
+    left.sourceId.localeCompare(right.sourceId, "en-US")
+    || left.googleEventId.localeCompare(right.googleEventId, "en-US")
+  );
+}
+
+function groupMappingsBySourceId(
+  mappings: GoogleCalendarEventMapping[]
+): Map<string, GoogleCalendarEventMapping[]> {
+  const grouped = new Map<string, GoogleCalendarEventMapping[]>();
+  for (const mapping of mappings) {
+    grouped.set(mapping.sourceId, [...(grouped.get(mapping.sourceId) ?? []), mapping]);
+  }
+  return grouped;
+}
+
+function readSourceType(event: GoogleApiEvent): GoogleCalendarSourceType | undefined {
+  const value = event.extendedProperties?.private?.[SOURCE_TYPE_PROPERTY];
+  return isGoogleCalendarSourceType(value) ? value : undefined;
+}
+
+function isGoogleCalendarSourceType(value: unknown): value is GoogleCalendarSourceType {
+  return typeof value === "string" && GOOGLE_CALENDAR_SOURCE_TYPES.some((candidate) => candidate === value);
+}
+
+function isOwnedManagedEvent(event: GoogleApiEvent, ownerId: string): boolean {
+  const properties = event.extendedProperties?.private;
+  return properties?.[MANAGED_PROPERTY] === "1" && properties[OWNER_PROPERTY] === ownerId;
+}
+
+function uniqueEventsById(events: GoogleApiEvent[]): GoogleApiEvent[] {
+  const unique = new Map<string, GoogleApiEvent>();
+  for (const event of events) {
+    if (event.id && !unique.has(event.id)) unique.set(event.id, event);
+  }
+  return [...unique.values()];
 }
 
 function dateOnly(value: string | undefined): string | null {
@@ -381,19 +632,93 @@ async function mapWithConcurrency<T>(
   action: (value: T) => Promise<void>
 ): Promise<void> {
   let cursor = 0;
+  let fatalError: unknown;
   const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-    while (cursor < values.length) {
+    while (cursor < values.length && fatalError === undefined) {
       const index = cursor;
       cursor += 1;
-      await action(values[index]!);
+      try {
+        await action(values[index]!);
+      } catch (error) {
+        fatalError = error;
+      }
     }
   });
   await Promise.all(workers);
+  if (fatalError !== undefined) throw fatalError;
+}
+
+function rethrowFatalGoogleCalendarError(error: unknown, signal?: AbortSignal): void {
+  if (signal?.aborted || isAbortError(error)) throw error;
+  if (
+    error instanceof GoogleCalendarSyncError
+    && (
+      error.code === "GOOGLE_CALENDAR_AUTH_EXPIRED"
+      || error.code === "GOOGLE_CALENDAR_PERMISSION_DENIED"
+      || error.code === "GOOGLE_CALENDAR_API_UNAVAILABLE"
+    )
+  ) {
+    throw error;
+  }
+}
+
+function toMutationFailure(
+  operation: GoogleCalendarMutationOperation,
+  error: unknown,
+  sourceId?: string,
+  googleEventId?: string
+): GoogleCalendarMutationFailure {
+  const classified = error instanceof GoogleCalendarSyncError
+    ? error
+    : new GoogleCalendarSyncError(
+      "GOOGLE_CALENDAR_REQUEST_FAILED",
+      "Google Calendar request failed."
+    );
+  return {
+    operation,
+    code: classified.code,
+    ...(sourceId ? { sourceId } : {}),
+    ...(googleEventId ? { googleEventId } : {}),
+    ...(classified.status === undefined ? {} : { status: classified.status })
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function throwGoogleCalendarApiError(status: number, body: string): never {
-  let message = body;
-  let reason = "";
+  const providerSignal = readProviderErrorSignal(body);
+
+  if (status === 401) {
+    throw new GoogleCalendarSyncError(
+      "GOOGLE_CALENDAR_AUTH_EXPIRED",
+      "Google Calendar authorization has expired.",
+      status
+    );
+  }
+  if (status === 403 && /accessnotconfigured|servicedisabled|api.*disabled/iu.test(providerSignal)) {
+    throw new GoogleCalendarSyncError(
+      "GOOGLE_CALENDAR_API_UNAVAILABLE",
+      "Google Calendar API is unavailable for this application.",
+      status
+    );
+  }
+  if (status === 403) {
+    throw new GoogleCalendarSyncError(
+      "GOOGLE_CALENDAR_PERMISSION_DENIED",
+      "Google Calendar permission was denied.",
+      status
+    );
+  }
+  throw new GoogleCalendarSyncError(
+    "GOOGLE_CALENDAR_REQUEST_FAILED",
+    "Google Calendar request failed.",
+    status
+  );
+}
+
+function readProviderErrorSignal(body: string): string {
   try {
     const parsed = JSON.parse(body) as {
       error?: {
@@ -402,20 +727,13 @@ function throwGoogleCalendarApiError(status: number, body: string): never {
         errors?: Array<{ reason?: string }>;
       };
     };
-    message = parsed.error?.message ?? body;
-    reason = parsed.error?.errors?.[0]?.reason ?? parsed.error?.status ?? "";
+    return [
+      parsed.error?.errors?.[0]?.reason,
+      parsed.error?.status,
+      parsed.error?.message
+    ].filter((value): value is string => Boolean(value)).join(" ").slice(0, 2048);
   } catch {
-    // Keep the raw body for internal classification.
+    // The raw provider body is intentionally neither retained nor exposed.
+    return "";
   }
-
-  if (status === 401) {
-    throw new GoogleCalendarSyncError("GOOGLE_CALENDAR_AUTH_EXPIRED", message, status);
-  }
-  if (status === 403 && /accessnotconfigured|servicedisabled|api.*disabled/iu.test(`${reason} ${message}`)) {
-    throw new GoogleCalendarSyncError("GOOGLE_CALENDAR_API_UNAVAILABLE", message, status);
-  }
-  if (status === 403) {
-    throw new GoogleCalendarSyncError("GOOGLE_CALENDAR_PERMISSION_DENIED", message, status);
-  }
-  throw new GoogleCalendarSyncError("GOOGLE_CALENDAR_REQUEST_FAILED", message, status);
 }

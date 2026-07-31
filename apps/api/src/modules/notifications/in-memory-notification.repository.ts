@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import type { DeviceTokenRecord, NotificationDeliveryRecord, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
+import { DeviceRegistrationConflictError } from "./notification.types.js";
+import type { DeviceTokenRecord, DeviceTokenRegistrationInput, NotificationDeliveryRecord, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
 
 @Injectable()
 export class InMemoryNotificationRepository implements NotificationRepository {
@@ -10,19 +11,53 @@ export class InMemoryNotificationRepository implements NotificationRepository {
   private readonly deliveries = new Map<string, NotificationDeliveryRecord>();
   private readonly studentAlarms = new Map<string, StudentAlarmRecord>();
 
-  async upsertDeviceToken(input: Omit<DeviceTokenRecord, "id" | "createdAt" | "updatedAt" | "lastSeenAt" | "status">): Promise<DeviceTokenRecord> {
+  async upsertDeviceToken(input: DeviceTokenRegistrationInput): Promise<DeviceTokenRecord> {
     const now = new Date();
-    const existing = [...this.deviceTokens.values()].find((device) => device.token === input.token);
+    const existingInstallation = [...this.deviceTokens.values()].find((device) => device.installationHash === input.installationHash);
+    const existingToken = [...this.deviceTokens.values()].find((device) => device.token === input.token);
+    if (existingInstallation?.status === "active" && existingInstallation.userId !== input.userId) {
+      throw new DeviceRegistrationConflictError();
+    }
+    if (
+      existingToken?.status === "active"
+      && (
+        existingToken.userId !== input.userId
+        || Boolean(existingToken.installationHash && existingToken.installationHash !== input.installationHash)
+      )
+    ) {
+      throw new DeviceRegistrationConflictError();
+    }
+    if (existingInstallation && existingToken && existingInstallation.id !== existingToken.id) {
+      if (existingToken.status === "active") throw new DeviceRegistrationConflictError();
+      this.deviceTokens.delete(existingToken.id);
+    }
+    const existing = existingInstallation ?? existingToken;
     const device: DeviceTokenRecord = {
       ...(existing ?? { id: randomUUID(), createdAt: now }),
       userId: input.userId,
       platform: input.platform,
       token: input.token,
+      installationHash: input.installationHash,
       status: "active",
       lastSeenAt: now,
       updatedAt: now
     };
     this.deviceTokens.set(device.id, device);
+    return device;
+  }
+
+  async disableDeviceInstallation(userId: string, installationHash: string): Promise<DeviceTokenRecord | null> {
+    const device = [...this.deviceTokens.values()].find((record) => record.installationHash === installationHash);
+    if (!device || device.status === "disabled") return null;
+    if (device.userId !== userId) throw new DeviceRegistrationConflictError();
+    const updated: DeviceTokenRecord = { ...device, status: "disabled", updatedAt: new Date() };
+    this.deviceTokens.set(device.id, updated);
+    return updated;
+  }
+
+  async findActiveDeviceTokenById(deviceTokenId: string): Promise<DeviceTokenRecord | null> {
+    const device = this.deviceTokens.get(deviceTokenId);
+    if (!device || device.status !== "active" || !device.installationHash) return null;
     return device;
   }
 
@@ -37,6 +72,7 @@ export class InMemoryNotificationRepository implements NotificationRepository {
       ...(existing ?? { id: randomUUID(), createdAt: now }),
       userId: input.userId,
       enabled: input.enabled,
+      ...(input.deliveryConsentVersion ? { deliveryConsentVersion: input.deliveryConsentVersion } : {}),
       categories: input.categories,
       reminderOffsets: [...new Set(input.reminderOffsets)].sort((left, right) => right - left),
       ...(input.reminderRules ? { reminderRules: input.reminderRules } : {}),
@@ -92,7 +128,9 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     const updated: StudentAlarmRecord = { ...existing, status: "cancelled", updatedAt: new Date() };
     this.studentAlarms.set(alarmId, updated);
     for (const [jobId, job] of this.jobs.entries()) {
-      if (job.alarmId === alarmId) this.jobs.set(jobId, { ...job, status: "cancelled", updatedAt: new Date() });
+      if (job.alarmId === alarmId) {
+        this.jobs.set(jobId, clearJobClaim({ ...job, status: "cancelled", updatedAt: new Date() }));
+      }
     }
     return updated;
   }
@@ -103,9 +141,39 @@ export class InMemoryNotificationRepository implements NotificationRepository {
 
   async listDueJobs(now: Date, limit: number): Promise<NotificationJobRecord[]> {
     return [...this.jobs.values()]
-      .filter((job) => job.status === "scheduled" && job.scheduledAt <= now)
+      .filter((job) => isJobClaimable(job, now))
       .sort((left, right) => left.scheduledAt.getTime() - right.scheduledAt.getTime())
       .slice(0, limit);
+  }
+
+  async claimDueJob(jobId: string, now: Date, claimId: string, leaseUntil: Date): Promise<NotificationJobRecord | null> {
+    const job = this.jobs.get(jobId);
+    if (!job || !claimId.trim() || leaseUntil <= now || !isJobClaimable(job, now)) return null;
+    const claimed: NotificationJobRecord = {
+      ...job,
+      status: "processing",
+      processingClaimId: claimId,
+      processingLeaseUntil: leaseUntil,
+      updatedAt: now
+    };
+    this.jobs.set(jobId, claimed);
+    return claimed;
+  }
+
+  async completeClaimedJob(jobId: string, claimId: string, status: "sent" | "failed" | "cancelled"): Promise<NotificationJobRecord | null> {
+    const job = this.jobs.get(jobId);
+    if (!job || job.status !== "processing" || job.processingClaimId !== claimId) return null;
+    const completed = clearJobClaim({ ...job, status, updatedAt: new Date() });
+    this.jobs.set(jobId, completed);
+    return completed;
+  }
+
+  async rescheduleClaimedJob(jobId: string, claimId: string, scheduledAt: Date): Promise<NotificationJobRecord | null> {
+    const job = this.jobs.get(jobId);
+    if (!job || job.status !== "processing" || job.processingClaimId !== claimId) return null;
+    const rescheduled = clearJobClaim({ ...job, status: "scheduled", scheduledAt, updatedAt: new Date() });
+    this.jobs.set(jobId, rescheduled);
+    return rescheduled;
   }
 
   async listFailedJobs(limit: number, offset: number): Promise<NotificationJobRecord[]> {
@@ -117,9 +185,17 @@ export class InMemoryNotificationRepository implements NotificationRepository {
 
   async listActiveDeviceTokens(limit: number, offset: number): Promise<DeviceTokenRecord[]> {
     return [...this.deviceTokens.values()]
-      .filter((device) => device.status === "active")
-      .sort((left, right) => right.lastSeenAt.getTime() - left.lastSeenAt.getTime())
+      .filter((device) => device.status === "active" && Boolean(device.installationHash))
+      .sort((left, right) => right.lastSeenAt.getTime() - left.lastSeenAt.getTime() || left.id.localeCompare(right.id))
       .slice(offset, offset + limit);
+  }
+
+  async listSentDeviceTokenIdsForJob(jobId: string): Promise<string[]> {
+    return [...new Set(
+      [...this.deliveries.values()]
+        .filter((delivery) => delivery.jobId === jobId && delivery.status === "sent")
+        .map((delivery) => delivery.deviceTokenId)
+    )];
   }
 
   async recordDelivery(input: Omit<NotificationDeliveryRecord, "id" | "createdAt" | "updatedAt">): Promise<NotificationDeliveryRecord> {
@@ -139,15 +215,16 @@ export class InMemoryNotificationRepository implements NotificationRepository {
   async updateJobStatus(jobId: string, status: NotificationJobStatus): Promise<NotificationJobRecord | null> {
     const job = this.jobs.get(jobId);
     if (!job) return null;
-    const updated: NotificationJobRecord = { ...job, status, updatedAt: new Date() };
+    const next: NotificationJobRecord = { ...job, status, updatedAt: new Date() };
+    const updated = status === "processing" ? next : clearJobClaim(next);
     this.jobs.set(jobId, updated);
     return updated;
   }
 
   async rescheduleJob(jobId: string, scheduledAt: Date): Promise<NotificationJobRecord | null> {
     const job = this.jobs.get(jobId);
-    if (!job) return null;
-    const updated: NotificationJobRecord = { ...job, status: "scheduled", scheduledAt, updatedAt: new Date() };
+    if (!job || job.status !== "failed") return null;
+    const updated = clearJobClaim({ ...job, status: "scheduled", scheduledAt, updatedAt: new Date() });
     this.jobs.set(jobId, updated);
     return updated;
   }
@@ -183,4 +260,17 @@ function notificationJobReminderKey(job: Pick<NotificationJobRecord, "trigger" |
 
 function notificationJobIdentityKey(job: Pick<NotificationJobRecord, "userId" | "alarmId" | "eventId">): string {
   return `${job.userId ?? "broadcast"}:${job.alarmId ?? "event"}:${job.eventId}`;
+}
+
+function isJobClaimable(job: NotificationJobRecord, now: Date): boolean {
+  if (job.scheduledAt > now) return false;
+  if (job.status === "scheduled") return true;
+  return job.status === "processing" && (!job.processingLeaseUntil || job.processingLeaseUntil <= now);
+}
+
+function clearJobClaim(job: NotificationJobRecord): NotificationJobRecord {
+  const cleared = { ...job };
+  delete cleared.processingClaimId;
+  delete cleared.processingLeaseUntil;
+  return cleared;
 }

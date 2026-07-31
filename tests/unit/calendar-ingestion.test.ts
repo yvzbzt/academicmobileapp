@@ -368,6 +368,19 @@ class FakeCalendarRepository implements CalendarRepository {
   async findPublishedEventById(eventId: string): Promise<AcademicEventRecord | null> {
     return this.events.find((event) => event.id === eventId && event.status === "published") ?? null;
   }
+
+  async findPublishedEventByIdInScope(
+    eventId: string,
+    scope: { universityId: string; facultyId?: string; departmentId?: string }
+  ): Promise<AcademicEventRecord | null> {
+    return this.events.find((event) => (
+      event.id === eventId
+      && event.status === "published"
+      && event.universityId === scope.universityId
+      && (!event.facultyId || event.facultyId === scope.facultyId)
+      && (!event.departmentId || event.departmentId === scope.departmentId)
+    )) ?? null;
+  }
 }
 
 class FakePdfRepository implements PdfRepository {

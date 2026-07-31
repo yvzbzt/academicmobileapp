@@ -61,6 +61,22 @@ export class AnnouncementsService {
     );
   }
 
+  async getMyTrustedAnnouncement(userId: string, announcementId: string): Promise<TrustedAcademicContentDto> {
+    const user = await this.authRepository.findUserById(userId);
+    if (!user) throw new NotFoundException("User not found.");
+    if (!user.universityId) throw new BadRequestException("User must select a university first.");
+
+    const match = await this.announcementRepository.findTrustedItemByIdInScope({
+      announcementId,
+      universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {})
+    });
+    const presented = match ? toTrustedAcademicContentDto(match.item, match.source) : null;
+    if (!presented) throw new NotFoundException("Trusted announcement not found.");
+    return presented;
+  }
+
   async getYokAnnouncements(limit = 60): Promise<TrustedAcademicContentDto[]> {
     return (await this.getYokAnnouncementsCollection(limit)).items;
   }

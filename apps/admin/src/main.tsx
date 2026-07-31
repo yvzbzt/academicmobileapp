@@ -43,7 +43,7 @@ interface ProcessPdfResult { pdfSource: { id: string; parseStatus?: string }; ex
 interface AuditLogRecord { id: string; actorId: string; action: string; entityType: string; entityId: string; createdAt: string; }
 interface WorkerResult { processedJobs: number; sent: number; failed: number; deferred?: number; skipped?: number; }
 interface NotificationJobRecord { id: string; title: string; status: string; scheduledAt: string; }
-interface NotificationDeliveryRecord { id: string; jobId: string; userId: string; token: string; status: string; providerMessageId?: string; failureReason?: string; createdAt: string; }
+interface NotificationDeliveryRecord { id: string; jobId: string; userId: string; deviceTokenId: string; status: string; providerMessageId?: string; failureReason?: string; deliveredAt?: string; createdAt: string; updatedAt: string; }
 interface AdminUserRecord {
   id: string;
   fullName: string;

@@ -142,6 +142,7 @@ export class UsersService {
   async deleteUserByAdmin(userId: string): Promise<{ status: "deleted" }> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
+    await this.notificationRepository?.deleteUserData(userId);
     await this.userDataRepository.deleteUserData(userId);
     await this.authRepository.deleteUserByAdmin(userId);
     return { status: "deleted" };

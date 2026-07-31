@@ -407,7 +407,8 @@ export const deviceTokenSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
     platform: { type: String, required: true, enum: ["ios", "android", "web"] },
-    token: { type: String, required: true, unique: true },
+    token: { type: String, required: true },
+    installationHash: { type: String, required: false },
     status: { type: String, required: true, enum: ["active", "disabled"], default: "active", index: true },
     lastSeenAt: { type: Date, required: true }
   },
@@ -415,12 +416,14 @@ export const deviceTokenSchema = new Schema(
 );
 
 deviceTokenSchema.index({ token: 1 }, { unique: true, name: "device_tokens_token_unique" });
+deviceTokenSchema.index({ installationHash: 1 }, { unique: true, sparse: true, name: "device_tokens_installation_unique" });
 deviceTokenSchema.index({ userId: 1, status: 1 }, { name: "device_tokens_user_status" });
 
 export const notificationPreferenceSchema = new Schema(
   {
     userId: { type: String, required: true, unique: true },
-    enabled: { type: Boolean, required: true, default: true },
+    enabled: { type: Boolean, required: true, default: false },
+    deliveryConsentVersion: { type: String, required: false, enum: ["phase3-v1"] },
     categories: { type: Map, of: Boolean, required: true, default: {} },
     reminderOffsets: [{ type: Number, required: true, min: 0, max: 30 }],
     reminderRules: [
@@ -447,6 +450,8 @@ export const notificationJobSchema = new Schema(
   {
     calendarId: { type: String, required: true, index: true },
     eventId: { type: String, required: true, index: true },
+    destinationType: { type: String, required: false, enum: ["calendar_event", "announcement"] },
+    destinationId: { type: String, required: false, index: true },
     userId: { type: String, required: false, index: true },
     alarmId: { type: String, required: false, index: true },
     eventType: { type: String, required: false, enum: ["exam", "calendar_event", "announcement", "course"] },
@@ -459,12 +464,15 @@ export const notificationJobSchema = new Schema(
     offsetHours: { type: Number, required: false, min: 0, max: 720, default: 0 },
     trigger: { type: String, required: true, enum: ["before", "at_time", "approaching"], default: "before" },
     scheduledAt: { type: Date, required: true, index: true },
-    status: { type: String, required: true, enum: ["scheduled", "sent", "failed", "cancelled"], default: "scheduled", index: true }
+    status: { type: String, required: true, enum: ["scheduled", "processing", "sent", "failed", "cancelled"], default: "scheduled", index: true },
+    processingClaimId: { type: String, required: false },
+    processingLeaseUntil: { type: Date, required: false }
   },
   { collection: "notification_jobs", timestamps: true }
 );
 
 notificationJobSchema.index({ status: 1, scheduledAt: 1 }, { name: "notification_jobs_due" });
+notificationJobSchema.index({ status: 1, processingLeaseUntil: 1, scheduledAt: 1 }, { name: "notification_jobs_claim_recovery" });
 notificationJobSchema.index({ userId: 1, eventId: 1, trigger: 1, offsetDays: 1, offsetHours: 1 }, { unique: true, name: "notification_jobs_user_event_reminder_unique" });
 
 export const studentAlarmSchema = new Schema(
@@ -496,14 +504,18 @@ export const notificationDeliverySchema = new Schema(
     jobId: { type: String, required: true, index: true },
     userId: { type: String, required: true, index: true },
     deviceTokenId: { type: String, required: true, index: true },
-    token: { type: String, required: true },
     status: { type: String, required: true, enum: ["sent", "failed", "deferred", "skipped"], index: true },
     providerMessageId: { type: String, required: false },
-    failureReason: { type: String, required: false },
+    failureReason: {
+      type: String,
+      required: false,
+      enum: ["invalid_token", "provider_unavailable", "provider_rejected", "scope_mismatch", "preference_disabled", "quiet_hours", "destination_unavailable", "device_registration_stale"]
+    },
     deliveredAt: { type: Date, required: false }
   },
   { collection: "notification_deliveries", timestamps: true }
 );
 
 notificationDeliverySchema.index({ jobId: 1, userId: 1, deviceTokenId: 1 }, { name: "notification_deliveries_job_user_device" });
+notificationDeliverySchema.index({ jobId: 1, status: 1, deviceTokenId: 1 }, { name: "notification_deliveries_job_status_device" });
 notificationDeliverySchema.index({ status: 1, createdAt: -1 }, { name: "notification_deliveries_status_time" });

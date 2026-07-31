@@ -2,15 +2,82 @@ import { Inject, Injectable } from "@nestjs/common";
 import { deviceTokenSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, studentAlarmSchema } from "../../database/mongoose-schemas.js";
 import { getModel, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
-import type { DeviceTokenRecord, NotificationDeliveryRecord, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
+import { DeviceRegistrationConflictError } from "./notification.types.js";
+import type { DeviceTokenRecord, DeviceTokenRegistrationInput, NotificationDeliveryRecord, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
 
 @Injectable()
 export class MongoNotificationRepository implements NotificationRepository {
   constructor(@Inject(MongoConnectionService) private readonly mongo: MongoConnectionService) {}
 
-  async upsertDeviceToken(input: Omit<DeviceTokenRecord, "id" | "createdAt" | "updatedAt" | "lastSeenAt" | "status">): Promise<DeviceTokenRecord> {
-    const document = await (await this.model("DeviceToken", deviceTokenSchema)).findOneAndUpdate({ token: input.token }, { ...input, status: "active", lastSeenAt: new Date() }, { new: true, upsert: true });
-    return toDomainRecord<DeviceTokenRecord>(document);
+  async upsertDeviceToken(input: DeviceTokenRegistrationInput): Promise<DeviceTokenRecord> {
+    const model = await this.model("DeviceToken", deviceTokenSchema);
+    const existingInstallation = await model.findOne({ installationHash: input.installationHash });
+    const existingToken = await model.findOne({ token: input.token });
+    const installationRecord = existingInstallation ? toDomainRecord<DeviceTokenRecord>(existingInstallation) : null;
+    const tokenRecord = existingToken ? toDomainRecord<DeviceTokenRecord>(existingToken) : null;
+
+    if (installationRecord?.status === "active" && installationRecord.userId !== input.userId) {
+      throw new DeviceRegistrationConflictError();
+    }
+    if (
+      tokenRecord?.status === "active"
+      && (
+        tokenRecord.userId !== input.userId
+        || Boolean(tokenRecord.installationHash && tokenRecord.installationHash !== input.installationHash)
+      )
+    ) {
+      throw new DeviceRegistrationConflictError();
+    }
+
+    if (existingInstallation && existingToken && existingInstallation.id !== existingToken.id) {
+      const deleted = await model.deleteOne({ _id: existingToken.id, status: "disabled" });
+      if (deleted.deletedCount !== 1) throw new DeviceRegistrationConflictError();
+    }
+
+    const existing = existingInstallation ?? existingToken;
+    try {
+      const document = existing
+        ? await model.findOneAndUpdate(
+          {
+            _id: existing.id,
+            $or: [{ status: { $ne: "active" } }, { userId: input.userId }]
+          },
+          { ...input, status: "active", lastSeenAt: new Date() },
+          { returnDocument: "after" }
+        )
+        : await model.create({ ...input, status: "active", lastSeenAt: new Date() });
+      if (!document) throw new DeviceRegistrationConflictError();
+      return toDomainRecord<DeviceTokenRecord>(document);
+    } catch (error) {
+      if (error instanceof DeviceRegistrationConflictError || isDuplicateKeyError(error)) {
+        throw new DeviceRegistrationConflictError();
+      }
+      throw error;
+    }
+  }
+
+  async disableDeviceInstallation(userId: string, installationHash: string): Promise<DeviceTokenRecord | null> {
+    const model = await this.model("DeviceToken", deviceTokenSchema);
+    const existing = await model.findOne({ installationHash });
+    if (!existing) return null;
+    const record = toDomainRecord<DeviceTokenRecord>(existing);
+    if (record.status === "disabled") return null;
+    if (record.userId !== userId) throw new DeviceRegistrationConflictError();
+    const document = await model.findOneAndUpdate(
+      { _id: existing.id, userId, installationHash, status: "active" },
+      { status: "disabled" },
+      { returnDocument: "after" }
+    );
+    return document ? toDomainRecord<DeviceTokenRecord>(document) : null;
+  }
+
+  async findActiveDeviceTokenById(deviceTokenId: string): Promise<DeviceTokenRecord | null> {
+    const document = await (await this.model("DeviceToken", deviceTokenSchema)).findOne({
+      _id: deviceTokenId,
+      status: "active",
+      installationHash: { $type: "string", $ne: "" }
+    });
+    return document ? toDomainRecord<DeviceTokenRecord>(document) : null;
   }
 
   async findPreferencesByUserId(userId: string): Promise<NotificationPreferenceRecord | null> {
@@ -58,7 +125,10 @@ export class MongoNotificationRepository implements NotificationRepository {
   async cancelStudentAlarm(userId: string, alarmId: string): Promise<StudentAlarmRecord | null> {
     const document = await (await this.model("StudentAlarm", studentAlarmSchema)).findOneAndUpdate({ _id: alarmId, userId }, { status: "cancelled" }, { new: true });
     if (!document) return null;
-    await (await this.model("NotificationJob", notificationJobSchema)).updateMany({ alarmId }, { status: "cancelled" });
+    await (await this.model("NotificationJob", notificationJobSchema)).updateMany(
+      { alarmId },
+      { $set: { status: "cancelled" }, $unset: { processingClaimId: 1, processingLeaseUntil: 1 } }
+    );
     return toDomainRecord<StudentAlarmRecord>(document);
   }
 
@@ -68,8 +138,39 @@ export class MongoNotificationRepository implements NotificationRepository {
   }
 
   async listDueJobs(now: Date, limit: number): Promise<NotificationJobRecord[]> {
-    const documents = await (await this.model("NotificationJob", notificationJobSchema)).find({ status: "scheduled", scheduledAt: { $lte: now } }).sort({ scheduledAt: 1 }).limit(limit);
+    const documents = await (await this.model("NotificationJob", notificationJobSchema))
+      .find(dueNotificationJobFilter(now))
+      .sort({ scheduledAt: 1 })
+      .limit(limit);
     return documents.map((document) => toDomainRecord<NotificationJobRecord>(document));
+  }
+
+  async claimDueJob(jobId: string, now: Date, claimId: string, leaseUntil: Date): Promise<NotificationJobRecord | null> {
+    if (!claimId.trim() || leaseUntil <= now) return null;
+    const document = await (await this.model("NotificationJob", notificationJobSchema)).findOneAndUpdate(
+      { _id: jobId, ...dueNotificationJobFilter(now) },
+      { $set: { status: "processing", processingClaimId: claimId, processingLeaseUntil: leaseUntil } },
+      { returnDocument: "after" }
+    );
+    return document ? toDomainRecord<NotificationJobRecord>(document) : null;
+  }
+
+  async completeClaimedJob(jobId: string, claimId: string, status: "sent" | "failed" | "cancelled"): Promise<NotificationJobRecord | null> {
+    const document = await (await this.model("NotificationJob", notificationJobSchema)).findOneAndUpdate(
+      { _id: jobId, status: "processing", processingClaimId: claimId },
+      { $set: { status }, $unset: { processingClaimId: 1, processingLeaseUntil: 1 } },
+      { returnDocument: "after" }
+    );
+    return document ? toDomainRecord<NotificationJobRecord>(document) : null;
+  }
+
+  async rescheduleClaimedJob(jobId: string, claimId: string, scheduledAt: Date): Promise<NotificationJobRecord | null> {
+    const document = await (await this.model("NotificationJob", notificationJobSchema)).findOneAndUpdate(
+      { _id: jobId, status: "processing", processingClaimId: claimId },
+      { $set: { status: "scheduled", scheduledAt }, $unset: { processingClaimId: 1, processingLeaseUntil: 1 } },
+      { returnDocument: "after" }
+    );
+    return document ? toDomainRecord<NotificationJobRecord>(document) : null;
   }
 
   async listFailedJobs(limit: number, offset: number): Promise<NotificationJobRecord[]> {
@@ -78,8 +179,18 @@ export class MongoNotificationRepository implements NotificationRepository {
   }
 
   async listActiveDeviceTokens(limit: number, offset: number): Promise<DeviceTokenRecord[]> {
-    const documents = await (await this.model("DeviceToken", deviceTokenSchema)).find({ status: "active" }).sort({ lastSeenAt: -1 }).skip(offset).limit(limit);
+    const documents = await (await this.model("DeviceToken", deviceTokenSchema))
+      .find({ status: "active", installationHash: { $type: "string", $ne: "" } })
+      .sort({ lastSeenAt: -1, _id: 1 })
+      .skip(offset)
+      .limit(limit);
     return documents.map((document) => toDomainRecord<DeviceTokenRecord>(document));
+  }
+
+  async listSentDeviceTokenIdsForJob(jobId: string): Promise<string[]> {
+    const ids = await (await this.model("NotificationDelivery", notificationDeliverySchema))
+      .distinct("deviceTokenId", { jobId, status: "sent" });
+    return ids.filter((id): id is string => typeof id === "string");
   }
 
   async recordDelivery(input: Omit<NotificationDeliveryRecord, "id" | "createdAt" | "updatedAt">): Promise<NotificationDeliveryRecord> {
@@ -93,12 +204,19 @@ export class MongoNotificationRepository implements NotificationRepository {
   }
 
   async updateJobStatus(jobId: string, status: NotificationJobStatus): Promise<NotificationJobRecord | null> {
-    const document = await (await this.model("NotificationJob", notificationJobSchema)).findByIdAndUpdate(jobId, { status }, { new: true });
+    const update = status === "processing"
+      ? { $set: { status } }
+      : { $set: { status }, $unset: { processingClaimId: 1, processingLeaseUntil: 1 } };
+    const document = await (await this.model("NotificationJob", notificationJobSchema)).findByIdAndUpdate(jobId, update, { new: true });
     return document ? toDomainRecord<NotificationJobRecord>(document) : null;
   }
 
   async rescheduleJob(jobId: string, scheduledAt: Date): Promise<NotificationJobRecord | null> {
-    const document = await (await this.model("NotificationJob", notificationJobSchema)).findByIdAndUpdate(jobId, { status: "scheduled", scheduledAt }, { new: true });
+    const document = await (await this.model("NotificationJob", notificationJobSchema)).findOneAndUpdate(
+      { _id: jobId, status: "failed" },
+      { $set: { status: "scheduled", scheduledAt }, $unset: { processingClaimId: 1, processingLeaseUntil: 1 } },
+      { returnDocument: "after" }
+    );
     return document ? toDomainRecord<NotificationJobRecord>(document) : null;
   }
 
@@ -120,4 +238,19 @@ export class MongoNotificationRepository implements NotificationRepository {
     if (!connection) throw new Error("MONGODB_NOT_CONFIGURED");
     return getModel(connection, name, schema);
   }
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === 11000;
+}
+
+function dueNotificationJobFilter(now: Date) {
+  return {
+    scheduledAt: { $lte: now },
+    $or: [
+      { status: "scheduled" },
+      { status: "processing", processingLeaseUntil: { $lte: now } },
+      { status: "processing", processingLeaseUntil: { $exists: false } }
+    ]
+  };
 }

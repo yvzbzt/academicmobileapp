@@ -72,6 +72,12 @@ export interface UpcomingEventFilters {
   limit: number;
 }
 
+export interface CalendarEventScope {
+  universityId: string;
+  facultyId?: string;
+  departmentId?: string;
+}
+
 export interface CalendarRepository {
   findPublishedCalendar(universityId: string, academicYear?: string): Promise<AcademicCalendarRecord | null>;
   findCalendarById(calendarId: string): Promise<AcademicCalendarRecord | null>;
@@ -84,4 +90,5 @@ export interface CalendarRepository {
   listPublishedEvents(filters: CalendarEventFilters): Promise<AcademicEventRecord[]>;
   listUpcomingEvents(filters: UpcomingEventFilters): Promise<AcademicEventRecord[]>;
   findPublishedEventById(eventId: string): Promise<AcademicEventRecord | null>;
+  findPublishedEventByIdInScope(eventId: string, scope: CalendarEventScope): Promise<AcademicEventRecord | null>;
 }

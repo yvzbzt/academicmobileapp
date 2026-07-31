@@ -109,6 +109,21 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
       .slice(0, input.limit);
   }
 
+  async findTrustedItemByIdInScope(input: {
+    announcementId: string;
+    universityId: string;
+    facultyId?: string;
+    departmentId?: string;
+  }): Promise<{ item: AnnouncementItem; source: AnnouncementSourceRecord } | null> {
+    const sources = await this.listSourcesByScope(input);
+    for (const source of sources) {
+      const item = (this.items.get(source.id) ?? [])
+        .find((candidate) => candidate.id === input.announcementId && isApiEligibleItem(candidate));
+      if (item) return { item, source };
+    }
+    return null;
+  }
+
   async listAllItems(input: { limit?: number; offset?: number } = {}): Promise<AnnouncementItem[]> {
     const activeSourceIds = new Set([...this.sources.values()]
       .filter((source) => source.status === "active" && source.trustStatus === "trusted")

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { academicCalendarSchema, academicEventSchema, academicUnitSuggestionSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, followedAcademicScopeSchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
+import { academicCalendarSchema, academicEventSchema, academicUnitSuggestionSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, followedAcademicScopeSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
 
 describe("mongoose schemas", () => {
   it("defaults credential generations to zero and rejects negative values", () => {
@@ -142,9 +142,39 @@ describe("mongoose schemas", () => {
     expect(notificationPreferenceSchema.get("collection")).toBe("notification_preferences");
     expect(notificationJobSchema.get("collection")).toBe("notification_jobs");
     expect(deviceTokenSchema.indexes()).toEqual(expect.arrayContaining([[{ token: 1 }, expect.objectContaining({ unique: true })]]));
+    expect(deviceTokenSchema.indexes()).toEqual(expect.arrayContaining([
+      [{ installationHash: 1 }, expect.objectContaining({ unique: true, sparse: true, name: "device_tokens_installation_unique" })]
+    ]));
+    expect(deviceTokenSchema.path("installationHash")).toBeDefined();
     expect(notificationPreferenceSchema.indexes()).toEqual(expect.arrayContaining([[{ userId: 1 }, expect.objectContaining({ unique: true })]]));
+    expect((notificationPreferenceSchema.path("enabled") as unknown as { options: { default: boolean } }).options.default).toBe(false);
+    expect((notificationPreferenceSchema.path("deliveryConsentVersion") as unknown as { options: { enum: string[] } }).options.enum).toEqual(["phase3-v1"]);
+    expect(notificationJobSchema.path("destinationType")).toBeDefined();
+    expect(notificationJobSchema.path("destinationId")).toBeDefined();
+    expect((notificationJobSchema.path("status") as unknown as { options: { enum: string[] } }).options.enum).toEqual([
+      "scheduled", "processing", "sent", "failed", "cancelled"
+    ]);
+    expect(notificationJobSchema.path("processingClaimId")).toBeDefined();
+    expect(notificationJobSchema.path("processingLeaseUntil")).toBeDefined();
+    expect(notificationDeliverySchema.path("token")).toBeUndefined();
+    expect(notificationDeliverySchema.indexes()).toEqual(expect.arrayContaining([
+      [{ jobId: 1, status: 1, deviceTokenId: 1 }, expect.objectContaining({ name: "notification_deliveries_job_status_device" })]
+    ]));
+    expect((notificationDeliverySchema.path("failureReason") as unknown as { options: { enum: string[] } }).options.enum).toEqual([
+      "invalid_token",
+      "provider_unavailable",
+      "provider_rejected",
+      "scope_mismatch",
+      "preference_disabled",
+      "quiet_hours",
+      "destination_unavailable",
+      "device_registration_stale"
+    ]);
     expect(notificationJobSchema.indexes()).toEqual(
       expect.arrayContaining([[{ status: 1, scheduledAt: 1 }, expect.objectContaining({ name: "notification_jobs_due" })]])
+    );
+    expect(notificationJobSchema.indexes()).toEqual(
+      expect.arrayContaining([[{ status: 1, processingLeaseUntil: 1, scheduledAt: 1 }, expect.objectContaining({ name: "notification_jobs_claim_recovery" })]])
     );
   });
 });

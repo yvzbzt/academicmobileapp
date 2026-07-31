@@ -19,6 +19,16 @@ export class CalendarController {
     return this.calendarService.getMyCalendar(user.id);
   }
 
+  @Get("my/trusted/:eventId")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMyTrustedCalendarEvent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("eventId") eventId: string
+  ) {
+    return this.calendarService.getMyTrustedCalendarEvent(user.id, eventId);
+  }
+
   @Get("integrations")
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("student")

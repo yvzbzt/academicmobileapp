@@ -8,7 +8,8 @@ import { AuditService } from "../src/modules/audit/audit.service.js";
 import { AdminAuditController } from "../src/modules/audit/admin-audit.controller.js";
 import { InMemoryAuditRepository } from "../src/modules/audit/in-memory-audit.repository.js";
 import { InMemoryNotificationRepository } from "../src/modules/notifications/in-memory-notification.repository.js";
-import { NotificationWorkerService } from "../src/modules/notifications/notification-worker.service.js";
+import { GENERIC_PUSH_NOTIFICATION_BODY, GENERIC_PUSH_NOTIFICATION_TITLE, NotificationWorkerService } from "../src/modules/notifications/notification-worker.service.js";
+import { NOTIFICATION_DELIVERY_CONSENT_VERSION } from "../src/modules/notifications/notification.types.js";
 import { NotificationSchedulingService } from "../src/modules/notifications/notifications.service.js";
 import { InMemoryPdfRepository } from "../src/modules/pdf/in-memory-pdf.repository.js";
 import { PdfProcessingService } from "../src/modules/pdf/pdf-processing.service.js";
@@ -20,6 +21,7 @@ import { assertValidEnvironment, validateEnvironment } from "../src/config/envir
 import { InfrastructureHealthService } from "../src/modules/health/infrastructure-health.service.js";
 import { BootstrapSeedService } from "../src/bootstrap/bootstrap-seed.service.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
+import type { AuthUserRecord } from "../src/modules/auth/auth.types.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { AdminNotificationOpsController } from "../src/modules/notifications/admin-notification-ops.controller.js";
@@ -41,7 +43,9 @@ class FakePushSender implements PushSender {
 
   async send(input: PushMessageInput) {
     this.messages.push(input);
-    return { invalidToken: this.invalidToken, ...(this.invalidToken ? {} : { providerMessageId: "provider-message-1" }) };
+    return this.invalidToken
+      ? { status: "invalid_token" as const }
+      : { status: "sent" as const, providerMessageId: "provider-message-1" };
   }
 }
 
@@ -50,6 +54,23 @@ class ThrowingPushSender implements PushSender {
     throw new Error("FIREBASE_NOT_CONFIGURED");
   }
 }
+
+const activeStudentAuthRepository = {
+  async findUserById(id: string): Promise<AuthUserRecord> {
+    return {
+      id,
+      credentialGeneration: 0,
+      fullName: id,
+      email: `${id}@example.edu.tr`,
+      passwordHash: "hash",
+      role: "student",
+      universityId: "sample-university-1",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+  }
+};
 
 const disabledOcrService = {
   async extractText() {
@@ -62,6 +83,8 @@ async function createScheduledNotificationJob(repository: InMemoryNotificationRe
     {
       calendarId: "calendar-1",
       eventId: "event-1",
+      destinationType: "calendar_event",
+      destinationId: "event-1",
       universityId: "sample-university-1",
       title: "Final Sinavlari",
       category: "final_exam",
@@ -168,6 +191,13 @@ describe("operation services", () => {
     );
   });
 
+  it("catalogs authenticated device registration and detachment", () => {
+    expect(endpointCatalog).toEqual(expect.arrayContaining([
+      { method: "POST", path: "/devices/register", authRequired: true, roles: ["student"], rateLimit: "standard" },
+      { method: "DELETE", path: "/devices/current", authRequired: true, roles: ["student"], rateLimit: "standard" }
+    ]));
+  });
+
   it("keeps Mongo connection passive when no URI is configured", async () => {
     const service = new MongoConnectionService();
     await expect(service.connect(undefined)).resolves.toBeNull();
@@ -181,7 +211,8 @@ describe("operation services", () => {
 
   it("keeps Firebase push sender explicit when credentials are not configured", async () => {
     const sender = new FirebasePushSender();
-    await expect(sender.send({ token: "token-1", title: "Title", body: "Body" })).rejects.toThrow("FIREBASE_NOT_CONFIGURED");
+    await expect(sender.send({ token: "token-1", title: "Title", body: "Body", androidChannelId: "academic-reminders" }))
+      .resolves.toEqual({ status: "failed", reason: "provider_unavailable" });
   });
 
   it("returns admin audit entity timeline", async () => {
@@ -212,11 +243,11 @@ describe("operation services", () => {
 
   it("disables invalid device tokens during push delivery", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
-    const device = await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1" });
+    const device = await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1", installationHash: "installation-1" });
     const job = await createScheduledNotificationJob(notificationRepository);
     const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender(true));
 
-    const result = await worker.sendToDevice({ job, token: device.token, body: "Yaklasan akademik etkinlik", device });
+    const result = await worker.sendToDevice({ job, token: device.token, device });
     const disabled = await notificationRepository.disableDeviceToken(device.token);
     const deliveries = await notificationRepository.listDeliveriesByJob(job.id, 10, 0);
 
@@ -227,25 +258,25 @@ describe("operation services", () => {
 
   it("records failed deliveries when the push provider is not configured", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
-    const device = await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1" });
+    const device = await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1", installationHash: "installation-1" });
     const job = await createScheduledNotificationJob(notificationRepository);
     const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new ThrowingPushSender());
 
-    const result = await worker.sendToDevice({ job, token: device.token, body: "Yaklasan akademik etkinlik", device });
+    const result = await worker.sendToDevice({ job, token: device.token, device });
     const deliveries = await notificationRepository.listDeliveriesByJob(job.id, 10, 0);
     const failedJobs = await notificationRepository.listFailedJobs(10, 0);
 
     expect(result.failed).toBe(1);
     expect(failedJobs[0]?.id).toBe(job.id);
-    expect(deliveries[0]).toEqual(expect.objectContaining({ status: "failed", failureReason: "FIREBASE_NOT_CONFIGURED", userId: "user-1" }));
+    expect(deliveries[0]).toEqual(expect.objectContaining({ status: "failed", failureReason: "provider_unavailable", userId: "user-1" }));
   });
 
   it("fans out due notification jobs to eligible active devices", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
-    await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1" });
-    await notificationRepository.upsertPreferences({ userId: "user-1", enabled: true, categories: { final_exam: true }, reminderOffsets: [1] });
+    await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1", installationHash: "installation-1" });
+    await notificationRepository.upsertPreferences({ userId: "user-1", enabled: true, deliveryConsentVersion: NOTIFICATION_DELIVERY_CONSENT_VERSION, categories: { final_exam: true }, reminderOffsets: [1] });
     const sender = new FakePushSender();
-    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), sender);
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), sender, activeStudentAuthRepository);
     const job = await createScheduledNotificationJob(notificationRepository);
 
     const result = await worker.processDueJobs(new Date("2027-01-01T00:00:00.000Z"));
@@ -253,16 +284,131 @@ describe("operation services", () => {
 
     expect(result.processedJobs).toBe(1);
     expect(result.sent).toBe(1);
-    expect(sender.messages[0]).toEqual(expect.objectContaining({ token: "device-token-1", title: "Final Sinavlari" }));
+    expect(sender.messages[0]).toEqual(expect.objectContaining({
+      token: "device-token-1",
+      title: GENERIC_PUSH_NOTIFICATION_TITLE,
+      body: GENERIC_PUSH_NOTIFICATION_BODY,
+      androidChannelId: "academic-reminders",
+      data: {
+        schemaVersion: "1",
+        destinationType: "calendar_event",
+        destinationId: "event-1",
+        recipientOwnerId: "user-1"
+      }
+    }));
     expect(deliveries[0]).toEqual(expect.objectContaining({ status: "sent", providerMessageId: "provider-message-1", userId: "user-1" }));
     expect(deliveries[0]?.deliveredAt).toBeInstanceOf(Date);
   });
 
+  it("fails closed when preferences are missing and ignores legacy devices without an installation hash", async () => {
+    const notificationRepository = new InMemoryNotificationRepository();
+    await notificationRepository.upsertDeviceToken({
+      userId: "user-1",
+      platform: "android",
+      token: "legacy-device-token",
+      installationHash: undefined
+    } as never);
+    await notificationRepository.upsertDeviceToken({
+      userId: "user-2",
+      platform: "android",
+      token: "current-device-token",
+      installationHash: "installation-2"
+    });
+    const sender = new FakePushSender();
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), sender, activeStudentAuthRepository);
+    const job = await createScheduledNotificationJob(notificationRepository);
+
+    const result = await worker.processDueJobs(new Date("2027-01-01T00:00:00.000Z"));
+    const deliveries = await notificationRepository.listDeliveriesByJob(job.id, 10, 0);
+
+    expect(result.skipped).toBe(1);
+    expect(sender.messages).toEqual([]);
+    expect(deliveries).toEqual([expect.objectContaining({ userId: "user-2", failureReason: "preference_disabled" })]);
+  });
+
+  it("uses the academic updates channel and exact announcement destination", async () => {
+    const notificationRepository = new InMemoryNotificationRepository();
+    const device = await notificationRepository.upsertDeviceToken({
+      userId: "user-1",
+      platform: "android",
+      token: "announcement-device-token",
+      installationHash: "announcement-installation"
+    });
+    const [job] = await notificationRepository.createNotificationJobs([{
+      calendarId: "student-custom-alarm",
+      eventId: "alarm-1",
+      destinationType: "announcement",
+      destinationId: "trusted-announcement-1",
+      userId: "user-1",
+      alarmId: "alarm-1",
+      eventType: "announcement",
+      universityId: "sample-university-1",
+      title: "Trusted announcement",
+      category: "announcement",
+      offsetDays: 1,
+      trigger: "before",
+      scheduledAt: new Date("2027-01-01T00:00:00.000Z"),
+      status: "scheduled"
+    }]);
+    const sender = new FakePushSender();
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), sender, activeStudentAuthRepository);
+
+    await worker.sendToDevice({ job: job!, token: device.token, device });
+
+    expect(sender.messages[0]).toEqual(expect.objectContaining({
+      androidChannelId: "academic-updates",
+      data: {
+        schemaVersion: "1",
+        destinationType: "announcement",
+        destinationId: "trusted-announcement-1",
+        recipientOwnerId: "user-1"
+      }
+    }));
+  });
+
+  it("cancels legacy jobs without a versioned destination and records a controlled skip", async () => {
+    const notificationRepository = new InMemoryNotificationRepository();
+    await notificationRepository.upsertDeviceToken({
+      userId: "user-1",
+      platform: "android",
+      token: "legacy-job-device-token",
+      installationHash: "legacy-job-installation"
+    });
+    await notificationRepository.upsertPreferences({
+      userId: "user-1",
+      enabled: true,
+      deliveryConsentVersion: NOTIFICATION_DELIVERY_CONSENT_VERSION,
+      categories: { final_exam: true },
+      reminderOffsets: [1]
+    });
+    const [job] = await notificationRepository.createNotificationJobs([{
+      calendarId: "legacy-calendar",
+      eventId: "legacy-event",
+      universityId: "sample-university-1",
+      title: "Legacy event",
+      category: "final_exam",
+      offsetDays: 1,
+      trigger: "before",
+      scheduledAt: new Date("2027-01-01T00:00:00.000Z"),
+      status: "scheduled"
+    }]);
+    const sender = new FakePushSender();
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), sender, activeStudentAuthRepository);
+
+    const result = await worker.processDueJobs(new Date("2027-01-01T00:00:00.000Z"));
+    const deliveries = await notificationRepository.listDeliveriesByJob(job!.id, 10, 0);
+
+    expect(result).toEqual(expect.objectContaining({ sent: 0, failed: 0, skipped: 1 }));
+    expect(sender.messages).toEqual([]);
+    expect(deliveries).toEqual([expect.objectContaining({ status: "skipped", failureReason: "destination_unavailable" })]);
+    await expect(notificationRepository.listFailedJobs(10, 0)).resolves.toEqual([]);
+  });
+
   it("skips fan-out when notification preferences disable the category", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
-    await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "ios", token: "device-token-1" });
-    await notificationRepository.upsertPreferences({ userId: "user-1", enabled: true, categories: { final_exam: false }, reminderOffsets: [1] });
-    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender());
+    await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "ios", token: "device-token-1", installationHash: "installation-1" });
+    await notificationRepository.upsertPreferences({ userId: "user-1", enabled: true, deliveryConsentVersion: NOTIFICATION_DELIVERY_CONSENT_VERSION, categories: { final_exam: false }, reminderOffsets: [1] });
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender(), activeStudentAuthRepository);
     const job = await createScheduledNotificationJob(notificationRepository);
 
     const result = await worker.processDueJobs(new Date("2027-01-01T00:00:00.000Z"));
@@ -277,15 +423,16 @@ describe("operation services", () => {
 
   it("defers due jobs when all eligible users are in quiet hours", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
-    await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1" });
+    await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1", installationHash: "installation-1" });
     await notificationRepository.upsertPreferences({
       userId: "user-1",
       enabled: true,
+      deliveryConsentVersion: NOTIFICATION_DELIVERY_CONSENT_VERSION,
       categories: { final_exam: true },
       reminderOffsets: [1],
       quietHours: { enabled: true, start: "22:00", end: "07:00", timezone: "Europe/Istanbul" }
     });
-    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender());
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender(), activeStudentAuthRepository);
     const job = await createScheduledNotificationJob(notificationRepository);
 
     const result = await worker.processDueJobs(new Date("2027-01-01T23:00:00.000Z"));
@@ -300,7 +447,7 @@ describe("operation services", () => {
 
   it("lists and retries failed notification jobs through admin operations", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
-    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender());
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender(), activeStudentAuthRepository);
     const controller = new AdminNotificationOpsController(worker);
     const job = await createScheduledNotificationJob(notificationRepository);
     await notificationRepository.updateJobStatus(job.id, "failed");
@@ -314,8 +461,9 @@ describe("operation services", () => {
 
   it("lists notification delivery records through admin operations", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
-    await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "web", token: "device-token-1" });
-    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender());
+    await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "web", token: "device-token-1", installationHash: "installation-1" });
+    await notificationRepository.upsertPreferences({ userId: "user-1", enabled: true, deliveryConsentVersion: NOTIFICATION_DELIVERY_CONSENT_VERSION, categories: { final_exam: true }, reminderOffsets: [1] });
+    const worker = new NotificationWorkerService(notificationRepository, new InMemoryQueueService(), new FakePushSender(), activeStudentAuthRepository);
     const controller = new AdminNotificationOpsController(worker);
     const job = await createScheduledNotificationJob(notificationRepository);
 
@@ -323,7 +471,8 @@ describe("operation services", () => {
     const deliveries = await controller.listDeliveries(job.id, "10", "0");
 
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]).toEqual(expect.objectContaining({ jobId: job.id, status: "sent", token: "device-token-1" }));
+    expect(deliveries[0]).toEqual(expect.objectContaining({ jobId: job.id, status: "sent", userId: "user-1" }));
+    expect(JSON.stringify(deliveries)).not.toContain("device-token-1");
   });
 
   it.each([

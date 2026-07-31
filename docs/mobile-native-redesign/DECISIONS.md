@@ -106,7 +106,7 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 
 **Decision:** Logout, data deletion, and account deletion establish a cleanup lock that blocks new authenticated mutations. Data deletion waits for already-tracked academic-selection and preference mutations before issuing `DELETE /me/data`; successful deletion then invalidates/aborts the prior generation before resetting and reactivating the same owner. Google REST requests receive the same abort signal, while Google native SDK operations are serialized and protected by an epoch because the SDK authorization prompt itself is not abortable.
 
-**Known boundary:** Cancellation prevents stale local settlement but cannot guarantee transaction-like rollback of Google Calendar mutations already accepted remotely. Phase 3 owns explicit disconnect, revoke, and remote-removal behavior.
+**Known boundary:** Cancellation prevents stale local settlement but cannot guarantee transaction-like rollback of Google Calendar mutations already accepted remotely. Phase 3 now supplies explicit disconnect, revoke, remote-removal, mapping verification, and partial-result behavior; it does not erase that provider-side atomicity boundary.
 
 ### D-022 — Password recovery has a production public-field-parity contract
 
@@ -194,6 +194,42 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 
 **Reconciliation boundary:** Missing, rejected, or quarantined source ownership still blocks API presentation, but it no longer short-circuits repair. The reconciliation planner sanitizes titles/summaries, canonicalizes or removes unsafe URLs, removes false source authority/dedupe values, and validates timestamp provenance before retaining the fail-closed status. The executable mutation helper and runtime scope-authority builder are tested directly without connecting to MongoDB.
 
+### D-031 — Push delivery requires consent, native permission, and an owned installation
+
+**Decision:** A saved notification preference is not proof of delivery. New preferences default to disabled, hydration inspects permission without prompting, and the native permission dialog is requested only after the user explicitly enables notifications. Delivery is presented as active only while the preference is enabled, OS permission is granted, and the current app installation is registered with the backend. Denial, permanent denial, unavailable native support, token failure, registration failure, and detach failure remain distinct controlled states; a permanently denied user is directed to system settings.
+
+**Installation contract:** The native app obtains the platform FCM registration token through React Native Firebase and listens for token rotation. It sends the token with the stable app installation ID to `POST /devices/register`; the API domain-separates and SHA-256 hashes the installation ID before persistence. Registration rotates a token in place for the same installation, rejects an active token or installation owned by another account with HTTP 409, and returns only status, platform, and `lastSeenAt`. `DELETE /devices/current` disables the owner-matching installation idempotently. Logout also attempts server-side detachment from the refresh record's device ID; data deletion, self-account deletion, and administrative deletion remove notification records.
+
+**Delivery and destination contract:** FCM success, invalid-token, provider-unavailable, and provider-rejected outcomes are explicit; a provider error cannot be recorded as sent, and an invalid token is disabled. Delivery audits retain `deviceTokenId`, never the raw token. Concurrent workers must acquire one atomic UUID-fenced claim with a ten-minute recovery lease before fan-out; a stale worker cannot complete or reschedule a reclaimed job. Immediately before every provider call the worker re-reads the active device record and skips a registration whose owner, installation hash, or token changed. Provider-visible title/body text is generic; trusted detail is resolved only inside the authenticated app. Android uses `academic-reminders` and `academic-updates` channels.
+
+Version 1 push data contains only an exact `announcement` or `calendar_event` destination ID plus the recipient owner ID. A signed-out tap may persist that non-secret, owner-bound destination. After authentication the app calls `GET /announcements/my/trusted/:announcementId` or `GET /calendar/my/trusted/:eventId`, which applies the current owner/scope/publication/trust rules without the collection caps. Missing, malformed, inactive, out-of-scope, or untrusted records share a 404 boundary. The app rejects wrong/stale owners and never falls back to an unrelated item or an unvalidated URL.
+
+**Privacy boundary:** A push token is delivery credential material. It may exist in the native provider SDK, the Mongo `device_tokens` collection, and an outbound FCM request, but it is not stored in delivery audit rows, returned by registration APIs, persisted in native lifecycle state, or included in application logs. Real provider delivery still requires authorized Firebase/APNs configuration and separate native evidence.
+
+### D-032 — Google Calendar connection is live-verified, owner-scoped, and remotely explicit
+
+**Decision:** Stored Google metadata is a reconnect hint, not a connected state. Owner-scoped v3 metadata stores the stable Google account ID, email, last authorization verification/sync times, and source-to-Google event mappings without an access token. Restore enters `checking`, reads the current SDK account and token without showing a chooser, and calls the Calendar API before it may become `connected`. A missing, expired, mismatched, or unverifiable provider session is shown as `expired`, `error`, or `disconnected`; legacy metadata migrates only after the same live verification.
+
+**Preflight and synchronization:** Profile ownership, network state, current academic calendar data, and trusted announcement data are checked before any Google account or scope prompt. No university, no network, no transferable content, a stale owner, a duplicate operation, or duplicate stored mappings stops before mutation. Calendar entries use source-authored `publishedAt`, or source-authored `sourceUpdatedAt` when publication is absent; discovery, crawl, and `fetchedAt` timestamps are never calendar dates. App-created events carry private owner/source/fingerprint properties. A live mapping match makes a repeat sync non-mutating. Missing remote events are deleted only for source families whose current fetch is complete; a source-only/unknown calendar response or partial/failed announcement response may create/update known items but cannot delete that family.
+
+Collection limits are not deletion evidence. After live Google verification, every managed mapping absent from the current capped announcement/calendar collections is reconciled through the corresponding exact trusted-record endpoint before it can be treated as removed. A trusted exact result is merged into the desired set, an exact 404 is authoritative absence, and lookup/network/malformed-ID failure blocks deletion for that family. Create, update, delete, and final verification failures produce a durable `partial` state and retained mappings for retry.
+
+**User choices and cleanup:** Account change first asks whether old app-managed events should remain or be removed, then disconnects before opening the chooser. Choosing to keep them makes those old-account records an intentional residual set: the new-account ledger replaces the old one, so later data/account deletion cannot remove them unless the user reconnects that Google account. The integration exposes three separate ordinary actions: disconnect and retain events, remove app-managed events and disconnect, or revoke Google access while retaining existing events. Disconnect/revoke retain a token-free `disconnected` v3 ledger so deletion for the same app owner can still attempt cleanup after reauthorization; successful managed-event removal clears it. Personal Google events are never selected for update or deletion; all remote mutations require both the app-managed marker and current Academic Calendar owner ID. Logout and session expiry clear local connection metadata and sign out locally while deliberately retaining the OAuth grant and existing managed events. Personal-data and account deletion attempt removal known through the current ledger, then OAuth revocation, then local metadata cleanup; partial/unavailable cleanup is reported by controlled retry targets rather than hidden.
+
+**Data-residency boundary:** Academic titles, dates, descriptions, and official source links selected for sync travel directly from the device to the user's Google Calendar through Google's Calendar API. The app backend does not proxy or persist the Google event bodies or access token. The device retains only non-secret connection metadata and mappings in SecureStore. The Google account/provider remains an external data processor chosen by the user.
+
+### D-033 — Dormant device-calendar code is retained as non-product reference
+
+**Decision:** `apps/mobile-native/src/native-calendar` remains in the repository because its pure mapping/synchronization logic and tests may inform a later approved device-calendar feature. It is not imported by `App.tsx`, has no installed platform calendar adapter/dependency, requests no device-calendar permission, exposes no UI, and performs no runtime synchronization. Phase 3 therefore does not present it as a working integration.
+
+**Activation gate:** Wiring it into the product would require a separately approved scope covering platform permission copy, calendar selection, owner-scoped persistence, remove/disconnect behavior, real iOS/Android evidence, and interaction with the active Google Calendar path. Retaining source code alone satisfies none of those gates.
+
+### D-034 — Native Firebase 26 uses the Expo 54 New Architecture path
+
+**Decision:** Phase 3 enables `newArchEnabled` in the committed Expo configuration because React Native Firebase App/Messaging 26 requires the React Native New Architecture. This is integration compatibility work, not the Phase 4 component/framework decision and not an Expo or React Native upgrade.
+
+**Evidence boundary:** The generated Android project was aligned locally, Google Sign-In codegen was regenerated after the architecture switch, and the final x86_64 debug assembly and API 24 launch passed with Fabric active. The repository does not commit generated native projects or provider credentials. iOS still requires an authorized Firebase plist plus macOS/Xcode build evidence and is not accepted on this Windows run.
+
 ## Open questions with decision owners
 
 | Question | Required by | Resolution owner/gate |
@@ -204,7 +240,6 @@ Server revocation/deletion and the remaining local/Google cleanup tasks run afte
 | Should tablets use a navigation rail/sidebar while keeping four destinations? | Phase 5/11 | Validate native tablet layouts; information architecture remains four destinations |
 | What is the durable Save model for feed items? | Phase 8 | Requires product/API decision; omit Save until persistence exists |
 | Should Share use only the native share sheet or also a backend short link? | Phase 8 | Start with privacy-reviewed native share payload; never share crawler/internal URLs blindly |
-| Is native device-calendar sync retained, replaced, or removed as dormant code? | Phase 3 | Decide from real product requirement and platform permission model |
 | What analytics provider and consent model will implement page views? | Separate approved instrumentation work | Follow the privacy-safe taxonomy in `docs/20-mobile-native-in-app-user-activity-report.md` |
 
 ## Rejected directions

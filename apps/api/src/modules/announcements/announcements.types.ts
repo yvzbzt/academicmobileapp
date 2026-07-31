@@ -98,5 +98,11 @@ export interface AnnouncementRepository {
   replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[]): Promise<void>;
   listItemsForSource(sourceId: string, limit?: number): Promise<AnnouncementItem[]>;
   listItemsByScope(input: { universityId: string; facultyId?: string; departmentId?: string; limit: number }): Promise<AnnouncementItem[]>;
+  findTrustedItemByIdInScope(input: {
+    announcementId: string;
+    universityId: string;
+    facultyId?: string;
+    departmentId?: string;
+  }): Promise<{ item: AnnouncementItem; source: AnnouncementSourceRecord } | null>;
   listAllItems(input?: { limit?: number; offset?: number }): Promise<AnnouncementItem[]>;
 }

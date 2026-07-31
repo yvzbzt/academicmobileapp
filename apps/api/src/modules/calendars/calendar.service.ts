@@ -121,6 +121,28 @@ export class CalendarService {
     return { calendar, events: events.slice(0, 200), scope: "university", sourceStatus: events.length > 0 ? "parsed" : "source_only" };
   }
 
+  async getMyTrustedCalendarEvent(userId: string, eventId: string): Promise<AcademicEventRecord> {
+    const notFound = () => new NotFoundException("Trusted calendar event not found.");
+    const user = await this.authRepository.findUserById(userId);
+    if (!user?.universityId || !eventId.trim()) throw notFound();
+
+    const event = await this.calendarRepository.findPublishedEventByIdInScope(eventId, {
+      universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {})
+    });
+    if (!event) throw notFound();
+
+    const calendar = await this.calendarRepository.findCalendarById(event.calendarId);
+    if (
+      !calendar
+      || calendar.status !== "published"
+      || calendar.universityId !== user.universityId
+      || calendar.universityId !== event.universityId
+    ) throw notFound();
+    return event;
+  }
+
   async getUniversityCalendar(universityId: string, academicYear?: string): Promise<CalendarWithEventsResponse> {
     const calendar = await this.findPublishedCalendarOrIngest(universityId, academicYear);
     if (!calendar) throw new NotFoundException("Selected university academic calendar is not available yet.");

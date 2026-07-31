@@ -1,8 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { isValidObjectId } from "mongoose";
 import { academicCalendarSchema, academicEventSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
-import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarRepository, UpcomingEventFilters } from "./calendar.types.js";
+import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, UpcomingEventFilters } from "./calendar.types.js";
 
 @Injectable()
 export class MongoCalendarRepository implements CalendarRepository {
@@ -75,6 +76,17 @@ export class MongoCalendarRepository implements CalendarRepository {
     return document ? toDomainRecord<AcademicEventRecord>(document) : null;
   }
 
+  async findPublishedEventByIdInScope(eventId: string, scope: CalendarEventScope): Promise<AcademicEventRecord | null> {
+    if (!isValidObjectId(eventId)) return null;
+    const document = await (await this.model("AcademicEvent", academicEventSchema)).findOne({
+      _id: eventId,
+      status: "published",
+      universityId: scope.universityId,
+      ...buildExactScopeQuery(scope.facultyId, scope.departmentId)
+    });
+    return document ? toDomainRecord<AcademicEventRecord>(document) : null;
+  }
+
   private async model(name: string, schema: Parameters<typeof getModel>[2]) {
     const connection = this.mongo.getConnection() ?? (await this.mongo.connect());
     if (!connection) throw new Error("MONGODB_NOT_CONFIGURED");
@@ -103,4 +115,17 @@ function buildScopeQuery(facultyId?: string, departmentId?: string): Record<stri
   }
 
   return {};
+}
+
+function buildExactScopeQuery(facultyId?: string, departmentId?: string): Record<string, unknown> {
+  const scopeMatchers: Array<Record<string, unknown>> = [
+    { facultyId: { $exists: false }, departmentId: { $exists: false } }
+  ];
+  if (facultyId) scopeMatchers.push({ facultyId, departmentId: { $exists: false } });
+  if (departmentId && facultyId) {
+    scopeMatchers.push({ departmentId, facultyId }, { departmentId, facultyId: { $exists: false } });
+  } else if (departmentId) {
+    scopeMatchers.push({ departmentId, facultyId: { $exists: false } });
+  }
+  return { $or: scopeMatchers };
 }

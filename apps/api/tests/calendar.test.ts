@@ -7,6 +7,8 @@ import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
 import type { AnnouncementItem } from "../src/modules/announcements/announcements.types.js";
+import { endpointCatalog } from "../src/contracts/endpoint-catalog.js";
+import { CalendarController } from "../src/modules/calendars/calendar.controller.js";
 import { CalendarService } from "../src/modules/calendars/calendar.service.js";
 import { InMemoryCalendarRepository } from "../src/modules/calendars/in-memory-calendar.repository.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../src/modules/catalog/catalog.types.js";
@@ -85,6 +87,135 @@ describe("CalendarService", () => {
     expect(response.events).toHaveLength(1);
     expect(response.events[0]?.title).toBe("Guz Donemi Ders Kayitlari");
     expect(response.events.every((event) => !event.facultyId && !event.departmentId)).toBe(true);
+  });
+
+  it("resolves an exact trusted event beyond the calendar collection cap and hides every unavailable case", async () => {
+    const { authRepository, session } = await createStudentWithUniversity();
+    const calendarRepository = new InMemoryCalendarRepository();
+    const calendar = await calendarRepository.createCalendar({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "2026-2027 Akademik Takvimi",
+      status: "published",
+      version: 1,
+      publishedAt: new Date("2026-07-01T00:00:00.000Z")
+    });
+    const events = await calendarRepository.createEvents(Array.from({ length: 205 }, (_, index) => ({
+      calendarId: calendar.id,
+      universityId: calendar.universityId,
+      academicYear: calendar.academicYear,
+      term: "fall" as const,
+      category: "course_registration" as const,
+      title: `Akademik olay ${String(index + 1).padStart(3, "0")}`,
+      startDate: new Date(Date.UTC(2026, 8, index + 1)),
+      timezone: "Europe/Istanbul" as const,
+      confidenceScore: 95,
+      status: "published" as const,
+      notificationRules: []
+    })));
+    const exactTarget = events[204]!;
+    const otherUniversityCalendar = await calendarRepository.createCalendar({
+      universityId: "sample-university-2",
+      academicYear: "2026-2027",
+      title: "Other university calendar",
+      status: "published",
+      version: 1,
+      publishedAt: new Date("2026-07-01T00:00:00.000Z")
+    });
+    const [outOfScope] = await calendarRepository.createEvents([{
+      calendarId: otherUniversityCalendar.id,
+      universityId: otherUniversityCalendar.universityId,
+      academicYear: otherUniversityCalendar.academicYear,
+      term: "fall",
+      category: "course_registration",
+      title: "Other university event",
+      startDate: new Date("2026-09-01T00:00:00.000Z"),
+      timezone: "Europe/Istanbul",
+      status: "published",
+      notificationRules: []
+    }]);
+    const [visibleFaculty, hiddenFaculty, visibleDepartment, hiddenDepartment, unpublished] = await calendarRepository.createEvents([
+      { facultyId: "sample-faculty-1", title: "Own faculty event", status: "published" },
+      { facultyId: "other-faculty", title: "Other faculty event", status: "published" },
+      { facultyId: "sample-faculty-1", departmentId: "sample-department-1", title: "Own department event", status: "published" },
+      { facultyId: "sample-faculty-1", departmentId: "other-department", title: "Other department event", status: "published" },
+      { title: "Unpublished event", status: "approved" }
+    ].map((item, index) => ({
+      calendarId: calendar.id,
+      universityId: calendar.universityId,
+      academicYear: calendar.academicYear,
+      term: "fall" as const,
+      category: "custom_event" as const,
+      title: item.title,
+      startDate: new Date(Date.UTC(2027, 4, index + 1)),
+      timezone: "Europe/Istanbul" as const,
+      status: item.status as "published" | "approved",
+      notificationRules: [],
+      ...(item.facultyId ? { facultyId: item.facultyId } : {}),
+      ...(item.departmentId ? { departmentId: item.departmentId } : {})
+    })));
+    const archivedCalendar = await calendarRepository.createCalendar({
+      universityId: "sample-university-1",
+      academicYear: "2025-2026",
+      title: "Archived calendar",
+      status: "archived",
+      version: 1,
+      publishedAt: new Date("2025-07-01T00:00:00.000Z")
+    });
+    const [unavailable] = await calendarRepository.createEvents([{
+      calendarId: archivedCalendar.id,
+      universityId: archivedCalendar.universityId,
+      academicYear: archivedCalendar.academicYear,
+      term: "fall",
+      category: "course_registration",
+      title: "Archived event",
+      startDate: new Date("2025-09-01T00:00:00.000Z"),
+      timezone: "Europe/Istanbul",
+      status: "published",
+      notificationRules: []
+    }]);
+    const service = new CalendarService(calendarRepository, authRepository);
+    const controller = new CalendarController(service);
+
+    const collection = await controller.getMyCalendar(session.user);
+    expect(collection.events).toHaveLength(200);
+    expect(collection.events.some((event) => event.id === exactTarget.id)).toBe(false);
+
+    await expect(controller.getMyTrustedCalendarEvent(session.user, exactTarget.id))
+      .resolves.toEqual(expect.objectContaining({ id: exactTarget.id, title: exactTarget.title, status: "published" }));
+    await expect(controller.getMyTrustedCalendarEvent(session.user, visibleFaculty!.id))
+      .resolves.toEqual(expect.objectContaining({ id: visibleFaculty!.id }));
+    await expect(controller.getMyTrustedCalendarEvent(session.user, visibleDepartment!.id))
+      .resolves.toEqual(expect.objectContaining({ id: visibleDepartment!.id }));
+
+    const hiddenResponse = {
+      response: {
+        message: "Trusted calendar event not found.",
+        error: "Not Found",
+        statusCode: 404
+      },
+      status: 404
+    };
+    for (const hiddenId of [
+      " ",
+      "missing-event",
+      outOfScope!.id,
+      hiddenFaculty!.id,
+      hiddenDepartment!.id,
+      unpublished!.id,
+      unavailable!.id
+    ]) {
+      await expect(controller.getMyTrustedCalendarEvent(session.user, hiddenId))
+        .rejects.toMatchObject(hiddenResponse);
+    }
+
+    expect(endpointCatalog).toContainEqual({
+      method: "GET",
+      path: "/calendar/my/trusted/:eventId",
+      authRequired: true,
+      roles: ["student"],
+      rateLimit: "standard"
+    });
   });
 
   it("rejects saved faculty or department calendars as university academic calendars", async () => {

@@ -4,7 +4,7 @@ import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
-import { CreateStudentAlarmDto, RegisterDeviceDto, UpdateNotificationPreferencesDto } from "./notifications.dto.js";
+import { CreateStudentAlarmDto, RegisterDeviceDto, UnregisterDeviceDto, UpdateNotificationPreferencesDto } from "./notifications.dto.js";
 import { NotificationsService } from "./notifications.service.js";
 
 @Controller()
@@ -16,6 +16,12 @@ export class NotificationsController {
   @Roles("student")
   registerDevice(@CurrentUser() user: AuthenticatedUser, @Body() body: RegisterDeviceDto) {
     return this.notificationsService.registerDevice(user, body);
+  }
+
+  @Delete("devices/current")
+  @Roles("student")
+  unregisterCurrentDevice(@CurrentUser() user: AuthenticatedUser, @Body() body: UnregisterDeviceDto) {
+    return this.notificationsService.unregisterCurrentDevice(user, body);
   }
 
   @Get("notification-preferences")

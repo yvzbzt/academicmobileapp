@@ -58,6 +58,12 @@ describe("AccountDeletionService", () => {
       classLevel: 3,
       status: "active"
     });
+    await notificationRepository.upsertDeviceToken({
+      userId: user.id,
+      platform: "android",
+      token: "account-deletion-device-token",
+      installationHash: "account-deletion-installation"
+    });
     await notificationRepository.upsertPreferences({
       userId: user.id,
       enabled: true,
@@ -99,6 +105,7 @@ describe("AccountDeletionService", () => {
     await expect(notificationRepository.findPreferencesByUserId(user.id)).resolves.toBeNull();
     await expect(userDataRepository.findAcademicUnitSuggestionById(suggestion.id)).resolves.toBeNull();
     await expect(userDataRepository.listFollowedAcademicScopesByUserId(user.id)).resolves.toEqual([]);
+    await expect(notificationRepository.listActiveDeviceTokens(10, 0)).resolves.toEqual([]);
   });
 
   it("deletes the account after verifying the code", async () => {
@@ -115,6 +122,12 @@ describe("AccountDeletionService", () => {
       passwordHash: await passwordHasher.hash("StrongPass123!"),
       role: "student",
       status: "active"
+    });
+    await notificationRepository.upsertDeviceToken({
+      userId: user.id,
+      platform: "ios",
+      token: "full-account-deletion-device-token",
+      installationHash: "full-account-deletion-installation"
     });
     const suggestion = await userDataRepository.createAcademicUnitSuggestion({
       userId: user.id,
@@ -139,6 +152,7 @@ describe("AccountDeletionService", () => {
     await expect(authRepository.findUserByEmail(user.email)).resolves.toBeNull();
     await expect(userDataRepository.findAcademicUnitSuggestionById(suggestion.id)).resolves.toBeNull();
     await expect(userDataRepository.listFollowedAcademicScopesByUserId(user.id)).resolves.toEqual([]);
+    await expect(notificationRepository.listActiveDeviceTokens(10, 0)).resolves.toEqual([]);
     await expect(authRepository.createUser({
       fullName: "New Owner",
       email: user.email,

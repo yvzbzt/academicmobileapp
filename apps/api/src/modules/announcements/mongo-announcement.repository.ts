@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { isValidObjectId } from "mongoose";
 import { announcementItemSchema, announcementSourceSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
@@ -145,6 +146,34 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
       .sort({ discoveredAt: -1, sourceUpdatedAt: -1, publishedAt: -1 })
       .limit(input.limit);
     return documents.map((document) => toDomainRecord<AnnouncementItem>(document));
+  }
+
+  async findTrustedItemByIdInScope(input: {
+    announcementId: string;
+    universityId: string;
+    facultyId?: string;
+    departmentId?: string;
+  }): Promise<{ item: AnnouncementItem; source: AnnouncementSourceRecord } | null> {
+    if (!isValidObjectId(input.announcementId)) return null;
+    const matchers: Array<Record<string, string>> = [{ scopeType: "university", scopeId: input.universityId }];
+    if (input.facultyId) matchers.push({ scopeType: "faculty", scopeId: input.facultyId });
+    if (input.departmentId) matchers.push({ scopeType: "department", scopeId: input.departmentId });
+
+    const sources = await (await this.model("AnnouncementSource", announcementSourceSchema))
+      .find({ status: "active", trustStatus: "trusted", $or: matchers });
+    if (sources.length === 0) return null;
+    const sourceById = new Map(sources.map((source) => [source.id, source]));
+    const document = await (await this.model("AnnouncementItem", announcementItemSchema)).findOne({
+      _id: input.announcementId,
+      sourceId: { $in: [...sourceById.keys()] },
+      trustStatus: "trusted"
+    });
+    if (!document) return null;
+    const item = toDomainRecord<AnnouncementItem>(document);
+    const sourceDocument = sourceById.get(item.sourceId);
+    return sourceDocument
+      ? { item, source: toDomainRecord<AnnouncementSourceRecord>(sourceDocument) }
+      : null;
   }
 
   async listAllItems(input: { limit?: number; offset?: number } = {}): Promise<AnnouncementItem[]> {

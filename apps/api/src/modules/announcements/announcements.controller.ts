@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
@@ -24,6 +24,16 @@ export class AnnouncementsController {
   @Roles("student")
   getMyTrustedAnnouncementCollection(@CurrentUser() user: AuthenticatedUser, @Query() query: MyAnnouncementsQueryDto) {
     return this.announcementsService.getMyAnnouncementsCollection(user.id, query.limit);
+  }
+
+  @Get("my/trusted/:announcementId")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMyTrustedAnnouncement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("announcementId") announcementId: string
+  ) {
+    return this.announcementsService.getMyTrustedAnnouncement(user.id, announcementId);
   }
 
   @Get("yok")

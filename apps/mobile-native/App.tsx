@@ -12,6 +12,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   BackHandler,
   Linking,
   NativeModules,
@@ -28,8 +29,44 @@ import {
   GOOGLE_CALENDAR_EVENTS_SCOPE,
   GoogleCalendarService,
   GoogleCalendarSyncError,
+  type GoogleCalendarEventMapping,
   type GoogleCalendarSyncResult
 } from "./src/google-calendar/google-calendar-sync";
+import {
+  GOOGLE_CALENDAR_CONNECTION_SCHEMA_VERSION,
+  GoogleCalendarLifecycleGuard,
+  executeGoogleCalendarLifecycle,
+  evaluateGoogleCalendarPreflight,
+  findDuplicateGoogleCalendarMappings,
+  googleCalendarDeletionCandidateSourceTypes,
+  planGoogleCalendarAccountSwitch,
+  planGoogleCalendarExactMappingLookups,
+  planGoogleCalendarLifecycle,
+  readGoogleCalendarConnectionRecordV3,
+  type GoogleCalendarConnectionRecordV3,
+  type GoogleCalendarLifecycleState
+} from "./src/google-calendar/google-calendar-lifecycle";
+import {
+  ExpoNetworkAdapter,
+  ExpoNotificationPermissionAdapter,
+  FirebaseNotificationTapAdapter,
+  FirebaseNotificationTokenAdapter,
+  NotificationLifecycleCoordinator,
+  configureAndroidNotificationChannels,
+  configureForegroundNotificationPresentation,
+  createPendingNotificationDestinationRecord,
+  isSamePendingNotificationDestinationRecord,
+  openNotificationSettings,
+  parseNotificationDeepLink,
+  parsePendingNotificationDestinationRecord,
+  resolveNotificationDestination,
+  serializePendingNotificationDestinationRecord,
+  subscribeToForegroundRemoteNotifications,
+  type NotificationBackendAdapter,
+  type NotificationDestination,
+  type NotificationLifecycleState,
+  type ParsedNotificationDestination
+} from "./src/notifications";
 import {
   AUTH_ENDPOINTS,
   AUTH_PASSWORD_MIN_LENGTH,
@@ -178,14 +215,20 @@ type EventRecord = {
 type CalendarPayload = {
   calendar: CalendarRecord;
   events: EventRecord[];
+  scope?: "university";
+  sourceStatus?: "parsed" | "source_only";
 };
 
-type GoogleCalendarConnectionRecord = {
+type LegacyGoogleCalendarConnectionRecord = {
   ownerId: string;
   accountEmail: string;
   lastSyncedAt: string;
-  result: GoogleCalendarSyncResult;
-  warnings?: string[];
+};
+
+type NotificationDestinationNotice = {
+  status: "opened" | "unavailable" | "temporarily_unavailable";
+  destination: NotificationDestination;
+  title?: string;
 };
 
 type SummerSchoolApiPayload = {
@@ -262,8 +305,10 @@ type Loadable<T> = {
 const SESSION_STORAGE_KEY = "native_session";
 const SESSION_INVALIDATED_STORAGE_VALUE = "native_session_invalidated_v1";
 const DEVICE_ID_STORAGE_KEY = "native_device_id";
+const PENDING_NOTIFICATION_STORAGE_KEY = "native_pending_notification_destination_v1";
 const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
-const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v2";
+const GOOGLE_CALENDAR_V2_STORAGE_PREFIX = "native_google_calendar_connection_v2";
+const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v3";
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -774,10 +819,14 @@ function cleanupTargetLabel(target: AccountCleanupTarget): string {
   const labels: Record<AccountCleanupTarget, string> = {
     server_session: "sunucu oturumu",
     server_account: "sunucudaki hesap silme işlemi",
+    device_registration: "cihaz bildirim kaydı",
     session_storage: "cihaz oturumu",
     pending_verification_storage: "doğrulama kurtarma kaydı",
+    pending_notification_storage: "bekleyen bildirim hedefi",
     manual_exam_storage: "kişisel sınav kaydı",
     google_connection_storage: "Google Takvim bağlantı kaydı",
+    google_managed_events: "Google Takvim'e eklenen uygulama kayıtları",
+    google_access: "Google erişim izni",
     google_sign_in: "Google hesap seçimi",
     in_memory_state: "ekrandaki hesap verileri"
   };
@@ -811,6 +860,63 @@ function createGoogleCalendarStorageKey(ownerId: string): string {
   if (!normalized) throw new Error("A Google Calendar connection owner is required.");
   const encoded = Array.from(normalized, (character) => character.codePointAt(0)?.toString(16) ?? "0").join("_");
   return `${GOOGLE_CALENDAR_STORAGE_PREFIX}_${encoded}`;
+}
+
+function createGoogleCalendarV2StorageKey(ownerId: string): string {
+  const normalized = ownerId.trim();
+  if (!normalized) throw new Error("A Google Calendar connection owner is required.");
+  const encoded = Array.from(normalized, (character) => character.codePointAt(0)?.toString(16) ?? "0").join("_");
+  return `${GOOGLE_CALENDAR_V2_STORAGE_PREFIX}_${encoded}`;
+}
+
+function googleCalendarLifecycleLabel(state: GoogleCalendarLifecycleState): string {
+  const labels: Record<GoogleCalendarLifecycleState, string> = {
+    disconnected: "Bağlı değil",
+    checking: "Doğrulanıyor",
+    connected: "Bağlı",
+    expired: "Süresi doldu",
+    syncing: "Eşitleniyor",
+    partial: "Kısmi",
+    error: "Hata"
+  };
+  return labels[state];
+}
+
+function notificationLifecycleMessage(state: NotificationLifecycleState): string {
+  if (state.active) return "Bildirim izni verildi ve bu cihaz teslimat için kayıtlı.";
+  if (Platform.OS === "web" || state.permission === "unavailable") {
+    return "Push bildirimleri bu platformda kullanılamıyor.";
+  }
+  if (state.permission === "permanently_denied") {
+    return "Bildirim izni cihaz ayarlarından kapalı. Teslimat etkin değil.";
+  }
+  if (state.permission === "denied") return "Bildirim izni verilmedi. Teslimat etkin değil.";
+  if (state.permission === "not_requested") return "Bildirim izni henüz istenmedi. Yalnızca sen açtığında sorulur.";
+  if (state.registration === "registering" || state.permission === "checking") return "Bildirim durumu doğrulanıyor.";
+  if (state.registration === "error" || state.permission === "error") {
+    return "Bu cihazın bildirim teslimatı doğrulanamadı. Tercihlerin kaydedilebilir, ancak teslimat etkin değil.";
+  }
+  return "Bildirim teslimatı etkin değil.";
+}
+
+function mappingsMatchDesiredContent(
+  desired: readonly { sourceId: string; sourceType: string; fingerprint: string }[],
+  remote: readonly GoogleCalendarEventMapping[],
+  deletionEligibleSourceTypes: readonly string[]
+): boolean {
+  if (findDuplicateGoogleCalendarMappings(remote).hasDuplicates) return false;
+  const remoteBySource = new Map(remote.map((mapping) => [
+    `${mapping.sourceType}:${mapping.sourceId}`,
+    mapping
+  ]));
+  if (!desired.every((item) => remoteBySource.get(`${item.sourceType}:${item.sourceId}`)?.fingerprint === item.fingerprint)) {
+    return false;
+  }
+  const desiredKeys = new Set(desired.map((item) => `${item.sourceType}:${item.sourceId}`));
+  return remote.every((mapping) => (
+    !deletionEligibleSourceTypes.includes(mapping.sourceType)
+    || desiredKeys.has(`${mapping.sourceType}:${mapping.sourceId}`)
+  ));
 }
 
 function isSessionPayload(value: unknown): value is SessionPayload {
@@ -902,7 +1008,7 @@ export default function App() {
   const [manualExamDate, setManualExamDate] = useState("");
 
   const [selectedUniversityId, setSelectedUniversityId] = useState("");
-  const [alarmEnabled, setAlarmEnabled] = useState(true);
+  const [alarmEnabled, setAlarmEnabled] = useState(false);
   const [alarmMode, setAlarmMode] = useState<AlarmMode>("all_calendar");
   const [categoryDraft, setCategoryDraft] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
@@ -910,13 +1016,25 @@ export default function App() {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: "info" | "success" | "error" } | null>(null);
   const [googleCalendarBusy, setGoogleCalendarBusy] = useState(false);
-  const [googleCalendarIntegration, setGoogleCalendarIntegration] = useState<GoogleCalendarConnectionRecord | null>(null);
+  const [googleCalendarIntegration, setGoogleCalendarIntegration] = useState<GoogleCalendarConnectionRecordV3 | null>(null);
+  const [googleCalendarState, setGoogleCalendarState] = useState<GoogleCalendarLifecycleState>("disconnected");
+  const [googleCalendarLastResult, setGoogleCalendarLastResult] = useState<GoogleCalendarSyncResult | null>(null);
+  const [googleCalendarWarnings, setGoogleCalendarWarnings] = useState<string[]>([]);
   const [googleCalendarError, setGoogleCalendarError] = useState<string | null>(null);
+  const [notificationLifecycle, setNotificationLifecycle] = useState<NotificationLifecycleState>({
+    schemaVersion: 1,
+    ownerId: null,
+    preferenceEnabled: false,
+    permission: Platform.OS === "web" ? "unavailable" : "not_requested",
+    registration: "unregistered",
+    active: false
+  });
+  const [notificationDestinationNotice, setNotificationDestinationNotice] = useState<NotificationDestinationNotice | null>(null);
   const [academicProfileExpanded, setAcademicProfileExpanded] = useState(false);
   const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
   const [announcementContentFilter, setAnnouncementContentFilter] = useState<AnnouncementContentFilter>("all");
   const [cleanupIssue, setCleanupIssue] = useState<{
-    action: "logout" | "session_expiry" | "data_deletion" | "account_deletion" | "verification_save" | "verification_clear" | "activation" | "manual_exam_save";
+    action: "logout" | "session_expiry" | "data_deletion" | "account_deletion" | "verification_save" | "verification_clear" | "activation" | "manual_exam_save" | "notification_settings";
     failedTargets: AccountCleanupTarget[];
     ownerId?: string;
   } | null>(null);
@@ -930,6 +1048,14 @@ export default function App() {
   const googleSdkQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeAuthenticatedMutationsRef = useRef(new Set<Promise<unknown>>());
   const googleSdkEpochRef = useRef(0);
+  const googleLifecycleGuardRef = useRef(new GoogleCalendarLifecycleGuard());
+  const notificationCoordinatorRef = useRef<NotificationLifecycleCoordinator | null>(null);
+  const notificationCoordinatorOwnerTokenRef = useRef<SessionPayload | null>(null);
+  const notificationUnsubscribeRef = useRef<(() => void) | null>(null);
+  const notificationRotationUnsubscribeRef = useRef<(() => void) | null>(null);
+  const notificationForegroundUnsubscribeRef = useRef<(() => void) | null>(null);
+  const notificationTapAdapterRef = useRef<FirebaseNotificationTapAdapter | null>(null);
+  const notificationFailClosedPromiseRef = useRef<Promise<void> | null>(null);
   const accountCleanupInProgressRef = useRef(false);
   const authOperationInProgressRef = useRef(false);
   const activationAttemptRef = useRef(0);
@@ -1092,6 +1218,327 @@ export default function App() {
   const passwordRecoveryConfirmReady = passwordRecoveryConfirmationValidation.valid
     && !passwordRecoveryTiming?.expired;
   const rootSurface = rootSurfaceForHydration(hydrationStatus, Boolean(session));
+  const googleCalendarLive = Boolean(
+    googleCalendarIntegration
+    && (googleCalendarState === "connected" || googleCalendarState === "partial")
+    && googleCalendarIntegration.authorizationVerifiedAt
+  );
+
+  function ensureNotificationCoordinator(installationId: string): NotificationLifecycleCoordinator | null {
+    if (Platform.OS !== "android" && Platform.OS !== "ios") {
+      setNotificationLifecycle((previous) => ({
+        ...previous,
+        permission: "unavailable",
+        registration: "unregistered",
+        active: false
+      }));
+      return null;
+    }
+    if (notificationCoordinatorRef.current) return notificationCoordinatorRef.current;
+
+    const backendAdapter: NotificationBackendAdapter = {
+      registerDevice: async ({ ownerId, installationId: currentInstallationId, platform, token }) => {
+        const ownerSession = notificationCoordinatorOwnerTokenRef.current;
+        const ownerSnapshot = accountGuardRef.current.capture();
+        if (
+          !ownerSession
+          || ownerSession.user.id !== ownerId
+          || !ownerSnapshot
+          || ownerSnapshot.ownerId !== ownerId
+        ) throw new StaleAccountRequestError();
+        await apiRequest<{ status: "registered" }>(
+          "/devices/register",
+          {
+            method: "POST",
+            body: JSON.stringify({ platform, token, deviceId: currentInstallationId })
+          },
+          ownerSession.accessToken,
+          { ownerSnapshot }
+        );
+      },
+      detachDevice: async ({ ownerId, installationId: currentInstallationId }) => {
+        const ownerSession = notificationCoordinatorOwnerTokenRef.current;
+        if (!ownerSession || ownerSession.user.id !== ownerId) throw new StaleAccountRequestError();
+        await apiRequest<{ status: "unregistered" }>(
+          "/devices/current",
+          {
+            method: "DELETE",
+            body: JSON.stringify({ deviceId: currentInstallationId })
+          },
+          ownerSession.accessToken,
+          { skipAuthRefresh: true, detached: true }
+        );
+      }
+    };
+
+    try {
+      const coordinator = new NotificationLifecycleCoordinator({
+        installationId,
+        platform: Platform.OS,
+        permissionAdapter: new ExpoNotificationPermissionAdapter(),
+        tokenAdapter: new FirebaseNotificationTokenAdapter(),
+        backendAdapter
+      });
+      notificationCoordinatorRef.current = coordinator;
+      notificationUnsubscribeRef.current = coordinator.subscribe((state) => {
+        setNotificationLifecycle(state);
+        const rotationEligible = state.preferenceEnabled && state.permission === "granted";
+        if (rotationEligible && !notificationRotationUnsubscribeRef.current) {
+          notificationRotationUnsubscribeRef.current = coordinator.startTokenRotationListener();
+        } else if (!rotationEligible && notificationRotationUnsubscribeRef.current) {
+          notificationRotationUnsubscribeRef.current();
+          notificationRotationUnsubscribeRef.current = null;
+        }
+        const foregroundEligible = state.active;
+        if (foregroundEligible && !notificationForegroundUnsubscribeRef.current) {
+          notificationForegroundUnsubscribeRef.current = subscribeToForegroundRemoteNotifications();
+        } else if (!foregroundEligible && notificationForegroundUnsubscribeRef.current) {
+          notificationForegroundUnsubscribeRef.current();
+          notificationForegroundUnsubscribeRef.current = null;
+        }
+        if (state.preferenceEnabled && state.registration === "error") {
+          const currentSession = sessionRef.current;
+          if (currentSession?.user.id === state.ownerId) {
+            void disableNotificationDeliveryFailClosed(currentSession, coordinator).catch(() => {
+              setAlarmEnabled(false);
+              setCleanupIssue({
+                action: "notification_settings",
+                failedTargets: ["device_registration"],
+                ownerId: currentSession.user.id
+              });
+              setMessage({
+                text: "Cihaz kaydı doğrulanamadığı için bildirim teslimatı güvenli biçimde kapatılamadı. Lütfen tekrar dene.",
+                tone: "error"
+              });
+            });
+          }
+        }
+      });
+      configureForegroundNotificationPresentation();
+      void configureAndroidNotificationChannels().catch(() => undefined);
+      return coordinator;
+    } catch {
+      setNotificationLifecycle({
+        schemaVersion: 1,
+        ownerId: null,
+        preferenceEnabled: false,
+        permission: "unavailable",
+        registration: "error",
+        active: false,
+        errorCode: "token_unavailable"
+      });
+      return null;
+    }
+  }
+
+  async function persistPendingNotificationDestination(
+    record: ReturnType<typeof createPendingNotificationDestinationRecord> | null
+  ): Promise<void> {
+    await enqueueStorageMutation(async () => {
+      if (!record) {
+        await deleteStoredValue(PENDING_NOTIFICATION_STORAGE_KEY);
+        return;
+      }
+      await setStoredValue(
+        PENDING_NOTIFICATION_STORAGE_KEY,
+        serializePendingNotificationDestinationRecord(record)
+      );
+    });
+  }
+
+  async function readPendingNotificationDestination(): Promise<ReturnType<typeof createPendingNotificationDestinationRecord> | null> {
+    return enqueueStorageMutation(async () => {
+      const stored = await getStoredValue(PENDING_NOTIFICATION_STORAGE_KEY);
+      const record = parsePendingNotificationDestinationRecord(stored);
+      if (stored && !record) await deleteStoredValue(PENDING_NOTIFICATION_STORAGE_KEY);
+      return record;
+    });
+  }
+
+  async function pendingNotificationDestinationIsCurrent(
+    expected: ReturnType<typeof createPendingNotificationDestinationRecord>
+  ): Promise<boolean> {
+    return enqueueStorageMutation(async () => {
+      const current = parsePendingNotificationDestinationRecord(
+        await getStoredValue(PENDING_NOTIFICATION_STORAGE_KEY)
+      );
+      return isSamePendingNotificationDestinationRecord(current, expected);
+    });
+  }
+
+  async function clearPendingNotificationDestinationIfCurrent(
+    expected: ReturnType<typeof createPendingNotificationDestinationRecord>
+  ): Promise<boolean> {
+    return enqueueStorageMutation(async () => {
+      const current = parsePendingNotificationDestinationRecord(
+        await getStoredValue(PENDING_NOTIFICATION_STORAGE_KEY)
+      );
+      if (!isSamePendingNotificationDestinationRecord(current, expected)) return false;
+      await deleteStoredValue(PENDING_NOTIFICATION_STORAGE_KEY);
+      return true;
+    });
+  }
+
+  async function resolvePendingNotificationForSession(
+    record: ReturnType<typeof createPendingNotificationDestinationRecord>,
+    currentSession: SessionPayload,
+    ownerSnapshot: AccountGenerationSnapshot
+  ): Promise<void> {
+    let destinationTitle: string | undefined;
+    const resolution = await resolveNotificationDestination({
+      record,
+      currentOwner: { ownerId: ownerSnapshot.ownerId, generation: ownerSnapshot.generation },
+      getCurrentOwner: () => {
+        const current = accountGuardRef.current.capture();
+        return current ? { ownerId: current.ownerId, generation: current.generation } : null;
+      },
+      isAvailable: async (destination) => {
+        if (destination.type === "calendar_event") {
+          let payload: EventRecord;
+          try {
+            payload = await apiRequest<EventRecord>(
+              `/calendar/my/trusted/${encodeURIComponent(destination.id)}`,
+              {},
+              currentSession.accessToken,
+              { ownerSnapshot }
+            );
+          } catch (error) {
+            if (error instanceof ApiRequestError && error.status === 404) return false;
+            throw error;
+          }
+          const match = normalizeEventRecordsForDisplay([payload])
+            .find((event) => event.id === destination.id);
+          if (match) destinationTitle = match.title;
+          return Boolean(match);
+        }
+
+        let payload: AnnouncementApiRecord;
+        try {
+          payload = await apiRequest<AnnouncementApiRecord>(
+            `/announcements/my/trusted/${encodeURIComponent(destination.id)}`,
+            {},
+            currentSession.accessToken,
+            { ownerSnapshot }
+          );
+        } catch (error) {
+          if (error instanceof ApiRequestError && error.status === 404) return false;
+          throw error;
+        }
+        const normalized = normalizeTrustedContentCollection([payload]);
+        const match = normalized.items.find((item) => item.id === destination.id);
+        if (match) destinationTitle = match.title;
+        setAnnouncements((previous) => ({
+          loading: false,
+          data: normalizeTrustedContentCollection([
+            ...(previous.data?.items ?? []),
+            ...normalized.items
+          ]),
+          attempted: true,
+          stale: false
+        }));
+        return Boolean(match);
+      }
+    });
+
+    if (resolution.status === "ignored") return;
+    if (
+      !accountGuardRef.current.isCurrent(ownerSnapshot)
+      || sessionRef.current?.user.id !== ownerSnapshot.ownerId
+    ) return;
+    if (resolution.status === "unavailable") {
+      if (resolution.reason === "lookup_error") {
+        if (!await pendingNotificationDestinationIsCurrent(record)) return;
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+        setNotificationDestinationNotice({
+          status: "temporarily_unavailable",
+          destination: resolution.destination
+        });
+        return;
+      }
+      if (!await clearPendingNotificationDestinationIfCurrent(record).catch(() => false)) return;
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      setNotificationDestinationNotice({ status: "unavailable", destination: resolution.destination });
+      return;
+    }
+    if (resolution.status === "open") {
+      if (!await clearPendingNotificationDestinationIfCurrent(record).catch(() => false)) return;
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      setNotificationDestinationNotice({
+        status: "opened",
+        destination: resolution.destination,
+        ...(destinationTitle ? { title: destinationTitle } : {})
+      });
+      setActiveTab(resolution.destination.type === "announcement" ? "announcements" : "calendar");
+    }
+  }
+
+  async function receiveNotificationDestination(parsed: ParsedNotificationDestination | null): Promise<void> {
+    if (!parsed) return;
+    const record = createPendingNotificationDestinationRecord({
+      destination: parsed.destination,
+      ownerId: parsed.recipientOwnerId
+    });
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot) {
+      try {
+        await persistPendingNotificationDestination(record);
+      } catch {
+        setMessage({
+          text: "Bildirim hedefi bu cihazda saklanamadı. Bildirimi yeniden açmayı deneyebilirsin.",
+          tone: "error"
+        });
+        return;
+      }
+      const resumedSession = sessionRef.current;
+      const resumedSnapshot = accountGuardRef.current.capture();
+      if (
+        resumedSession?.user.id === record.ownerId
+        && resumedSnapshot?.ownerId === record.ownerId
+      ) {
+        await resolvePendingNotificationForSession(record, resumedSession, resumedSnapshot);
+      }
+      return;
+    }
+    if (ownerSnapshot.ownerId !== record.ownerId || currentSession.user.id !== record.ownerId) {
+      await clearPendingNotificationDestinationIfCurrent(record).catch(() => false);
+      return;
+    }
+    try {
+      await persistPendingNotificationDestination(record);
+    } catch {
+      setMessage({
+        text: "Bildirim hedefi bu cihazda saklanamadı. Bildirimi yeniden açmayı deneyebilirsin.",
+        tone: "error"
+      });
+      return;
+    }
+    await resolvePendingNotificationForSession(record, currentSession, ownerSnapshot);
+  }
+
+  async function restorePendingNotificationForSession(
+    currentSession: SessionPayload,
+    ownerSnapshot: AccountGenerationSnapshot
+  ): Promise<void> {
+    const record = await readPendingNotificationDestination();
+    if (!record) return;
+    if (record.ownerId !== currentSession.user.id) {
+      await clearPendingNotificationDestinationIfCurrent(record);
+      return;
+    }
+    await resolvePendingNotificationForSession(record, currentSession, ownerSnapshot);
+  }
+
+  async function retryPendingNotificationDestination(): Promise<void> {
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot) return;
+    await restorePendingNotificationForSession(currentSession, ownerSnapshot).catch(() => {
+      setNotificationDestinationNotice((previous) => previous
+        ? { ...previous, status: "temporarily_unavailable" }
+        : previous);
+    });
+  }
 
   useEffect(() => {
     void hydrateApplication();
@@ -1157,7 +1604,64 @@ export default function App() {
 
   useEffect(() => {
     sessionRef.current = session;
+    notificationCoordinatorOwnerTokenRef.current = session;
   }, [session]);
+
+  useEffect(() => () => {
+    notificationUnsubscribeRef.current?.();
+    notificationRotationUnsubscribeRef.current?.();
+    notificationForegroundUnsubscribeRef.current?.();
+    notificationCoordinatorRef.current?.dispose();
+    notificationCoordinatorRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "android" && Platform.OS !== "ios") return;
+    const tapAdapter = new FirebaseNotificationTapAdapter();
+    notificationTapAdapterRef.current = tapAdapter;
+    void tapAdapter.consumeInitialDestination()
+      .then((destination) => receiveNotificationDestination(destination))
+      .catch(() => undefined);
+    const unsubscribeTap = tapAdapter.subscribe((destination) => {
+      void receiveNotificationDestination(destination);
+    });
+    void Linking.getInitialURL().then((url) => {
+      if (url) void receiveNotificationDestination(parseNotificationDeepLink(url));
+    }).catch(() => undefined);
+    const linkingSubscription = Linking.addEventListener("url", ({ url }) => {
+      void receiveNotificationDestination(parseNotificationDeepLink(url));
+    });
+    return () => {
+      unsubscribeTap();
+      linkingSubscription.remove();
+      notificationTapAdapterRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "android" && Platform.OS !== "ios") return;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") return;
+      const currentSession = sessionRef.current;
+      const coordinator = notificationCoordinatorRef.current;
+      if (!currentSession || !coordinator) return;
+      void reconcileNotificationDelivery(currentSession, coordinator).catch(async () => {
+        if (sessionRef.current?.user.id !== currentSession.user.id) return;
+        await coordinator.setPreferenceEnabled(false).catch(() => undefined);
+        setAlarmEnabled(false);
+        setCleanupIssue({
+          action: "notification_settings",
+          failedTargets: ["device_registration"],
+          ownerId: currentSession.user.id
+        });
+        setMessage({
+          text: "Bildirim durumu yenilenemediği için teslimat etkin gösterilmiyor. Bağlantını kontrol edip tekrar dene.",
+          tone: "error"
+        });
+      });
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (!GOOGLE_AUTH_CONFIGURED) return;
@@ -1227,6 +1731,7 @@ export default function App() {
       if (restoredSession) {
         const storedSession = restoredSession;
         const snapshot = accountGuardRef.current.activate(storedSession.user.id);
+        googleLifecycleGuardRef.current.activate(storedSession.user.id);
         try {
           const refreshedSession = await apiRequest<SessionPayload>(
             "/auth/refresh-token",
@@ -1253,6 +1758,7 @@ export default function App() {
           } else {
             await persistSession(refreshedSession);
             sessionRef.current = refreshedSession;
+            notificationCoordinatorOwnerTokenRef.current = refreshedSession;
             setSession(refreshedSession);
             restoredSession = refreshedSession;
           }
@@ -1330,13 +1836,21 @@ export default function App() {
       await loadUniversities();
       if (restoredSession) {
         const snapshot = accountGuardRef.current.capture();
-        if (snapshot) await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
+        if (snapshot) {
+          await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
+          if (accountGuardRef.current.isCurrent(snapshot)) {
+            await restorePendingNotificationForSession(restoredSession, snapshot).catch(() => {
+              recoverableTargets.push("pending_notification_storage");
+            });
+          }
+        }
       }
       setHydrationStatus("ready");
     } catch {
       abortAuthenticatedRequests();
       accountGuardRef.current.invalidate();
       sessionRef.current = null;
+      notificationCoordinatorOwnerTokenRef.current = null;
       setSession(null);
       setManualExams([]);
       setManualExamOwnerId(null);
@@ -1367,6 +1881,7 @@ export default function App() {
       return null;
     }
     sessionRef.current = parsed;
+    notificationCoordinatorOwnerTokenRef.current = parsed;
     setSession(parsed);
     return parsed;
   }
@@ -1376,6 +1891,7 @@ export default function App() {
     if (stored) {
       deviceIdRef.current = stored;
       setDeviceId(stored);
+      ensureNotificationCoordinator(stored);
       return stored;
     }
 
@@ -1383,6 +1899,7 @@ export default function App() {
     await setStoredValue(DEVICE_ID_STORAGE_KEY, created);
     deviceIdRef.current = created;
     setDeviceId(created);
+    ensureNotificationCoordinator(created);
     return created;
   }
 
@@ -1435,43 +1952,140 @@ export default function App() {
   ): Promise<void> {
     if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
     setGoogleCalendarIntegration(null);
+    setGoogleCalendarLastResult(null);
+    setGoogleCalendarWarnings([]);
+    setGoogleCalendarError(null);
+    setGoogleCalendarState(ownerId ? "checking" : "disconnected");
     const legacy = await getStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
     if (!ownerId) {
       if (legacy) await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
+      setGoogleCalendarState("disconnected");
       return;
     }
 
     const storageKey = createGoogleCalendarStorageKey(ownerId);
+    const v2StorageKey = createGoogleCalendarV2StorageKey(ownerId);
     const stored = await getStoredValue(storageKey);
-    const candidate = stored ?? legacy;
-    if (!candidate) return;
-
-    let parsed: GoogleCalendarConnectionRecord | null = null;
+    const storedV2 = await getStoredValue(v2StorageKey);
+    const parsedV3 = stored ? readGoogleCalendarConnectionRecordV3(stored, ownerId) : null;
+    const legacyCandidate = storedV2 ?? legacy;
+    let parsedLegacy: LegacyGoogleCalendarConnectionRecord | null = null;
     try {
-      parsed = JSON.parse(candidate) as GoogleCalendarConnectionRecord;
+      const parsed = legacyCandidate ? JSON.parse(legacyCandidate) as Partial<LegacyGoogleCalendarConnectionRecord> : null;
+      parsedLegacy = parsed
+        && parsed.ownerId === ownerId
+        && typeof parsed.accountEmail === "string"
+        && Boolean(parsed.accountEmail.trim())
+        && typeof parsed.lastSyncedAt === "string"
+        && !Number.isNaN(Date.parse(parsed.lastSyncedAt))
+        ? parsed as LegacyGoogleCalendarConnectionRecord
+        : null;
     } catch {
-      parsed = null;
+      parsedLegacy = null;
     }
-    const valid = parsed
-      && parsed.ownerId === ownerId
-      && typeof parsed.accountEmail === "string"
-      && typeof parsed.lastSyncedAt === "string"
-      && typeof parsed.result?.verified === "number";
-    if (!valid) {
-      if (stored) await deleteStoredValue(storageKey);
-      if (legacy) await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
+    if (!parsedV3 && !parsedLegacy) {
+      await enqueueStorageMutation(async () => {
+        if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+        if (stored) await deleteStoredValue(storageKey);
+        if (storedV2) await deleteStoredValue(v2StorageKey);
+        if (legacy) await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
+      });
+      setGoogleCalendarState("disconnected");
       return;
     }
 
-    if (!stored) await setStoredValue(storageKey, JSON.stringify(parsed));
-    if (legacy) await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
-    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
-    setGoogleCalendarIntegration(parsed);
+    if (parsedV3?.state === "disconnected") {
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      setGoogleCalendarIntegration(parsedV3);
+      setGoogleCalendarState("disconnected");
+      await enqueueStorageMutation(async () => {
+        if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+        await deleteStoredValue(v2StorageKey).catch(() => undefined);
+        await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY).catch(() => undefined);
+      });
+      return;
+    }
+
+    if (!GOOGLE_AUTH_CONFIGURED) {
+      if (parsedV3) setGoogleCalendarIntegration({ ...parsedV3, state: "expired" });
+      setGoogleCalendarState("expired");
+      return;
+    }
+
+    const restoreController = new AbortController();
+    authenticatedRequestControllersRef.current.add(restoreController);
+    try {
+      const authorization = await readCurrentGoogleCalendarAuthorization();
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      if (
+        (parsedV3 && parsedV3.googleAccountId !== authorization.googleAccountId)
+        || (parsedLegacy && parsedLegacy.accountEmail.trim().toLowerCase() !== authorization.accountEmail.trim().toLowerCase())
+      ) {
+        throw new Error("GOOGLE_CALENDAR_ACCOUNT_MISMATCH");
+      }
+      const verification = await googleCalendarService.verifyAuthorization({
+        accessToken: authorization.accessToken,
+        ownerId,
+        signal: restoreController.signal
+      });
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      const record: GoogleCalendarConnectionRecordV3 = {
+        schemaVersion: GOOGLE_CALENDAR_CONNECTION_SCHEMA_VERSION,
+        ownerId,
+        googleAccountId: authorization.googleAccountId,
+        accountEmail: authorization.accountEmail,
+        state: "connected",
+        authorizationVerifiedAt: new Date().toISOString(),
+        ...(parsedV3?.lastSyncedAt
+          ? { lastSyncedAt: parsedV3.lastSyncedAt }
+          : parsedLegacy?.lastSyncedAt
+            ? { lastSyncedAt: parsedLegacy.lastSyncedAt }
+            : {}),
+        mappings: verification.mappings
+      };
+      await enqueueStorageMutation(async () => {
+        if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) {
+          throw new StaleAccountRequestError();
+        }
+        await persistGoogleCalendarConnection(record);
+        await deleteStoredValue(v2StorageKey).catch(() => undefined);
+        await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY).catch(() => undefined);
+      });
+      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      setGoogleCalendarIntegration(record);
+      setGoogleCalendarState("connected");
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError || (error instanceof Error && error.name === "AbortError")) {
+        throw new StaleAccountRequestError();
+      }
+      if (!parsedV3) {
+        await enqueueStorageMutation(async () => {
+          if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+          await deleteStoredValue(v2StorageKey).catch(() => undefined);
+          await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY).catch(() => undefined);
+        });
+      } else {
+        const state: GoogleCalendarLifecycleState = error instanceof GoogleCalendarSyncError
+          && error.code !== "GOOGLE_CALENDAR_AUTH_EXPIRED"
+          ? "error"
+          : "expired";
+        setGoogleCalendarIntegration({ ...parsedV3, state });
+        setGoogleCalendarState(state);
+      }
+      setGoogleCalendarError(
+        error instanceof Error && error.message === "GOOGLE_CALENDAR_ACCOUNT_MISMATCH"
+          ? "Google hesabı değişmiş. Devam etmek için hesabını yeniden seç."
+          : "Google Takvim bağlantısı canlı olarak doğrulanamadı. Yeniden bağlanabilirsin."
+      );
+      if (!parsedV3) setGoogleCalendarState("disconnected");
+    } finally {
+      authenticatedRequestControllersRef.current.delete(restoreController);
+    }
   }
 
-  function enqueueStorageMutation(action: () => Promise<void>): Promise<void> {
+  function enqueueStorageMutation<T>(action: () => Promise<T>): Promise<T> {
     const next = storageMutationQueueRef.current.catch(() => undefined).then(action);
-    storageMutationQueueRef.current = next;
+    storageMutationQueueRef.current = next.then(() => undefined, () => undefined);
     return next;
   }
 
@@ -1479,6 +2093,24 @@ export default function App() {
     const next = googleSdkQueueRef.current.catch(() => undefined).then(action);
     googleSdkQueueRef.current = next.then(() => undefined, () => undefined);
     return next;
+  }
+
+  function readCurrentGoogleCalendarAuthorization(): Promise<{
+    accessToken: string;
+    accountEmail: string;
+    googleAccountId: string;
+  }> {
+    return enqueueGoogleSdkOperation(async () => {
+      const currentUser = GoogleSignin.getCurrentUser();
+      if (!currentUser?.user.id || !currentUser.user.email) throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
+      const tokens = await GoogleSignin.getTokens();
+      if (!tokens.accessToken) throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
+      return {
+        accessToken: tokens.accessToken,
+        accountEmail: currentUser.user.email,
+        googleAccountId: currentUser.user.id
+      };
+    });
   }
 
   function trackAuthenticatedMutation<T>(action: () => Promise<T>): Promise<T> {
@@ -1496,21 +2128,43 @@ export default function App() {
     }
   }
 
-  function queueGoogleSignOut(): Promise<void> {
+  function queueGoogleSignOut(signal?: AbortSignal): Promise<void> {
     if (!GOOGLE_AUTH_CONFIGURED) return Promise.resolve();
     const epoch = googleSdkEpochRef.current;
     return enqueueGoogleSdkOperation(async () => {
-      if (googleSdkEpochRef.current !== epoch) return;
+      if (signal?.aborted || googleSdkEpochRef.current !== epoch) return;
       await GoogleSignin.signOut();
     });
   }
 
+  function revokeGoogleCalendarAccessForConnection(
+    connection: GoogleCalendarConnectionRecordV3,
+    signal?: AbortSignal
+  ): Promise<void> {
+    return enqueueGoogleSdkOperation(async () => {
+      if (signal?.aborted) throw Object.assign(new Error("Google cleanup aborted."), { name: "AbortError" });
+      const currentUser = GoogleSignin.getCurrentUser();
+      if (!currentUser?.user.id || currentUser.user.id !== connection.googleAccountId) {
+        throw new Error("GOOGLE_CALENDAR_ACCOUNT_MISMATCH");
+      }
+      const tokens = await GoogleSignin.getTokens();
+      if (signal?.aborted) throw Object.assign(new Error("Google cleanup aborted."), { name: "AbortError" });
+      if (!tokens.accessToken || GoogleSignin.getCurrentUser()?.user.id !== connection.googleAccountId) {
+        throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
+      }
+      await GoogleSignin.revokeAccess();
+    });
+  }
+
   async function persistGoogleCalendarConnection(
-    record: GoogleCalendarConnectionRecord | null,
+    record: GoogleCalendarConnectionRecordV3 | null,
     ownerId = record?.ownerId
   ): Promise<void> {
     if (!record) {
-      if (ownerId) await deleteStoredValue(createGoogleCalendarStorageKey(ownerId));
+      if (ownerId) {
+        await deleteStoredValue(createGoogleCalendarStorageKey(ownerId));
+        await deleteStoredValue(createGoogleCalendarV2StorageKey(ownerId));
+      }
       await deleteStoredValue(LEGACY_GOOGLE_CALENDAR_STORAGE_KEY);
       return;
     }
@@ -1558,6 +2212,7 @@ export default function App() {
   function invalidateAuthenticatedWork(): void {
     activationAttemptRef.current += 1;
     googleSdkEpochRef.current += 1;
+    googleLifecycleGuardRef.current.invalidate();
     accountGuardRef.current.invalidate();
     abortAuthenticatedRequests();
     refreshSessionPromiseRef.current = null;
@@ -1583,6 +2238,7 @@ export default function App() {
       throw new StaleAccountRequestError();
     }
     const snapshot = accountGuardRef.current.activate(nextSession.user.id);
+    googleLifecycleGuardRef.current.activate(nextSession.user.id);
     const failedTargets: AccountCleanupTarget[] = [];
     try {
       await restoreManualExams(nextSession.user.id, snapshot);
@@ -1613,7 +2269,11 @@ export default function App() {
       throw new StaleAccountRequestError();
     }
     sessionRef.current = nextSession;
+    notificationCoordinatorOwnerTokenRef.current = nextSession;
     setSession(nextSession);
+    await restorePendingNotificationForSession(nextSession, snapshot).catch(() => {
+      failedTargets.push("pending_notification_storage");
+    });
     if (failedTargets.length > 0) {
       setCleanupIssue({ action: "activation", failedTargets, ownerId: nextSession.user.id });
     } else {
@@ -1634,8 +2294,17 @@ export default function App() {
       { target: "session_storage", run: () => persistSession(null) }
     ]);
     if (!sessionStorageResult.complete) {
-      clearAuthenticatedMemory();
-      reportCleanupResult("session_expiry", sessionStorageResult, ownerId);
+      const emergencyResult = await runObservableAccountCleanup([
+        { target: "device_registration", run: () => detachNotificationOwnerForCleanup() },
+        { target: "pending_notification_storage", run: () => persistPendingNotificationDestination(null) },
+        { target: "in_memory_state", run: () => clearAuthenticatedMemory() }
+      ]);
+      reportCleanupResult("session_expiry", {
+        complete: false,
+        attemptedCount: sessionStorageResult.attemptedCount + emergencyResult.attemptedCount,
+        succeededTargets: emergencyResult.succeededTargets,
+        failedTargets: [...sessionStorageResult.failedTargets, ...emergencyResult.failedTargets]
+      }, ownerId);
       setHydrationError("Süresi dolan oturum cihazdan güvenli biçimde kaldırılamadı. Depolama erişimini kontrol edip tekrar dene.");
       setHydrationStatus("error");
       accountCleanupInProgressRef.current = false;
@@ -1643,6 +2312,16 @@ export default function App() {
       return;
     }
     const result = await runObservableAccountCleanup([
+      {
+        target: "device_registration",
+        run: async () => {
+          await detachNotificationOwnerForCleanup();
+        }
+      },
+      {
+        target: "pending_notification_storage",
+        run: () => persistPendingNotificationDestination(null)
+      },
       { target: "in_memory_state", run: () => clearAuthenticatedMemory() },
       {
         target: "pending_verification_storage",
@@ -1655,7 +2334,7 @@ export default function App() {
       {
         target: "google_sign_in",
         run: async () => {
-          await queueGoogleSignOut();
+          await runAbortableGoogleCleanup((signal) => queueGoogleSignOut(signal));
         }
       }
     ]);
@@ -1701,6 +2380,7 @@ export default function App() {
         });
         if (!accountGuardRef.current.isCurrent(snapshot)) return null;
         sessionRef.current = nextSession;
+        notificationCoordinatorOwnerTokenRef.current = nextSession;
         setSession(nextSession);
         return nextSession;
       } catch (error) {
@@ -1879,7 +2559,19 @@ export default function App() {
       await clearExpiredSession("Bu hesap artık kullanılamıyor. Lütfen farklı bir hesapla giriş yap.");
       return;
     }
-    await loadPreferences(token, ownerSnapshot);
+    const loadedPreferences = await loadPreferences(token, ownerSnapshot);
+    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+    const coordinator = notificationCoordinatorRef.current;
+    const notificationSession = sessionRef.current;
+    if (coordinator && loadedPreferences && notificationSession?.user.id === profile.id) {
+      await coordinator.activateOwner(profile.id, loadedPreferences.enabled);
+      await reconcileNotificationDelivery(
+        { ...notificationSession, accessToken: token },
+        coordinator,
+        loadedPreferences,
+        ownerSnapshot
+      );
+    }
     if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
     const profileUniversityId = profile.universityId ?? "";
     setSelectedUniversityId(profileUniversityId);
@@ -2482,6 +3174,70 @@ export default function App() {
     setVerificationToken("");
   }
 
+  async function readStoredGoogleCalendarConnection(ownerId: string): Promise<GoogleCalendarConnectionRecordV3 | null> {
+    const stored = await getStoredValue(createGoogleCalendarStorageKey(ownerId));
+    return stored ? readGoogleCalendarConnectionRecordV3(stored, ownerId) : null;
+  }
+
+  async function removeGoogleManagedEventsForDeletion(
+    ownerId: string,
+    connection: GoogleCalendarConnectionRecordV3,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const authorization = await readCurrentGoogleCalendarAuthorization();
+    if (signal?.aborted) throw Object.assign(new Error("Google cleanup aborted."), { name: "AbortError" });
+    if (authorization.googleAccountId !== connection.googleAccountId) {
+      throw new Error("GOOGLE_CALENDAR_ACCOUNT_MISMATCH");
+    }
+    const removal = await googleCalendarService.removeManagedEvents({
+      accessToken: authorization.accessToken,
+      ownerId,
+      signal
+    });
+    if (signal?.aborted) throw Object.assign(new Error("Google cleanup aborted."), { name: "AbortError" });
+    if (removal.partial || removal.remaining > 0) {
+      await persistGoogleCalendarConnection({
+        ...connection,
+        state: "partial",
+        mappings: removal.mappings
+      });
+      throw new Error("GOOGLE_CALENDAR_REMOVE_PARTIAL");
+    }
+    await persistGoogleCalendarConnection({
+      ...connection,
+      state: "partial",
+      mappings: []
+    });
+  }
+
+  async function runAbortableGoogleCleanup(
+    action: (signal: AbortSignal) => Promise<void>,
+    timeoutMs = 8_000
+  ): Promise<void> {
+    const controller = new AbortController();
+    let rejectTimeout!: (reason?: unknown) => void;
+    const timeoutFailure = new Promise<never>((_resolve, reject) => {
+      rejectTimeout = reject;
+    });
+    const timeout = setTimeout(() => {
+      controller.abort();
+      rejectTimeout(new Error("Google cleanup timed out."));
+    }, timeoutMs);
+    try {
+      await Promise.race([action(controller.signal), timeoutFailure]);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async function detachNotificationOwnerForCleanup(): Promise<void> {
+    const coordinator = notificationCoordinatorRef.current;
+    if (!coordinator || !coordinator.getState().ownerId) return;
+    const detached = await coordinator.detachCurrentOwner();
+    if (detached.registration === "error") throw new Error("DEVICE_DETACH_FAILED");
+    await coordinator.clearOwner();
+  }
+
   async function handleLogout(): Promise<void> {
     if (!session || accountCleanupInProgressRef.current) return;
     const closingSession = session;
@@ -2502,6 +3258,16 @@ export default function App() {
       return;
     }
     const result = await runObservableAccountCleanup([
+      {
+        target: "device_registration",
+        run: async () => {
+          await detachNotificationOwnerForCleanup();
+        }
+      },
+      {
+        target: "pending_notification_storage",
+        run: () => persistPendingNotificationDestination(null)
+      },
       { target: "in_memory_state", run: () => clearAuthenticatedMemory() },
       {
         target: "pending_verification_storage",
@@ -2531,19 +3297,33 @@ export default function App() {
         ).then(() => undefined)
       }
     ]);
+    const serverLogoutDetachedDevice = result.succeededTargets.includes("server_session");
+    const reconciledResult: AccountCleanupResult = serverLogoutDetachedDevice
+      ? {
+          ...result,
+          complete: result.failedTargets.filter((target) => target !== "device_registration").length === 0,
+          succeededTargets: [...new Set([...result.succeededTargets, "device_registration" as const])],
+          failedTargets: result.failedTargets.filter((target) => target !== "device_registration")
+        }
+      : result;
     accountCleanupInProgressRef.current = false;
     setBusy(false);
-    reportCleanupResult("logout", result, ownerId);
-    if (result.complete) {
-      setMessage({ text: "Çıkış yapıldı.", tone: "info" });
-    } else if (result.failedTargets.every((target) => target === "server_session")) {
+    reportCleanupResult("logout", reconciledResult, ownerId);
+    if (reconciledResult.complete) {
+      setMessage({
+        text: "Çıkış yapıldı. Google Takvim'e daha önce eklenen uygulama kayıtları korunur.",
+        tone: "info"
+      });
+    } else if (reconciledResult.failedTargets.every((target) => target === "server_session")) {
       setMessage({
         text: "Bu cihazdaki çıkış tamamlandı; sunucudaki oturumun sonlandırıldığı doğrulanamadı.",
         tone: "info"
       });
     } else {
       setMessage({
-        text: "Çıkış ekranda tamamlandı; bazı cihaz kayıtları temizlenemedi. Aşağıdan tekrar deneyebilirsin.",
+        text: reconciledResult.failedTargets.includes("device_registration")
+          ? "Çıkış ekranda tamamlandı; cihaz bildirim kaydı ile sunucu oturumunun temizlendiği doğrulanamadı. Aynı hesapla yeniden giriş yaptığında kayıt yeniden uzlaştırılabilir."
+          : "Çıkış ekranda tamamlandı; bazı cihaz kayıtları temizlenemedi. Aşağıdan tekrar deneyebilirsin.",
         tone: "error"
       });
     }
@@ -2565,11 +3345,14 @@ export default function App() {
     setYokAnnouncements({ loading: false });
     setSummerSchool({ loading: false });
     setPreferences({ loading: false });
-    setAlarmEnabled(true);
+    setAlarmEnabled(false);
     setAlarmMode("all_calendar");
     setCategoryDraft({});
     setAlarmCategoriesExpanded(false);
     setGoogleCalendarIntegration(null);
+    setGoogleCalendarState("disconnected");
+    setGoogleCalendarLastResult(null);
+    setGoogleCalendarWarnings([]);
     setGoogleCalendarError(null);
     setGoogleCalendarBusy(false);
     setGoogleBusy(false);
@@ -2578,10 +3361,12 @@ export default function App() {
     setManualExams([]);
     setManualExamTitle("");
     setManualExamDate("");
+    setNotificationDestinationNotice(null);
   }
 
   function clearAuthenticatedMemory(): void {
     sessionRef.current = null;
+    notificationCoordinatorOwnerTokenRef.current = null;
     setSession(null);
     setAuthMode("login");
     setAuthStage("auth");
@@ -2596,7 +3381,7 @@ export default function App() {
   }
 
   function reportCleanupResult(
-    action: "logout" | "session_expiry" | "data_deletion" | "account_deletion" | "verification_save" | "verification_clear" | "activation" | "manual_exam_save",
+    action: "logout" | "session_expiry" | "data_deletion" | "account_deletion" | "verification_save" | "verification_clear" | "activation" | "manual_exam_save" | "notification_settings",
     result: AccountCleanupResult,
     ownerId?: string
   ): void {
@@ -2640,6 +3425,12 @@ export default function App() {
     accountCleanupInProgressRef.current = true;
     setBusy(true);
     try {
+      const cleanupGoogleConnection = issue.ownerId
+        ? await readStoredGoogleCalendarConnection(issue.ownerId).catch(() => null)
+        : null;
+      let googleManagedEventsRemoved = !cleanupGoogleConnection
+        || !issue.failedTargets.includes("google_managed_events");
+      let googleAccessRevoked = !cleanupGoogleConnection || !issue.failedTargets.includes("google_access");
       const localTargets = issue.failedTargets.filter(
         (target) => target !== "server_session" && target !== "server_account"
       );
@@ -2647,6 +3438,16 @@ export default function App() {
         target,
         run: async () => {
           if (target === "session_storage") await persistSession(null);
+          else if (target === "device_registration") {
+            const coordinator = notificationCoordinatorRef.current;
+            if (!coordinator || !issue.ownerId || !notificationCoordinatorOwnerTokenRef.current) {
+              throw new Error("DEVICE_DETACH_REQUIRES_SESSION");
+            }
+            if (coordinator.getState().ownerId !== issue.ownerId) {
+              await coordinator.activateOwner(issue.ownerId, false);
+            }
+            await detachNotificationOwnerForCleanup();
+          }
           else if (target === "pending_verification_storage") {
             if (issue.action === "verification_save") {
               if (!pendingVerification) throw new Error("Pending verification state is no longer available.");
@@ -2670,14 +3471,31 @@ export default function App() {
             } else {
               await enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(issue.ownerId as string)));
             }
+          } else if (target === "pending_notification_storage") {
+            await persistPendingNotificationDestination(null);
+          } else if (target === "google_managed_events" && issue.ownerId) {
+            if (!cleanupGoogleConnection) return;
+            await runAbortableGoogleCleanup((signal) => (
+              removeGoogleManagedEventsForDeletion(issue.ownerId as string, cleanupGoogleConnection, signal)
+            ));
+            googleManagedEventsRemoved = true;
+          } else if (target === "google_access") {
+            if (!cleanupGoogleConnection) return;
+            if (!googleManagedEventsRemoved) throw new Error("GOOGLE_CALENDAR_REMOVE_INCOMPLETE");
+            await runAbortableGoogleCleanup((signal) => (
+              revokeGoogleCalendarAccessForConnection(cleanupGoogleConnection, signal)
+            ));
+            googleAccessRevoked = true;
           } else if (target === "google_connection_storage") {
             if (issue.action === "activation" && issue.ownerId) {
               await restoreGoogleCalendarConnection(issue.ownerId, currentSnapshot);
             } else {
+              if (!googleAccessRevoked) throw new Error("GOOGLE_ACCESS_CLEANUP_INCOMPLETE");
               await enqueueStorageMutation(() => persistGoogleCalendarConnection(null, issue.ownerId));
             }
           } else if (target === "google_sign_in" && GOOGLE_AUTH_CONFIGURED) {
-            await queueGoogleSignOut();
+            if (!googleAccessRevoked) throw new Error("GOOGLE_ACCESS_CLEANUP_INCOMPLETE");
+            await runAbortableGoogleCleanup((signal) => queueGoogleSignOut(signal));
           } else if (target === "in_memory_state") {
             clearAuthenticatedMemory();
           }
@@ -2710,7 +3528,7 @@ export default function App() {
     if (!session) return;
     Alert.alert(
       "Verilerimi sil",
-      "Okul seçimin, bildirim tercihlerin, cihaz bildirim kaydın, kişisel alarm ve sınav verilerin silinir. Hesabın açık kalır.",
+      "Okul seçimin, bildirim tercihlerin, cihaz bildirim kaydın, kişisel alarm ve sınav verilerin silinir. Şu anda bağlı Google hesabındaki uygulama kayıtları kaldırılır ve erişim geri alınır; daha önce hesap değiştirirken özellikle bıraktığın kayıtlar için ilgili hesabı yeniden bağlamalısın. Kişisel etkinliklerin korunur. Hesabın açık kalır.",
       [
         { text: "Vazgeç", style: "cancel" },
         {
@@ -2726,6 +3544,11 @@ export default function App() {
     if (!session || accountCleanupInProgressRef.current) return;
     const currentSession = session;
     accountCleanupInProgressRef.current = true;
+    const googleConnection = googleCalendarIntegration?.ownerId === currentSession.user.id
+      ? googleCalendarIntegration
+      : await readStoredGoogleCalendarConnection(currentSession.user.id).catch(() => null);
+    let googleManagedEventsRemoved = !googleConnection;
+    let googleAccessRevoked = !googleConnection;
     setBusy(true);
     try {
       await waitForAuthenticatedMutations();
@@ -2739,7 +3562,39 @@ export default function App() {
       resetUserScopedState();
       setPendingVerification(null);
       accountGuardRef.current.activate(currentSession.user.id);
+      googleLifecycleGuardRef.current.activate(currentSession.user.id);
       const result = await runObservableAccountCleanup([
+        {
+          target: "device_registration",
+          run: async () => {
+            await detachNotificationOwnerForCleanup();
+          }
+        },
+        {
+          target: "pending_notification_storage",
+          run: () => persistPendingNotificationDestination(null)
+        },
+        {
+          target: "google_managed_events",
+          run: async () => {
+            if (!googleConnection) return;
+            await runAbortableGoogleCleanup((signal) => (
+              removeGoogleManagedEventsForDeletion(currentSession.user.id, googleConnection, signal)
+            ));
+            googleManagedEventsRemoved = true;
+          }
+        },
+        {
+          target: "google_access",
+          run: async () => {
+            if (!googleConnection) return;
+            if (!googleManagedEventsRemoved) throw new Error("GOOGLE_CALENDAR_REMOVE_INCOMPLETE");
+            await runAbortableGoogleCleanup((signal) => (
+              revokeGoogleCalendarAccessForConnection(googleConnection, signal)
+            ));
+            googleAccessRevoked = true;
+          }
+        },
         {
           target: "pending_verification_storage",
           run: () => persistPendingVerification(null)
@@ -2752,17 +3607,20 @@ export default function App() {
         },
         {
           target: "google_connection_storage",
-          run: () => enqueueStorageMutation(
-            () => persistGoogleCalendarConnection(null, currentSession.user.id)
-          )
+          run: () => {
+            if (!googleAccessRevoked) throw new Error("GOOGLE_ACCESS_CLEANUP_INCOMPLETE");
+            return enqueueStorageMutation(() => persistGoogleCalendarConnection(null, currentSession.user.id));
+          }
         },
         {
           target: "google_sign_in",
           run: async () => {
-            await queueGoogleSignOut();
+            if (!googleAccessRevoked) throw new Error("GOOGLE_ACCESS_CLEANUP_INCOMPLETE");
+            await runAbortableGoogleCleanup((signal) => queueGoogleSignOut(signal));
           }
         }
       ]);
+      await notificationCoordinatorRef.current?.activateOwner(currentSession.user.id, false);
       setManualExamOwnerId(currentSession.user.id);
       setManualExamsHydrated(!result.failedTargets.includes("manual_exam_storage"));
       reportCleanupResult("data_deletion", result, currentSession.user.id);
@@ -2784,7 +3642,7 @@ export default function App() {
     if (!session) return;
     Alert.alert(
       "Hesabımı sil",
-      "Hesabın kapatılır, oturumların sonlandırılır ve hesabına bağlı uygulama verileri silinir. Bu işlem geri alınamaz.",
+      "Hesabın kapatılır; cihaz bildirim kaydı, şu anda bağlı Google hesabındaki uygulama kayıtları ve Google erişimi temizlenmeye çalışılır. Hesap değiştirirken özellikle bıraktığın eski hesaptaki kayıtlar bu işlemde kaldırılamaz. Kişisel Google Takvim etkinliklerine dokunulmaz. Bu işlem geri alınamaz.",
       [
         { text: "Vazgeç", style: "cancel" },
         {
@@ -2801,6 +3659,11 @@ export default function App() {
     const closingSession = session;
     const ownerId = closingSession.user.id;
     accountCleanupInProgressRef.current = true;
+    const googleConnection = googleCalendarIntegration?.ownerId === ownerId
+      ? googleCalendarIntegration
+      : await readStoredGoogleCalendarConnection(ownerId).catch(() => null);
+    let googleManagedEventsRemoved = !googleConnection;
+    let googleAccessRevoked = !googleConnection;
     setBusy(true);
     const sessionStorageResult = await runObservableAccountCleanup([
       { target: "session_storage", run: () => persistSession(null, invalidateAuthenticatedWork) }
@@ -2816,7 +3679,37 @@ export default function App() {
       return;
     }
     const result = await runObservableAccountCleanup([
-      { target: "in_memory_state", run: () => clearAuthenticatedMemory() },
+      {
+        target: "device_registration",
+        run: async () => {
+          await detachNotificationOwnerForCleanup();
+        }
+      },
+      {
+        target: "pending_notification_storage",
+        run: () => persistPendingNotificationDestination(null)
+      },
+      {
+        target: "google_managed_events",
+        run: async () => {
+          if (!googleConnection) return;
+          await runAbortableGoogleCleanup((signal) => (
+            removeGoogleManagedEventsForDeletion(ownerId, googleConnection, signal)
+          ));
+          googleManagedEventsRemoved = true;
+        }
+      },
+      {
+        target: "google_access",
+        run: async () => {
+          if (!googleConnection) return;
+          if (!googleManagedEventsRemoved) throw new Error("GOOGLE_CALENDAR_REMOVE_INCOMPLETE");
+          await runAbortableGoogleCleanup((signal) => (
+            revokeGoogleCalendarAccessForConnection(googleConnection, signal)
+          ));
+          googleAccessRevoked = true;
+        }
+      },
       {
         target: "pending_verification_storage",
         run: () => persistPendingVerification(null)
@@ -2827,12 +3720,16 @@ export default function App() {
       },
       {
         target: "google_connection_storage",
-        run: () => enqueueStorageMutation(() => persistGoogleCalendarConnection(null, ownerId))
+        run: () => {
+          if (!googleAccessRevoked) throw new Error("GOOGLE_ACCESS_CLEANUP_INCOMPLETE");
+          return enqueueStorageMutation(() => persistGoogleCalendarConnection(null, ownerId));
+        }
       },
       {
         target: "google_sign_in",
         run: async () => {
-          await queueGoogleSignOut();
+          if (!googleAccessRevoked) throw new Error("GOOGLE_ACCESS_CLEANUP_INCOMPLETE");
+          await runAbortableGoogleCleanup((signal) => queueGoogleSignOut(signal));
         }
       },
       {
@@ -2844,18 +3741,28 @@ export default function App() {
           closingSession.accessToken,
           { skipAuthRefresh: true, authOperation: "delete_account", detached: true, timeoutMs: 8_000 }
         ).then(() => undefined)
-      }
+      },
+      { target: "in_memory_state", run: () => clearAuthenticatedMemory() }
     ]);
+    const serverDeletionRemovedDevice = result.succeededTargets.includes("server_account");
+    const reconciledResult: AccountCleanupResult = serverDeletionRemovedDevice
+      ? {
+          ...result,
+          complete: result.failedTargets.filter((target) => target !== "device_registration").length === 0,
+          succeededTargets: [...new Set([...result.succeededTargets, "device_registration" as const])],
+          failedTargets: result.failedTargets.filter((target) => target !== "device_registration")
+        }
+      : result;
     accountCleanupInProgressRef.current = false;
     setBusy(false);
-    reportCleanupResult("account_deletion", result, ownerId);
+    reportCleanupResult("account_deletion", reconciledResult, ownerId);
     setMessage({
-      text: result.complete
+      text: reconciledResult.complete
         ? "Hesabın ve uygulama verilerin silindi."
-        : result.failedTargets.includes("server_account")
+        : reconciledResult.failedTargets.includes("server_account")
           ? "Bu cihazdaki oturum temizlendi; sunucudaki hesabın silindiği doğrulanamadı. Tekrar giriş yapıp hesap silmeyi yeniden deneyebilirsin."
           : "Bu cihazdaki hesap kapatıldı; bazı yerel silme adımları tamamlanamadı.",
-      tone: result.complete ? "success" : "error"
+      tone: reconciledResult.complete ? "success" : "error"
     });
   }
 
@@ -3125,18 +4032,134 @@ export default function App() {
   async function loadPreferences(
     tokenOverride?: string,
     ownerSnapshot = accountGuardRef.current.capture()
-  ): Promise<void> {
+  ): Promise<NotificationPreferencePayload | null> {
     const token = tokenOverride ?? accessToken;
-    if (!token) return;
+    if (!token) return null;
 
-    await withLoadable(
+    return withLoadable(
       setPreferences,
       () => apiRequest<NotificationPreferencePayload>("/notification-preferences", {}, token, { ownerSnapshot }),
       ownerSnapshot
     );
   }
 
-  async function authorizeGoogleCalendar(forceAccountSelection: boolean): Promise<{ accessToken: string; accountEmail: string }> {
+  async function writeNotificationPreferences(
+    currentSession: SessionPayload,
+    existing: NotificationPreferencePayload,
+    enabled: boolean,
+    ownerSnapshot: AccountGenerationSnapshot
+  ): Promise<NotificationPreferencePayload> {
+    return apiRequest<NotificationPreferencePayload>(
+      "/notification-preferences",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          enabled,
+          ...(enabled ? { deliveryConsentVersion: "phase3-v1" } : {}),
+          categories: existing.categories,
+          reminderOffsets: existing.reminderOffsets.length ? existing.reminderOffsets : DEFAULT_REMINDER_OFFSETS,
+          reminderRules: existing.reminderRules?.length ? existing.reminderRules : DEFAULT_REMINDER_RULES,
+          quietHours: existing.quietHours ?? {
+            enabled: true,
+            start: "22:00",
+            end: "07:00",
+            timezone: "Europe/Istanbul"
+          }
+        })
+      },
+      currentSession.accessToken,
+      { ownerSnapshot }
+    );
+  }
+
+  async function reconcileNotificationDelivery(
+    currentSession: SessionPayload,
+    coordinator: NotificationLifecycleCoordinator,
+    knownPreferences?: NotificationPreferencePayload,
+    knownSnapshot?: AccountGenerationSnapshot
+  ): Promise<void> {
+    const ownerSnapshot = knownSnapshot ?? accountGuardRef.current.capture();
+    if (!ownerSnapshot || ownerSnapshot.ownerId !== currentSession.user.id) return;
+    let currentPreferences = knownPreferences;
+    if (!currentPreferences) {
+      currentPreferences = await apiRequest<NotificationPreferencePayload>(
+        "/notification-preferences",
+        {},
+        currentSession.accessToken,
+        { ownerSnapshot }
+      );
+      setPreferences({ loading: false, data: currentPreferences, attempted: true, stale: false });
+    }
+    const coordinatorState = coordinator.getState();
+    if (
+      coordinatorState.ownerId !== currentSession.user.id
+      || coordinatorState.preferenceEnabled !== currentPreferences.enabled
+    ) {
+      await coordinator.activateOwner(currentSession.user.id, currentPreferences.enabled);
+    }
+    const deliveryState = await coordinator.registerIfAlreadyGranted();
+    if (currentPreferences.enabled && !deliveryState.active) {
+      await disableNotificationDeliveryFailClosed(
+        currentSession,
+        coordinator,
+        currentPreferences,
+        ownerSnapshot
+      );
+    }
+  }
+
+  function disableNotificationDeliveryFailClosed(
+    currentSession: SessionPayload,
+    coordinator: NotificationLifecycleCoordinator,
+    knownPreferences?: NotificationPreferencePayload,
+    knownSnapshot?: AccountGenerationSnapshot
+  ): Promise<void> {
+    if (notificationFailClosedPromiseRef.current) return notificationFailClosedPromiseRef.current;
+    const operation = (async () => {
+      const ownerSnapshot = knownSnapshot ?? accountGuardRef.current.capture();
+      if (
+        !ownerSnapshot
+        || ownerSnapshot.ownerId !== currentSession.user.id
+        || coordinator.getState().ownerId !== currentSession.user.id
+      ) return;
+      const detachedState = await coordinator.setPreferenceEnabled(false);
+      const currentPreferences = knownPreferences ?? await apiRequest<NotificationPreferencePayload>(
+        "/notification-preferences",
+        {},
+        currentSession.accessToken,
+        { ownerSnapshot }
+      );
+      const updated = await writeNotificationPreferences(
+        currentSession,
+        currentPreferences,
+        false,
+        ownerSnapshot
+      );
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      setPreferences({ loading: false, data: updated, attempted: true, stale: false });
+      setAlarmEnabled(false);
+      if (detachedState.registration === "error") {
+        setCleanupIssue({
+          action: "notification_settings",
+          failedTargets: ["device_registration"],
+          ownerId: currentSession.user.id
+        });
+      }
+    })();
+    notificationFailClosedPromiseRef.current = operation;
+    void operation.finally(() => {
+      if (notificationFailClosedPromiseRef.current === operation) {
+        notificationFailClosedPromiseRef.current = null;
+      }
+    }).catch(() => undefined);
+    return operation;
+  }
+
+  async function authorizeGoogleCalendar(forceAccountSelection: boolean): Promise<{
+    accessToken: string;
+    accountEmail: string;
+    googleAccountId: string;
+  }> {
     return enqueueGoogleSdkOperation(async () => {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
@@ -3154,9 +4177,15 @@ export default function App() {
       if (scopeResult && isCancelledResponse(scopeResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
 
       const tokens = await GoogleSignin.getTokens();
-      const accountEmail = GoogleSignin.getCurrentUser()?.user.email ?? currentUser.user.email;
-      if (!tokens.accessToken || !accountEmail) throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
-      return { accessToken: tokens.accessToken, accountEmail };
+      const selectedUser = GoogleSignin.getCurrentUser()?.user ?? currentUser.user;
+      if (!tokens.accessToken || !selectedUser.email || !selectedUser.id) {
+        throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
+      }
+      return {
+        accessToken: tokens.accessToken,
+        accountEmail: selectedUser.email,
+        googleAccountId: selectedUser.id
+      };
     });
   }
 
@@ -3169,62 +4198,32 @@ export default function App() {
       return;
     }
 
-    const expectedAccountEmail = googleCalendarIntegration?.ownerId === currentSession.user.id
-      ? googleCalendarIntegration.accountEmail.trim().toLowerCase()
-      : null;
-    if (forceAccountSelection && googleCalendarIntegration) {
-      setGoogleCalendarIntegration(null);
-      try {
-        await enqueueStorageMutation(async () => {
-          if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
-          await persistGoogleCalendarConnection(null, currentSession.user.id);
-        });
-      } catch {
-        setCleanupIssue({
-          action: "data_deletion",
-          failedTargets: ["google_connection_storage"],
-          ownerId: currentSession.user.id
-        });
-        setGoogleCalendarError("Eski Google Takvim bağlantı kaydı temizlenemedi. Hesap değiştirme başlatılmadı.");
-        return;
-      }
+    const operationSnapshot = googleLifecycleGuardRef.current.begin(currentSession.user.id);
+    if (!operationSnapshot) {
+      setGoogleCalendarError("Google Takvim işlemi zaten devam ediyor.");
+      return;
     }
+    const expectedGoogleAccountId = googleCalendarIntegration?.ownerId === currentSession.user.id
+      ? googleCalendarIntegration.googleAccountId
+      : null;
 
     setGoogleCalendarError(null);
     setMessage(null);
     setGoogleCalendarBusy(true);
+    setGoogleCalendarState("syncing");
     let googleAccessToken: string | undefined;
     const syncController = new AbortController();
     authenticatedRequestControllersRef.current.add(syncController);
 
     try {
-      const authorization = await authorizeGoogleCalendar(forceAccountSelection);
-      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) {
-        throw new StaleAccountRequestError();
-      }
-      if (
-        !forceAccountSelection
-        && expectedAccountEmail
-        && authorization.accountEmail.trim().toLowerCase() !== expectedAccountEmail
-      ) {
-        setGoogleCalendarIntegration(null);
-        try {
-          await enqueueStorageMutation(async () => {
-            if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
-            await persistGoogleCalendarConnection(null, currentSession.user.id);
-          });
-        } catch {
-          setCleanupIssue({
-            action: "data_deletion",
-            failedTargets: ["google_connection_storage"],
-            ownerId: currentSession.user.id
-          });
-        }
-        await queueGoogleSignOut();
-        throw new Error("GOOGLE_CALENDAR_ACCOUNT_MISMATCH");
-      }
-      googleAccessToken = authorization.accessToken;
-      const [calendarResult, announcementResult] = await Promise.allSettled([
+      const [networkResult, profileResult, calendarResult, announcementResult] = await Promise.allSettled([
+        new ExpoNetworkAdapter().getState(syncController.signal),
+        apiRequest<UserProfile>(
+          "/me",
+          { signal: syncController.signal },
+          currentSession.accessToken,
+          { ownerSnapshot }
+        ),
         apiRequest<CalendarPayload>(
           "/calendar/my",
           { signal: syncController.signal },
@@ -3239,20 +4238,32 @@ export default function App() {
         )
       ]);
       if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      if (profileResult.status === "rejected") throw profileResult.reason;
       if (calendarResult.status === "rejected" && announcementResult.status === "rejected") {
         throw calendarResult.reason;
       }
 
-      const calendarEvents = calendarResult.status === "fulfilled" ? calendarResult.value.events : [];
-      const announcementItems = announcementResult.status === "fulfilled" ? [...announcementResult.value.items] : [];
-      const replaceSourceTypes: Array<"academic_event" | "announcement" | "event"> = [];
+      const normalizedCalendar = calendarResult.status === "fulfilled"
+        ? normalizeCalendarPayloadForDisplay(calendarResult.value)
+        : null;
+      const calendarEvents = normalizedCalendar?.events ?? [];
+      const trustedAnnouncements = announcementResult.status === "fulfilled"
+        ? normalizeTrustedContentEnvelope(announcementResult.value)
+        : null;
+      const announcementItems = trustedAnnouncements?.items ?? [];
+      const deletionCandidateSourceTypes = googleCalendarDeletionCandidateSourceTypes({
+        calendarSourceStatus: normalizedCalendar?.sourceStatus,
+        announcementState: trustedAnnouncements?.state
+      });
       const warnings: string[] = [];
 
       if (calendarResult.status === "fulfilled") {
-        replaceSourceTypes.push("academic_event");
+        if (normalizedCalendar?.sourceStatus !== "parsed") {
+          warnings.push("Akademik takvim kaynağı tam olarak ayrıştırılmadığı için bu gruptan silme yapılmadı.");
+        }
         setCalendar({
           loading: false,
-          data: normalizeCalendarPayloadForDisplay(calendarResult.value),
+          data: normalizedCalendar ?? normalizeCalendarPayloadForDisplay(calendarResult.value),
           attempted: true,
           stale: false
         });
@@ -3266,10 +4277,12 @@ export default function App() {
         });
       }
       if (announcementResult.status === "fulfilled") {
-        replaceSourceTypes.push("announcement", "event");
+        if (trustedAnnouncements?.state !== "fresh") {
+          warnings.push("Duyuru kaynakları kısmi veya eski olduğu için bu gruptan silme yapılmadı.");
+        }
         setAnnouncements({
           loading: false,
-          data: normalizeTrustedContentEnvelope(announcementResult.value),
+          data: trustedAnnouncements ?? normalizeTrustedContentCollection([]),
           attempted: true,
           stale: false
         });
@@ -3283,31 +4296,230 @@ export default function App() {
         });
       }
 
-      const result = await googleCalendarService.sync({
+      if (networkResult.status === "rejected") {
+        setGoogleCalendarError("Ağ durumu doğrulanamadı. Google hesap izni istenmedi.");
+        setGoogleCalendarState(googleCalendarIntegration?.state ?? "disconnected");
+        return;
+      }
+      const preflight = evaluateGoogleCalendarPreflight({
+        ownerId: currentSession.user.id,
+        activeOwnerId: ownerSnapshot.ownerId,
+        operationInProgress: false,
+        academicProfile: profileResult.value,
+        calendarEvents,
+        trustedAnnouncements: announcementItems,
+        deletionEligibleSourceTypes: [],
+        hasManagedMappingsForCleanup: Boolean(
+          googleCalendarIntegration?.mappings.some((mapping) => (
+            deletionCandidateSourceTypes.includes(mapping.sourceType)
+          ))
+        )
+      }, {
+        isConnected: networkResult.value.connected,
+        isInternetReachable: networkResult.value.internetReachable
+      });
+      if (!preflight.ready) {
+        const preflightMessages: Record<typeof preflight.reason, string> = {
+          duplicate_sync: "Google Takvim işlemi zaten devam ediyor.",
+          owner_changed: "Hesap değiştiği için Google Takvim işlemi iptal edildi.",
+          academic_profile_missing: "Google izni istenmedi. Önce profilinden üniversiteni seç.",
+          no_content: "Google izni istenmedi. Profiline ait aktarılabilir, kaynak tarihli içerik bulunamadı.",
+          network_unavailable: "İnternet bağlantısı yok. Google hesap izni istenmedi.",
+          network_check_failed: "Ağ durumu doğrulanamadı. Google hesap izni istenmedi.",
+          authorization_failed: "Google Takvim yetkilendirmesi tamamlanamadı."
+        };
+        setGoogleCalendarError(preflightMessages[preflight.reason]);
+        setGoogleCalendarState(googleCalendarIntegration?.state ?? "disconnected");
+        return;
+      }
+      if (
+        googleCalendarIntegration
+        && findDuplicateGoogleCalendarMappings(googleCalendarIntegration.mappings).hasDuplicates
+      ) {
+        setGoogleCalendarError("Kaydedilmiş Google Takvim eşlemesinde çakışma bulundu. Yeniden bağlanmadan işlem yapılmadı.");
+        setGoogleCalendarState("error");
+        return;
+      }
+
+      // This is the first point at which account or scope UI may be shown.
+      const emptyManagedCleanup = preflight.items.length === 0 && Boolean(googleCalendarIntegration);
+      const authorization = emptyManagedCleanup
+        ? await readCurrentGoogleCalendarAuthorization()
+        : await authorizeGoogleCalendar(forceAccountSelection);
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      if (
+        (emptyManagedCleanup || !forceAccountSelection)
+        && expectedGoogleAccountId
+        && authorization.googleAccountId !== expectedGoogleAccountId
+      ) {
+        await queueGoogleSignOut();
+        throw new Error("GOOGLE_CALENDAR_ACCOUNT_MISMATCH");
+      }
+      googleAccessToken = authorization.accessToken;
+      const verification = await googleCalendarService.verifyAuthorization({
         accessToken: authorization.accessToken,
         ownerId: currentSession.user.id,
-        calendarEvents,
-        announcements: announcementItems,
-        replaceSourceTypes,
         signal: syncController.signal
       });
       if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
-      const connection: GoogleCalendarConnectionRecord = {
+
+      const exactLookupPlan = planGoogleCalendarExactMappingLookups(
+        verification.mappings,
+        preflight.items,
+        deletionCandidateSourceTypes
+      );
+      const deletionBlockedSourceTypes = new Set(exactLookupPlan.malformedSourceTypes);
+      const reconciledCalendarEvents = [...calendarEvents];
+      const reconciledAnnouncementItems = [...announcementItems];
+      const exactLookupResults: Array<{
+        sourceType: "academic_event" | "announcement" | "event";
+        recordId: string;
+        status: "found" | "missing" | "error";
+        calendarEvent?: EventRecord;
+        announcement?: AnnouncementApiRecord;
+      }> = [];
+      for (let offset = 0; offset < exactLookupPlan.lookups.length; offset += 8) {
+        const batch = exactLookupPlan.lookups.slice(offset, offset + 8);
+        exactLookupResults.push(...await Promise.all(batch.map(async (lookup) => {
+          try {
+            if (lookup.sourceType === "academic_event") {
+              const calendarEvent = await apiRequest<EventRecord>(
+                `/calendar/my/trusted/${encodeURIComponent(lookup.recordId)}`,
+                { signal: syncController.signal },
+                currentSession.accessToken,
+                { ownerSnapshot }
+              );
+              return { ...lookup, status: "found" as const, calendarEvent };
+            }
+            const announcement = await apiRequest<AnnouncementApiRecord>(
+              `/announcements/my/trusted/${encodeURIComponent(lookup.recordId)}`,
+              { signal: syncController.signal },
+              currentSession.accessToken,
+              { ownerSnapshot }
+            );
+            return { ...lookup, status: "found" as const, announcement };
+          } catch (error) {
+            if (error instanceof ApiRequestError && error.status === 404) {
+              return { ...lookup, status: "missing" as const };
+            }
+            return { ...lookup, status: "error" as const };
+          }
+        })));
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      }
+
+      for (const lookup of exactLookupResults) {
+        if (lookup.status === "error") {
+          deletionBlockedSourceTypes.add(lookup.sourceType);
+          continue;
+        }
+        if (lookup.status !== "found") continue;
+        if (lookup.sourceType === "academic_event") {
+          if (!lookup.calendarEvent || lookup.calendarEvent.id !== lookup.recordId) {
+            deletionBlockedSourceTypes.add(lookup.sourceType);
+            continue;
+          }
+          const normalized = normalizeEventRecordsForDisplay([lookup.calendarEvent]);
+          if (normalized[0] && !reconciledCalendarEvents.some((event) => event.id === normalized[0]?.id)) {
+            reconciledCalendarEvents.push(normalized[0]);
+          }
+          continue;
+        }
+        if (!lookup.announcement || lookup.announcement.id !== lookup.recordId) {
+          deletionBlockedSourceTypes.add(lookup.sourceType);
+          continue;
+        }
+        const normalized = normalizeTrustedContentCollection([lookup.announcement]).items[0];
+        if (normalized && !reconciledAnnouncementItems.some((item) => item.id === normalized.id)) {
+          reconciledAnnouncementItems.push(normalized);
+        }
+      }
+
+      const deletionEligibleSourceTypes = deletionCandidateSourceTypes
+        .filter((sourceType) => !deletionBlockedSourceTypes.has(sourceType));
+      if (deletionBlockedSourceTypes.size > 0) {
+        warnings.push("Eksik eşlemeler kesin olarak doğrulanamadığı için ilgili Google Takvim kayıtları silinmedi.");
+      }
+      const reconciledPreflight = evaluateGoogleCalendarPreflight({
         ownerId: currentSession.user.id,
+        activeOwnerId: ownerSnapshot.ownerId,
+        operationInProgress: false,
+        academicProfile: profileResult.value,
+        calendarEvents: reconciledCalendarEvents,
+        trustedAnnouncements: reconciledAnnouncementItems,
+        deletionEligibleSourceTypes,
+        hasManagedMappingsForCleanup: verification.mappings.some((mapping) => (
+          deletionEligibleSourceTypes.includes(mapping.sourceType)
+        ))
+      }, {
+        isConnected: networkResult.value.connected,
+        isInternetReachable: networkResult.value.internetReachable
+      });
+      if (!reconciledPreflight.ready) {
+        throw new Error("GOOGLE_CALENDAR_RECONCILIATION_INCOMPLETE");
+      }
+
+      let result: GoogleCalendarSyncResult;
+      if (mappingsMatchDesiredContent(
+        reconciledPreflight.items,
+        verification.mappings,
+        reconciledPreflight.deletionEligibleSourceTypes
+      )) {
+        result = {
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          skipped: reconciledPreflight.items.length,
+          failed: 0,
+          total: reconciledPreflight.items.length,
+          verified: reconciledPreflight.items.length,
+          partial: false,
+          failures: [],
+          mappings: verification.mappings
+        };
+      } else {
+        result = await googleCalendarService.sync({
+          accessToken: authorization.accessToken,
+          ownerId: currentSession.user.id,
+          calendarEvents: reconciledCalendarEvents,
+          announcements: reconciledAnnouncementItems,
+          deletionEligibleSourceTypes: reconciledPreflight.deletionEligibleSourceTypes,
+          signal: syncController.signal
+        });
+      }
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      const lifecycleState: GoogleCalendarLifecycleState = result.partial || warnings.length > 0
+        ? "partial"
+        : "connected";
+      const connection: GoogleCalendarConnectionRecordV3 = {
+        schemaVersion: GOOGLE_CALENDAR_CONNECTION_SCHEMA_VERSION,
+        ownerId: currentSession.user.id,
+        googleAccountId: authorization.googleAccountId,
         accountEmail: authorization.accountEmail,
+        state: lifecycleState,
+        authorizationVerifiedAt: new Date().toISOString(),
         lastSyncedAt: new Date().toISOString(),
-        result,
-        ...(warnings.length > 0 ? { warnings } : {})
+        mappings: result.mappings
       };
-      setGoogleCalendarIntegration(connection);
       await enqueueStorageMutation(async () => {
-        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
         await persistGoogleCalendarConnection(connection);
       });
       if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      setGoogleCalendarIntegration(connection);
+      setGoogleCalendarState(lifecycleState);
+      setGoogleCalendarLastResult(result);
+      setGoogleCalendarWarnings(warnings);
 
-      if (result.verified === 0) {
-        setGoogleCalendarError("Profiline ait aktarılabilir akademik tarih, duyuru veya etkinlik bulunamadı.");
+      if (result.total === 0) {
+        setMessage({
+          text: result.deleted > 0
+            ? `${result.deleted} kaldırılmış kaynak kaydı Google Takvim'den temizlendi.`
+            : "Google Takvim'de kaldırılması gereken uygulama kaydı bulunmadı.",
+          tone: "success"
+        });
+      } else if (result.verified === 0) {
+        setGoogleCalendarError("Aktarılabilir içerik bulundu ancak Google Takvim'de doğrulanamadı.");
       } else {
         setMessage({
           text: `${result.verified} kayıt ${authorization.accountEmail} hesabının Google Takvimi'nde doğrulandı.`,
@@ -3330,7 +4542,7 @@ export default function App() {
       } else if (isErrorWithCode(error) && error.code === statusCodes.IN_PROGRESS) {
         setGoogleCalendarError("Google hesabı seçimi zaten devam ediyor.");
       } else if (error instanceof Error && error.message === "GOOGLE_CALENDAR_ACCOUNT_MISMATCH") {
-        setGoogleCalendarIntegration(null);
+        setGoogleCalendarState("expired");
         setGoogleCalendarError("Google hesabı değişmiş. Devam etmek için hesabını yeniden seç.");
       } else {
         if (
@@ -3340,12 +4552,199 @@ export default function App() {
         ) {
           await enqueueGoogleSdkOperation(() => GoogleSignin.clearCachedAccessToken(googleAccessToken as string)).catch(() => null);
         }
+        setGoogleCalendarState(
+          error instanceof GoogleCalendarSyncError && error.code === "GOOGLE_CALENDAR_AUTH_EXPIRED"
+            ? "expired"
+            : "error"
+        );
         setGoogleCalendarError(googleCalendarUserMessage(error));
       }
     } finally {
+      googleLifecycleGuardRef.current.settle(operationSnapshot, true);
       authenticatedRequestControllersRef.current.delete(syncController);
       if (accountGuardRef.current.isCurrent(ownerSnapshot)) setGoogleCalendarBusy(false);
     }
+  }
+
+  async function disconnectGoogleCalendar(options: {
+    removeManagedEvents: boolean;
+    revokeAccess: boolean;
+  }): Promise<boolean> {
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot || accountCleanupInProgressRef.current) return false;
+    const operationSnapshot = googleLifecycleGuardRef.current.begin(currentSession.user.id);
+    if (!operationSnapshot) {
+      setGoogleCalendarError("Google Takvim işlemi zaten devam ediyor.");
+      return false;
+    }
+    const operationController = new AbortController();
+    authenticatedRequestControllersRef.current.add(operationController);
+    const assertCurrentOperation = () => {
+      if (
+        !accountGuardRef.current.isCurrent(ownerSnapshot)
+        || !googleLifecycleGuardRef.current.isCurrent(operationSnapshot)
+      ) throw new StaleAccountRequestError();
+    };
+    setGoogleCalendarBusy(true);
+    setGoogleCalendarError(null);
+    const lifecyclePolicy = planGoogleCalendarLifecycle(
+      options.removeManagedEvents
+        ? "disconnect_and_remove"
+        : options.revokeAccess
+          ? "revoke_access"
+          : "disconnect_only"
+    );
+    try {
+      let authorization: Awaited<ReturnType<typeof authorizeGoogleCalendar>> | null = null;
+      const disconnectedRecord = googleCalendarIntegration && !options.removeManagedEvents
+        ? { ...googleCalendarIntegration, state: "disconnected" as const }
+        : null;
+      const execution = await executeGoogleCalendarLifecycle(lifecyclePolicy, {
+        isOwnerCurrent: () => (
+          accountGuardRef.current.isCurrent(ownerSnapshot)
+          && googleLifecycleGuardRef.current.isCurrent(operationSnapshot)
+        ),
+        runStep: async (step) => {
+          if (step === "request_authorization_for_removal") {
+            authorization = await authorizeGoogleCalendar(false);
+            if (
+              googleCalendarIntegration
+              && authorization.googleAccountId !== googleCalendarIntegration.googleAccountId
+            ) throw new Error("GOOGLE_CALENDAR_ACCOUNT_MISMATCH");
+            return;
+          }
+          if (step === "read_current_authorization") {
+            authorization = await readCurrentGoogleCalendarAuthorization();
+            if (
+              googleCalendarIntegration
+              && authorization.googleAccountId !== googleCalendarIntegration.googleAccountId
+            ) throw new Error("GOOGLE_CALENDAR_ACCOUNT_MISMATCH");
+            return;
+          }
+          if (step === "remove_managed_events") {
+            if (!authorization) throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
+        const removal = await googleCalendarService.removeManagedEvents({
+          accessToken: authorization.accessToken,
+          ownerId: currentSession.user.id,
+          signal: operationController.signal
+        });
+        assertCurrentOperation();
+        if (removal.partial || removal.remaining > 0) {
+          const partialRecord = googleCalendarIntegration
+            ? { ...googleCalendarIntegration, state: "partial" as const, mappings: removal.mappings }
+            : null;
+          if (partialRecord) {
+            await enqueueStorageMutation(async () => {
+              assertCurrentOperation();
+              await persistGoogleCalendarConnection(partialRecord);
+              assertCurrentOperation();
+            });
+          }
+          assertCurrentOperation();
+          if (partialRecord) setGoogleCalendarIntegration(partialRecord);
+          setGoogleCalendarState("partial");
+          setGoogleCalendarError("Uygulamanın eklediği bazı Google Takvim kayıtları kaldırılamadı. Bağlantı korunuyor; tekrar deneyebilirsin.");
+          throw new Error("GOOGLE_CALENDAR_REMOVE_PARTIAL");
+        }
+            return;
+          }
+          if (step === "revoke_access") {
+            if (!googleCalendarIntegration) throw new Error("GOOGLE_CALENDAR_AUTH_MISSING");
+            await runAbortableGoogleCleanup((signal) => (
+              revokeGoogleCalendarAccessForConnection(googleCalendarIntegration, signal)
+            ));
+            return;
+          }
+          if (step === "sign_out") {
+            await runAbortableGoogleCleanup((signal) => queueGoogleSignOut(signal));
+            return;
+          }
+          if (step === "persist_disconnected_metadata") {
+            await enqueueStorageMutation(async () => {
+              assertCurrentOperation();
+              await persistGoogleCalendarConnection(disconnectedRecord, currentSession.user.id);
+              assertCurrentOperation();
+            });
+            return;
+          }
+          if (step === "clear_connection_metadata") {
+            await enqueueStorageMutation(async () => {
+              assertCurrentOperation();
+              await persistGoogleCalendarConnection(null, currentSession.user.id);
+              assertCurrentOperation();
+            });
+            return;
+          }
+          throw new Error("GOOGLE_CALENDAR_UNEXPECTED_LIFECYCLE_STEP");
+        }
+      });
+      if (!execution.complete) {
+        if (execution.reason === "owner_changed") throw new StaleAccountRequestError();
+        throw execution.error;
+      }
+      assertCurrentOperation();
+      setGoogleCalendarIntegration(disconnectedRecord);
+      setGoogleCalendarLastResult(null);
+      setGoogleCalendarWarnings([]);
+      setGoogleCalendarState("disconnected");
+      setMessage({
+        text: options.removeManagedEvents
+          ? "Uygulamanın Google Takvim'e eklediği kayıtlar kaldırıldı ve bağlantı kesildi."
+          : options.revokeAccess
+            ? "Google Takvim erişimi geri alındı; daha önce eklenmiş kayıtlar korundu."
+            : "Google Takvim bağlantısı kesildi; daha önce eklenmiş kayıtlar korundu.",
+        tone: "info"
+      });
+      return true;
+    } catch (error) {
+      if (
+        error instanceof StaleAccountRequestError
+        || (error instanceof Error && error.name === "AbortError")
+        || !accountGuardRef.current.isCurrent(ownerSnapshot)
+      ) return false;
+      if (error instanceof Error && error.message === "GOOGLE_CALENDAR_REMOVE_PARTIAL") return false;
+      setGoogleCalendarState(error instanceof Error && error.message === "GOOGLE_CALENDAR_ACCOUNT_MISMATCH" ? "expired" : "error");
+      setGoogleCalendarError(
+        error instanceof Error && error.message === "GOOGLE_CALENDAR_ACCOUNT_MISMATCH"
+          ? "Açık Google hesabı bu bağlantıyla eşleşmiyor. Kayıtlara dokunulmadı."
+          : googleCalendarUserMessage(error)
+      );
+      return false;
+    } finally {
+      googleLifecycleGuardRef.current.settle(operationSnapshot, true);
+      authenticatedRequestControllersRef.current.delete(operationController);
+      if (accountGuardRef.current.isCurrent(ownerSnapshot)) setGoogleCalendarBusy(false);
+    }
+  }
+
+  function promptGoogleCalendarAccountSwitch(): void {
+    const continueSwitch = async (choice: "leave_managed_events" | "remove_managed_events") => {
+      const plan = planGoogleCalendarAccountSwitch(choice);
+      if (!plan.proceed) return;
+      if (await disconnectGoogleCalendar({
+        removeManagedEvents: plan.removeManagedEvents,
+        revokeAccess: false
+      })) {
+        await syncGoogleCalendar(true);
+      }
+    };
+    Alert.alert(
+      "Google hesabını değiştir",
+      "Eski hesaptaki uygulama kayıtları kalsın mı, yoksa hesap seçiciyi açmadan önce kaldırılsın mı? Kalan kayıtlar artık bu bağlantı tarafından otomatik temizlenmez; o hesabı yeniden bağlayarak yönetebilirsin. Kişisel etkinliklere dokunulmaz.",
+      [
+        { text: "Vazgeç", style: "cancel" },
+        {
+          text: "Kayıtlar Kalsın",
+          onPress: () => void continueSwitch("leave_managed_events")
+        },
+        {
+          text: "Kayıtları Kaldır",
+          style: "destructive",
+          onPress: () => void continueSwitch("remove_managed_events")
+        }
+      ]
+    );
   }
 
   function updateCategory(category: string, enabled: boolean): void {
@@ -3365,7 +4764,9 @@ export default function App() {
   }
 
   async function saveAlarmSettings(): Promise<void> {
-    if (!accessToken) {
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession?.accessToken || !ownerSnapshot) {
       setMessage({ text: "Alarm ayarları için giriş yapmalısın.", tone: "error" });
       return;
     }
@@ -3382,12 +4783,48 @@ export default function App() {
 
     try {
       setBusy(true);
+      const coordinator = notificationCoordinatorRef.current;
+      if (alarmEnabled) {
+        if (!coordinator) {
+          setAlarmEnabled(false);
+          setMessage({ text: "Push bildirimleri bu platformda kullanılamıyor; teslimat açılmadı.", tone: "error" });
+          return;
+        }
+        if (coordinator.getState().ownerId !== currentSession.user.id) {
+          await coordinator.activateOwner(currentSession.user.id, false);
+        }
+        const enabledState = await coordinator.enableAfterUserIntent({
+          ownerId: currentSession.user.id,
+          intent: "enable_notifications"
+        });
+        if (!enabledState.active) {
+          await disableNotificationDeliveryFailClosed(
+            currentSession,
+            coordinator,
+            existing,
+            ownerSnapshot
+          );
+          setAlarmEnabled(false);
+          setMessage({
+            text: enabledState.permission === "permanently_denied"
+              ? "Bildirim izni cihaz ayarlarından kapalı. Teslimat açılmadı."
+              : enabledState.permission === "denied"
+                ? "Bildirim izni verilmedi. Teslimat açılmadı."
+                : "Bu cihaz teslimat için kaydedilemedi. Bildirimler açılmadı.",
+            tone: "error"
+          });
+          return;
+        }
+      }
       const updated = await trackAuthenticatedMutation(() => apiRequest<NotificationPreferencePayload>(
         "/notification-preferences",
         {
           method: "PATCH",
           body: JSON.stringify({
-            enabled: alarmEnabled,
+            enabled: alarmEnabled && Boolean(coordinator?.getState().active),
+            ...(alarmEnabled && coordinator?.getState().active
+              ? { deliveryConsentVersion: "phase3-v1" }
+              : {}),
             categories: categoryPayload,
             reminderOffsets,
             reminderRules,
@@ -3399,12 +4836,35 @@ export default function App() {
             }
           })
         },
-        accessToken
+        currentSession.accessToken,
+        { ownerSnapshot }
       ));
 
-      setPreferences({ loading: false, data: updated });
-      setMessage({ text: "Alarm ayarları kaydedildi.", tone: "success" });
+      if (!alarmEnabled && coordinator) {
+        const detachedState = await coordinator.setPreferenceEnabled(false);
+        if (detachedState.registration === "error") {
+          setCleanupIssue({
+            action: "notification_settings",
+            failedTargets: ["device_registration"],
+            ownerId: currentSession.user.id
+          });
+          setPreferences({ loading: false, data: updated, attempted: true, stale: false });
+          setMessage({
+            text: "Bildirim tercihi kapatıldı; cihaz kaydının sunucudan kaldırıldığı doğrulanamadı.",
+            tone: "error"
+          });
+          return;
+        }
+      }
+      setPreferences({ loading: false, data: updated, attempted: true, stale: false });
+      setMessage({
+        text: updated.enabled
+          ? "Bildirim izni, cihaz kaydı ve alarm tercihleri doğrulandı."
+          : "Bildirim teslimatı kapatıldı; cihaz kaydı kaldırıldı.",
+        tone: "success"
+      });
     } catch (error) {
+      if (alarmEnabled) await notificationCoordinatorRef.current?.setPreferenceEnabled(false).catch(() => undefined);
       if (error instanceof StaleAccountRequestError) return;
       setMessage({
         text: userMessageFromError(error, "Alarm ayarları kaydedilemedi"),
@@ -3534,6 +4994,33 @@ export default function App() {
             </View>
           )}
 
+          {session && notificationDestinationNotice && (
+            <View style={styles.inlineInfoCard} accessibilityLiveRegion="polite">
+              <Text style={styles.inlineInfoTitle}>
+                {notificationDestinationNotice.status === "opened"
+                  ? "Bildirim hedefi doğrulandı"
+                  : notificationDestinationNotice.status === "temporarily_unavailable"
+                    ? "Bildirim hedefi şu anda doğrulanamıyor"
+                    : "Bildirim hedefi artık kullanılamıyor"}
+              </Text>
+              <Text style={styles.inlineInfoText}>
+                {notificationDestinationNotice.status === "opened"
+                  ? notificationDestinationNotice.title ?? "İstenen içerik güvenli biçimde açıldı."
+                  : notificationDestinationNotice.status === "temporarily_unavailable"
+                    ? "Bağlantı veya sunucu hatası nedeniyle hedef doğrulanamadı. Kayıt korundu; tekrar deneyebilirsin."
+                    : "İçerik bu hesaba ait güncel ve güvenilir kaynaklarda bulunamadığı için başka bir kayıt açılmadı."}
+              </Text>
+              {notificationDestinationNotice.status === "temporarily_unavailable" && (
+                <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void retryPendingNotificationDestination()}>
+                  <Text style={styles.secondaryButtonText}>Hedefi Tekrar Doğrula</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.textActionButton} onPress={() => setNotificationDestinationNotice(null)}>
+                <Text style={styles.textActionText}>Kapat</Text>
+              </Pressable>
+            </View>
+          )}
+
           {cleanupIssue && (
             <View style={styles.cleanupIssueCard} accessibilityLiveRegion="polite">
               <Text style={styles.cleanupIssueTitle}>Tamamlanamayan güvenli temizlik</Text>
@@ -3541,7 +5028,9 @@ export default function App() {
                 {cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
               </Text>
               {cleanupIssue.failedTargets.some(
-                (target) => target !== "server_session" && target !== "server_account"
+                (target) => target !== "server_session"
+                  && target !== "server_account"
+                  && (target !== "device_registration" || Boolean(session))
               ) && (
                 <Pressable
                   accessibilityRole="button"
@@ -4214,7 +5703,11 @@ export default function App() {
                 <Pressable style={styles.quickActionCard} onPress={() => setActiveTab("calendar")}>
                   <Ionicons name="calendar-outline" size={20} color="#2563eb" />
                   <Text style={styles.quickActionTitle}>Takvimi aç</Text>
-                  <Text style={styles.quickActionText}>{googleCalendarIntegration ? `${googleCalendarIntegration.result.verified} kayıt eşitlendi` : "Google Takvim'e bağla"}</Text>
+                  <Text style={styles.quickActionText}>
+                    {googleCalendarLive
+                      ? `${googleCalendarIntegration?.mappings.length ?? 0} kayıt doğrulandı`
+                      : googleCalendarLifecycleLabel(googleCalendarState)}
+                  </Text>
                 </Pressable>
                 <Pressable style={styles.quickActionCard} onPress={() => setActiveTab("announcements")}>
                   <Ionicons name="notifications-outline" size={20} color="#b45309" />
@@ -4360,9 +5853,9 @@ export default function App() {
                         : "Takvim hesabını sen seçersin"}
                     </Text>
                   </View>
-                  <View style={[styles.statusPill, googleCalendarIntegration ? styles.statusPillSuccess : styles.statusPillNeutral]}>
-                    <Text style={[styles.statusPillText, googleCalendarIntegration ? styles.statusPillTextSuccess : styles.statusPillTextNeutral]}>
-                      {googleCalendarIntegration ? "Bağlı" : "Bağlı değil"}
+                  <View style={[styles.statusPill, googleCalendarLive ? styles.statusPillSuccess : styles.statusPillNeutral]}>
+                    <Text style={[styles.statusPillText, googleCalendarLive ? styles.statusPillTextSuccess : styles.statusPillTextNeutral]}>
+                      {googleCalendarLifecycleLabel(googleCalendarState)}
                     </Text>
                   </View>
                 </View>
@@ -4397,15 +5890,21 @@ export default function App() {
                   <View style={styles.calendarSyncSummary}>
                     <View style={styles.rowBetween}>
                       <Text style={styles.calendarSyncSummaryLabel}>Google'da doğrulanan</Text>
-                      <Text style={styles.calendarSyncSummaryValue}>{googleCalendarIntegration.result.verified}</Text>
+                      <Text style={styles.calendarSyncSummaryValue}>
+                        {googleCalendarLastResult?.verified ?? googleCalendarIntegration.mappings.length}
+                      </Text>
                     </View>
                     <Text style={styles.caption}>
-                      Son eşitleme: {formatDateTimeShort(googleCalendarIntegration.lastSyncedAt)}
+                      {googleCalendarIntegration.lastSyncedAt
+                        ? `Son eşitleme: ${formatDateTimeShort(googleCalendarIntegration.lastSyncedAt)}`
+                        : `Yetki doğrulaması: ${formatDateTimeShort(googleCalendarIntegration.authorizationVerifiedAt ?? "")}`}
                     </Text>
-                    <Text style={styles.caption}>
-                      {googleCalendarIntegration.result.created} yeni, {googleCalendarIntegration.result.updated} güncellenen, {googleCalendarIntegration.result.deleted} kaldırılan
-                    </Text>
-                    {googleCalendarIntegration.warnings?.map((warning) => (
+                    {googleCalendarLastResult && (
+                      <Text style={styles.caption}>
+                        {googleCalendarLastResult.created} yeni, {googleCalendarLastResult.updated} güncellenen, {googleCalendarLastResult.deleted} kaldırılan, {googleCalendarLastResult.failed} başarısız
+                      </Text>
+                    )}
+                    {googleCalendarWarnings.map((warning) => (
                       <Text key={warning} style={styles.calendarSyncWarning}>{warning}</Text>
                     ))}
                   </View>
@@ -4422,14 +5921,14 @@ export default function App() {
                     ) : (
                       <View style={styles.buttonContent}>
                         <Ionicons name="logo-google" size={20} color="#ffffff" />
-                        <Text style={styles.primaryButtonText}>{googleCalendarIntegration ? "Şimdi Eşitle" : "Bağlan ve Eşitle"}</Text>
+                        <Text style={styles.primaryButtonText}>{googleCalendarLive ? "Şimdi Eşitle" : "Bağlan ve Eşitle"}</Text>
                       </View>
                     )}
                   </Pressable>
                   {googleCalendarIntegration && (
                     <Pressable
                       style={[styles.button, styles.secondaryButton, (busy || googleCalendarBusy) && styles.buttonDisabled]}
-                      onPress={() => void syncGoogleCalendar(true)}
+                      onPress={promptGoogleCalendarAccountSwitch}
                       disabled={busy || googleCalendarBusy}
                     >
                       <View style={styles.buttonContent}>
@@ -4437,6 +5936,31 @@ export default function App() {
                         <Text style={styles.secondaryButtonText}>Google Hesabını Değiştir</Text>
                       </View>
                     </Pressable>
+                  )}
+                  {googleCalendarIntegration && (
+                    <>
+                      <Pressable
+                        style={[styles.button, styles.secondaryButton, (busy || googleCalendarBusy) && styles.buttonDisabled]}
+                        onPress={() => void disconnectGoogleCalendar({ removeManagedEvents: false, revokeAccess: false })}
+                        disabled={busy || googleCalendarBusy}
+                      >
+                        <Text style={styles.secondaryButtonText}>Bağlantıyı Kes · Kayıtlar Kalsın</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.button, styles.secondaryButton, (busy || googleCalendarBusy) && styles.buttonDisabled]}
+                        onPress={() => void disconnectGoogleCalendar({ removeManagedEvents: true, revokeAccess: false })}
+                        disabled={busy || googleCalendarBusy}
+                      >
+                        <Text style={styles.secondaryButtonText}>Uygulama Kayıtlarını Kaldır ve Kes</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.button, styles.dangerButton, (busy || googleCalendarBusy) && styles.buttonDisabled]}
+                        onPress={() => void disconnectGoogleCalendar({ removeManagedEvents: false, revokeAccess: true })}
+                        disabled={busy || googleCalendarBusy}
+                      >
+                        <Text style={styles.dangerButtonText}>Google Erişimini Geri Al · Kayıtlar Kalsın</Text>
+                      </Pressable>
+                    </>
                   )}
                 </View>
               </Section>
@@ -4946,9 +6470,29 @@ export default function App() {
                   </View>
                   <View style={styles.flexOne}>
                     <Text style={styles.notificationTitle}>Akademik hatırlatmalar</Text>
-                    <Text style={styles.caption}>Sınav, kayıt ve önemli tarihleri kaçırmamak için bildirimleri aç.</Text>
+                    <Text style={styles.caption}>{notificationLifecycleMessage(notificationLifecycle)}</Text>
                   </View>
                   <Switch value={alarmEnabled} onValueChange={setAlarmEnabled} />
+                </View>
+
+                <View style={styles.calendarSyncSummary} accessibilityLiveRegion="polite">
+                  <View style={styles.rowBetween}>
+                    <Text style={styles.calendarSyncSummaryLabel}>Teslimat durumu</Text>
+                    <Text style={styles.calendarSyncSummaryValue}>
+                      {notificationLifecycle.active ? "Etkin" : "Etkin değil"}
+                    </Text>
+                  </View>
+                  <Text style={styles.caption}>
+                    İzin: {notificationLifecycle.permission} · Cihaz kaydı: {notificationLifecycle.registration}
+                  </Text>
+                  {notificationLifecycle.permission === "permanently_denied" && (
+                    <Pressable
+                      style={[styles.button, styles.secondaryButton]}
+                      onPress={() => void openNotificationSettings()}
+                    >
+                      <Text style={styles.secondaryButtonText}>Cihaz Bildirim Ayarlarını Aç</Text>
+                    </Pressable>
+                  )}
                 </View>
 
                 <View style={styles.notificationModeGrid}>

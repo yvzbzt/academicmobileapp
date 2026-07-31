@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { endpointCatalog } from "../src/contracts/endpoint-catalog.js";
 import { AnnouncementsController } from "../src/modules/announcements/announcements.controller.js";
 import { MyAnnouncementsQueryDto } from "../src/modules/announcements/announcements.dto.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
@@ -132,6 +133,118 @@ describe("trusted announcement API contract", () => {
     );
     expect(collection).toEqual(expect.objectContaining({ state: "fresh", sourceCount: 1, failedSourceCount: 0 }));
     expect(collection.items).toEqual(body);
+  });
+
+  it("resolves an exact trusted item outside the collection limit and fails closed across scope and trust boundaries", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const source = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "ankara-university",
+      sourceName: "Ankara Universitesi",
+      sourceUrl: "https://www.ankara.edu.tr/duyurular/tum-duyurular",
+      homepageUrl: "https://www.ankara.edu.tr/",
+      contentType: "announcement",
+      parser: "auto",
+      priority: 20,
+      status: "active"
+    });
+    const fetchedAt = new Date().toISOString();
+    await repository.replaceItemsForSource(source, Array.from({ length: 130 }, (_, index) => ({
+      id: index === 125 ? "exact-target" : `announcement-${index}`,
+      sourceId: source.id,
+      sourceName: source.sourceName,
+      contentType: "announcement" as const,
+      scopeType: source.scopeType,
+      scopeId: source.scopeId,
+      title: index === 125 ? "&raquo; Kesin hedef duyurusu" : `Duyuru ${index}`,
+      rawTitle: index === 125 ? "&raquo; Kesin hedef duyurusu" : `Duyuru ${index}`,
+      link: `${source.sourceUrl}/${index}?utm_source=notification`,
+      fetchedAt
+    })));
+
+    const otherFacultySource = await repository.upsertSource({
+      scopeType: "faculty",
+      scopeId: "other-faculty",
+      sourceName: "Diger Fakultenin Duyurulari",
+      sourceUrl: "https://www.ankara.edu.tr/duyurular/diger-fakulte",
+      homepageUrl: "https://www.ankara.edu.tr/",
+      contentType: "announcement",
+      parser: "auto",
+      priority: 10,
+      status: "active"
+    });
+    await repository.replaceItemsForSource(otherFacultySource, [{
+      id: "out-of-scope",
+      sourceId: otherFacultySource.id,
+      sourceName: otherFacultySource.sourceName,
+      contentType: "announcement",
+      scopeType: otherFacultySource.scopeType,
+      scopeId: otherFacultySource.scopeId,
+      title: "Diger fakultenin duyurusu",
+      link: `${otherFacultySource.sourceUrl}/1`,
+      fetchedAt
+    }]);
+
+    const storedItems = (repository as unknown as { items: Map<string, AnnouncementItem[]> }).items;
+    storedItems.set(source.id, [
+      ...(storedItems.get(source.id) ?? []),
+      {
+        id: "untrusted-item",
+        sourceId: source.id,
+        sourceName: source.sourceName,
+        contentType: "announcement",
+        scopeType: source.scopeType,
+        scopeId: source.scopeId,
+        title: "Guvenilmez kayit",
+        link: `${source.sourceUrl}/untrusted`,
+        fetchedAt,
+        trustStatus: "quarantined"
+      }
+    ]);
+
+    const controller = new AnnouncementsController(new AnnouncementsService(
+      createAuthRepository({ facultyId: "engineering-faculty", departmentId: "computer-engineering" }),
+      repository
+    ));
+    const user = { id: "student-1", role: "student" } as AuthenticatedUser;
+    const collection = await controller.getMyTrustedAnnouncementCollection(
+      user,
+      Object.assign(new MyAnnouncementsQueryDto(), { limit: 100 })
+    );
+    expect(collection.items).toHaveLength(100);
+    expect(collection.items.some((item) => item.id === "exact-target")).toBe(false);
+
+    const exact = await controller.getMyTrustedAnnouncement(user, "exact-target");
+    expect(exact).toEqual(expect.objectContaining({
+      id: "exact-target",
+      title: "Kesin hedef duyurusu",
+      canonicalUrl: `${source.sourceUrl}/125`
+    }));
+    expect(JSON.stringify(exact)).not.toContain("rawTitle");
+    expect(JSON.stringify(exact)).not.toContain("trustStatus");
+
+    const hiddenResponse = {
+      response: {
+        message: "Trusted announcement not found.",
+        error: "Not Found",
+        statusCode: 404
+      },
+      status: 404
+    };
+    await expect(controller.getMyTrustedAnnouncement(user, "missing"))
+      .rejects.toMatchObject(hiddenResponse);
+    await expect(controller.getMyTrustedAnnouncement(user, "out-of-scope"))
+      .rejects.toMatchObject(hiddenResponse);
+    await expect(controller.getMyTrustedAnnouncement(user, "untrusted-item"))
+      .rejects.toMatchObject(hiddenResponse);
+
+    expect(endpointCatalog).toContainEqual({
+      method: "GET",
+      path: "/announcements/my/trusted/:announcementId",
+      authRequired: true,
+      roles: ["student"],
+      rateLimit: "standard"
+    });
   });
 
   it("applies the same trust and timestamp boundary to the public YÖK API", async () => {
@@ -337,7 +450,9 @@ function cachedItem(
   };
 }
 
-function createAuthRepository(): AuthRepository {
+function createAuthRepository(
+  overrides: Partial<Pick<AuthUserRecord, "universityId" | "facultyId" | "departmentId">> = {}
+): AuthRepository {
   const now = new Date();
   const user: AuthUserRecord = {
     id: "student-1",
@@ -347,6 +462,7 @@ function createAuthRepository(): AuthRepository {
     passwordHash: "hash",
     role: "student",
     universityId: "ankara-university",
+    ...overrides,
     status: "active",
     createdAt: now,
     updatedAt: now

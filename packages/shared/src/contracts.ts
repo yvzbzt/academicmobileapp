@@ -78,8 +78,11 @@ export interface TrustedAcademicContentCollectionDto {
   failedSourceCount: number;
 }
 
+export const NOTIFICATION_DELIVERY_CONSENT_VERSION = "phase3-v1" as const;
+
 export interface NotificationPreferenceDto {
   enabled: boolean;
+  deliveryConsentVersion?: typeof NOTIFICATION_DELIVERY_CONSENT_VERSION;
   categories: Record<string, boolean>;
   reminderOffsets: number[];
   reminderRules?: Array<{
@@ -94,6 +97,37 @@ export interface NotificationPreferenceDto {
     end: string;
     timezone: "Europe/Istanbul";
   };
+}
+
+export interface DeviceRegistrationDto {
+  status: "registered";
+  platform: "ios" | "android" | "web";
+  lastSeenAt: string;
+}
+
+export interface DeviceUnregistrationDto {
+  status: "unregistered";
+}
+
+export interface NotificationDeliveryDto {
+  id: string;
+  jobId: string;
+  userId: string;
+  deviceTokenId: string;
+  status: "sent" | "failed" | "deferred" | "skipped";
+  providerMessageId?: string;
+  failureReason?:
+    | "invalid_token"
+    | "provider_unavailable"
+    | "provider_rejected"
+    | "scope_mismatch"
+    | "preference_disabled"
+    | "quiet_hours"
+    | "destination_unavailable"
+    | "device_registration_stale";
+  deliveredAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface StudentAlarmDto {

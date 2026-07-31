@@ -193,7 +193,8 @@ describe("UsersService", () => {
 
   it("lists, updates and deletes users for admin management", async () => {
     const authRepository = new InMemoryAuthRepository();
-    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), new TestUserDataRepository());
+    const notificationRepository = new InMemoryNotificationRepository();
+    const usersService = new UsersService(authRepository, new InMemoryCatalogRepository(), new TestUserDataRepository(), notificationRepository);
     const createdUser = await authRepository.createUser({
       fullName: "Managed User",
       email: "managed@campus.edu.tr",
@@ -203,6 +204,19 @@ describe("UsersService", () => {
       facultyId: "sample-faculty-1",
       departmentId: "sample-department-1",
       status: "active"
+    });
+
+    await notificationRepository.upsertDeviceToken({
+      userId: createdUser.id,
+      platform: "android",
+      token: "managed-user-device-token",
+      installationHash: "managed-user-installation"
+    });
+    await notificationRepository.upsertPreferences({
+      userId: createdUser.id,
+      enabled: true,
+      categories: { final_exam: true },
+      reminderOffsets: [1]
     });
 
     const listedUsers = await usersService.listUsers({ search: "managed", limit: 10, offset: 0 });
@@ -218,6 +232,8 @@ describe("UsersService", () => {
 
     await usersService.deleteUserByAdmin(createdUser.id);
     await expect(usersService.getMe(createdUser.id)).rejects.toThrow("User not found.");
+    await expect(notificationRepository.listActiveDeviceTokens(10, 0)).resolves.toEqual([]);
+    await expect(notificationRepository.findPreferencesByUserId(createdUser.id)).resolves.toBeNull();
   });
 
   it("lets users erase app data before deleting their own account", async () => {
@@ -234,6 +250,12 @@ describe("UsersService", () => {
       departmentId: "sample-department-1",
       classLevel: 2,
       status: "active"
+    });
+    await notificationRepository.upsertDeviceToken({
+      userId: createdUser.id,
+      platform: "android",
+      token: "deleting-user-device-token",
+      installationHash: "deleting-user-installation"
     });
     await notificationRepository.upsertPreferences({
       userId: createdUser.id,
@@ -252,6 +274,7 @@ describe("UsersService", () => {
       classLevel: 2
     }));
     await expect(notificationRepository.findPreferencesByUserId(createdUser.id)).resolves.toBeNull();
+    await expect(notificationRepository.listActiveDeviceTokens(10, 0)).resolves.toEqual([]);
 
     await usersService.deleteMe(createdUser.id, { deleteData: true });
 

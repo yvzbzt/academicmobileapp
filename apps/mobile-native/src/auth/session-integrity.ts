@@ -237,10 +237,14 @@ export function classifyAuthError(input: AuthErrorClassificationInput): Controll
 export type AccountCleanupTarget =
   | "server_session"
   | "server_account"
+  | "device_registration"
   | "session_storage"
   | "pending_verification_storage"
+  | "pending_notification_storage"
   | "manual_exam_storage"
   | "google_connection_storage"
+  | "google_managed_events"
+  | "google_access"
   | "google_sign_in"
   | "in_memory_state";
 
