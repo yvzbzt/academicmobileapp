@@ -230,14 +230,36 @@ Collection limits are not deletion evidence. After live Google verification, eve
 
 **Evidence boundary:** The generated Android project was aligned locally, Google Sign-In codegen was regenerated after the architecture switch, and the final x86_64 debug assembly and API 24 launch passed with Fabric active. The repository does not commit generated native projects or provider credentials. iOS still requires an authorized Firebase plist plus macOS/Xcode build evidence and is not accepted on this Windows run.
 
+### D-035 — Phase 4 owns navigation mechanics; Phase 5 owns shell presentation
+
+**Decision:** The execution brief supersedes the earlier planning note that deferred a route tree to Phase 5. Phase 4 adopts React Navigation 7 with native stack and bottom-tab adapters. Hydration, auth, onboarding, authenticated tabs, announcement detail, calendar detail, settings, and a non-echoing unknown fallback are real routes now. Phase 5 remains unstarted and owns later app-shell presentation, not route mechanics.
+
+**State boundary:** Existing session, account-generation, verification/recovery, notification, content-trust, Google lifecycle, cancellation, and cleanup owners remain above or within their Phase 1–3 modules. Navigation params contain only allowlisted route identifiers. No token, secret, full content record, or navigation-state snapshot is persisted. A protected request cannot dispatch until the authenticated tree exists. The Phase 3 pending notification record remains owner/generation bound, receives an exact trusted-record lookup, wins over default Home after auth, and is cleared only after the navigator accepts the verified detail request.
+
+**Back and linking:** Four tabs use history behavior. Native child stacks provide ordinary Android system Back and eligible iOS swipe-back; an active owned operation temporarily blocks abandonment. Static `academicpulse` routes are exact allowlist matches, arbitrary query/path variants fail to `UnknownRoute`, and raw untrusted URLs are not copied into fallback state or UI.
+
+### D-036 — Jest Expo plus React Native Testing Library is the single component stack
+
+**Decision:** Phase 4 installs Jest 29, `jest-expo` 54, and React Native Testing Library 13.3 under `apps/mobile-native`. Native render tests live only under `apps/mobile-native/tests`; root Vitest excludes that directory and continues to own pure route/token/platform/domain tests. There is no competing component runner, snapshot-approval workflow, Storybook, Maestro, or Detox installation.
+
+**Testing contract:** Native tests query roles, names, accessibility state, and visible behavior. They cover primitive interaction/state plus real navigator tabs, one-shot requests, nested detail/back, request gating, malformed-ID fallback, and unknown routing. Jest mocks only the native safe-area and unavailable Liquid Glass boundary needed by the native renderer; pure decision logic remains unmocked in Vitest.
+
+### D-037 — Semantic adaptation is shared; material eligibility is runtime-gated
+
+**Decision:** `src/design-system` is the semantic source for new foundation colors, typography, spacing, radii, elevation/shadow, motion, safe areas, readable widths, and light/dark themes. Android selects Material-style tonal/ripple behavior, 48 dp targets, edge-to-edge screens, bottom tabs, and a large-width rail. iOS selects 44 pt targets and may use `expo-glass-effect` only for navigation/control `NavigationSurface` chrome when the Liquid Glass component and runtime API are both available and Reduce Transparency is off. Opaque semantic chrome is mandatory otherwise.
+
+**Predictive-back boundary:** React Navigation's current integration requires opting out of Android's predictive callback. `predictiveBackGestureEnabled` therefore remains `false`, ordinary system Back is verified, and a pure preview policy is deterministic, but no predictive animation is claimed. Enabling the callback requires upstream navigator support and API 33+ native evidence in Phase 11.
+
+**Migration/rollback:** Automatic system appearance and the new route/design dependencies require no storage or backend migration. Reverting the scoped Phase 4 commit restores the old conditional shell; Phase 1–3 keys and records remain readable because route state and theme preference are not persisted.
+
 ## Open questions with decision owners
 
 | Question | Required by | Resolution owner/gate |
 |---|---:|---|
-| Use React Navigation, Expo Router, or a small typed internal navigator? | Phase 5 | Phase 4 architecture spike; must support native back behavior, deep links, restoration, and screen tests |
-| Which component test runner is compatible with the current Expo/RN stack? | Phase 4 | Choose one of Jest + React Native Testing Library or a justified equivalent; do not run two |
-| Which native material API provides supported iOS translucent chrome? | Phase 5 | Confirm runtime/Expo compatibility and fallback before dependency change |
-| Should tablets use a navigation rail/sidebar while keeping four destinations? | Phase 5/11 | Validate native tablet layouts; information architecture remains four destinations |
+| Use React Navigation, Expo Router, or a small typed internal navigator? | Phase 4 | **Resolved by D-035:** React Navigation 7 native stacks + bottom tabs |
+| Which component test runner is compatible with the current Expo/RN stack? | Phase 4 | **Resolved by D-036:** Jest Expo + React Native Testing Library only |
+| Which native material API provides supported iOS translucent chrome? | Phase 4/11 | **Foundation resolved by D-037:** runtime-gated `expo-glass-effect`; native iOS visual acceptance remains Phase 11 |
+| Should tablets use a navigation rail/sidebar while keeping four destinations? | Phase 5/11 | Phase 4 selects an Android rail at the semantic breakpoint; native tablet visual acceptance remains Phase 11 |
 | What is the durable Save model for feed items? | Phase 8 | Requires product/API decision; omit Save until persistence exists |
 | Should Share use only the native share sheet or also a backend short link? | Phase 8 | Start with privacy-reviewed native share payload; never share crawler/internal URLs blindly |
 | What analytics provider and consent model will implement page views? | Separate approved instrumentation work | Follow the privacy-safe taxonomy in `docs/20-mobile-native-in-app-user-activity-report.md` |

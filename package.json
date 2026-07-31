@@ -14,6 +14,7 @@
     "build:admin": "vite build --config apps/admin/vite.config.ts",
     "build:mobile": "vite build --config apps/mobile/vite.config.ts",
     "test": "vitest run",
+    "test:mobile:native": "npm --prefix apps/mobile-native run test:native",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:mobile:native": "npm --prefix apps/mobile-native run typecheck",
     "e2e": "playwright test",

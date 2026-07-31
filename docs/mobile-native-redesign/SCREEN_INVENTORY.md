@@ -4,11 +4,11 @@ Baseline: 29 July 2026, `apps/mobile-native/App.tsx` at HEAD `cbd0067b03c3cf7286
 
 Phase 3 reconciliation: 31 July 2026 validated implementation based on `d722f9092c1d500e0145214b2b57a08d1a8191d9`. Final command and native evidence is recorded in `TEST_MATRIX.md`, the Phase 3 report, and [`evidence/phase-03-native`](./evidence/phase-03-native/README.md).
 
-## Current rendering model
+## Pre-Phase-4 rendering model (historical)
 
-There is no navigation library or route tree. One mounted `App` component renders logical views through `session`, `authMode`, `authStage`, and `activeTab`. Authenticated content uses one page-level vertical `ScrollView`; six bottom-tab buttons directly set `activeTab`.
+At the Phase 3 snapshot there was no navigation library or route tree. One mounted `App` component rendered logical views through `session`, `authMode`, `authStage`, and `activeTab`; six bottom-tab buttons directly set `activeTab`. Phase 4 supersedes that shell as recorded below while retaining these feature-state owners during migration.
 
-## Ten current logical views and target ownership
+## Ten Phase 3 logical views and Phase 4 ownership
 
 | # | Current logical view | Current entry/state | Current primary task | Target replacement/owner |
 |---:|---|---|---|---|
@@ -20,17 +20,58 @@ There is no navigation library or route tree. One mounted `App` component render
 | 6 | Calendar | `session`, `activeTab=calendar` | Read dates and run Google sync | **Calendar tab**: timeline/planning, manual exams, event detail, integrations |
 | 7 | Summer School | `session`, `activeTab=summer` | Read summer dates/requirements/options | **Announcements** source/filter and scoped detail; calendar dates also appear in Calendar |
 | 8 | YÖK | `session`, `activeTab=yok` | Read/open YÖK announcements | **Announcements** source/filter; capability preserved, bottom tab removed |
-| 9 | Agenda | `session`, `activeTab=announcements` | Filter announcements/news/events and open official links | **Announcements tab**: unified virtualized feed with scope/source/type filters |
+| 9 | Agenda | `session`, `activeTab=announcements` | Filter announcements/news/events and open official links | **Announcements tab**: current trusted content retained; Phase 8 targets a unified virtualized feed with scope/source/type filters |
 | 10 | Profile | `session`, `activeTab=profile` | Academic identity, notification permission/delivery, logout/deletion | **Profile tab**: grouped identity/settings/integrations/data controls |
 
-## Current shell mapping
+## Shell migration mapping
 
 ```text
-Current: Home | Calendar | Summer School | YÖK | Agenda | Profile
-Target:  Home | Announcements                    | Calendar | Profile
+Phase 3: Home | Calendar | Summer School | YÖK | Agenda | Profile
+Phase 4: Home | Announcements                    | Calendar | Profile
 ```
 
 This is information-architecture consolidation, not feature deletion. Summer School and YÖK stay discoverable inside Announcements; Google sync/manual exams remain under Calendar; Profile retains academic and account settings.
+
+## Phase 4 final route map
+
+```text
+Root native stack
+├─ BootstrapLoading
+├─ BootstrapError
+├─ AuthFlow
+│  ├─ Login
+│  ├─ Register
+│  ├─ Verification
+│  ├─ PasswordRecoveryRequest
+│  └─ PasswordRecoveryConfirm
+├─ OnboardingFlow
+│  └─ ProfileConfirmation
+├─ Authenticated: four-tab navigator (`backBehavior="history"`)
+│  ├─ HomeTab → Home
+│  ├─ AnnouncementsTab
+│  │  ├─ Announcements
+│  │  ├─ SummerSchool
+│  │  ├─ YokAnnouncements
+│  │  └─ AnnouncementDetail({ announcementId })
+│  ├─ CalendarTab
+│  │  ├─ Calendar
+│  │  └─ CalendarEventDetail({ eventId })
+│  └─ ProfileTab
+│     ├─ Profile
+│     ├─ AcademicProfileSettings
+│     ├─ NotificationSettings
+│     ├─ GoogleCalendarSettings
+│     └─ AccountDataSettings
+└─ UnknownRoute (non-echoing safe fallback)
+```
+
+The root stack is auth/session guarded: hydration remains above all requests; protected requests wait until the authenticated tree exists; auth/onboarding never join tab history. Static links use an exact `academicpulse://` allowlist. Unknown or malformed destinations never echo raw input. Notification URLs retain the Phase 3 owner-bound exact-record check; their durable pending record is cleared only after the verified detail request has been accepted by the authenticated navigator. A verified notification wins over the default Home transition after login. General protected static links remain memory-pending until authentication and carry route IDs only—never tokens, secrets, or full records.
+
+Route mechanics live in `src/navigation`; theme/platform hooks and primitives in `src/design-system`; and the first transitional shared screen component in `src/components/Section.tsx`. Existing Phase 1–3 auth, content, notification, Google, session, and dormant native-calendar modules remain the feature/service boundaries around the navigator. `App.tsx` still owns substantial orchestration and legacy screen JSX, so MN-010 is only partially reduced rather than closed.
+
+The pure contracts name normalized roots `Hydration` and `Unknown`; `AppNavigator` adapts those to the concrete `BootstrapLoading`/`BootstrapError` and `UnknownRoute` screens. The legacy six-value `activeTab` remains only as a compatibility bridge for existing feature-loading ownership; it is not the visible four-destination shell. No navigation state is persisted.
+
+Approved static URLs are exactly `academicpulse://tab/home`, `/announcements`, `/calendar`, `/profile`; `academicpulse://announcements/summer-school`, `/yok`; and `academicpulse://settings/academic-profile`, `/notifications`, `/google-calendar`, `/account-data` (with the full scheme/authority shown by the first item in each group). Extra queries, fragments, encoding tricks, detail paths, and non-`academicpulse` origins are rejected rather than normalized broadly.
 
 ## Major state inventory
 
@@ -53,10 +94,10 @@ This is information-architecture consolidation, not feature deletion. Summer Sch
 - A notification tap or strict `academicpulse://notification` URL carries only schema version, destination type, exact ID, and recipient owner. Signed-out receipt stores a non-secret pending target. Post-login resolution calls the corresponding exact trusted-record endpoint for that ID; it never searches a capped collection or falls back to another item. Wrong/stale owners are ignored and missing content produces an unavailable notice.
 - Notification delivery is never inferred from the preference switch alone. The Profile surface separately exposes preference, permission, installation-registration, and effective-delivery state. Permission is prompted only from the explicit save/enable action.
 - Google connection metadata is owner-scoped v3 data. Hydration shows `checking` until the current SDK account/token and Calendar API are verified. Stored metadata alone cannot render `connected`.
-- Google sync performs profile/network/content preflight before provider UI. It displays partial source warnings, retains verified mappings, and refuses deletion for incomplete source families. Ordinary disconnect/revoke retains a disconnected ledger for later same-account deletion cleanup. The account-switch keep choice warns that its old-account ledger will be abandoned and those residual records require reconnecting that account. These controls do not change the six-tab shell.
+- Google sync performs profile/network/content preflight before provider UI. It displays partial source warnings, retains verified mappings, and refuses deletion for incomplete source families. Ordinary disconnect/revoke retains a disconnected ledger for later same-account deletion cleanup. The account-switch keep choice warns that its old-account ledger will be abandoned and those residual records require reconnecting that account. At the Phase 3 snapshot these controls did not change the six-tab shell; Phase 4 now routes them without changing their business behavior.
 - The dormant `src/native-calendar` subsystem adds no screen or state. It remains unwired reference code with no platform dependency or permission request.
 
-## Current user-flow outline
+## Pre-Phase-4 user-flow outline (historical)
 
 ```text
 Cold launch
@@ -93,7 +134,7 @@ For exhaustive tap/API/storage effects, use [the in-app activity report](../20-m
 - Re-select behavior is deliberate: scroll to top or refresh only if specified and accessible.
 - Android system back and predictive-back behavior are designed before enabling predictive back.
 - Auth restoration has an explicit hydration boundary; protected content does not flash with another user's state.
-- The strict notification destination handoff may use the declared `academicpulse` scheme because it now has version, owner, exact-ID, and trusted-content revalidation rules. General route/deep-link navigation remains Phase 5.
+- The strict notification destination handoff uses the declared `academicpulse` scheme with version, owner, exact-ID, and trusted-content revalidation. Phase 4 also implements an exact static tab/announcement/settings allowlist and safe unknown fallback; arbitrary path/query routing remains rejected.
 - Tablet layouts preserve destination ownership even when navigation adapts to rail/sidebar.
 
 ## Required visual-state capture set for later phases

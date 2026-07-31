@@ -8,12 +8,11 @@ import {
   statusCodes
 } from "@react-native-google-signin/google-signin";
 import { type Dispatch, type ReactNode, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
   AppState,
-  BackHandler,
   Linking,
   NativeModules,
   Platform,
@@ -25,6 +24,20 @@ import {
   TextInput,
   View
 } from "react-native";
+import {
+  AppNavigator,
+  type AppRootSurface,
+  type AppScreenSlots,
+  type AppVisibleRoute
+} from "./src/navigation/AppNavigator";
+import { useAppRouteRequest } from "./src/navigation/useAppRouteRequest";
+import {
+  parseAcademicPulseRouteUrl,
+  type ProtectedAppRoute,
+  type UnknownRoute
+} from "./src/navigation";
+import { DesignSystemPreview, ListItem, ThemeProvider } from "./src/design-system";
+import { Section } from "./src/components/Section";
 import {
   GOOGLE_CALENDAR_EVENTS_SCOPE,
   GoogleCalendarService,
@@ -57,7 +70,6 @@ import {
   createPendingNotificationDestinationRecord,
   isSamePendingNotificationDestinationRecord,
   openNotificationSettings,
-  parseNotificationDeepLink,
   parsePendingNotificationDestinationRecord,
   resolveNotificationDestination,
   serializePendingNotificationDestinationRecord,
@@ -129,6 +141,108 @@ type AuthStage =
   | "profile_confirm"
   | "password_recovery_request"
   | "password_recovery_confirm";
+
+const AUTH_ROUTE_NAMES = new Set<AppVisibleRoute>([
+  "Login",
+  "Register",
+  "Verification",
+  "PasswordRecoveryRequest",
+  "PasswordRecoveryConfirm"
+]);
+
+const AUTHENTICATED_ROUTE_NAMES = new Set<AppVisibleRoute>([
+  "Home",
+  "Announcements",
+  "SummerSchool",
+  "YokAnnouncements",
+  "AnnouncementDetail",
+  "Calendar",
+  "CalendarEventDetail",
+  "Profile",
+  "AcademicProfileSettings",
+  "NotificationSettings",
+  "GoogleCalendarSettings",
+  "AccountDataSettings",
+  "UnknownRoute"
+]);
+
+function routeForAuthState(authStage: AuthStage, authMode: AuthMode): AppVisibleRoute {
+  switch (authStage) {
+    case "verify": return "Verification";
+    case "profile_confirm": return "ProfileConfirmation";
+    case "password_recovery_request": return "PasswordRecoveryRequest";
+    case "password_recovery_confirm": return "PasswordRecoveryConfirm";
+    case "auth": return authMode === "register" ? "Register" : "Login";
+  }
+}
+
+function routeForLegacyTab(tab: TabId): AppVisibleRoute {
+  switch (tab) {
+    case "home": return "Home";
+    case "announcements": return "Announcements";
+    case "summer": return "SummerSchool";
+    case "yok": return "YokAnnouncements";
+    case "calendar": return "Calendar";
+    case "profile": return "Profile";
+  }
+}
+
+function routeBelongsToLegacyTab(route: AppVisibleRoute, tab: TabId): boolean {
+  switch (tab) {
+    case "home": return route === "Home";
+    case "announcements":
+      return route === "Announcements"
+        || route === "SummerSchool"
+        || route === "YokAnnouncements"
+        || route === "AnnouncementDetail";
+    case "summer": return route === "SummerSchool";
+    case "yok": return route === "YokAnnouncements";
+    case "calendar": return route === "Calendar" || route === "CalendarEventDetail";
+    case "profile":
+      return route === "Profile"
+        || route === "AcademicProfileSettings"
+        || route === "NotificationSettings"
+        || route === "GoogleCalendarSettings"
+        || route === "AccountDataSettings";
+  }
+}
+
+function navigationTargetForProtectedRoute(route: ProtectedAppRoute): {
+  route: AppVisibleRoute;
+  legacyTab: TabId;
+  params?: Readonly<Record<string, string>>;
+} {
+  switch (route.name) {
+    case "Home":
+      return { route: "Home", legacyTab: "home" };
+    case "Announcements":
+      return { route: "Announcements", legacyTab: "announcements" };
+    case "SummerSchool":
+      return { route: "SummerSchool", legacyTab: "summer" };
+    case "YokAnnouncements":
+      return { route: "YokAnnouncements", legacyTab: "yok" };
+    case "AnnouncementDetail":
+      return {
+        route: "AnnouncementDetail",
+        legacyTab: "announcements",
+        params: { announcementId: route.params.announcementId }
+      };
+    case "Calendar":
+      return { route: "Calendar", legacyTab: "calendar" };
+    case "CalendarEventDetail":
+      return {
+        route: "CalendarEventDetail",
+        legacyTab: "calendar",
+        params: { eventId: route.params.eventId }
+      };
+    case "Profile":
+    case "AcademicProfileSettings":
+    case "NotificationSettings":
+    case "GoogleCalendarSettings":
+    case "AccountDataSettings":
+      return { route: route.name, legacyTab: "profile" };
+  }
+}
 
 type SessionPayload = {
   accessToken: string;
@@ -833,15 +947,6 @@ function cleanupTargetLabel(target: AccountCleanupTarget): string {
   return labels[target];
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {children}
-    </View>
-  );
-}
-
 function getWebStorage(): Storage | null {
   if (typeof globalThis === "undefined") return null;
   if (typeof globalThis.localStorage === "undefined") return null;
@@ -955,10 +1060,19 @@ async function deleteStoredValue(key: string): Promise<void> {
   await SecureStore.deleteItemAsync(key);
 }
 
-export default function App() {
+function MainApplication() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authStage, setAuthStage] = useState<AuthStage>("auth");
   const [activeTab, setActiveTab] = useState<TabId>("home");
+  const {
+    acknowledgeNavigationRequest,
+    activeRoute,
+    clearNavigationRequest,
+    navigationRequest,
+    requestAppRoute,
+    setActiveRoute
+  } = useAppRouteRequest("BootstrapLoading");
+  const pendingDeepLinkRouteRef = useRef<ProtectedAppRoute | UnknownRoute | null>(null);
   const apiBaseUrl = useMemo(() => resolveApiBaseUrl(), []);
 
   const [fullName, setFullName] = useState("");
@@ -980,6 +1094,7 @@ export default function App() {
     tone: "info" | "success" | "error";
   } | null>(null);
   const [hydrationStatus, setHydrationStatus] = useState<HydrationStatus>("loading");
+  const hydrationStatusRef = useRef<HydrationStatus>("loading");
   const [hydrationError, setHydrationError] = useState<string | null>(null);
 
   const [registerUniversityId, setRegisterUniversityId] = useState("");
@@ -1056,6 +1171,11 @@ export default function App() {
   const notificationForegroundUnsubscribeRef = useRef<(() => void) | null>(null);
   const notificationTapAdapterRef = useRef<FirebaseNotificationTapAdapter | null>(null);
   const notificationFailClosedPromiseRef = useRef<Promise<void> | null>(null);
+  const notificationNavigationRequestRef = useRef<{
+    requestKey: string;
+    record: ReturnType<typeof createPendingNotificationDestinationRecord>;
+    ownerSnapshot: AccountGenerationSnapshot;
+  } | null>(null);
   const accountCleanupInProgressRef = useRef(false);
   const authOperationInProgressRef = useRef(false);
   const activationAttemptRef = useRef(0);
@@ -1218,6 +1338,29 @@ export default function App() {
   const passwordRecoveryConfirmReady = passwordRecoveryConfirmationValidation.valid
     && !passwordRecoveryTiming?.expired;
   const rootSurface = rootSurfaceForHydration(hydrationStatus, Boolean(session));
+  const navigatorRootSurface: AppRootSurface = rootSurface === "hydration_loading"
+    ? "hydration_loading"
+    : rootSurface === "hydration_error"
+      ? "hydration_error"
+      : session
+        ? "authenticated"
+        : authStage === "profile_confirm"
+          ? "onboarding"
+          : "auth";
+  const expectedBaseRoute: AppVisibleRoute = navigatorRootSurface === "hydration_loading"
+    ? "BootstrapLoading"
+    : navigatorRootSurface === "hydration_error"
+      ? "BootstrapError"
+      : navigatorRootSurface === "authenticated"
+        ? routeForLegacyTab(activeTab)
+        : routeForAuthState(authStage, authMode);
+  const controlledActiveRoute = navigatorRootSurface === "authenticated"
+    ? (AUTHENTICATED_ROUTE_NAMES.has(activeRoute) ? activeRoute : expectedBaseRoute)
+    : navigatorRootSurface === "auth"
+      ? (AUTH_ROUTE_NAMES.has(activeRoute) ? activeRoute : expectedBaseRoute)
+      : navigatorRootSurface === "onboarding"
+        ? "ProfileConfirmation"
+        : expectedBaseRoute;
   const googleCalendarLive = Boolean(
     googleCalendarIntegration
     && (googleCalendarState === "connected" || googleCalendarState === "partial")
@@ -1461,8 +1604,18 @@ export default function App() {
       return;
     }
     if (resolution.status === "open") {
-      if (!await clearPendingNotificationDestinationIfCurrent(record).catch(() => false)) return;
+      if (!await pendingNotificationDestinationIsCurrent(record).catch(() => false)) return;
       if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      const targetRoute = resolution.destination.type === "announcement"
+        ? "AnnouncementDetail"
+        : "CalendarEventDetail";
+      const requestKey = requestAppRoute(
+        targetRoute,
+        resolution.destination.type === "announcement"
+          ? { announcementId: resolution.destination.id }
+          : { eventId: resolution.destination.id }
+      );
+      notificationNavigationRequestRef.current = { requestKey, record, ownerSnapshot };
       setNotificationDestinationNotice({
         status: "opened",
         destination: resolution.destination,
@@ -1514,6 +1667,54 @@ export default function App() {
       return;
     }
     await resolvePendingNotificationForSession(record, currentSession, ownerSnapshot);
+  }
+
+  function openProtectedAppRoute(route: ProtectedAppRoute): void {
+    const target = navigationTargetForProtectedRoute(route);
+    setActiveTab(target.legacyTab);
+    requestAppRoute(target.route, target.params);
+  }
+
+  function receiveAcademicPulseUrl(url: unknown): void {
+    const resolution = parseAcademicPulseRouteUrl(url);
+    if (resolution.kind === "notification") {
+      void receiveNotificationDestination(resolution.notification);
+      return;
+    }
+
+    if (hydrationStatusRef.current !== "ready") {
+      pendingDeepLinkRouteRef.current = resolution.route;
+      return;
+    }
+    if (resolution.kind === "unknown") {
+      pendingDeepLinkRouteRef.current = null;
+      requestAppRoute("UnknownRoute");
+      return;
+    }
+
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot || currentSession.user.id !== ownerSnapshot.ownerId) {
+      pendingDeepLinkRouteRef.current = resolution.route;
+      return;
+    }
+    pendingDeepLinkRouteRef.current = null;
+    openProtectedAppRoute(resolution.route);
+  }
+
+  function resumePendingDeepLinkIfEligible(): void {
+    const pendingRoute = pendingDeepLinkRouteRef.current;
+    if (!pendingRoute || hydrationStatusRef.current !== "ready") return;
+    if (pendingRoute.name === "Unknown") {
+      pendingDeepLinkRouteRef.current = null;
+      requestAppRoute("UnknownRoute");
+      return;
+    }
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot || currentSession.user.id !== ownerSnapshot.ownerId) return;
+    pendingDeepLinkRouteRef.current = null;
+    openProtectedAppRoute(pendingRoute);
   }
 
   async function restorePendingNotificationForSession(
@@ -1573,6 +1774,13 @@ export default function App() {
   }, [message]);
 
   useEffect(() => {
+    setActiveRoute((current) => {
+      if (navigatorRootSurface !== "authenticated") return expectedBaseRoute;
+      return routeBelongsToLegacyTab(current, activeTab) ? current : expectedBaseRoute;
+    });
+  }, [activeTab, authMode, authStage, expectedBaseRoute, navigatorRootSurface]);
+
+  useEffect(() => {
     if (authStage !== "verify" || !pendingVerification) return;
     setVerificationClockMs(Date.now());
     const timer = setInterval(() => setVerificationClockMs(Date.now()), 1_000);
@@ -1592,20 +1800,13 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (authStage !== "password_recovery_request" && authStage !== "password_recovery_confirm") return;
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (busy) return true;
-      if (authStage === "password_recovery_confirm") returnToPasswordRecoveryRequest();
-      else cancelPasswordRecovery();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [authStage, busy]);
-
-  useEffect(() => {
     sessionRef.current = session;
     notificationCoordinatorOwnerTokenRef.current = session;
   }, [session]);
+
+  useEffect(() => {
+    hydrationStatusRef.current = hydrationStatus;
+  }, [hydrationStatus]);
 
   useEffect(() => () => {
     notificationUnsubscribeRef.current?.();
@@ -1626,10 +1827,10 @@ export default function App() {
       void receiveNotificationDestination(destination);
     });
     void Linking.getInitialURL().then((url) => {
-      if (url) void receiveNotificationDestination(parseNotificationDeepLink(url));
+      if (url) receiveAcademicPulseUrl(url);
     }).catch(() => undefined);
     const linkingSubscription = Linking.addEventListener("url", ({ url }) => {
-      void receiveNotificationDestination(parseNotificationDeepLink(url));
+      receiveAcademicPulseUrl(url);
     });
     return () => {
       unsubscribeTap();
@@ -1637,6 +1838,15 @@ export default function App() {
       notificationTapAdapterRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (hydrationStatus !== "ready") return;
+    if (notificationNavigationRequestRef.current) {
+      pendingDeepLinkRouteRef.current = null;
+      return;
+    }
+    resumePendingDeepLinkIfEligible();
+  }, [hydrationStatus, session?.user.id]);
 
   useEffect(() => {
     if (Platform.OS !== "android" && Platform.OS !== "ios") return;
@@ -1760,6 +1970,8 @@ export default function App() {
             sessionRef.current = refreshedSession;
             notificationCoordinatorOwnerTokenRef.current = refreshedSession;
             setSession(refreshedSession);
+            setActiveTab("home");
+            setActiveRoute("Home");
             restoredSession = refreshedSession;
           }
         } catch (error) {
@@ -2216,6 +2428,8 @@ export default function App() {
     accountGuardRef.current.invalidate();
     abortAuthenticatedRequests();
     refreshSessionPromiseRef.current = null;
+    notificationNavigationRequestRef.current = null;
+    clearNavigationRequest();
   }
 
   async function activateSession(nextSession: SessionPayload): Promise<AccountGenerationSnapshot> {
@@ -2271,6 +2485,8 @@ export default function App() {
     sessionRef.current = nextSession;
     notificationCoordinatorOwnerTokenRef.current = nextSession;
     setSession(nextSession);
+    setActiveTab("home");
+    setActiveRoute("Home");
     await restorePendingNotificationForSession(nextSession, snapshot).catch(() => {
       failedTargets.push("pending_notification_storage");
     });
@@ -2626,7 +2842,6 @@ export default function App() {
         setAuthStage("auth");
         const snapshot = await activateSession(nextSession);
         setPassword("");
-        setActiveTab("home");
         setMessage({ text: "Giriş başarılı.", tone: "success" });
         await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
         return;
@@ -2737,7 +2952,6 @@ export default function App() {
       setAuthStage("auth");
       const snapshot = await activateSession(nextSession);
       setPassword("");
-      setActiveTab("home");
       setMessage({ text: "Google ile giriş başarılı.", tone: "success" });
       await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
     } catch (error) {
@@ -2920,7 +3134,6 @@ export default function App() {
       );
       const snapshot = await activateSession(nextSession);
       setAuthStage("auth");
-      setActiveTab("home");
       setPassword("");
       setMessage({ text: "Profilin onaylandı. Uygulamayı kullanmaya başlayabilirsin.", tone: "success" });
       await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
@@ -4939,49 +5152,121 @@ export default function App() {
     setMessage({ text: "Sınav geri sayımına eklendi.", tone: "success" });
   }
 
-  if (rootSurface === "hydration_loading" || rootSurface === "hydration_error") {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={styles.safeArea}>
-          <StatusBar style="dark" />
-          <View style={styles.hydrationContainer} accessibilityLiveRegion="polite">
-            {rootSurface === "hydration_loading" ? (
-              <>
-                <ActivityIndicator size="large" color="#4338ca" />
-                <Text style={styles.hydrationTitle}>Uygulama hazırlanıyor</Text>
-                <Text style={styles.hydrationText}>Cihaz ve hesap bilgilerin güvenli biçimde yükleniyor.</Text>
-              </>
-            ) : (
-              <>
-                <Ionicons name="warning-outline" size={34} color="#b45309" />
-                <Text style={styles.hydrationTitle}>Başlangıç tamamlanamadı</Text>
-                <Text style={styles.hydrationText}>{hydrationError}</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Başlangıcı tekrar dene"
-                  style={[styles.button, styles.primaryButton, styles.hydrationRetryButton]}
-                  onPress={() => void hydrateApplication()}
-                >
-                  <Text style={styles.primaryButtonText}>Tekrar Dene</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
+  function handleNavigationRequestHandled(requestKey: string): void {
+    acknowledgeNavigationRequest(requestKey);
+    const notificationRequest = notificationNavigationRequestRef.current;
+    if (!notificationRequest || notificationRequest.requestKey !== requestKey) return;
+    notificationNavigationRequestRef.current = null;
+    if (
+      !accountGuardRef.current.isCurrent(notificationRequest.ownerSnapshot)
+      || sessionRef.current?.user.id !== notificationRequest.ownerSnapshot.ownerId
+    ) return;
+    void clearPendingNotificationDestinationIfCurrent(notificationRequest.record)
+      .then((cleared) => {
+        if (cleared || !accountGuardRef.current.isCurrent(notificationRequest.ownerSnapshot)) return;
+        setCleanupIssue({
+          action: "activation",
+          failedTargets: ["pending_notification_storage"],
+          ownerId: notificationRequest.ownerSnapshot.ownerId
+        });
+      })
+      .catch(() => {
+        if (!accountGuardRef.current.isCurrent(notificationRequest.ownerSnapshot)) return;
+        setCleanupIssue({
+          action: "activation",
+          failedTargets: ["pending_notification_storage"],
+          ownerId: notificationRequest.ownerSnapshot.ownerId
+        });
+      });
   }
 
-  return (
-    <SafeAreaProvider>
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="dark" />
-        <ScrollView
-          contentContainerStyle={[styles.container, session ? styles.containerWithNav : undefined]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-        >
-          {!session && (
+  function handleVisibleRouteChange(route: AppVisibleRoute): void {
+    setActiveRoute(route);
+    switch (route) {
+      case "Login":
+        if (authStage === "password_recovery_request" || authStage === "password_recovery_confirm") {
+          cancelPasswordRecovery();
+        } else if (authStage !== "auth" || authMode !== "login") {
+          returnToLoginForm();
+        }
+        return;
+      case "Register":
+        setAuthMode("register");
+        setAuthStage("auth");
+        return;
+      case "Verification":
+        setAuthMode("login");
+        setAuthStage("verify");
+        return;
+      case "PasswordRecoveryRequest":
+        if (authStage === "password_recovery_confirm") returnToPasswordRecoveryRequest();
+        else setAuthStage("password_recovery_request");
+        return;
+      case "PasswordRecoveryConfirm":
+        setAuthStage("password_recovery_confirm");
+        return;
+      case "ProfileConfirmation":
+        setAuthStage("profile_confirm");
+        return;
+      case "Home":
+        setActiveTab("home");
+        return;
+      case "Announcements":
+      case "AnnouncementDetail":
+        setActiveTab("announcements");
+        return;
+      case "SummerSchool":
+        setActiveTab("summer");
+        return;
+      case "YokAnnouncements":
+        setActiveTab("yok");
+        return;
+      case "Calendar":
+      case "CalendarEventDetail":
+        setActiveTab("calendar");
+        return;
+      case "Profile":
+      case "AcademicProfileSettings":
+      case "NotificationSettings":
+      case "GoogleCalendarSettings":
+      case "AccountDataSettings":
+        setActiveTab("profile");
+        return;
+      case "BootstrapLoading":
+      case "BootstrapError":
+      case "UnknownRoute":
+        return;
+    }
+  }
+
+  const bootstrapLoading = (
+    <View style={styles.hydrationContainer} accessibilityLiveRegion="polite">
+      <ActivityIndicator size="large" color="#4338ca" />
+      <Text style={styles.hydrationTitle}>Uygulama hazırlanıyor</Text>
+      <Text style={styles.hydrationText}>Cihaz ve hesap bilgilerin güvenli biçimde yükleniyor.</Text>
+    </View>
+  );
+  const bootstrapError = (
+    <View style={styles.hydrationContainer} accessibilityLiveRegion="polite">
+      <Ionicons name="warning-outline" size={34} color="#b45309" />
+      <Text style={styles.hydrationTitle}>Başlangıç tamamlanamadı</Text>
+      <Text style={styles.hydrationText}>{hydrationError}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Başlangıcı tekrar dene"
+        style={[styles.button, styles.primaryButton, styles.hydrationRetryButton]}
+        onPress={() => void hydrateApplication()}
+      >
+        <Text style={styles.primaryButtonText}>Tekrar Dene</Text>
+      </Pressable>
+    </View>
+  );
+
+  function renderRoutedScreen(route: AppVisibleRoute): ReactNode {
+    const showsAuthHero = AUTH_ROUTE_NAMES.has(route) || route === "ProfileConfirmation";
+    return (
+      <>
+          {showsAuthHero && (
             <View style={styles.authHero}>
               <Text style={styles.authHeroTitle}>Akademik Takvimine Hoş Geldin</Text>
               <Text style={styles.authHeroSubtitle}>Sınavlarını ve duyurularını tek yerden takip et, tarihler kaçmasın.</Text>
@@ -5045,7 +5330,7 @@ export default function App() {
             </View>
           )}
 
-          {!session && authStage === "auth" && (
+          {(route === "Login" || route === "Register") && (
             <Section title="Giriş ve Kayıt">
               <View style={styles.row}>
                 <Pressable
@@ -5259,7 +5544,7 @@ export default function App() {
             </Section>
           )}
 
-          {!session && authStage === "password_recovery_request" && (
+          {route === "PasswordRecoveryRequest" && (
             <Section title="Şifre Kurtarma">
               <View style={styles.verificationCard}>
                 <Text style={styles.verificationTitle}>Sıfırlama kodu iste</Text>
@@ -5371,7 +5656,7 @@ export default function App() {
             </Section>
           )}
 
-          {!session && authStage === "password_recovery_confirm" && (
+          {route === "PasswordRecoveryConfirm" && (
             <Section title="Şifre Kurtarma">
               <View style={styles.verificationCard}>
                 <Text style={styles.verificationTitle}>Yeni şifreni belirle</Text>
@@ -5556,7 +5841,7 @@ export default function App() {
             </Section>
           )}
 
-          {!session && authStage === "verify" && (
+          {route === "Verification" && (
             <Section title="E-posta Doğrulama">
               <View style={styles.progressRow}>
                 <View style={[styles.progressChip, styles.progressChipDone]}>
@@ -5632,7 +5917,7 @@ export default function App() {
             </Section>
           )}
 
-          {!session && authStage === "profile_confirm" && (
+          {route === "ProfileConfirmation" && (
             <Section title="Profilini Onayla">
               <View style={styles.progressRow}>
                 <View style={[styles.progressChip, styles.progressChipDone]}>
@@ -5668,7 +5953,7 @@ export default function App() {
             </Section>
           )}
 
-          {session && activeTab === "home" && (
+          {session && route === "Home" && (
             <>
               <View style={styles.homeHero}>
                 <View style={styles.rowBetween}>
@@ -5809,9 +6094,10 @@ export default function App() {
             </>
           )}
 
-          {session && activeTab === "calendar" && (
+          {session && (route === "Calendar" || route === "GoogleCalendarSettings") && (
             <>
-              <Section title="Takvim Özeti">
+              {route === "Calendar" && (
+                <Section title="Takvim Özeti">
                 <View style={styles.rowBetween}>
                   <View style={styles.flexOne}>
                     <Text style={styles.cardTitle}>{calendar.data?.calendar?.title ?? "Akademik takvim"}</Text>
@@ -5838,7 +6124,8 @@ export default function App() {
                     <Text style={styles.calendarMiniLabel}>Durum</Text>
                   </View>
                 </View>
-              </Section>
+                </Section>
+              )}
 
               <Section title="Google Takvim">
                 <View style={styles.calendarConnectionHero}>
@@ -5965,7 +6252,8 @@ export default function App() {
                 </View>
               </Section>
 
-              <Section title="Akademik Tarihler">
+              {route === "Calendar" && (
+                <Section title="Akademik Tarihler">
                 {(calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).slice(0, 8).map((event) => (
                   <View key={event.id} style={styles.eventCard}>
                     <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
@@ -5980,11 +6268,12 @@ export default function App() {
                     <Text style={styles.caption}>Üniversite takvimi yüklendiğinde önemli tarihler burada görünecek.</Text>
                   </View>
                 )}
-              </Section>
+                </Section>
+              )}
             </>
           )}
 
-          {session && activeTab === "summer" && (
+          {session && route === "SummerSchool" && (
             <>
               <Section title="Yaz Okulu">
                 <View style={styles.announcementHeader}>
@@ -6130,7 +6419,7 @@ export default function App() {
             </>
           )}
 
-          {session && activeTab === "yok" && (
+          {session && route === "YokAnnouncements" && (
             <Section title="YÖK Duyuruları">
               <View style={styles.announcementHeader}>
                 <View style={styles.flexOne}>
@@ -6167,7 +6456,7 @@ export default function App() {
             </Section>
           )}
 
-          {session && activeTab === "announcements" && (
+          {session && route === "Announcements" && (
             <Section title="Duyurular, Haberler ve Etkinlikler">
               <View style={styles.announcementHeader}>
                 <View style={styles.flexOne}>
@@ -6258,9 +6547,15 @@ export default function App() {
             </Section>
           )}
 
-          {session && activeTab === "profile" && (
+          {session && (
+            route === "Profile"
+            || route === "AcademicProfileSettings"
+            || route === "NotificationSettings"
+            || route === "AccountDataSettings"
+          ) && (
             <>
-              <Section title="Profil">
+              {route === "Profile" && (
+                <Section title="Profil">
                 <View style={styles.profileSummaryPanel}>
                   <View style={styles.profileAvatar}>
                     <Ionicons name="person-outline" size={24} color="#0f766e" />
@@ -6272,13 +6567,22 @@ export default function App() {
                   </View>
                 </View>
 
+                <View style={styles.settingsRouteList}>
+                  <ListItem title="Akademik Profil" onPress={() => requestAppRoute("AcademicProfileSettings")} />
+                  <ListItem title="Bildirimler" onPress={() => requestAppRoute("NotificationSettings")} />
+                  <ListItem title="Google Takvim" onPress={() => requestAppRoute("GoogleCalendarSettings")} />
+                  <ListItem title="Hesap ve Veri" onPress={() => requestAppRoute("AccountDataSettings")} />
+                </View>
+
                 <Pressable style={[styles.button, styles.secondaryButton]} onPress={() => void handleLogout()} disabled={busy}>
                   <Ionicons name="log-out-outline" size={18} color="#1e293b" />
                   <Text style={styles.secondaryButtonText}>Çıkış Yap</Text>
                 </Pressable>
-              </Section>
+                </Section>
+              )}
 
-              <Section title="Hesap ve Veri">
+              {(route === "Profile" || route === "AccountDataSettings") && (
+                <Section title="Hesap ve Veri">
                 <View style={styles.accountDangerPanel}>
                   <View style={styles.accountDangerIcon}>
                     <Ionicons name="shield-checkmark-outline" size={22} color="#be123c" />
@@ -6306,9 +6610,11 @@ export default function App() {
                   <Ionicons name="person-remove-outline" size={18} color="#ffffff" />
                   <Text style={styles.dangerButtonText}>Hesabımı Sil</Text>
                 </Pressable>
-              </Section>
+                </Section>
+              )}
 
-              <Section title="Okul Bilgilerim">
+              {(route === "Profile" || route === "AcademicProfileSettings") && (
+                <Section title="Okul Bilgilerim">
                 <Pressable
                   style={styles.academicCompactCard}
                   onPress={() => {
@@ -6461,9 +6767,11 @@ export default function App() {
                   </View>
                   </View>
                 )}
-              </Section>
+                </Section>
+              )}
 
-              <Section title="Bildirim Tercihleri">
+              {(route === "Profile" || route === "NotificationSettings") && (
+                <Section title="Bildirim Tercihleri">
                 <View style={styles.notificationStatusPanel}>
                   <View style={styles.notificationIcon}>
                     <Ionicons name="notifications-outline" size={22} color="#b45309" />
@@ -6550,44 +6858,102 @@ export default function App() {
                 <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void saveAlarmSettings()} disabled={busy}>
                   <Text style={styles.primaryButtonText}>Bildirim Tercihlerini Kaydet</Text>
                 </Pressable>
-              </Section>
+                </Section>
+              )}
             </>
           )}
-        </ScrollView>
+      </>
+    );
+  }
 
-        {session && (
-          <View style={styles.bottomNavShell}>
-            {([
-              { id: "home" as TabId, label: "Ana Sayfa", icon: "home" },
-              { id: "calendar" as TabId, label: "Takvim", icon: "calendar" },
-              { id: "summer" as TabId, label: "Yaz Okulu", icon: "sunny" },
-              { id: "yok" as TabId, label: "YÖK", icon: "newspaper" },
-              { id: "announcements" as TabId, label: "Gündem", icon: "sparkles" },
-              { id: "profile" as TabId, label: "Profil", icon: "person" },
-            ]).map(({ id, label, icon }) => {
-              const active = activeTab === id;
-              return (
-                <Pressable
-                  key={id}
-                  style={[styles.bottomNavItem, active && styles.bottomNavItemActive]}
-                  onPress={() => setActiveTab(id)}
-                >
-                  <Ionicons
-                    name={(active ? icon : `${icon}-outline`) as any}
-                    size={22}
-                    color={active ? "#ffffff" : "#94a3b8"}
-                  />
-                  <Text style={[styles.bottomNavLabel, active && styles.bottomNavLabelActive]}>
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-      </SafeAreaView>
+  const trustedDetail = notificationDestinationNotice?.status === "opened"
+    ? (
+      <Section title={notificationDestinationNotice.destination.type === "announcement" ? "Duyuru Ayrıntısı" : "Takvim Ayrıntısı"}>
+        <View style={styles.inlineInfoCard} accessibilityLiveRegion="polite">
+          <Text style={styles.inlineInfoTitle}>{notificationDestinationNotice.title ?? "Güvenilir içerik"}</Text>
+          <Text style={styles.inlineInfoText}>
+            Bu kayıt güncel hesap ve güvenilir kaynak sınırı içinde tam kimliğiyle doğrulandı.
+          </Text>
+        </View>
+      </Section>
+    )
+    : (
+      <Section title="İçerik kullanılamıyor">
+        <Text style={styles.caption}>Bu rota güvenilir bir tam kayıtla doğrulanmadığı için başka içerik gösterilmedi.</Text>
+      </Section>
+    );
+
+  const unknownRoute = (
+    <Section title="Sayfa bulunamadı">
+      <Text style={styles.caption}>Bu bağlantı güvenli bir uygulama rotasıyla eşleşmedi.</Text>
+      <Pressable
+        accessibilityRole="button"
+        style={[styles.button, styles.secondaryButton]}
+        onPress={() => requestAppRoute(session ? "Home" : "Login")}
+      >
+        <Text style={styles.secondaryButtonText}>{session ? "Ana Sayfaya Dön" : "Girişe Dön"}</Text>
+      </Pressable>
+    </Section>
+  );
+
+  const screens: AppScreenSlots = {
+    BootstrapLoading: bootstrapLoading,
+    BootstrapError: bootstrapError,
+    Login: renderRoutedScreen("Login"),
+    Register: renderRoutedScreen("Register"),
+    Verification: renderRoutedScreen("Verification"),
+    PasswordRecoveryRequest: renderRoutedScreen("PasswordRecoveryRequest"),
+    PasswordRecoveryConfirm: renderRoutedScreen("PasswordRecoveryConfirm"),
+    ProfileConfirmation: renderRoutedScreen("ProfileConfirmation"),
+    Home: renderRoutedScreen("Home"),
+    Announcements: renderRoutedScreen("Announcements"),
+    SummerSchool: renderRoutedScreen("SummerSchool"),
+    YokAnnouncements: renderRoutedScreen("YokAnnouncements"),
+    AnnouncementDetail: trustedDetail,
+    Calendar: renderRoutedScreen("Calendar"),
+    CalendarEventDetail: trustedDetail,
+    Profile: renderRoutedScreen("Profile"),
+    AcademicProfileSettings: renderRoutedScreen("AcademicProfileSettings"),
+    NotificationSettings: renderRoutedScreen("NotificationSettings"),
+    GoogleCalendarSettings: renderRoutedScreen("GoogleCalendarSettings"),
+    AccountDataSettings: renderRoutedScreen("AccountDataSettings"),
+    UnknownRoute: unknownRoute
+  };
+
+  return (
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <StatusBar style="auto" />
+        <AppNavigator
+          rootSurface={navigatorRootSurface}
+          activeRoute={controlledActiveRoute}
+          screens={screens}
+          navigationLocked={busy || googleBusy || googleCalendarBusy}
+          request={navigationRequest}
+          onRequestHandled={handleNavigationRequestHandled}
+          onVisibleRouteChange={handleVisibleRouteChange}
+        />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
+}
+
+export default function App() {
+  const showPhase4DesignPreview = __DEV__
+    && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
+
+  if (showPhase4DesignPreview) {
+    return (
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <StatusBar style="auto" />
+          <DesignSystemPreview />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    );
+  }
+
+  return <MainApplication />;
 }
 
 const styles = StyleSheet.create({
@@ -6731,6 +7097,11 @@ const styles = StyleSheet.create({
     color: "#64748b",
     fontSize: 12,
     lineHeight: 17
+  },
+  settingsRouteList: {
+    borderRadius: 14,
+    gap: 1,
+    overflow: "hidden"
   },
   messageBox: {
     borderRadius: 14,

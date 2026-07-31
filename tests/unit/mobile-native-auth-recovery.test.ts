@@ -229,6 +229,10 @@ describe("mobile authentication recovery contract", () => {
 
   it("provides reachable recovery, loading, cooldown, visibility, back, cancellation, and secret cleanup UI", () => {
     const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const navigatorSource = readFileSync(
+      new URL("../../apps/mobile-native/src/navigation/AppNavigator.tsx", import.meta.url),
+      "utf8"
+    );
     expect(appSource).toContain('accessibilityLabel="Şifremi unuttum"');
     expect(appSource).toContain('authStage === "password_recovery_request"');
     expect(appSource).toContain('authStage === "password_recovery_confirm"');
@@ -236,7 +240,11 @@ describe("mobile authentication recovery contract", () => {
     expect(appSource).toContain('maxLength={PASSWORD_RECOVERY_CODE_LENGTH}');
     expect(appSource).toContain('accessibilityLabel={newPasswordVisible ? "Yeni şifreyi gizle" : "Yeni şifreyi göster"}');
     expect(appSource).toContain('accessibilityLabel={passwordConfirmationVisible ? "Şifre tekrarını gizle" : "Şifre tekrarını göster"}');
-    expect(appSource).toContain('BackHandler.addEventListener("hardwareBackPress"');
+    expect(navigatorSource).toContain('BackHandler.addEventListener("hardwareBackPress"');
+    expect(navigatorSource).toContain("gestureEnabled: !navigationLocked");
+    expect(appSource).toContain('case "PasswordRecoveryRequest":');
+    expect(appSource).toContain("returnToPasswordRecoveryRequest()");
+    expect(appSource).toContain("cancelPasswordRecovery()");
     expect(appSource).toContain("Yeni Kod İste (");
     expect(appSource).toContain("Kod isteniyor...");
     expect(appSource).toContain("Şifre yenileniyor...");

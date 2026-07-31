@@ -9,6 +9,7 @@ Baseline branch/HEAD: `agent/google-play-readiness-20260724` / `cbd0067b03c3cf72
 |---|---|---|
 | TypeScript check | The checked project type graph compiles under current declarations | Runtime behavior, visual layout, native linking |
 | Vitest unit/API tests | Tested domain/service/helper contracts behave in Node | `App.tsx` rendering, native permissions, native navigation |
+| Jest Expo + React Native Testing Library | Rendered React Native semantics, interaction states, and React Navigation state changes behave in the Jest host | Native OS layout/material, permission prompts, predictive gestures, provider SDK UI, or visual acceptance |
 | Expo Android export | Metro can resolve and produce an Android/Hermes bundle and assets | APK assembly, install, launch, native module configuration, UI acceptance |
 | Vite admin/mobile web build | Current repository CI web clients bundle | Native UI or native runtime behavior |
 | Android/iOS native launch | App installs/starts on the target runtime | Complete visual/accessibility acceptance without state matrix |
@@ -409,6 +410,55 @@ The final tree was validated from the required starting commit `d722f9092c1d500e
 
 `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains unchanged: no lint script, applicable ESLint dependency, or lint configuration exists. Phase 3 does not start the Phase 4 test/tooling decision.
 
+## Phase 4 routed adaptive foundation evidence — 31 July 2026
+
+Phase 4 started from `b74bdcc8da7657c2886cf35f6a9b4f2dedbe29d8`. Root Vitest remains the pure/API runner; native renderer tests are isolated under `apps/mobile-native/tests` and excluded in `vitest.config.ts`.
+
+### Tooling and fixture decision
+
+| Concern | Phase 4 decision |
+|---|---|
+| Native component runner | Jest `29.7.0` + `jest-expo` `54.0.17` + React Native Testing Library `13.3.3`; no second component runner or snapshot workflow |
+| Navigation | React Navigation native `7.3.14`, native stack `7.18.6`, bottom tabs `7.18.14`, screens `4.16.0` |
+| Appearance/material | `expo-system-ui` `6.0.9`; `expo-glass-effect` `0.1.10` behind platform/API/Reduce Transparency eligibility |
+| Deterministic fixtures | One provider supplies non-secret signed-in/out session, API, Google/notification integration, iOS/Android, light/dark, 320/common widths, font scale, Reduce Motion, and Reduce Transparency state |
+| Visual evidence convention | [`apps/mobile-native/tests/README.md`](../../apps/mobile-native/tests/README.md) defines native-only filenames, `C:\tmp` raw storage, curated phase evidence storage, metadata, and personal/provider/credential redaction. Phase 4 adds a reviewed manual Android matrix, not screenshot assertions or an approval-baseline workflow |
+
+### Phase 4 coverage inventory
+
+| Layer | Files/tests | Covered contract | Boundary |
+|---|---:|---|---|
+| Pure design foundation | 1 / 12 | Semantic contrast, light/dark resolution, gutters, elevation, touch targets, Liquid Glass/opaque and bottom/rail selection | No render/native material claim |
+| Pure route foundation | 1 / 32 | Typed families, hydration/auth guards, recovery context, strict links, unknown fallback, owner-generation intent priority/dedupe, tab history, ordinary/predictive-preview policy, iOS swipe eligibility | `route-resolution`, `route-intent`, and `back-policy` are policy contracts; runtime is React Navigation + the live App bridge |
+| Native renderer | 8 / 36 | Primitive default/pressed/disabled/busy/success/error/selected/accessibility, fields/feedback/states, virtualized selection, modal sheet dismissal/locking/material, deterministic preview/fixtures, adaptive surfaces, four real tabs, nested detail/back, request gating/dedupe, malformed/unknown fallback | Jest-host rendering, not OS visual acceptance |
+
+### Phase 4 validation ledger
+
+| Exact command or check | Final result | Evidence boundary |
+|---|---|---|
+| `npx.cmd vitest run tests/unit/mobile-native-route-foundation.test.ts tests/unit/mobile-native-design-foundation.test.ts --configLoader runner` | PASS, 2 files / 44 tests | Focused pure route/token/platform foundation |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS, 8 suites / 36 tests / 0 snapshots | Semantic RNTL, sheet/selection/preview, and navigator rendering; no native OS claim |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS, 30 files / 310 tests; one non-failing Mongoose `new` deprecation warning | Complete API regression; Phase 4 changes no API behavior |
+| `npm.cmd run typecheck` | PASS, exit 0 | Workspace/API/shared TypeScript |
+| `npm.cmd run typecheck:mobile:native` | PASS, exit 0 | Native app, navigator, design system, fixtures, and tests TypeScript |
+| First concurrent final `npm.cmd test -- --configLoader runner` while Gradle plus three other validation jobs ran | HOST-CONTENTION TIMEOUT: 42/43 files and 538/539 tests passed; one existing SMTP/account-deletion test exceeded its 5 s limit at 5.174 s, with no assertion failure | Disclosed failed attempt; source was unchanged before the sequential rerun |
+| Sequential `npm.cmd test -- --configLoader runner` | PASS, 43 files / 539 tests, 36.18 s Vitest duration | Final regression; above the required 41 / 495 baseline by 2 files / 44 tests. The previously timed-out test passed in 3.331 s |
+| `npm.cmd run build:admin` | Final PASS outside the restricted filesystem view, 1,742 modules, 6.95 s Vite build | Admin web regression only; restricted-view esbuild/config access is an execution-environment boundary |
+| `npm.cmd run build:mobile` | Final PASS outside the restricted filesystem view, 1,754 modules, 8.49 s Vite build | The preceding restricted-view attempt was denied config access before bundling; identical approved rerun passed. Mobile web is not native evidence |
+| `.\node_modules\.bin\expo.cmd config --type public --json` from `apps/mobile-native` | PASS | SDK 54, automatic appearance, New Architecture, scheme, package, edge-to-edge, predictive opt-out, system-UI/Firebase/notification plugins; public config only |
+| `.\node_modules\.bin\expo.cmd install --check` from `apps/mobile-native` | Advisory exit 1: installed Expo `54.0.35`, latest expected `~54.0.36` | Phase 4 explicitly forbids an Expo upgrade; no shared package version regressed, and assembly/launch passed. This advisory is not relabelled as a passing check |
+| Final `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon --console=plain` from `apps/mobile-native/android` | PASS, `BUILD SUCCESSFUL in 1m 20s`, 245 tasks (7 executed/238 up-to-date); 56,804,991-byte x86_64-only APK; SHA-256 `A5228B4361C7799AF895659161A71CE0C81F74FD55D5C02BFA1993DCA65D8E7D` | Final native compile/link evidence; debug signing, no release/publish claim. An earlier full-stacktrace build also passed; Metro-served JS changes correctly left the native artifact byte-identical |
+| API 24 `AcademicPhase1Low` install/launch/ordinary Back smoke | PASS: Android 7.0/API 24/x86_64, min 24/target 36; `com.anssoft.akademiktakvim/.MainActivity`; Login → Şifre Kurtarma → `KEYCODE_BACK` → Login kept PID 3589 and the resumed activity; filtered log contained `Running main` and no React Native/AndroidRuntime error | Proves ordinary system Back across a real no-account auth-stack transition without credentials/production data; API 24 cannot exercise predictive callbacks/animation. Raw local captures/XML/log are under `C:\tmp\phase4-*` and are not claimed as a curated visual matrix |
+| `EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW=1` Metro launch plus ADB/UIAutomator/screencap matrix at temporary 640×1136/320 dpi | PASS: actions, fields, virtualized selector states, chips/segments, content/feedback/skeleton/error states, bottom trigger, and open modal sheet matched UIAutomator probes; six curated screenshots reviewed; filtered log has no React Native/Expo/AndroidRuntime error | [`phase-04-native`](./evidence/phase-04-native/README.md) records hashes and boundaries. Dual `__DEV__` gating makes the preview production-inaccessible; this is Android/API 24 manual evidence, not an automated screenshot baseline |
+| ADB font-scale 2.0 preview observation at the same temporary 320 dp viewport | OBSERVED: application title/body wrap vertically without horizontal clipping or blank/error; API 24 system clock clips at the far right | One curated observation only; no full large-text, authenticated-screen, or system-UI acceptance claim |
+| Phase 4 test skip/focus/empty-assertion audit | PASS across new pure/native tests and the migrated auth-recovery contract | No `.only`, skip, empty test body, zero assertion plan, blind snapshot, or vacuous boolean assertion found |
+| Phase 4 scoped trailing-whitespace scan plus final `git diff --cached --check` | PASS, no matches or whitespace errors | Includes every staged tracked and newly created Phase 4 file; unrelated pre-existing untracked files remain outside the index |
+| Phase 4 runtime/test logging, credential-like literal, and staged added-line sensitive-log scans | PASS, no matches | No new console/print call or credential-bearing log statement; test fixtures contain no real credential or production data |
+
+The selected React Navigation version requires `android:enableOnBackInvokedCallback="false"`; merged/generated configuration retains that opt-out. `previewAndroidBack` is an immutable policy contract, not evidence of an OS predictive animation. iOS remains unavailable on Windows. MN-032/MN-033/MN-034 retain the authenticated content, higher-API notification/predictive, iOS, and real provider/account evidence limits.
+
+`MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact: there is no applicable lint script, dependency, or configuration. TypeScript, test, whitespace, and sensitive-log results are not called lint.
+
 ## Required coverage by phase
 
 | Scenario family | Unit/contract | Component | Native flow | Native visual | Owning phase |
@@ -419,7 +469,7 @@ The final tree was validated from the required starting commit `d722f9092c1d500e
 | Google connect/sync/change/disconnect/revoke/remove | Required | Required | Device/account permission | All outcomes | 3 |
 | Notification permission/token/device/deletion | Required | Required | Real device | All permission states | 3 |
 | Tokens and primary component states | Contrast/unit | Semantic queries | N/A | iOS + Android | 4 |
-| Auth guard, four tabs, back, deep links, restoration | Required | Required | Required | Phone/tablet chrome | 5 |
+| Auth guard, four tabs, back, deep links, restoration mechanics | Required | Required | Required | Foundation smoke in Phase 4; visual shell acceptance in Phase 5 | 4 / 5 |
 | Auth forms and recovery | Contract | Semantic queries | Required | Keyboard/320 dp/large text | 6 |
 | Home states and destinations | Required | Required | Smoke | All data states | 7 |
 | Feed virtualization/filter/content actions | Required | Required | Scroll/handoff | Long feed/source states | 8 |
@@ -428,6 +478,6 @@ The final tree was validated from the required starting commit `d722f9092c1d500e
 | Dark mode, text scale, screen reader, reduced motion/transparency, tablet, predictive back | Relevant | Required | Required | Complete matrix | 11 |
 | Full regression and release evidence | All | All | All | All | 12 |
 
-## Test-framework decision gate
+## Test-framework decision
 
-Phase 4 must select one native component-test stack compatible with Expo 54 / React Native 0.81.5 and justify any dependency changes. Prefer semantic accessibility queries; use `testID` only when semantics cannot identify the target. Do not add Jest, an alternative runner, Maestro, Detox, and Storybook simultaneously.
+Accepted in Phase 4: Jest Expo + React Native Testing Library is the single native component stack. Semantic accessibility queries are required; `testID` is limited to a material-boundary probe that has no user semantic. Vitest remains the pure/API runner. No alternative component runner, Maestro, Detox, Storybook, or snapshot-approval workflow was added.

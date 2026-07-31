@@ -6,7 +6,7 @@
     "version": "0.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -27,6 +27,7 @@
     },
     "plugins": [
       "expo-font",
+      "expo-system-ui",
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       [
