@@ -509,6 +509,78 @@ The exact primary map is `Ana Sayfa` → `Home`, `Duyurular` → `Announcements`
 
 `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact: there is no root/native lint script, applicable ESLint dependency, or lint configuration. Tests, TypeScript, builds, and final audits are separate evidence and are not relabelled as lint.
 
+## Phase 6 authentication and academic-onboarding evidence — 1 August 2026
+
+Phase 6 migrates only Login, Registration, Verification, password recovery, and initial academic onboarding onto the routed Phase 4 design-system foundation. Existing endpoint/payload, session-owner, pending-verification, recovery, cleanup, and provider contracts remain intact. The development evidence surface is selected only by `__DEV__` plus `EXPO_PUBLIC_PHASE6_AUTH_PREVIEW=1`, contains synthetic `.invalid` identities, imports no API/storage/provider module, and is production-inaccessible. Phase 7 is not started.
+
+### Phase 6 implementation coverage
+
+| Layer | Files/tests | Covered contract | Boundary |
+|---|---:|---|---|
+| Focused pure policy | 4 / 112 | Login/registration validation, exact 4/6-digit codes, masking, academic cascade/payload/class-level rules, dirty state, responsive 320 dp/font-2 policy, retained recovery/session/route contracts, cleanup boundaries | Node/Vitest policy and source contract; no native renderer claim |
+| Extracted native screens | 1 / 24 / 0 snapshots | Validation order/focus, IME submission, busy/disabled state, Google cancellation feedback, password visibility, all auth routes, timers, three recovery stages, academic selector/loading/empty/error/retry/cascade/review/save/dirty Back, semantic state, 320 dp/font-2 reachability | Jest Expo + React Native Testing Library; no installed OS/provider/backend claim |
+| Development preview | 1 / 3 / 0 snapshots | Import/network/storage isolation, all 13 synthetic scenarios, stable named-scenario boot | Real extracted components against preview-local `.invalid` data; not production or live E2E |
+| Complete native component regression | 11 / 79 / 0 snapshots | Phase 4 primitives/fixtures, Phase 5 shell/navigation, and Phase 6 auth/onboarding | One Jest/RNTL component stack; no screen-reader or live-provider acceptance |
+| Complete API regression | 30 / 310 | Existing auth, verification, recovery, session, profile, repository, notification, Google Calendar, content-trust, and cleanup behavior | Phase 6 makes no API/schema/repository change |
+| Android native presentation matrix | 20 reviewed PNGs + 20 same-state XML hierarchies | Light/dark Login and Registration, verification cooldown, three recovery stages and return-to-Login success, academic selector/review/success, exact 320 dp, IME focus transfer, and 200% Login scroll positions | API 24/x86_64 `AcademicPhase1Low`, synthetic development preview; no API/provider/session persistence or automated screenshot baseline |
+
+### Phase 6 requirement matrix
+
+| Requirement | Pure/component result | Native/runtime result | Final Phase 6 disposition |
+|---|---|---|---|
+| Focused Login without giant hero | PASS: routed `LoginScreen`, persistent labels, form-width layout, no routed hero | PASS in reviewed 360 dp light/dark and exact 320 dp synthetic captures | Implemented; native presentation accepted for the synthetic state |
+| Email/password validation and error order | PASS: normalized email, non-empty password, first-invalid ordering, field-linked error and feedback semantics | Labelled fields visible in paired Android hierarchies | Implemented; no live invalid-server/account fixture claimed |
+| IME Next and keyboard safety | PASS: email return moves focus to password; password submits only when ready | PASS at exact 320 dp: keyboard stays open and UIAutomator focus changes from email to password | Android synthetic interaction accepted; iOS keyboard remains blocked |
+| Busy/duplicate submission | PASS: email, Google, and secondary actions expose busy/disabled semantics and reject duplicate actions | Loading state covered by preview tests, not retained as a curated screenshot | Deterministically accepted; no slow live-network device E2E |
+| Password visibility | PASS: labelled action preserves the typed password | Password control exposed in Android hierarchy | Implemented; native secure-entry semantics represented, not credential entry |
+| Forgot password, verification recovery, and registration actions | PASS: all actions semantically reachable and route to separate screens | Login action captures reviewed at 360 dp light/dark and exact 320 dp | Implemented |
+| Google unavailable/cancel/error | PASS for controlled unavailable and cancellation feedback/semantics | Provider-unavailable synthetic state rendered; real chooser not run | MN-034 remains open; deterministic UI is not provider acceptance |
+| Registration four fields and min-10 parity | PASS: full name/email/password/confirmation, exact min 10, mismatch, focus and ready IME | Light/dark 360 dp Registration reviewed; 320 dp/font-2 structure covered by renderer | Implemented; no live email creation E2E |
+| Verification mask, exact four digits, expiry/cooldown/resend/edit | PASS for numeric filtering, completeness, masked email, expiry, disabled cooldown, fresh resend, edit email | 360 dp light verification/cooldown capture reviewed | Implemented; no mail delivery or live verification E2E |
+| Verification relaunch recovery without secret persistence | PASS in retained recovery/session contract: persisted record is email plus expiry/cooldown only | Not rerun as a current installed-app relaunch flow | Contract accepted; installed current-source relaunch E2E remains open under MN-019 |
+| Recovery request without account enumeration | PASS: validation and account-neutral success presentation | 360 dp request capture reviewed | Implemented; no production address or live email used |
+| Recovery exact six-digit code, expiry, resend, Back/Cancel | PASS | 360 dp code capture reviewed | Implemented; live email/backend E2E remains open |
+| Recovery matching min-10 password and return to Login | PASS | 360 dp confirmation and synthetic success-return-to-Login captures reviewed | Presentation accepted; no live reset→fresh-login acceptance |
+| Required university and optional academic descendants | PASS: university required, descendants disabled/optional until parent exists | 360 dp onboarding start reviewed | Implemented |
+| Search/virtualization/loading/empty/no-result/error/retry | PASS: semantic combobox/list states, filtering, no-result, loading, error, retry | Open 360 dp university selector reviewed; loading/error remain deterministic renderer/preview states | Implemented; no live academic-data failure injection on device |
+| Parent-child clearing and class-level derivation | PASS: explicit university/faculty/department clears; only API-supported class levels; stale descendants omitted | Not represented as backend mutation in synthetic preview | Contract accepted; no partial-write claim |
+| Final review and one complete-replacement academic save | PASS: review, dirty Back alert, one save callback, resumed-email password requirement; application issues one `/me/university` PATCH | Review/action and synthetic success captures reviewed | Implemented; no live PATCH/session E2E |
+| Email and Google incomplete profiles converge before Home | PASS in route/session contracts: context bootstrap is fail-closed and onboarding is a signed-in incomplete-profile route | No real Google fixture and no installed live-account flow | Deterministic contract accepted; MN-019/MN-034 native E2E remains open |
+| Exact 320 dp | PASS in responsive policy and renderer structure | PASS for Login default/actions/keyboard at exact 720 px / 360 dpi | Login accepted; not every Phase 6 state at 320 dp |
+| 200% font scale | PASS without disabling system scaling | PASS for complementary exact-320-dp Login top and scrolled-primary captures at `font_scale=2.0` | Login scroll reachability accepted; no complete all-screen large-text claim |
+| Dark mode | PASS through semantic theme roles | Explicit development-dark Login/actions/Registration reviewed beside light counterparts | Renderer accepted; not OS-controlled switching or complete-app dark acceptance |
+| Offline/connection failure presentation | PASS for stable busy/error feedback inputs and fail-closed authenticated-context bootstrap | Synthetic Login/onboarding error states exist; no installed-app radio-off or failed live request was run | Deterministic presentation accepted; live offline recovery remains unclaimed |
+| Server validation/error presentation | PASS for ordered local field errors, controlled endpoint feedback, expiry/cooldown, and retry states | Synthetic Login error and onboarding error states are covered by the preview test; no live invalid-server response was captured | Deterministic presentation accepted; backend behavior remains covered separately by API tests |
+| Screen-reader order | DETERMINISTIC ONLY: semantic role/name/state queries cover the intended structure; runtime traversal order is not proven | BLOCKED: TalkBack unavailable on the sole API 24 image; UIAutomator is not a screen reader | MN-029 remains open; no TalkBack/VoiceOver claim |
+| Android predictive Back | Ordinary Back/dirty-draft policies are tested | BLOCKED: API 24 cannot expose predictive callbacks/animation; callback opt-out retained | MN-024 remains open |
+| iOS native screenshots/keyboard/VoiceOver | Code and semantic renderer contracts compile/pass | BLOCKED: Windows has no Xcode, iOS runtime, or simulator | MN-033 remains open; no iOS acceptance |
+| Four required installed-app native E2Es | Endpoint/route/session components and API regressions pass | NOT AUTOMATED/RUN: repository has no Maestro/Detox/Appium and no authorized disposable email/Google provider fixture | Email registration→Home, Google incomplete→onboarding, unverified recovery, and reset→fresh-login remain open under MN-019/MN-034 |
+
+### Phase 6 validation ledger
+
+| Exact command or check | Final result | Evidence boundary |
+|---|---|---|
+| `npm.cmd test -- tests/unit/mobile-native-auth-onboarding.test.ts tests/unit/mobile-native-auth-recovery.test.ts tests/unit/mobile-native-session-integrity.test.ts tests/unit/mobile-native-route-foundation.test.ts --configLoader runner` | PASS, 4 files / 112 tests, 1.50 s | Focused pure/auth/session/route contracts |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/auth/AuthScreens.test.tsx` | PASS, 1 suite / 24 tests / 0 snapshots | Extracted screens through semantic native renderer |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/auth/AuthOnboardingPreview.test.tsx` | PASS, 1 suite / 3 tests / 0 snapshots | Synthetic preview isolation and scenario matrix |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | Final PASS, 11 suites / 79 tests / 0 snapshots, 55.369 s | Complete native Jest/RNTL regression |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | Final PASS, 30 files / 310 tests, 45.15 s Vitest duration (52.6 s wall); one non-failing Mongoose `new` deprecation warning | Complete API regression; no Phase 6 API behavior changed |
+| `npm.cmd run typecheck` | Final PASS, 29.4 s | Complete workspace/API/shared TypeScript graph |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | Final PASS, 7.4 s | Native auth/onboarding, navigator, preview, and tests |
+| `npm.cmd test -- --configLoader runner` | Final PASS, 45 files / 581 tests, 33.09 s | Above Phase 5's final 44 / 543 result |
+| `npm.cmd run build:admin` | Final PASS, 1,742 modules, 10.15 s; main JS 250.51 kB / gzip 73.89 kB | Admin web regression, not native evidence |
+| `npm.cmd run build:mobile` | Final PASS, 1,754 modules, 14.58 s; main JS 349.18 kB / gzip 104.25 kB | Mobile web regression, not native evidence |
+| `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` from `apps/mobile-native/android` | Final PASS, `BUILD SUCCESSFUL in 1m 32s`, 245 tasks (7 executed/238 up-to-date); 56,804,991-byte APK; SHA-256 `72B5EB3EE7AE19777BF1CF1FB6D9E2929EE4C37B0A83076DDA95C2548992F4B7` | Debug x86_64 compile/link; Metro-served JS, no release/publish claim |
+| `adb install -r -d app-debug.apk`, `adb reverse tcp:8081 tcp:8081`, and `adb shell am start -n com.anssoft.akademiktakvim/.MainActivity` | Final PASS: install `Success`; MainActivity exposed the `Tekrar hoş geldin` header at `[152,382][688,442]`; emulator restored to density 320/font scale 1.0 | Final current-artifact install/launch smoke against the local synthetic Metro preview; no live API/provider account |
+| Phase 6 Android evidence integrity | PASS: exactly 20 720×1280 PNGs and 20 same-basename XML hierarchies, all PNGs reviewed at original resolution and all 40 artifacts indexed by SHA-256 | [`phase-06-native`](./evidence/phase-06-native/README.md); API 24 synthetic development preview only |
+| Phase 6 native E2E framework/provider audit | OPEN: no Maestro/Detox/Appium; no authorized disposable email inbox or non-production Google account/client fixture | Deterministic/API/presentation evidence cannot be relabelled as live installed-app E2E |
+
+The preview now exposes 13 stable IDs: `login`, `login-loading`, `login-error`, `register`, `verification-cooldown`, `recovery-request`, `recovery-code`, `recovery-confirm`, `recovery-success`, `onboarding`, `onboarding-loading`, `onboarding-error`, and `onboarding-success`. Recovery success is a Login surface with explicit success feedback, matching the production route destination without invoking the recovery endpoint in evidence mode.
+
+`MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact: no root/native lint script, applicable ESLint dependency, or lint configuration exists. TypeScript, tests, builds, artifact integrity, whitespace checks, and targeted sensitive-log/credential scans are separate checks and are not called lint.
+
+The Android matrix is native rendering of the real extracted components but synthetic application state. It must not be used to claim backend, email, provider, SecureStore, account-switch, session-restoration, or production-data acceptance. Windows/iOS, TalkBack, modern predictive Back, and the four required live native E2Es remain explicit blockers. No Phase 7 implementation or test is included.
+
 ## Required coverage by phase
 
 | Scenario family | Unit/contract | Component | Native flow | Native visual | Owning phase |

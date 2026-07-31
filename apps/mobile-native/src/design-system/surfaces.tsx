@@ -1,5 +1,7 @@
 import type { ReactNode, RefObject } from "react";
 import {
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   View,
@@ -22,6 +24,8 @@ export interface ScreenProps extends Omit<ViewProps, "style"> {
   readableWidth?: ReadableWidth;
   fullBleed?: boolean;
   centered?: boolean;
+  keyboardSafe?: boolean;
+  keyboardVerticalOffset?: number;
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
   scrollViewProps?: Omit<ScrollViewProps, "contentContainerStyle">;
@@ -42,6 +46,8 @@ export function Screen({
   readableWidth = "content",
   fullBleed = false,
   centered = false,
+  keyboardSafe = false,
+  keyboardVerticalOffset = 0,
   style,
   contentStyle,
   scrollViewProps,
@@ -61,6 +67,21 @@ export function Screen({
     centered && styles.centered,
     contentStyle,
   ];
+  const content = scroll ? (
+    <ScrollView
+      ref={scrollViewRef}
+      keyboardShouldPersistTaps="handled"
+      {...scrollViewProps}
+      automaticallyAdjustKeyboardInsets={
+        keyboardSafe ? true : scrollViewProps?.automaticallyAdjustKeyboardInsets
+      }
+      contentContainerStyle={styles.scrollContent}
+    >
+      <View style={adaptiveContentStyle}>{children}</View>
+    </ScrollView>
+  ) : (
+    <View style={adaptiveContentStyle}>{children}</View>
+  );
 
   return (
     <SafeAreaView
@@ -68,17 +89,16 @@ export function Screen({
       edges={edges}
       style={[styles.screen, { backgroundColor: theme.colors.background.canvas }, style]}
     >
-      {scroll ? (
-        <ScrollView
-          ref={scrollViewRef}
-          keyboardShouldPersistTaps="handled"
-          {...scrollViewProps}
-          contentContainerStyle={styles.scrollContent}
+      {keyboardSafe ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={keyboardVerticalOffset}
+          style={styles.keyboardSafe}
         >
-          <View style={adaptiveContentStyle}>{children}</View>
-        </ScrollView>
+          {content}
+        </KeyboardAvoidingView>
       ) : (
-        <View style={adaptiveContentStyle}>{children}</View>
+        content
       )}
     </SafeAreaView>
   );
@@ -169,6 +189,9 @@ function navigationKindStyle(kind: NavigationSurfaceKind, prominentRadius: numbe
 
 const styles = StyleSheet.create({
   screen: {
+    flex: 1,
+  },
+  keyboardSafe: {
     flex: 1,
   },
   scrollContent: {

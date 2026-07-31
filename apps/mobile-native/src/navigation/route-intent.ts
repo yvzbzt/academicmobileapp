@@ -25,7 +25,8 @@ export type AppRouteIntent =
       source: "deep_link" | "legacy" | "internal";
       route: Exclude<AppRoute, { name: "Hydration" } | { name: "Login" } | { name: "Register" }
         | { name: "Verification" } | { name: "PasswordRecoveryRequest" }
-        | { name: "PasswordRecoveryConfirm" } | { name: "ProfileConfirmation" }>;
+        | { name: "PasswordRecoveryCode" } | { name: "PasswordRecoveryConfirm" }
+        | { name: "AcademicOnboarding" }>;
     };
 
 export type RouteIntentEnqueueResult =

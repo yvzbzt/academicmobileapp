@@ -36,6 +36,7 @@ describe("Phase 4 typed route graph", () => {
       "Register",
       "Verification",
       "PasswordRecoveryRequest",
+      "PasswordRecoveryCode",
       "PasswordRecoveryConfirm"
     ]);
     expect(MAIN_TAB_ROUTE_NAMES).toEqual([
@@ -86,6 +87,8 @@ describe("Phase 4 typed route graph", () => {
   it("accepts only exact, safe runtime route objects", () => {
     expect(isAppRoute(appRoutes.announcementDetail("announcement:42"))).toBe(true);
     expect(isAppRoute(appRoutes.calendarEventDetail("calendar-event.17"))).toBe(true);
+    expect(isAppRoute(appRoutes.passwordRecoveryCode())).toBe(true);
+    expect(isAppRoute(appRoutes.academicOnboarding())).toBe(true);
     expect(isAppRoute({ name: "Unknown" })).toBe(true);
     expect(isAppRoute({ name: "Unknown", rawUrl: "https://evil.example" })).toBe(false);
     expect(isAppRoute({ name: "AnnouncementDetail", params: { announcementId: "../unsafe" } })).toBe(false);
@@ -143,16 +146,29 @@ describe("deterministic hydration, auth, and route guards", () => {
     });
   });
 
-  it("preserves profile confirmation as an onboarding route outside the tab shell", () => {
-    expect(resolveRootRoute(rootState({ authStage: "profile_confirm" }))).toEqual({
+  it("preserves academic onboarding outside the tab shell", () => {
+    expect(resolveRootRoute(rootState({ authStage: "academic_onboarding" }))).toEqual({
       surface: "onboarding",
-      route: { name: "ProfileConfirmation" },
+      route: { name: "AcademicOnboarding" },
       redirected: false,
-      reason: "signed_out_auth_flow"
+      reason: "academic_onboarding_required"
     });
   });
 
-  it("restores password confirmation only when recovery context still exists", () => {
+  it("restores password code and confirmation only while recovery context exists", () => {
+    expect(resolveRootRoute(rootState({
+      authStage: "password_recovery_code",
+      hasPendingPasswordRecovery: true
+    }))).toMatchObject({ route: { name: "PasswordRecoveryCode" }, redirected: false });
+    expect(resolveRootRoute(rootState({
+      authStage: "password_recovery_code",
+      hasPendingPasswordRecovery: false
+    }))).toEqual({
+      surface: "auth",
+      route: { name: "PasswordRecoveryRequest" },
+      redirected: true,
+      reason: "password_recovery_context_missing"
+    });
     expect(resolveRootRoute(rootState({
       authStage: "password_recovery_confirm",
       hasPendingPasswordRecovery: true
@@ -165,6 +181,31 @@ describe("deterministic hydration, auth, and route guards", () => {
       route: { name: "PasswordRecoveryRequest" },
       redirected: true,
       reason: "password_recovery_context_missing"
+    });
+  });
+
+  it("keeps an activated owner in academic onboarding and defers protected work", () => {
+    const requestedRoute = appRoutes.calendar();
+    expect(resolveRootRoute(rootState({
+      owner: ownerA,
+      authStage: "academic_onboarding",
+      requestedRoute
+    }))).toEqual({
+      surface: "onboarding",
+      route: { name: "AcademicOnboarding" },
+      redirected: true,
+      reason: "academic_onboarding_required"
+    });
+
+    expect(resolveRootRoute(rootState({
+      owner: ownerA,
+      authStage: "auth",
+      requestedRoute
+    }))).toEqual({
+      surface: "authenticated",
+      route: { name: "Calendar" },
+      redirected: false,
+      reason: "signed_in_requested"
     });
   });
 
@@ -208,7 +249,17 @@ describe("deterministic hydration, auth, and route guards", () => {
       redirected: true,
       reason: "signed_in_public_guard"
     });
-    expect(guardRouteForOwner(appRoutes.profileConfirmation(), ownerA)).toMatchObject({
+    expect(resolveRootRoute(rootState({
+      owner: ownerA,
+      authStage: "auth",
+      requestedRoute: appRoutes.academicOnboarding()
+    }))).toEqual({
+      surface: "authenticated",
+      route: { name: "Home" },
+      redirected: true,
+      reason: "signed_in_public_guard"
+    });
+    expect(guardRouteForOwner(appRoutes.academicOnboarding(), ownerA)).toMatchObject({
       route: { name: "Home" },
       allowed: false,
       reason: "already_authenticated"
@@ -483,6 +534,14 @@ describe("tab history and platform back policy", () => {
       signedIn: false
     })).toEqual({
       action: "replace",
+      route: { name: "PasswordRecoveryCode" }
+    });
+    expect(resolveAndroidBackPolicy({
+      ...input,
+      route: appRoutes.passwordRecoveryCode(),
+      signedIn: false
+    })).toEqual({
+      action: "replace",
       route: { name: "PasswordRecoveryRequest" }
     });
   });
@@ -540,6 +599,8 @@ describe("tab history and platform back policy", () => {
 
     expect(allowsIosSwipeBack(appRoutes.notificationSettings())).toBe(true);
     expect(allowsIosSwipeBack(appRoutes.announcementDetail("announcement-42"))).toBe(true);
+    expect(allowsIosSwipeBack(appRoutes.passwordRecoveryConfirm())).toBe(true);
+    expect(allowsIosSwipeBack(appRoutes.passwordRecoveryCode())).toBe(true);
     expect(allowsIosSwipeBack(appRoutes.home())).toBe(false);
     expect(allowsIosSwipeBack(appRoutes.notificationSettings(), true)).toBe(false);
   });

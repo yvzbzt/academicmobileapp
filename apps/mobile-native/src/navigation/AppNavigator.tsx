@@ -60,8 +60,9 @@ export type AppVisibleRoute =
   | "Register"
   | "Verification"
   | "PasswordRecoveryRequest"
+  | "PasswordRecoveryCode"
   | "PasswordRecoveryConfirm"
-  | "ProfileConfirmation"
+  | "AcademicOnboarding"
   | "Home"
   | "Announcements"
   | "SummerSchool"
@@ -109,11 +110,12 @@ type AuthStackParamList = {
   Register: undefined;
   Verification: undefined;
   PasswordRecoveryRequest: undefined;
+  PasswordRecoveryCode: undefined;
   PasswordRecoveryConfirm: undefined;
 };
 
 type OnboardingStackParamList = {
-  ProfileConfirmation: undefined;
+  AcademicOnboarding: undefined;
 };
 
 type HomeStackParamList = { Home: undefined };
@@ -172,6 +174,7 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   useScrollToTop(scrollRef);
   const isBootstrap = route === "BootstrapLoading" || route === "BootstrapError";
   const hasAuthenticatedShell = isAuthenticatedRoute(route);
+  const hasFormLayout = isAuthOrOnboardingRoute(route);
   const authenticatedEdges = adaptation.navigationLayout === "navigation-rail"
     ? ["right", "bottom"] as const
     : ["left", "right"] as const;
@@ -188,6 +191,8 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
     <Screen
       scroll
       edges={hasAuthenticatedShell ? [...authenticatedEdges] : ["top", "left", "right", "bottom"]}
+      keyboardSafe={hasFormLayout}
+      readableWidth={hasFormLayout ? "form" : "content"}
       contentStyle={styles.content}
       scrollViewRef={scrollRef}
       scrollViewProps={{
@@ -211,8 +216,9 @@ const LoginScreen = routeComponent("Login");
 const RegisterScreen = routeComponent("Register");
 const VerificationScreen = routeComponent("Verification");
 const PasswordRecoveryRequestScreen = routeComponent("PasswordRecoveryRequest");
+const PasswordRecoveryCodeScreen = routeComponent("PasswordRecoveryCode");
 const PasswordRecoveryConfirmScreen = routeComponent("PasswordRecoveryConfirm");
-const ProfileConfirmationScreen = routeComponent("ProfileConfirmation");
+const AcademicOnboardingScreen = routeComponent("AcademicOnboarding");
 const HomeScreen = routeComponent("Home");
 const AnnouncementsScreen = routeComponent("Announcements");
 const SummerSchoolScreen = routeComponent("SummerSchool");
@@ -281,6 +287,7 @@ function AuthNavigator() {
       <AuthStack.Screen name="Register" component={RegisterScreen} />
       <AuthStack.Screen name="Verification" component={VerificationScreen} />
       <AuthStack.Screen name="PasswordRecoveryRequest" component={PasswordRecoveryRequestScreen} />
+      <AuthStack.Screen name="PasswordRecoveryCode" component={PasswordRecoveryCodeScreen} />
       <AuthStack.Screen name="PasswordRecoveryConfirm" component={PasswordRecoveryConfirmScreen} />
     </AuthStack.Navigator>
   );
@@ -299,7 +306,7 @@ function OnboardingNavigator() {
         gestureEnabled: !navigationLocked
       }}
     >
-      <OnboardingStack.Screen name="ProfileConfirmation" component={ProfileConfirmationScreen} />
+      <OnboardingStack.Screen name="AcademicOnboarding" component={AcademicOnboardingScreen} />
     </OnboardingStack.Navigator>
   );
 }
@@ -552,9 +559,10 @@ function requestAction(request: AppNavigationRequest) {
     case "Register":
     case "Verification":
     case "PasswordRecoveryRequest":
+    case "PasswordRecoveryCode":
     case "PasswordRecoveryConfirm":
       return CommonActions.navigate("AuthFlow", { screen: request.route });
-    case "ProfileConfirmation":
+    case "AcademicOnboarding":
       return CommonActions.navigate("OnboardingFlow", { screen: request.route });
     case "Home":
       return CommonActions.navigate("Authenticated", { screen: "HomeTab", params: { screen: "Home" } });
@@ -721,8 +729,9 @@ function isControlledBaseRoute(route: AppVisibleRoute): boolean {
     || route === "Register"
     || route === "Verification"
     || route === "PasswordRecoveryRequest"
+    || route === "PasswordRecoveryCode"
     || route === "PasswordRecoveryConfirm"
-    || route === "ProfileConfirmation"
+    || route === "AcademicOnboarding"
     || route === "Home"
     || route === "Announcements"
     || route === "SummerSchool"
@@ -735,11 +744,12 @@ function requestMatchesRootSurface(route: AppVisibleRoute, surface: AppRootSurfa
   if (route === "UnknownRoute") return true;
   if (route === "BootstrapLoading") return surface === "hydration_loading";
   if (route === "BootstrapError") return surface === "hydration_error";
-  if (route === "ProfileConfirmation") return surface === "onboarding";
+  if (route === "AcademicOnboarding") return surface === "onboarding";
   if (route === "Login"
     || route === "Register"
     || route === "Verification"
     || route === "PasswordRecoveryRequest"
+    || route === "PasswordRecoveryCode"
     || route === "PasswordRecoveryConfirm") {
     return surface === "auth";
   }
@@ -749,11 +759,22 @@ function requestMatchesRootSurface(route: AppVisibleRoute, surface: AppRootSurfa
 function isVisibleRoute(value: string): value is AppVisibleRoute {
   return [
     "BootstrapLoading", "BootstrapError", "Login", "Register", "Verification",
-    "PasswordRecoveryRequest", "PasswordRecoveryConfirm", "ProfileConfirmation",
+    "PasswordRecoveryRequest", "PasswordRecoveryCode", "PasswordRecoveryConfirm",
+    "AcademicOnboarding",
     "Home", "Announcements", "SummerSchool", "YokAnnouncements", "AnnouncementDetail",
     "Calendar", "CalendarEventDetail", "Profile", "AcademicProfileSettings",
     "NotificationSettings", "GoogleCalendarSettings", "AccountDataSettings", "UnknownRoute"
   ].includes(value);
+}
+
+function isAuthOrOnboardingRoute(route: AppVisibleRoute): boolean {
+  return route === "Login"
+    || route === "Register"
+    || route === "Verification"
+    || route === "PasswordRecoveryRequest"
+    || route === "PasswordRecoveryCode"
+    || route === "PasswordRecoveryConfirm"
+    || route === "AcademicOnboarding";
 }
 
 function isAuthenticatedRoute(route: AppVisibleRoute): boolean {

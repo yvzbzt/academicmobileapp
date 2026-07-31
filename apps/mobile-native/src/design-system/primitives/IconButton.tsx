@@ -34,6 +34,7 @@ export function IconButton({
 }: IconButtonProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
+  const minimumTouchTarget = Math.max(48, adaptation.minimumTouchTarget);
   const [focused, setFocused] = useState(false);
   const interactionDisabled = disabled || loading;
   const foreground = interactionDisabled
@@ -75,8 +76,8 @@ export function IconButton({
       style={({ pressed }) => [
         styles.iconButton,
         {
-          minHeight: adaptation.minimumTouchTarget,
-          minWidth: adaptation.minimumTouchTarget,
+          minHeight: minimumTouchTarget,
+          minWidth: minimumTouchTarget,
           backgroundColor:
             pressed && adaptation.pressFeedback !== "ripple"
               ? theme.colors.action.ghostPressed

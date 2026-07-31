@@ -55,6 +55,7 @@ export function BottomSheet({
 }: BottomSheetProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
+  const minimumTouchTarget = Math.max(48, adaptation.minimumTouchTarget);
   const reducedMotion = useReducedMotion();
   const mayDismiss = dismissible && !loading;
   const handleDismiss = useCallback(() => {
@@ -170,8 +171,8 @@ export function BottomSheet({
                       : theme.colors.background.subtle,
                     borderColor: theme.colors.border.default,
                     borderRadius: theme.radii.pill,
-                    minHeight: adaptation.minimumTouchTarget,
-                    minWidth: adaptation.minimumTouchTarget,
+                    minHeight: minimumTouchTarget,
+                    minWidth: minimumTouchTarget,
                   },
                 ]}
               >

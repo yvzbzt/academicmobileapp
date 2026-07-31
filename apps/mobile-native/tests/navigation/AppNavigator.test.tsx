@@ -23,8 +23,9 @@ const visibleRoutes: AppVisibleRoute[] = [
   "Register",
   "Verification",
   "PasswordRecoveryRequest",
+  "PasswordRecoveryCode",
   "PasswordRecoveryConfirm",
-  "ProfileConfirmation",
+  "AcademicOnboarding",
   "Home",
   "Announcements",
   "SummerSchool",
@@ -167,6 +168,50 @@ describe("AppNavigator", () => {
       />,
     );
     expect(onRequestHandled).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers the recovery code step and academic onboarding stack", async () => {
+    const onRequestHandled = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "PasswordRecoveryRequest",
+      onRequestHandled,
+      rootSurface: "auth",
+    });
+    await expectVisibleRoute("PasswordRecoveryRequest");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="PasswordRecoveryRequest"
+        onRequestHandled={onRequestHandled}
+        request={{ key: "open-recovery-code", route: "PasswordRecoveryCode" }}
+        rootSurface="auth"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("PasswordRecoveryCode");
+    expect(onRequestHandled).toHaveBeenCalledWith("open-recovery-code");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="PasswordRecoveryCode"
+        onRequestHandled={onRequestHandled}
+        request={{ key: "open-recovery-confirm", route: "PasswordRecoveryConfirm" }}
+        rootSurface="auth"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("PasswordRecoveryConfirm");
+    expect(onRequestHandled).toHaveBeenCalledWith("open-recovery-confirm");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="AcademicOnboarding"
+        onRequestHandled={onRequestHandled}
+        rootSurface="onboarding"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("AcademicOnboarding");
   });
 
   it("maps exactly four Turkish tab controls to their authenticated roots", async () => {
@@ -535,7 +580,7 @@ describe("AppNavigator", () => {
     expect(onRequestHandled).toHaveBeenCalledWith("malformed-detail");
   });
 
-  it("holds protected post-auth work through hydration and auth, then handles it once", async () => {
+  it("defers protected work through hydration, auth, and onboarding, then handles it once", async () => {
     const onRequestHandled = jest.fn();
     const protectedRequest: AppNavigationRequest = {
       key: "pending-calendar-event",
@@ -562,6 +607,18 @@ describe("AppNavigator", () => {
       />,
     );
     await expectVisibleRoute("Login");
+    expect(onRequestHandled).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="AcademicOnboarding"
+        onRequestHandled={onRequestHandled}
+        request={{ ...protectedRequest }}
+        rootSurface="onboarding"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("AcademicOnboarding");
     expect(onRequestHandled).not.toHaveBeenCalled();
 
     await view.rerenderAsync(

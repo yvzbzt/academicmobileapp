@@ -63,6 +63,7 @@ export function SelectField<Value extends string = string>({
 }: SelectFieldProps<Value>) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
+  const minimumTouchTarget = Math.max(48, adaptation.minimumTouchTarget);
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const generatedId = useId();
@@ -144,7 +145,7 @@ export function SelectField<Value extends string = string>({
                 : theme.colors.border.default,
             borderRadius: theme.radii.control,
             gap: theme.spacing.sm,
-            minHeight: adaptation.minimumTouchTarget,
+            minHeight: minimumTouchTarget,
             paddingHorizontal: theme.spacing.sm,
             paddingVertical: theme.spacing.xs,
           },
@@ -259,7 +260,7 @@ export function SelectField<Value extends string = string>({
                         : theme.colors.border.default,
                       borderRadius: theme.radii.control,
                       gap: theme.spacing.xxs,
-                      minHeight: adaptation.minimumTouchTarget,
+                      minHeight: minimumTouchTarget,
                       paddingHorizontal: theme.spacing.md,
                       paddingVertical: theme.spacing.sm,
                     },

@@ -108,6 +108,35 @@ import {
   type AuthOperation
 } from "./src/auth/session-integrity";
 import {
+  AcademicOnboardingScreen,
+  LoginScreen,
+  PasswordRecoveryCodeScreen,
+  PasswordRecoveryConfirmScreen,
+  PasswordRecoveryRequestScreen,
+  RegistrationScreen,
+  VerificationScreen,
+  type AuthFeedback
+} from "./src/auth/AuthScreens";
+import {
+  EMPTY_ACADEMIC_ONBOARDING_DRAFT,
+  buildAcademicSelectionPayload,
+  classLevelOptionsForAcademicDepartment,
+  isVerificationCodeComplete,
+  normalizeNumericCode,
+  selectAcademicClassLevel,
+  selectAcademicDepartment,
+  selectAcademicFaculty,
+  selectAcademicUniversity,
+  validateLoginForm,
+  validateRegistrationForm,
+  type AcademicClassLevel,
+  type AcademicOnboardingDraft
+} from "./src/auth/auth-ui";
+import {
+  AuthOnboardingPreview,
+  type AuthOnboardingPreviewScenario
+} from "./src/auth/AuthOnboardingPreview";
+import {
   LEGACY_MANUAL_EXAMS_STORAGE_KEY,
   createManualExamStorageKey,
   planLegacyManualExamMigration,
@@ -139,8 +168,9 @@ type AnnouncementScopeType = "university" | "faculty" | "department";
 type AuthStage =
   | "auth"
   | "verify"
-  | "profile_confirm"
+  | "academic_onboarding"
   | "password_recovery_request"
+  | "password_recovery_code"
   | "password_recovery_confirm";
 
 const AUTH_ROUTE_NAMES = new Set<AppVisibleRoute>([
@@ -148,6 +178,7 @@ const AUTH_ROUTE_NAMES = new Set<AppVisibleRoute>([
   "Register",
   "Verification",
   "PasswordRecoveryRequest",
+  "PasswordRecoveryCode",
   "PasswordRecoveryConfirm"
 ]);
 
@@ -170,8 +201,9 @@ const AUTHENTICATED_ROUTE_NAMES = new Set<AppVisibleRoute>([
 function routeForAuthState(authStage: AuthStage, authMode: AuthMode): AppVisibleRoute {
   switch (authStage) {
     case "verify": return "Verification";
-    case "profile_confirm": return "ProfileConfirmation";
+    case "academic_onboarding": return "AcademicOnboarding";
     case "password_recovery_request": return "PasswordRecoveryRequest";
+    case "password_recovery_code": return "PasswordRecoveryCode";
     case "password_recovery_confirm": return "PasswordRecoveryConfirm";
     case "auth": return authMode === "register" ? "Register" : "Login";
   }
@@ -286,6 +318,7 @@ type UserProfile = {
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
+  classLevel?: AcademicClassLevel;
 };
 
 type UniversityRecord = {
@@ -303,6 +336,7 @@ type FacultyRecord = {
 type DepartmentRecord = {
   id: string;
   name: string;
+  educationLevel?: string;
 };
 
 type AnnouncementApiRecord = MobileContentRecordInput;
@@ -1079,6 +1113,7 @@ function MainApplication() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [registrationPasswordConfirmation, setRegistrationPasswordConfirmation] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [verificationToken, setVerificationToken] = useState("");
   const [pendingVerification, setPendingVerification] = useState<PendingVerificationRecord | null>(null);
@@ -1097,10 +1132,15 @@ function MainApplication() {
   const [hydrationStatus, setHydrationStatus] = useState<HydrationStatus>("loading");
   const hydrationStatusRef = useRef<HydrationStatus>("loading");
   const [hydrationError, setHydrationError] = useState<string | null>(null);
+  const [authenticatedContextPending, setAuthenticatedContextPending] = useState(false);
 
   const [registerUniversityId, setRegisterUniversityId] = useState("");
   const [registerFacultyId, setRegisterFacultyId] = useState("");
   const [registerDepartmentId, setRegisterDepartmentId] = useState("");
+  const [registerClassLevel, setRegisterClassLevel] = useState<AcademicClassLevel | null>(null);
+  const [onboardingInitialDraft, setOnboardingInitialDraft] = useState<AcademicOnboardingDraft>(
+    EMPTY_ACADEMIC_ONBOARDING_DRAFT
+  );
   const [registerPicker, setRegisterPicker] = useState<"none" | "university" | "faculty" | "department">("none");
   const [universitySearch, setUniversitySearch] = useState("");
   const [facultySearch, setFacultySearch] = useState("");
@@ -1318,12 +1358,25 @@ function MainApplication() {
     return list.filter((item) => item.name.toLocaleLowerCase("tr-TR").includes(query));
   }, [departments.data, departmentSearch]);
 
-  const registerIdentityReady = Boolean(
-    fullName.trim()
-    && email.trim()
-    && password.length >= AUTH_PASSWORD_MIN_LENGTH
+  const registrationValidation = validateRegistrationForm({
+    fullName,
+    email,
+    password,
+    passwordConfirmation: registrationPasswordConfirmation
+  });
+  const loginValidation = validateLoginForm({ email, password });
+  const registerIdentityReady = registrationValidation.valid;
+  const loginReady = loginValidation.valid;
+  const academicOnboardingDraft = useMemo<AcademicOnboardingDraft>(() => ({
+    universityId: registerUniversityId,
+    facultyId: registerFacultyId,
+    departmentId: registerDepartmentId,
+    classLevel: registerClassLevel
+  }), [registerUniversityId, registerFacultyId, registerDepartmentId, registerClassLevel]);
+  const academicClassLevelOptions = useMemo(
+    () => classLevelOptionsForAcademicDepartment(selectedDepartment),
+    [selectedDepartment]
   );
-  const loginReady = Boolean(email.trim() && password.length > 0);
   const verificationTiming = pendingVerification
     ? getVerificationTiming(pendingVerification, verificationClockMs)
     : null;
@@ -1343,11 +1396,13 @@ function MainApplication() {
     ? "hydration_loading"
     : rootSurface === "hydration_error"
       ? "hydration_error"
-      : session
-        ? "authenticated"
-        : authStage === "profile_confirm"
-          ? "onboarding"
-          : "auth";
+      : authStage === "academic_onboarding"
+        ? "onboarding"
+        : authenticatedContextPending
+          ? "hydration_loading"
+          : session
+            ? "authenticated"
+            : "auth";
   const expectedBaseRoute: AppVisibleRoute = navigatorRootSurface === "hydration_loading"
     ? "BootstrapLoading"
     : navigatorRootSurface === "hydration_error"
@@ -1360,7 +1415,7 @@ function MainApplication() {
     : navigatorRootSurface === "auth"
       ? (AUTH_ROUTE_NAMES.has(activeRoute) ? activeRoute : expectedBaseRoute)
       : navigatorRootSurface === "onboarding"
-        ? "ProfileConfirmation"
+        ? "AcademicOnboarding"
         : expectedBaseRoute;
   const googleCalendarLive = Boolean(
     googleCalendarIntegration
@@ -1706,6 +1761,7 @@ function MainApplication() {
   function resumePendingDeepLinkIfEligible(): void {
     const pendingRoute = pendingDeepLinkRouteRef.current;
     if (!pendingRoute || hydrationStatusRef.current !== "ready") return;
+    if (navigatorRootSurface !== "authenticated" || authOperationInProgressRef.current || busy) return;
     if (pendingRoute.name === "Unknown") {
       pendingDeepLinkRouteRef.current = null;
       requestAppRoute("UnknownRoute");
@@ -1769,10 +1825,10 @@ function MainApplication() {
   }, [manualExams, manualExamsHydrated, manualExamOwnerId, session?.user.id]);
 
   useEffect(() => {
-    if (!message) return;
+    if (!message || navigatorRootSurface !== "authenticated") return;
     const timer = setTimeout(() => setMessage(null), 3500);
     return () => clearTimeout(timer);
-  }, [message]);
+  }, [message, navigatorRootSurface]);
 
   useEffect(() => {
     setActiveRoute((current) => {
@@ -1847,7 +1903,7 @@ function MainApplication() {
       return;
     }
     resumePendingDeepLinkIfEligible();
-  }, [hydrationStatus, session?.user.id]);
+  }, [authStage, authenticatedContextPending, busy, hydrationStatus, session?.user.id]);
 
   useEffect(() => {
     if (Platform.OS !== "android" && Platform.OS !== "ios") return;
@@ -1921,7 +1977,9 @@ function MainApplication() {
   }, [activeTab, session?.user.id, registerUniversityId]);
 
   useEffect(() => {
-    if (authMode !== "register" || authStage !== "auth") return;
+    const needsPublicCatalog = (authMode === "register" && authStage === "auth")
+      || authStage === "academic_onboarding";
+    if (!needsPublicCatalog) return;
 
     if (!(universities.data?.length) && !universities.loading) {
       void loadUniversities();
@@ -2050,7 +2108,12 @@ function MainApplication() {
       if (restoredSession) {
         const snapshot = accountGuardRef.current.capture();
         if (snapshot) {
-          await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
+          const contextReady = await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
+          if (!contextReady && sessionRef.current?.user.id === restoredSession.user.id) {
+            setHydrationError("Hesap bağlamı hazırlanamadı. Bağlantını kontrol edip tekrar dene.");
+            setHydrationStatus("error");
+            return;
+          }
           if (accountGuardRef.current.isCurrent(snapshot)) {
             await restorePendingNotificationForSession(restoredSession, snapshot).catch(() => {
               recoverableTargets.push("pending_notification_storage");
@@ -2434,6 +2497,7 @@ function MainApplication() {
   }
 
   async function activateSession(nextSession: SessionPayload): Promise<AccountGenerationSnapshot> {
+    setAuthenticatedContextPending(true);
     invalidateAuthenticatedWork();
     const activationAttempt = activationAttemptRef.current;
     resetUserScopedState();
@@ -2757,27 +2821,27 @@ function MainApplication() {
   async function bootstrapAuthenticatedContext(
     token: string,
     ownerSnapshot = accountGuardRef.current.capture()
-  ): Promise<void> {
-    if (!ownerSnapshot || !accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+  ): Promise<boolean> {
+    if (!ownerSnapshot || !accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
     let profile: UserProfile;
     try {
       profile = await apiRequest<UserProfile>("/me", {}, token, { ownerSnapshot });
     } catch (error) {
-      if (error instanceof StaleAccountRequestError || !accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      if (error instanceof StaleAccountRequestError || !accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
       if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403 || error.status === 404)) {
         await clearExpiredSession("Bu hesap artık kullanılamıyor. Lütfen farklı bir hesapla giriş yap.");
-        return;
+        return false;
       }
       setMessage({ text: "Hesap bilgileri şu anda yenilenemedi. Bağlantını kontrol edip tekrar dene.", tone: "error" });
-      return;
+      return false;
     }
-    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
     if (profile.id !== ownerSnapshot.ownerId || profile.status !== "active") {
       await clearExpiredSession("Bu hesap artık kullanılamıyor. Lütfen farklı bir hesapla giriş yap.");
-      return;
+      return false;
     }
     const loadedPreferences = await loadPreferences(token, ownerSnapshot);
-    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
     const coordinator = notificationCoordinatorRef.current;
     const notificationSession = sessionRef.current;
     if (coordinator && loadedPreferences && notificationSession?.user.id === profile.id) {
@@ -2789,17 +2853,25 @@ function MainApplication() {
         ownerSnapshot
       );
     }
-    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
     const profileUniversityId = profile.universityId ?? "";
+    setFullName(profile.fullName);
+    setEmail(profile.email);
     setSelectedUniversityId(profileUniversityId);
     setRegisterUniversityId(profileUniversityId);
     setRegisterFacultyId(profile.facultyId ?? "");
     setRegisterDepartmentId(profile.departmentId ?? "");
+    setRegisterClassLevel(profile.classLevel ?? null);
+    if (!profileUniversityId) {
+      setOnboardingInitialDraft(EMPTY_ACADEMIC_ONBOARDING_DRAFT);
+      setAuthStage("academic_onboarding");
+    }
     if (profileUniversityId) {
       await loadMyCalendar(token, ownerSnapshot);
       await loadUpcoming(token, ownerSnapshot);
     }
     await loadAnnouncements(token, profileUniversityId, ownerSnapshot);
+    return accountGuardRef.current.isCurrent(ownerSnapshot);
   }
 
   async function handleAuth(): Promise<void> {
@@ -2807,12 +2879,14 @@ function MainApplication() {
       setMessage({ text: "Başka bir hesap işlemi tamamlanıyor. Lütfen kısa bir süre bekle.", tone: "info" });
       return;
     }
-    if (!email.trim() || password.length === 0) {
-      Alert.alert("Eksik alan", "E-posta ve şifre zorunludur.");
-      return;
-    }
-    if (authMode === "register" && password.length < AUTH_PASSWORD_MIN_LENGTH) {
-      Alert.alert("Şifre çok kısa", `Şifren en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmalıdır.`);
+    const currentValidation = authMode === "register" ? registrationValidation : loginValidation;
+    if (!currentValidation.valid) {
+      setMessage({
+        text: authMode === "register"
+          ? "Kayıt bilgilerini kontrol edip işaretlenen alanları düzelt."
+          : "Geçerli e-posta adresini ve şifreni gir.",
+        tone: "error"
+      });
       return;
     }
     const currentDeviceId = deviceIdRef.current;
@@ -2843,8 +2917,16 @@ function MainApplication() {
         setAuthStage("auth");
         const snapshot = await activateSession(nextSession);
         setPassword("");
-        setMessage({ text: "Giriş başarılı.", tone: "success" });
-        await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+        setMessage(null);
+        const contextReady = await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+        if (!contextReady) {
+          if (sessionRef.current?.user.id === nextSession.user.id) {
+            setHydrationError("Hesap bağlamı hazırlanamadı. Bağlantını kontrol edip tekrar dene.");
+            setHydrationStatus("error");
+          }
+          return;
+        }
+        setAuthenticatedContextPending(false);
         return;
       }
 
@@ -2853,10 +2935,10 @@ function MainApplication() {
         {
           method: "POST",
           body: JSON.stringify({
-            fullName: fullName.trim() || "Mobil Öğrenci",
+            fullName: fullName.trim(),
             email: email.trim().toLowerCase(),
             password,
-            passwordConfirmation: password
+            passwordConfirmation: registrationPasswordConfirmation
           })
         },
         undefined,
@@ -2866,6 +2948,7 @@ function MainApplication() {
       const record = createPendingVerificationRecord(registerResult);
       setPendingVerification(record);
       setAuthStage("verify");
+      setRegistrationPasswordConfirmation("");
       setRegisterPicker("none");
       setVerificationToken(registerResult.previewVerificationToken ?? "");
       try {
@@ -2892,6 +2975,7 @@ function MainApplication() {
       });
     } finally {
       authOperationInProgressRef.current = false;
+      setAuthenticatedContextPending(false);
       setBusy(false);
     }
   }
@@ -2953,8 +3037,16 @@ function MainApplication() {
       setAuthStage("auth");
       const snapshot = await activateSession(nextSession);
       setPassword("");
-      setMessage({ text: "Google ile giriş başarılı.", tone: "success" });
-      await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+      setMessage(null);
+      const contextReady = await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+      if (!contextReady) {
+        if (sessionRef.current?.user.id === nextSession.user.id) {
+          setHydrationError("Hesap bağlamı hazırlanamadı. Bağlantını kontrol edip tekrar dene.");
+          setHydrationStatus("error");
+        }
+        return;
+      }
+      setAuthenticatedContextPending(false);
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
       if (isErrorWithCode(error)) {
@@ -2991,6 +3083,7 @@ function MainApplication() {
       });
     } finally {
       authOperationInProgressRef.current = false;
+      setAuthenticatedContextPending(false);
       setGoogleBusy(false);
     }
   }
@@ -3060,8 +3153,8 @@ function MainApplication() {
 
   async function handleVerifyEmail(): Promise<void> {
     if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
-    if (!verificationToken.trim()) {
-      setMessage({ text: "Doğrulama kodu gereklidir.", tone: "error" });
+    if (!isVerificationCodeComplete(verificationToken)) {
+      setMessage({ text: "Dört haneli doğrulama kodunu eksiksiz gir.", tone: "error" });
       return;
     }
 
@@ -3094,8 +3187,13 @@ function MainApplication() {
       } catch {
         setCleanupIssue({ action: "verification_clear", failedTargets: ["pending_verification_storage"] });
       }
-      setAuthStage("profile_confirm");
-      setMessage({ text: "E-posta doğrulandı. Son adım: profilini onayla.", tone: "success" });
+      setRegisterUniversityId("");
+      setRegisterFacultyId("");
+      setRegisterDepartmentId("");
+      setRegisterClassLevel(null);
+      setOnboardingInitialDraft(EMPTY_ACADEMIC_ONBOARDING_DRAFT);
+      setAuthStage("academic_onboarding");
+      setMessage({ text: "E-posta doğrulandı. Son adımda akademik profilini tamamla.", tone: "success" });
     } catch (error) {
       setMessage({
         text: userMessageFromError(error, "E-posta doğrulanamadı"),
@@ -3107,47 +3205,89 @@ function MainApplication() {
     }
   }
 
-  async function confirmProfileAndStart(): Promise<void> {
+  async function saveAcademicOnboarding(): Promise<void> {
     if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
-    if (password.length === 0) {
-      setAuthMode("login");
-      setAuthStage("auth");
-      setVerificationToken("");
-      setMessage({ text: "E-posta doğrulandı. Devam etmek için şifrenle giriş yap.", tone: "success" });
+    const payload = buildAcademicSelectionPayload(academicOnboardingDraft);
+    if (!payload) {
+      setMessage({ text: "Devam etmek için üniversiteni seç.", tone: "error" });
+      return;
+    }
+    if (!session && password.length === 0) {
+      setMessage({ text: "Akademik seçimini kaydetmek için hesap şifreni gir.", tone: "error" });
+      return;
+    }
+    if (!deviceIdRef.current) {
+      setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
       return;
     }
 
     authOperationInProgressRef.current = true;
     try {
       setBusy(true);
-      const nextSession = await apiRequest<SessionPayload>(
-        AUTH_ENDPOINTS.login,
+      setMessage(null);
+      let activeSession = session;
+      let snapshot = accountGuardRef.current.capture();
+      if (!activeSession) {
+        activeSession = await apiRequest<SessionPayload>(
+          AUTH_ENDPOINTS.login,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              email: email.trim().toLowerCase(),
+              password,
+              deviceId: deviceIdRef.current
+            })
+          },
+          undefined,
+          { authOperation: "login" }
+        );
+        snapshot = await activateSession(activeSession);
+        // Session activation intentionally clears all prior owner data. Restore only
+        // this reviewed draft before the single complete-replacement mutation.
+        setRegisterUniversityId(payload.universityId);
+        setRegisterFacultyId(payload.facultyId ?? "");
+        setRegisterDepartmentId(payload.departmentId ?? "");
+        setRegisterClassLevel(payload.classLevel ?? null);
+      }
+      if (!snapshot || !accountGuardRef.current.isCurrent(snapshot)) throw new StaleAccountRequestError();
+      await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
+        "/me/university",
         {
-          method: "POST",
-          body: JSON.stringify({
-            email: email.trim().toLowerCase(),
-            password,
-            deviceId: deviceIdRef.current
-          })
+          method: "PATCH",
+          body: JSON.stringify(payload)
         },
-        undefined,
-        { authOperation: "login" }
-      );
-      const snapshot = await activateSession(nextSession);
-      setAuthStage("auth");
+        activeSession.accessToken,
+        { ownerSnapshot: snapshot }
+      ));
+      if (!accountGuardRef.current.isCurrent(snapshot)) throw new StaleAccountRequestError();
+      setSelectedUniversityId(payload.universityId);
+      setRegisterUniversityId(payload.universityId);
+      setRegisterFacultyId(payload.facultyId ?? "");
+      setRegisterDepartmentId(payload.departmentId ?? "");
+      setRegisterClassLevel(payload.classLevel ?? null);
+      setOnboardingInitialDraft({
+        universityId: payload.universityId,
+        facultyId: payload.facultyId ?? "",
+        departmentId: payload.departmentId ?? "",
+        classLevel: payload.classLevel ?? null
+      });
       setPassword("");
-      setMessage({ text: "Profilin onaylandı. Uygulamayı kullanmaya başlayabilirsin.", tone: "success" });
-      await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+      setVerificationToken("");
+      const contextReady = await bootstrapAuthenticatedContext(activeSession.accessToken, snapshot);
+      if (!contextReady) return;
+      if (!accountGuardRef.current.isCurrent(snapshot)) throw new StaleAccountRequestError();
+      setMessage(null);
+      setAuthenticatedContextPending(false);
+      setAuthStage("auth");
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
-      setAuthMode("login");
-      setAuthStage("auth");
       setMessage({
-        text: `E-posta doğrulandı ancak giriş tamamlanamadı. ${userMessageFromError(error, "Şifreni girip tekrar dene.")}`,
+        text: userMessageFromError(error, "Akademik profil kaydedilemedi. Bilgilerini kontrol edip tekrar dene."),
         tone: "error"
       });
     } finally {
       authOperationInProgressRef.current = false;
+      setAuthenticatedContextPending(false);
       setBusy(false);
     }
   }
@@ -3225,7 +3365,7 @@ function MainApplication() {
       setPasswordConfirmation("");
       setNewPasswordVisible(false);
       setPasswordConfirmationVisible(false);
-      setAuthStage("password_recovery_confirm");
+      setAuthStage("password_recovery_code");
       setPasswordRecoveryFeedback({
         text: previewCode
           ? "Sıfırlama kodu hazır. Yeni şifreni belirleyebilirsin."
@@ -3321,6 +3461,36 @@ function MainApplication() {
     }
   }
 
+  function continuePasswordRecoveryCode(): void {
+    if (!pendingPasswordRecovery) {
+      setAuthStage("password_recovery_request");
+      setPasswordRecoveryFeedback({
+        text: "Önce e-posta adresin için yeni bir sıfırlama kodu iste.",
+        tone: "error"
+      });
+      return;
+    }
+    if (!new RegExp(`^\\d{${PASSWORD_RECOVERY_CODE_LENGTH}}$`, "u").test(passwordRecoveryCode)) {
+      setPasswordRecoveryFeedback({ text: "Altı haneli sıfırlama kodunu eksiksiz gir.", tone: "error" });
+      return;
+    }
+    if (passwordRecoveryTiming?.expired) {
+      setPasswordRecoveryFeedback({ text: "Sıfırlama kodunun süresi doldu. Yeni bir kod iste.", tone: "error" });
+      return;
+    }
+    setPasswordRecoveryFeedback(null);
+    setAuthStage("password_recovery_confirm");
+  }
+
+  function returnToPasswordRecoveryCode(): void {
+    if (!pendingPasswordRecovery) {
+      returnToPasswordRecoveryRequest();
+      return;
+    }
+    setPasswordRecoveryFeedback(null);
+    setAuthStage("password_recovery_code");
+  }
+
   function returnToPasswordRecoveryRequest(): void {
     setPasswordRecoveryCode("");
     setNewPassword("");
@@ -3376,6 +3546,7 @@ function MainApplication() {
     setAuthMode("login");
     setAuthStage("auth");
     setPassword("");
+    setRegistrationPasswordConfirmation("");
     setPasswordVisible(false);
     setPasswordRecoveryCode("");
     setNewPassword("");
@@ -3550,6 +3721,8 @@ function MainApplication() {
     setRegisterUniversityId("");
     setRegisterFacultyId("");
     setRegisterDepartmentId("");
+    setRegisterClassLevel(null);
+    setOnboardingInitialDraft(EMPTY_ACADEMIC_ONBOARDING_DRAFT);
     setRegisterPicker("none");
     setFaculties({ loading: false, data: [] });
     setDepartments({ loading: false, data: [] });
@@ -3582,11 +3755,13 @@ function MainApplication() {
     sessionRef.current = null;
     notificationCoordinatorOwnerTokenRef.current = null;
     setSession(null);
+    setAuthenticatedContextPending(false);
     setAuthMode("login");
     setAuthStage("auth");
     setActiveTab("home");
     setEmail("");
     setPassword("");
+    setRegistrationPasswordConfirmation("");
     setPasswordVisible(false);
     setFullName("");
     setVerificationToken("");
@@ -4034,6 +4209,7 @@ function MainApplication() {
       setRegisterUniversityId(universityId);
       setRegisterFacultyId("");
       setRegisterDepartmentId("");
+      setRegisterClassLevel(null);
       setFacultySearch("");
       setDepartmentSearch("");
       setRegisterPicker("faculty");
@@ -4081,6 +4257,7 @@ function MainApplication() {
 
       setRegisterFacultyId(facultyId);
       setRegisterDepartmentId("");
+      setRegisterClassLevel(null);
       setDepartmentSearch("");
       setRegisterPicker("department");
       setAcademicProfileExpanded(true);
@@ -4124,6 +4301,7 @@ function MainApplication() {
       ));
 
       setRegisterDepartmentId(departmentId);
+      setRegisterClassLevel(null);
       setRegisterPicker("none");
       setSummerSchool({ loading: false });
       setMessage({ text: "Bölüm güncellendi.", tone: "success" });
@@ -5185,7 +5363,7 @@ function MainApplication() {
     setActiveRoute(route);
     switch (route) {
       case "Login":
-        if (authStage === "password_recovery_request" || authStage === "password_recovery_confirm") {
+        if (authStage.startsWith("password_recovery")) {
           cancelPasswordRecovery();
         } else if (authStage !== "auth" || authMode !== "login") {
           returnToLoginForm();
@@ -5200,14 +5378,19 @@ function MainApplication() {
         setAuthStage("verify");
         return;
       case "PasswordRecoveryRequest":
-        if (authStage === "password_recovery_confirm") returnToPasswordRecoveryRequest();
+        if (authStage === "password_recovery_code" || authStage === "password_recovery_confirm") returnToPasswordRecoveryRequest();
+        else setAuthStage("password_recovery_request");
+        return;
+      case "PasswordRecoveryCode":
+        if (pendingPasswordRecovery) setAuthStage("password_recovery_code");
         else setAuthStage("password_recovery_request");
         return;
       case "PasswordRecoveryConfirm":
-        setAuthStage("password_recovery_confirm");
+        if (pendingPasswordRecovery) setAuthStage("password_recovery_confirm");
+        else setAuthStage("password_recovery_request");
         return;
-      case "ProfileConfirmation":
-        setAuthStage("profile_confirm");
+      case "AcademicOnboarding":
+        setAuthStage("academic_onboarding");
         return;
       case "Home":
         setActiveTab("home");
@@ -5263,8 +5446,246 @@ function MainApplication() {
     </View>
   );
 
+  function updateOnboardingDraft(nextDraft: AcademicOnboardingDraft): void {
+    setRegisterUniversityId(nextDraft.universityId);
+    setRegisterFacultyId(nextDraft.facultyId);
+    setRegisterDepartmentId(nextDraft.departmentId);
+    setRegisterClassLevel(nextDraft.classLevel);
+    setMessage(null);
+  }
+
+  function renderAuthOnboardingScreen(route: AppVisibleRoute): ReactNode {
+    const sharedFeedback = message as AuthFeedback | null;
+    switch (route) {
+      case "Login":
+        return (
+          <LoginScreen
+            busy={busy}
+            email={email}
+            feedback={sharedFeedback}
+            googleAvailable={GOOGLE_AUTH_CONFIGURED}
+            googleBusy={googleBusy}
+            googleUnavailableMessage={GOOGLE_AUTH_CONFIGURATION_MESSAGE}
+            onDismissFeedback={() => setMessage(null)}
+            onEmailChange={(value) => {
+              setEmail(value);
+              setMessage(null);
+            }}
+            onForgotPassword={() => openPasswordRecovery()}
+            onGoogleSubmit={() => void handleGoogleAuth()}
+            onPasswordChange={(value) => {
+              setPassword(value);
+              setMessage(null);
+            }}
+            onRegister={() => {
+              setAuthMode("register");
+              setAuthStage("auth");
+              setMessage(null);
+            }}
+            onSubmit={() => void handleAuth()}
+            onVerificationRecovery={() => void openVerificationRecovery()}
+            password={password}
+          />
+        );
+      case "Register":
+        return (
+          <RegistrationScreen
+            busy={busy}
+            email={email}
+            feedback={sharedFeedback}
+            fullName={fullName}
+            onDismissFeedback={() => setMessage(null)}
+            onEmailChange={(value) => {
+              setEmail(value);
+              setMessage(null);
+            }}
+            onFullNameChange={(value) => {
+              setFullName(value);
+              setMessage(null);
+            }}
+            onLogin={returnToLoginForm}
+            onPasswordChange={(value) => {
+              setPassword(value);
+              setMessage(null);
+            }}
+            onPasswordConfirmationChange={(value) => {
+              setRegistrationPasswordConfirmation(value);
+              setMessage(null);
+            }}
+            onSubmit={() => void handleAuth()}
+            password={password}
+            passwordConfirmation={registrationPasswordConfirmation}
+          />
+        );
+      case "Verification":
+        return (
+          <VerificationScreen
+            busy={busy}
+            code={verificationToken}
+            email={email}
+            feedback={sharedFeedback}
+            onChangeEmail={returnToLoginForm}
+            onCodeChange={(value) => {
+              setVerificationToken(normalizeNumericCode(value, 4));
+              setMessage(null);
+            }}
+            onDismissFeedback={() => setMessage(null)}
+            onResend={() => void resendVerificationEmail()}
+            onSubmit={() => void handleVerifyEmail()}
+            timing={verificationTiming}
+          />
+        );
+      case "PasswordRecoveryRequest":
+        return (
+          <PasswordRecoveryRequestScreen
+            busy={busy}
+            email={email}
+            feedback={passwordRecoveryFeedback}
+            onCancel={cancelPasswordRecovery}
+            onEmailChange={(value) => {
+              setEmail(value);
+              setPasswordRecoveryFeedback(null);
+            }}
+            onSubmit={() => void requestPasswordRecovery()}
+            timing={pendingPasswordRecovery?.email === email.trim().toLowerCase()
+              ? passwordRecoveryTiming
+              : null}
+          />
+        );
+      case "PasswordRecoveryCode":
+        return (
+          <PasswordRecoveryCodeScreen
+            busy={busy}
+            code={passwordRecoveryCode}
+            email={pendingPasswordRecovery?.email ?? email}
+            feedback={passwordRecoveryFeedback}
+            onBack={returnToPasswordRecoveryRequest}
+            onCancel={cancelPasswordRecovery}
+            onCodeChange={(value) => {
+              setPasswordRecoveryCode(normalizeNumericCode(value, PASSWORD_RECOVERY_CODE_LENGTH));
+              setPasswordRecoveryFeedback(null);
+            }}
+            onContinue={continuePasswordRecoveryCode}
+            onResend={() => void requestPasswordRecovery()}
+            timing={passwordRecoveryTiming}
+          />
+        );
+      case "PasswordRecoveryConfirm":
+        return (
+          <PasswordRecoveryConfirmScreen
+            busy={busy}
+            code={passwordRecoveryCode}
+            feedback={passwordRecoveryFeedback}
+            newPassword={newPassword}
+            onBack={returnToPasswordRecoveryCode}
+            onCancel={cancelPasswordRecovery}
+            onNewPasswordChange={(value) => {
+              setNewPassword(value);
+              setPasswordRecoveryFeedback(null);
+            }}
+            onPasswordConfirmationChange={(value) => {
+              setPasswordConfirmation(value);
+              setPasswordRecoveryFeedback(null);
+            }}
+            onSubmit={() => void confirmPasswordRecovery()}
+            passwordConfirmation={passwordConfirmation}
+          />
+        );
+      case "AcademicOnboarding":
+        return (
+          <AcademicOnboardingScreen
+            busy={busy}
+            classLevels={academicClassLevelOptions}
+            departments={(departments.data ?? []).map((item) => ({ value: item.id, label: item.name }))}
+            departmentsError={departments.error}
+            departmentsLoading={departments.loading}
+            draft={academicOnboardingDraft}
+            email={session?.user.email ?? email}
+            faculties={(faculties.data ?? []).map((item) => ({ value: item.id, label: item.name }))}
+            facultiesError={faculties.error}
+            facultiesLoading={faculties.loading}
+            feedback={sharedFeedback}
+            fullName={session?.user.fullName ?? fullName}
+            initialDraft={onboardingInitialDraft}
+            needsPassword={!session}
+            onBack={() => {
+              if (session) void handleLogout();
+              else returnToLoginForm();
+            }}
+            onClassLevelChange={(value) => updateOnboardingDraft(
+              selectAcademicClassLevel(academicOnboardingDraft, value)
+            )}
+            onDepartmentChange={(value) => updateOnboardingDraft(
+              selectAcademicDepartment(academicOnboardingDraft, value)
+            )}
+            onDismissFeedback={() => setMessage(null)}
+            onFacultyChange={(value) => updateOnboardingDraft(
+              selectAcademicFaculty(academicOnboardingDraft, value)
+            )}
+            onPasswordChange={(value) => {
+              setPassword(value);
+              setMessage(null);
+            }}
+            onRetryDepartments={() => void loadDepartmentsForRegistration(registerFacultyId)}
+            onRetryFaculties={() => void loadFacultiesForRegistration(registerUniversityId)}
+            onRetryUniversities={() => void loadUniversities()}
+            onSave={() => void saveAcademicOnboarding()}
+            onUniversityChange={(value) => updateOnboardingDraft(
+              selectAcademicUniversity(academicOnboardingDraft, value)
+            )}
+            password={password}
+            universities={(universities.data ?? []).map((item) => ({
+              value: item.id,
+              label: item.name,
+              supportingText: item.city
+            }))}
+            universitiesError={universities.error}
+            universitiesLoading={universities.loading}
+          />
+        );
+      default:
+        return null;
+    }
+  }
+
+  function renderCleanupIssue(): ReactNode {
+    if (!cleanupIssue) return null;
+    const hasRetryableTarget = cleanupIssue.failedTargets.some(
+      (target) => target !== "server_session"
+        && target !== "server_account"
+        && (target !== "device_registration" || Boolean(session))
+    );
+    return (
+      <View style={styles.cleanupIssueCard} accessibilityLiveRegion="polite">
+        <Text style={styles.cleanupIssueTitle}>Tamamlanamayan güvenli temizlik</Text>
+        <Text style={styles.cleanupIssueText}>
+          {cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
+        </Text>
+        {hasRetryableTarget ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cihaz temizliğini tekrar dene"
+            style={[styles.button, styles.secondaryButton, (busy || googleBusy) && styles.buttonDisabled]}
+            onPress={() => void retryFailedCleanup()}
+            disabled={busy || googleBusy}
+          >
+            <Text style={styles.secondaryButtonText}>Temizliği Tekrar Dene</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
   function renderRoutedScreen(route: AppVisibleRoute): ReactNode {
-    const showsAuthHero = AUTH_ROUTE_NAMES.has(route) || route === "ProfileConfirmation";
+    if (AUTH_ROUTE_NAMES.has(route) || route === "AcademicOnboarding") {
+      return (
+        <>
+          {renderCleanupIssue()}
+          {renderAuthOnboardingScreen(route)}
+        </>
+      );
+    }
+    const showsAuthHero = false;
     return (
       <>
           {showsAuthHero && (
@@ -5307,29 +5728,7 @@ function MainApplication() {
             </View>
           )}
 
-          {cleanupIssue && (
-            <View style={styles.cleanupIssueCard} accessibilityLiveRegion="polite">
-              <Text style={styles.cleanupIssueTitle}>Tamamlanamayan güvenli temizlik</Text>
-              <Text style={styles.cleanupIssueText}>
-                {cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
-              </Text>
-              {cleanupIssue.failedTargets.some(
-                (target) => target !== "server_session"
-                  && target !== "server_account"
-                  && (target !== "device_registration" || Boolean(session))
-              ) && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Cihaz temizliğini tekrar dene"
-                  style={[styles.button, styles.secondaryButton, (busy || googleBusy) && styles.buttonDisabled]}
-                  onPress={() => void retryFailedCleanup()}
-                  disabled={busy || googleBusy}
-                >
-                  <Text style={styles.secondaryButtonText}>Temizliği Tekrar Dene</Text>
-                </Pressable>
-              )}
-            </View>
-          )}
+          {renderCleanupIssue()}
 
           {(route === "Login" || route === "Register") && (
             <Section title="Giriş ve Kayıt">
@@ -5915,42 +6314,6 @@ function MainApplication() {
                   <Text style={styles.textActionText}>Giriş ekranına dön</Text>
                 </Pressable>
               </View>
-            </Section>
-          )}
-
-          {route === "ProfileConfirmation" && (
-            <Section title="Profilini Onayla">
-              <View style={styles.progressRow}>
-                <View style={[styles.progressChip, styles.progressChipDone]}>
-                  <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Profil</Text>
-                </View>
-                <View style={[styles.progressChip, styles.progressChipDone]}>
-                  <Text style={[styles.progressChipText, styles.progressChipTextDone]}>Doğrulama</Text>
-                </View>
-              </View>
-
-              <Text style={styles.helperText}>
-                E-posta doğrulaman tamamlandı. Akademik profilini giriş yaptıktan sonra içeride seçeceksin.
-              </Text>
-
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Ad Soyad</Text>
-                  <Text style={styles.summaryValue}>{fullName || "-"}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>E-posta</Text>
-                  <Text style={styles.summaryValue}>{email.trim().toLowerCase() || "-"}</Text>
-                </View>
-              </View>
-
-              <Pressable style={[styles.button, styles.primaryButton, busy && styles.buttonDisabled]} onPress={() => void confirmProfileAndStart()} disabled={busy}>
-                <Text style={styles.primaryButtonText}>{password.length > 0 ? "Giriş Yap ve Başla" : "Giriş Ekranına Geç"}</Text>
-              </Pressable>
-
-              <Pressable style={styles.textActionButton} onPress={returnToLoginForm} disabled={busy}>
-                <Text style={styles.textActionText}>Giriş ekranına dön</Text>
-              </Pressable>
             </Section>
           )}
 
@@ -6904,8 +7267,9 @@ function MainApplication() {
     Register: renderRoutedScreen("Register"),
     Verification: renderRoutedScreen("Verification"),
     PasswordRecoveryRequest: renderRoutedScreen("PasswordRecoveryRequest"),
+    PasswordRecoveryCode: renderRoutedScreen("PasswordRecoveryCode"),
     PasswordRecoveryConfirm: renderRoutedScreen("PasswordRecoveryConfirm"),
-    ProfileConfirmation: renderRoutedScreen("ProfileConfirmation"),
+    AcademicOnboarding: renderRoutedScreen("AcademicOnboarding"),
     Home: renderRoutedScreen("Home"),
     Announcements: renderRoutedScreen("Announcements"),
     SummerSchool: renderRoutedScreen("SummerSchool"),
@@ -6940,10 +7304,26 @@ function MainApplication() {
 }
 
 export default function App() {
+  const showPhase6AuthPreview = __DEV__
+    && process.env.EXPO_PUBLIC_PHASE6_AUTH_PREVIEW === "1";
   const showPhase5AppShellPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
+
+  if (showPhase6AuthPreview) {
+    const previewTheme = process.env.EXPO_PUBLIC_PHASE6_AUTH_PREVIEW_THEME === "dark"
+      ? "dark"
+      : "light";
+    const previewScenario = process.env.EXPO_PUBLIC_PHASE6_AUTH_PREVIEW_SCENARIO as AuthOnboardingPreviewScenario | undefined;
+    return (
+      <AuthOnboardingPreview
+        initialScenario={previewScenario}
+        preference={previewTheme}
+        showScenarioControls={!previewScenario}
+      />
+    );
+  }
 
   if (showPhase5AppShellPreview) {
     const previewTheme = process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW_THEME === "dark"

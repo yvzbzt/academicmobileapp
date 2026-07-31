@@ -129,8 +129,9 @@ export function AppShellPreview() {
     Register: <InactiveEvidenceSlot routeLabel="Kayıt" />,
     Verification: <InactiveEvidenceSlot routeLabel="Doğrulama" />,
     PasswordRecoveryRequest: <InactiveEvidenceSlot routeLabel="Şifre kurtarma isteği" />,
+    PasswordRecoveryCode: <InactiveEvidenceSlot routeLabel="Şifre kurtarma kodu" />,
     PasswordRecoveryConfirm: <InactiveEvidenceSlot routeLabel="Şifre kurtarma onayı" />,
-    ProfileConfirmation: <InactiveEvidenceSlot routeLabel="Profil onayı" />,
+    AcademicOnboarding: <InactiveEvidenceSlot routeLabel="Akademik profil kurulumu" />,
     Home: <EvidenceRoot routeLabel="Ana Sayfa" />,
     Announcements: (
       <EvidenceRoot

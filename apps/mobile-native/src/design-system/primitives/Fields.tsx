@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { forwardRef, useId, useState, type ReactNode } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -23,7 +23,7 @@ export interface TextFieldProps
   inputStyle?: StyleProp<TextStyle>;
 }
 
-export function TextField({
+export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField({
   label,
   supportingText,
   error,
@@ -36,12 +36,14 @@ export function TextField({
   onFocus,
   onBlur,
   ...textInputProps
-}: TextFieldProps) {
+}, inputRef) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
+  const minimumTouchTarget = Math.max(48, adaptation.minimumTouchTarget);
   const [focused, setFocused] = useState(false);
   const generatedId = useId();
   const labelId = `${generatedId}-label`;
+  const errorId = `${generatedId}-error`;
   const helpText = error ?? supportingText;
   const borderColor = error
     ? theme.colors.status.error
@@ -61,7 +63,7 @@ export function TextField({
         style={[
           styles.inputFrame,
           {
-            minHeight: adaptation.minimumTouchTarget,
+            minHeight: minimumTouchTarget,
             backgroundColor: disabled
               ? theme.colors.action.disabled
               : theme.colors.background.surface,
@@ -72,9 +74,12 @@ export function TextField({
       >
         <TextInput
           {...textInputProps}
+          ref={inputRef}
           accessibilityHint={accessibilityHint ?? helpText}
           accessibilityLabel={accessibilityLabel ?? label}
           accessibilityLabelledBy={labelId}
+          aria-errormessage={error ? errorId : undefined}
+          aria-invalid={error ? true : undefined}
           editable={!disabled}
           onBlur={(event) => {
             setFocused(false);
@@ -93,7 +98,7 @@ export function TextField({
               color: disabled
                 ? theme.colors.text.disabled
                 : theme.colors.text.primary,
-              minHeight: adaptation.minimumTouchTarget - 4,
+              minHeight: minimumTouchTarget - 4,
               paddingHorizontal: theme.spacing.sm,
               paddingVertical: theme.spacing.xs,
             },
@@ -112,6 +117,7 @@ export function TextField({
         <Text
           accessibilityLiveRegion={error ? "polite" : "none"}
           accessibilityRole={error ? "alert" : undefined}
+          nativeID={error ? errorId : undefined}
           style={[
             theme.typography.meta,
             {
@@ -124,32 +130,37 @@ export function TextField({
       ) : null}
     </View>
   );
-}
+});
 
 export interface PasswordFieldProps
   extends Omit<TextFieldProps, "secureTextEntry" | "trailingAccessory"> {
   initiallyRevealed?: boolean;
+  revealed?: boolean;
   showPasswordLabel?: string;
   hidePasswordLabel?: string;
   onVisibilityChange?: (revealed: boolean) => void;
 }
 
-export function PasswordField({
+export const PasswordField = forwardRef<TextInput, PasswordFieldProps>(function PasswordField({
   initiallyRevealed = false,
+  revealed: controlledRevealed,
   showPasswordLabel = "Şifreyi göster",
   hidePasswordLabel = "Şifreyi gizle",
   onVisibilityChange,
   ...textFieldProps
-}: PasswordFieldProps) {
+}, inputRef) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
-  const [revealed, setRevealed] = useState(initiallyRevealed);
+  const minimumTouchTarget = Math.max(48, adaptation.minimumTouchTarget);
+  const [uncontrolledRevealed, setUncontrolledRevealed] = useState(initiallyRevealed);
   const [actionFocused, setActionFocused] = useState(false);
+  const revealed = controlledRevealed ?? uncontrolledRevealed;
   const actionLabel = revealed ? hidePasswordLabel : showPasswordLabel;
 
   return (
     <TextField
       {...textFieldProps}
+      ref={inputRef}
       autoCapitalize={textFieldProps.autoCapitalize ?? "none"}
       autoCorrect={textFieldProps.autoCorrect ?? false}
       secureTextEntry={!revealed}
@@ -165,14 +176,16 @@ export function PasswordField({
           onFocus={() => setActionFocused(true)}
           onPress={() => {
             const nextValue = !revealed;
-            setRevealed(nextValue);
+            if (controlledRevealed === undefined) {
+              setUncontrolledRevealed(nextValue);
+            }
             onVisibilityChange?.(nextValue);
           }}
           style={({ pressed }) => [
             styles.fieldAction,
             {
-              minHeight: adaptation.minimumTouchTarget,
-              minWidth: adaptation.minimumTouchTarget,
+              minHeight: minimumTouchTarget,
+              minWidth: minimumTouchTarget,
               backgroundColor: pressed
                 ? theme.colors.action.ghostPressed
                 : theme.colors.background.surface,
@@ -190,7 +203,7 @@ export function PasswordField({
       }
     />
   );
-}
+});
 
 export interface SearchFieldProps
   extends Omit<TextFieldProps, "trailingAccessory"> {
@@ -207,6 +220,7 @@ export function SearchField({
 }: SearchFieldProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
+  const minimumTouchTarget = Math.max(48, adaptation.minimumTouchTarget);
   const hasValue = typeof value === "string" && value.length > 0;
   const [actionFocused, setActionFocused] = useState(false);
 
@@ -234,8 +248,8 @@ export function SearchField({
             style={({ pressed }) => [
               styles.fieldAction,
               {
-                minHeight: adaptation.minimumTouchTarget,
-                minWidth: adaptation.minimumTouchTarget,
+                minHeight: minimumTouchTarget,
+                minWidth: minimumTouchTarget,
                 backgroundColor: pressed
                   ? theme.colors.action.ghostPressed
                   : theme.colors.background.surface,

@@ -15,7 +15,7 @@ At the Phase 3 snapshot there was no navigation library or route tree. One mount
 | 1 | Login | `!session`, `authStage=auth`, `authMode=login` | Email/password or Google sign-in; enter password recovery | Auth stack: focused Login with the implemented request/confirm recovery path |
 | 2 | Registration | `!session`, `authStage=auth`, `authMode=register` | Create account identity | Auth stack: Registration with API-aligned validation |
 | 3 | Verification | `!session`, `authStage=verify` | Enter code, resend, edit details | Auth stack: Verification and explicit recovery/resend states |
-| 4 | Pending profile confirmation | `!session`, `authStage=profile_confirm` | Confirm verified identity before later Login/session activation | Onboarding: safe final confirmation without orphan-session behavior |
+| 4 | Academic onboarding | `authStage=academic_onboarding` before or after safe session activation | Select and review university plus optional descendants, then save once | Onboarding stack: mandatory university, optional faculty/department/class, owner-safe final save |
 | 5 | Home | `session`, `activeTab=home` | Read next academic items, shortcuts, add manual exam | **Home tab**: personalized next actions and compact trusted-content modules |
 | 6 | Calendar | `session`, `activeTab=calendar` | Read dates and run Google sync | **Calendar tab**: timeline/planning, manual exams, event detail, integrations |
 | 7 | Summer School | `session`, `activeTab=summer` | Read summer dates/requirements/options | **Announcements** source/filter and scoped detail; calendar dates also appear in Calendar |
@@ -43,9 +43,10 @@ Root native stack
 │  ├─ Register
 │  ├─ Verification
 │  ├─ PasswordRecoveryRequest
+│  ├─ PasswordRecoveryCode
 │  └─ PasswordRecoveryConfirm
 ├─ OnboardingFlow
-│  └─ ProfileConfirmation
+│  └─ AcademicOnboarding
 ├─ Authenticated: four-tab navigator (`backBehavior="history"`)
 │  ├─ HomeTab → Home
 │  ├─ AnnouncementsTab
@@ -64,6 +65,10 @@ Root native stack
 │     └─ AccountDataSettings
 └─ UnknownRoute (non-echoing safe fallback)
 ```
+
+Phase 6 replaces the former identity-only confirmation leaf with `AcademicOnboarding` and splits recovery into three semantic screens. `academic_onboarding` is evaluated before the authenticated tab root, so an owner-safe session may exist while the incomplete profile remains outside tab history. University is the one required product field. Faculty, department, and class level are optional; changing a parent clears all descendants in the draft. Picker taps never mutate `/me/university`; `Kaydet ve devam et` sends one complete-replacement payload after a reviewed selection. A protected notification or deep-link request remains unacknowledged until onboarding completes and the authenticated navigator accepts it.
+
+The email registration path is `Register → Verification → AcademicOnboarding → authenticated destination`. Verification never creates a session. Academic save obtains a session only when needed, activates the owner generation before the authenticated mutation, saves once, bootstraps the first meaningful authenticated state, and only then exposes the tab tree. An incomplete Google or restored session converges on the same onboarding leaf without adding onboarding to authenticated tab history. Recovery is `PasswordRecoveryRequest → PasswordRecoveryCode → PasswordRecoveryConfirm → Login`.
 
 The root stack is auth/session guarded: hydration remains above all requests; protected requests wait until the authenticated tree exists; auth/onboarding never join tab history. Static links use an exact `academicpulse://` allowlist. Unknown or malformed destinations never echo raw input. Notification URLs retain the Phase 3 owner-bound exact-record check; their durable pending record is cleared only after the verified detail request has been accepted by the authenticated navigator. A verified notification wins over the default Home transition after login. General protected static links remain memory-pending until authentication and carry route IDs only—never tokens, secrets, or full records.
 

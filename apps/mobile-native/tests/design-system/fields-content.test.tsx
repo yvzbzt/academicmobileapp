@@ -1,4 +1,5 @@
-import { Text } from "react-native";
+import { createRef, useState } from "react";
+import { Text, TextInput } from "react-native";
 import {
   fireEventAsync,
   screen,
@@ -15,6 +16,18 @@ import {
 } from "../../src/design-system/primitives/Content";
 import { renderWithTheme } from "./test-utils";
 
+function ControlledPasswordField() {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <PasswordField
+      label="Denetimli şifre"
+      onVisibilityChange={setRevealed}
+      revealed={revealed}
+      value="gizli-parola"
+    />
+  );
+}
+
 describe("accessible field and content primitives", () => {
   it("keeps a persistent field label and announces validation guidance", async () => {
     const onChangeText = jest.fn();
@@ -29,14 +42,28 @@ describe("accessible field and content primitives", () => {
     );
 
     const field = screen.getByLabelText("E-posta");
+    const error = screen.getByRole("alert", {
+      name: "Geçerli bir e-posta adresi girin.",
+    });
     expect(field).toHaveDisplayValue("yanlış");
     expect(field).toHaveProp("accessibilityHint", "Geçerli bir e-posta adresi girin.");
-    expect(
-      screen.getByRole("alert", { name: "Geçerli bir e-posta adresi girin." }),
-    ).toBeVisible();
+    expect(field).toHaveProp("aria-invalid", true);
+    expect(field).toHaveProp("aria-errormessage", error.props.nativeID);
+    expect(error).toBeVisible();
 
     await fireEventAsync.changeText(field, "ogrenci@example.edu.tr");
     expect(onChangeText).toHaveBeenCalledWith("ogrenci@example.edu.tr");
+  });
+
+  it("forwards a typed ref to the native text input", async () => {
+    const inputRef = createRef<TextInput>();
+
+    await renderWithTheme(
+      <TextField label="Odaklanabilir alan" ref={inputRef} value="" />,
+    );
+
+    expect(inputRef.current).not.toBeNull();
+    expect(typeof inputRef.current?.focus).toBe("function");
   });
 
   it("renders supporting text and a non-color disabled field state", async () => {
@@ -71,6 +98,19 @@ describe("accessible field and content primitives", () => {
     expect(password).toHaveProp("secureTextEntry", false);
     expect(onVisibilityChange).toHaveBeenCalledWith(true);
     expect(screen.getByRole("button", { name: "Şifreyi gizle" })).toBeVisible();
+  });
+
+  it("supports parent-controlled password visibility", async () => {
+    await renderWithTheme(<ControlledPasswordField />);
+
+    const password = screen.getByLabelText("Denetimli şifre");
+    expect(password).toHaveProp("secureTextEntry", true);
+
+    await userEvent.press(screen.getByRole("button", { name: "Şifreyi göster" }));
+    expect(password).toHaveProp("secureTextEntry", false);
+
+    await userEvent.press(screen.getByRole("button", { name: "Şifreyi gizle" }));
+    expect(password).toHaveProp("secureTextEntry", true);
   });
 
   it("clears search input through a named clear action", async () => {

@@ -1,4 +1,4 @@
-import { Text } from "react-native";
+import { KeyboardAvoidingView, ScrollView, Text } from "react-native";
 import {
   screen,
   within,
@@ -75,6 +75,27 @@ describe("theme provider and adaptive surfaces", () => {
     expect(
       within(screenBoundary).getByText("Uzun içerik okunabilir genişlikte kalır."),
     ).toBeVisible();
+  });
+
+  it("opts into keyboard avoidance and automatic scroll keyboard insets", async () => {
+    await renderWithTheme(
+      <Screen
+        accessibilityLabel="Klavye güvenli form"
+        keyboardSafe
+        keyboardVerticalOffset={12}
+        scroll
+        scrollViewProps={{ automaticallyAdjustKeyboardInsets: false }}
+      >
+        <Text>Form içeriği</Text>
+      </Screen>,
+    );
+
+    expect(
+      screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset,
+    ).toBe(12);
+    expect(
+      screen.UNSAFE_getByType(ScrollView).props.automaticallyAdjustKeyboardInsets,
+    ).toBe(true);
   });
 
   it("uses Liquid Glass only for eligible iOS chrome", async () => {

@@ -13,6 +13,14 @@ import {
   validatePasswordRecoveryConfirmation,
   validatePasswordRecoveryRequest
 } from "../../apps/mobile-native/src/auth/auth-recovery";
+import {
+  EMAIL_VERIFICATION_CODE_LENGTH,
+  isPasswordRecoveryCodeComplete,
+  isVerificationCodeComplete,
+  maskEmail,
+  normalizeNumericCode,
+  validateRegistrationForm
+} from "../../apps/mobile-native/src/auth/auth-ui";
 import { classifyAuthError } from "../../apps/mobile-native/src/auth/session-integrity";
 import { AUTH_PASSWORD_MIN_LENGTH as API_PASSWORD_MIN_LENGTH } from "../../apps/api/src/modules/auth/auth.constants";
 
@@ -89,29 +97,155 @@ describe("mobile authentication recovery contract", () => {
   it("keeps the native registration rule in parity with the API", () => {
     expect(AUTH_PASSWORD_MIN_LENGTH).toBe(API_PASSWORD_MIN_LENGTH);
     expect(AUTH_PASSWORD_MIN_LENGTH).toBe(10);
+    expect(validateRegistrationForm({
+      fullName: "Student Example",
+      email: "student@example.com",
+      password: "1234567890",
+      passwordConfirmation: "1234567890"
+    })).toMatchObject({
+      valid: true,
+      requirements: { minimumLength: true, confirmationMatches: true }
+    });
+    expect(validateRegistrationForm({
+      fullName: "Student Example",
+      email: "student@example.com",
+      password: "1234567890",
+      passwordConfirmation: "different-password"
+    })).toMatchObject({
+      valid: false,
+      errors: { passwordConfirmation: expect.any(String) },
+      requirements: { minimumLength: true, confirmationMatches: false }
+    });
 
     const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    expect(appSource).not.toContain("password.trim()");
-    expect(appSource).toContain("password.length >= AUTH_PASSWORD_MIN_LENGTH");
-    expect(appSource).toContain("passwordConfirmation: password");
+    const authHandler = appSource.slice(
+      appSource.indexOf("async function handleAuth"),
+      appSource.indexOf("async function handleGoogleAuth")
+    );
+    expect(authHandler).not.toContain("password.trim()");
+    expect(authHandler).toContain('authMode === "register" ? registrationValidation : loginValidation');
+    expect(authHandler).toContain("passwordConfirmation: registrationPasswordConfirmation");
+    expect(authHandler).not.toContain("passwordConfirmation: password");
   });
 
-  it("represents verification success before the separate login attempt", () => {
+  it("keeps verification separate from session creation and saves onboarding once for the current owner", () => {
     const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
     const verificationHandler = appSource.slice(
       appSource.indexOf("async function handleVerifyEmail"),
-      appSource.indexOf("async function confirmProfileAndStart")
+      appSource.indexOf("async function saveAcademicOnboarding")
     );
-    const loginAfterVerificationHandler = appSource.slice(
-      appSource.indexOf("async function confirmProfileAndStart"),
-      appSource.indexOf("async function openVerificationRecovery")
+    const onboardingHandler = appSource.slice(
+      appSource.indexOf("async function saveAcademicOnboarding"),
+      appSource.indexOf("function openPasswordRecovery")
+    );
+    const rootSurfaceRouting = appSource.slice(
+      appSource.indexOf("const navigatorRootSurface"),
+      appSource.indexOf("const googleCalendarLive")
     );
 
     expect(verificationHandler).toContain("AUTH_ENDPOINTS.verifyEmail");
     expect(verificationHandler).not.toContain("AUTH_ENDPOINTS.login");
-    expect(verificationHandler).toContain('setAuthStage("profile_confirm")');
-    expect(loginAfterVerificationHandler).toContain("AUTH_ENDPOINTS.login");
-    expect(loginAfterVerificationHandler).toContain("E-posta doğrulandı ancak giriş tamamlanamadı");
+    expect(verificationHandler).not.toContain('"/me/university"');
+    expect(verificationHandler).toContain('setAuthStage("academic_onboarding")');
+
+    const conditionalLogin = onboardingHandler.indexOf("if (!activeSession)");
+    const loginRequest = onboardingHandler.indexOf("AUTH_ENDPOINTS.login");
+    const sessionActivation = onboardingHandler.indexOf("snapshot = await activateSession(activeSession)");
+    const ownerCheck = onboardingHandler.indexOf("if (!snapshot || !accountGuardRef.current.isCurrent(snapshot))");
+    const universityPatch = onboardingHandler.indexOf('"/me/university"');
+    const contextBootstrap = onboardingHandler.indexOf("await bootstrapAuthenticatedContext(activeSession.accessToken, snapshot)");
+    const contextGateRelease = onboardingHandler.indexOf("setAuthenticatedContextPending(false)");
+    const returnToAuth = onboardingHandler.indexOf('setAuthStage("auth")');
+    expect(conditionalLogin).toBeGreaterThan(-1);
+    expect(loginRequest).toBeGreaterThan(conditionalLogin);
+    expect(sessionActivation).toBeGreaterThan(loginRequest);
+    expect(ownerCheck).toBeGreaterThan(sessionActivation);
+    expect(universityPatch).toBeGreaterThan(ownerCheck);
+    expect(contextBootstrap).toBeGreaterThan(universityPatch);
+    expect(contextGateRelease).toBeGreaterThan(contextBootstrap);
+    expect(returnToAuth).toBeGreaterThan(contextGateRelease);
+    expect(onboardingHandler.match(/"\/me\/university"/gu)).toHaveLength(1);
+    expect(onboardingHandler).toContain('method: "PATCH"');
+    expect(onboardingHandler).toContain("body: JSON.stringify(payload)");
+    expect(onboardingHandler).toContain("{ ownerSnapshot: snapshot }");
+
+    expect(rootSurfaceRouting.indexOf('authStage === "academic_onboarding"'))
+      .toBeLessThan(rootSurfaceRouting.indexOf(": session"));
+    expect(rootSurfaceRouting).toContain('? "onboarding"');
+  });
+
+  it("gates protected continuation until the activated owner context is ready", () => {
+    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const navigatorSource = readFileSync(
+      new URL("../../apps/mobile-native/src/navigation/AppNavigator.tsx", import.meta.url),
+      "utf8"
+    );
+    const activationHandler = appSource.slice(
+      appSource.indexOf("async function activateSession"),
+      appSource.indexOf("async function clearExpiredSession")
+    );
+    const loginHandler = appSource.slice(
+      appSource.indexOf("async function handleAuth"),
+      appSource.indexOf("async function handleGoogleAuth")
+    );
+    const rootSurfaceRouting = appSource.slice(
+      appSource.indexOf("const navigatorRootSurface"),
+      appSource.indexOf("const googleCalendarLive")
+    );
+    const requestEffectStart = navigatorSource.indexOf("if (!ready || !request || !navigationRef.isReady()) return;");
+    const requestEffect = navigatorSource.slice(
+      requestEffectStart,
+      navigatorSource.indexOf("useEffect(() => {", requestEffectStart)
+    );
+    const requestRootMatching = navigatorSource.slice(
+      navigatorSource.indexOf("function requestMatchesRootSurface"),
+      navigatorSource.indexOf("function isVisibleRoute")
+    );
+
+    const gateActivation = activationHandler.indexOf("setAuthenticatedContextPending(true)");
+    const sessionExposure = activationHandler.indexOf("setSession(nextSession)");
+    expect(gateActivation).toBeGreaterThan(-1);
+    expect(sessionExposure).toBeGreaterThan(gateActivation);
+    expect(activationHandler).not.toContain("setAuthenticatedContextPending(false)");
+
+    const loginActivation = loginHandler.indexOf("await activateSession(nextSession)");
+    const loginBootstrap = loginHandler.indexOf("await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot)");
+    const loginGateRelease = loginHandler.indexOf("setAuthenticatedContextPending(false)");
+    expect(loginBootstrap).toBeGreaterThan(loginActivation);
+    expect(loginGateRelease).toBeGreaterThan(loginBootstrap);
+
+    expect(rootSurfaceRouting.indexOf("authenticatedContextPending"))
+      .toBeLessThan(rootSurfaceRouting.indexOf(": session"));
+    expect(rootSurfaceRouting).toContain('? "hydration_loading"');
+    expect(requestRootMatching).toContain('return surface === "authenticated";');
+    expect(requestEffect.indexOf("if (!requestMatchesRootSurface(request.route, rootSurface)) return;"))
+      .toBeLessThan(requestEffect.indexOf("onRequestHandled?.(request.key)"));
+  });
+
+  it("keeps Phase 1 cleanup retry UI ahead of every auth and onboarding screen", () => {
+    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const cleanupRenderer = appSource.slice(
+      appSource.indexOf("function renderCleanupIssue"),
+      appSource.indexOf("function renderRoutedScreen")
+    );
+    const routedScreens = appSource.slice(
+      appSource.indexOf("function renderRoutedScreen"),
+      appSource.indexOf("const screens:")
+    );
+    const authAndOnboardingBoundary = routedScreens.slice(
+      0,
+      routedScreens.indexOf("const showsAuthHero")
+    );
+
+    expect(cleanupRenderer).toContain("if (!cleanupIssue) return null;");
+    expect(cleanupRenderer).toContain('accessibilityLiveRegion="polite"');
+    expect(cleanupRenderer).toContain('accessibilityRole="button"');
+    expect(cleanupRenderer).toContain("onPress={() => void retryFailedCleanup()}");
+    expect(authAndOnboardingBoundary).toContain('AUTH_ROUTE_NAMES.has(route) || route === "AcademicOnboarding"');
+    expect(authAndOnboardingBoundary.indexOf("{renderCleanupIssue()}"))
+      .toBeLessThan(authAndOnboardingBoundary.indexOf("{renderAuthOnboardingScreen(route)}"));
+    expect(routedScreens.match(/\{renderCleanupIssue\(\)\}/gu)).toHaveLength(2);
+    expect(appSource.match(/onPress=\{\(\) => void retryFailedCleanup\(\)\}/gu)).toHaveLength(1);
   });
 
   it("preserves the disabled-account error before generic Google 401 recovery", () => {
@@ -139,11 +273,18 @@ describe("mobile authentication recovery contract", () => {
     );
     const confirmHandler = appSource.slice(
       appSource.indexOf("async function confirmPasswordRecovery"),
-      appSource.indexOf("function returnToPasswordRecoveryRequest")
+      appSource.indexOf("function continuePasswordRecoveryCode")
+    );
+    const codeHandler = appSource.slice(
+      appSource.indexOf("function continuePasswordRecoveryCode"),
+      appSource.indexOf("function returnToPasswordRecoveryCode")
     );
 
     expect(requestHandler).toContain("AUTH_ENDPOINTS.passwordRecoveryRequest");
     expect(requestHandler).toContain('body: JSON.stringify({ email: normalizedEmail })');
+    expect(requestHandler).toContain('setAuthStage("password_recovery_code")');
+    expect(codeHandler).toContain("PASSWORD_RECOVERY_CODE_LENGTH");
+    expect(codeHandler).toContain('setAuthStage("password_recovery_confirm")');
     expect(confirmHandler).toContain("AUTH_ENDPOINTS.passwordRecoveryConfirm");
     expect(confirmHandler).toContain("code: passwordRecoveryCode.trim()");
     expect(confirmHandler).toContain("newPassword");
@@ -207,6 +348,18 @@ describe("mobile authentication recovery contract", () => {
     })).toMatchObject({ valid: false, code: "password_confirmation_mismatch" });
   });
 
+  it("normalizes numeric OTP input and masks auth destination email addresses", () => {
+    expect(EMAIL_VERIFICATION_CODE_LENGTH).toBe(4);
+    expect(normalizeNumericCode("1a2 34x5", EMAIL_VERIFICATION_CODE_LENGTH)).toBe("1234");
+    expect(normalizeNumericCode("12-34 56 78", PASSWORD_RECOVERY_CODE_LENGTH)).toBe("123456");
+    expect(isVerificationCodeComplete("1234")).toBe(true);
+    expect(isVerificationCodeComplete("12345")).toBe(false);
+    expect(isPasswordRecoveryCodeComplete("123456")).toBe(true);
+    expect(isPasswordRecoveryCodeComplete("12345a")).toBe(false);
+    expect(maskEmail(" Student@Example.com ")).toBe("s***t@example.com");
+    expect(maskEmail("not-an-email")).toBe("e-posta adresin");
+  });
+
   it.each([
     ["AUTH_PASSWORD_RECOVERY_CODE_INVALID", "invalid_password_recovery_code"],
     ["AUTH_PASSWORD_RECOVERY_CODE_EXPIRED", "password_recovery_code_expired"],
@@ -229,25 +382,93 @@ describe("mobile authentication recovery contract", () => {
 
   it("provides reachable recovery, loading, cooldown, visibility, back, cancellation, and secret cleanup UI", () => {
     const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const authScreensSource = readFileSync(
+      new URL("../../apps/mobile-native/src/auth/AuthScreens.tsx", import.meta.url),
+      "utf8"
+    );
+    const fieldsSource = readFileSync(
+      new URL("../../apps/mobile-native/src/design-system/primitives/Fields.tsx", import.meta.url),
+      "utf8"
+    );
     const navigatorSource = readFileSync(
       new URL("../../apps/mobile-native/src/navigation/AppNavigator.tsx", import.meta.url),
       "utf8"
     );
-    expect(appSource).toContain('accessibilityLabel="Şifremi unuttum"');
-    expect(appSource).toContain('authStage === "password_recovery_request"');
-    expect(appSource).toContain('authStage === "password_recovery_confirm"');
-    expect(appSource).toContain('accessibilityLabel="Altı haneli şifre sıfırlama kodu"');
-    expect(appSource).toContain('maxLength={PASSWORD_RECOVERY_CODE_LENGTH}');
-    expect(appSource).toContain('accessibilityLabel={newPasswordVisible ? "Yeni şifreyi gizle" : "Yeni şifreyi göster"}');
-    expect(appSource).toContain('accessibilityLabel={passwordConfirmationVisible ? "Şifre tekrarını gizle" : "Şifre tekrarını göster"}');
+    const authScaffold = authScreensSource.slice(
+      authScreensSource.indexOf("function AuthScaffold"),
+      authScreensSource.indexOf("export interface LoginScreenProps")
+    );
+    const loginScreen = authScreensSource.slice(
+      authScreensSource.indexOf("export function LoginScreen"),
+      authScreensSource.indexOf("export interface RegistrationScreenProps")
+    );
+    const registrationScreen = authScreensSource.slice(
+      authScreensSource.indexOf("export function RegistrationScreen"),
+      authScreensSource.indexOf("function RequirementLine")
+    );
+    const verificationScreen = authScreensSource.slice(
+      authScreensSource.indexOf("export function VerificationScreen"),
+      authScreensSource.indexOf("export interface PasswordRecoveryRequestScreenProps")
+    );
+    const recoveryRequestScreen = authScreensSource.slice(
+      authScreensSource.indexOf("export function PasswordRecoveryRequestScreen"),
+      authScreensSource.indexOf("export interface PasswordRecoveryCodeScreenProps")
+    );
+    const recoveryCodeScreen = authScreensSource.slice(
+      authScreensSource.indexOf("export function PasswordRecoveryCodeScreen"),
+      authScreensSource.indexOf("export interface PasswordRecoveryConfirmScreenProps")
+    );
+    const recoveryConfirmScreen = authScreensSource.slice(
+      authScreensSource.indexOf("export function PasswordRecoveryConfirmScreen"),
+      authScreensSource.indexOf("export interface AcademicOnboardingScreenProps")
+    );
+    const authRouteMap = appSource.slice(
+      appSource.indexOf("function routeForAuthState"),
+      appSource.indexOf("function routeForLegacyTab")
+    );
+
+    expect(loginScreen).toContain("onPress={props.onForgotPassword}");
+    expect(loginScreen).toContain('autoComplete="email"');
+    expect(loginScreen).toContain('autoComplete="password"');
+    expect(registrationScreen.match(/autoComplete="new-password"/gu)).toHaveLength(2);
+    expect(registrationScreen).toContain("onPasswordConfirmationChange");
+    expect(authRouteMap).toContain('case "password_recovery_request": return "PasswordRecoveryRequest";');
+    expect(authRouteMap).toContain('case "password_recovery_code": return "PasswordRecoveryCode";');
+    expect(authRouteMap).toContain('case "password_recovery_confirm": return "PasswordRecoveryConfirm";');
+    expect(verificationScreen).toContain("maskEmail(props.email)");
+    expect(verificationScreen).toContain('autoComplete="one-time-code"');
+    expect(verificationScreen).toContain('inputMode="numeric"');
+    expect(verificationScreen).toContain('keyboardType="number-pad"');
+    expect(verificationScreen).toContain('textContentType="oneTimeCode"');
+    expect(verificationScreen).toContain("maxLength={EMAIL_VERIFICATION_CODE_LENGTH}");
+    expect(recoveryRequestScreen).toContain('autoComplete="email"');
+    expect(recoveryRequestScreen).toContain("props.timing?.resendInSeconds");
+    expect(recoveryRequestScreen).toContain("loading={props.busy}");
+    expect(recoveryCodeScreen).toContain("maskEmail(props.email)");
+    expect(recoveryCodeScreen).toContain('autoComplete="one-time-code"');
+    expect(recoveryCodeScreen).toContain('inputMode="numeric"');
+    expect(recoveryCodeScreen).toContain('keyboardType="number-pad"');
+    expect(recoveryCodeScreen).toContain('textContentType="oneTimeCode"');
+    expect(recoveryCodeScreen).toContain("maxLength={PASSWORD_RECOVERY_CODE_LENGTH}");
+    expect(recoveryCodeScreen).toContain("props.timing?.resendInSeconds");
+    expect(recoveryConfirmScreen.match(/<PasswordField/gu)).toHaveLength(2);
+    expect(recoveryConfirmScreen).not.toContain("onCodeChange");
+    expect(recoveryConfirmScreen.match(/autoComplete="new-password"/gu)).toHaveLength(2);
+    expect(recoveryConfirmScreen).toContain("onPasswordConfirmationChange");
+    expect(recoveryConfirmScreen).toContain("loading={props.busy}");
+    expect(fieldsSource).toContain("secureTextEntry={!revealed}");
+    expect(fieldsSource).toContain("accessibilityLabel={actionLabel}");
     expect(navigatorSource).toContain('BackHandler.addEventListener("hardwareBackPress"');
     expect(navigatorSource).toContain("gestureEnabled: !navigationLocked");
     expect(appSource).toContain('case "PasswordRecoveryRequest":');
+    expect(appSource).toContain('case "PasswordRecoveryCode":');
+    expect(appSource).toContain('case "PasswordRecoveryConfirm":');
     expect(appSource).toContain("returnToPasswordRecoveryRequest()");
+    expect(appSource).toContain("returnToPasswordRecoveryCode()");
     expect(appSource).toContain("cancelPasswordRecovery()");
-    expect(appSource).toContain("Yeni Kod İste (");
-    expect(appSource).toContain("Kod isteniyor...");
-    expect(appSource).toContain("Şifre yenileniyor...");
+    expect(authScaffold).toContain("message={feedback.text}");
+    expect(authScaffold).toContain("tone={feedback.tone}");
+    expect(appSource).toContain('if (!message || navigatorRootSurface !== "authenticated") return;');
 
     const successCleanup = appSource.slice(
       appSource.indexOf("async function confirmPasswordRecovery"),

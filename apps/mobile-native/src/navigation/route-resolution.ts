@@ -15,8 +15,9 @@ export type RouteAuthMode = "login" | "register";
 export type RouteAuthStage =
   | "auth"
   | "verify"
-  | "profile_confirm"
+  | "academic_onboarding"
   | "password_recovery_request"
+  | "password_recovery_code"
   | "password_recovery_confirm";
 
 export type RootRouteSurface =
@@ -35,6 +36,7 @@ export type RootRouteReason =
   | "signed_out_auth_flow"
   | "signed_out_requested"
   | "signed_out_protected_guard"
+  | "academic_onboarding_required"
   | "verification_context_missing"
   | "password_recovery_context_missing"
   | "unknown_destination";
@@ -81,6 +83,10 @@ export function resolveRootRoute(state: RootRouteState): RootRouteResolution {
       ? state.requestedRoute
       : appRoutes.unknown();
 
+  if (state.authStage === "academic_onboarding") {
+    return academicOnboardingResolution(requestedRoute);
+  }
+
   if (owner) return resolveSignedInRoute(requestedRoute, owner);
 
   const authResolution = resolveSignedOutAuthRoute(state);
@@ -112,7 +118,11 @@ export function resolveRootRoute(state: RootRouteState): RootRouteResolution {
       reason: "verification_context_missing"
     };
   }
-  if (requestedRoute.name === "PasswordRecoveryConfirm" && !state.hasPendingPasswordRecovery) {
+  if (
+    (requestedRoute.name === "PasswordRecoveryCode"
+      || requestedRoute.name === "PasswordRecoveryConfirm")
+    && !state.hasPendingPasswordRecovery
+  ) {
     return {
       surface: "auth",
       route: appRoutes.passwordRecoveryRequest(),
@@ -141,15 +151,19 @@ export function resolveSignedOutAuthRoute(
         return authResolution(appRoutes.login(), true, "verification_context_missing");
       }
       return authResolution(appRoutes.verification());
-    case "profile_confirm":
-      return {
-        surface: "onboarding",
-        route: appRoutes.profileConfirmation(),
-        redirected: false,
-        reason: "signed_out_auth_flow"
-      };
+    case "academic_onboarding":
+      return academicOnboardingResolution();
     case "password_recovery_request":
       return authResolution(appRoutes.passwordRecoveryRequest());
+    case "password_recovery_code":
+      if (!state.hasPendingPasswordRecovery) {
+        return authResolution(
+          appRoutes.passwordRecoveryRequest(),
+          true,
+          "password_recovery_context_missing"
+        );
+      }
+      return authResolution(appRoutes.passwordRecoveryCode());
     case "password_recovery_confirm":
       if (!state.hasPendingPasswordRecovery) {
         return authResolution(
@@ -164,6 +178,18 @@ export function resolveSignedOutAuthRoute(
         state.authMode === "register" ? appRoutes.register() : appRoutes.login()
       );
   }
+}
+
+function academicOnboardingResolution(
+  requestedRoute: AppRoute | null = null
+): RootRouteResolution {
+  const route = appRoutes.academicOnboarding();
+  return {
+    surface: "onboarding",
+    route,
+    redirected: requestedRoute !== null && routeKey(requestedRoute) !== routeKey(route),
+    reason: "academic_onboarding_required"
+  };
 }
 
 export function guardRouteForOwner(

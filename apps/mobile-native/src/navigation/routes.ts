@@ -3,6 +3,7 @@ export const AUTH_ROUTE_NAMES = [
   "Register",
   "Verification",
   "PasswordRecoveryRequest",
+  "PasswordRecoveryCode",
   "PasswordRecoveryConfirm"
 ] as const;
 
@@ -46,11 +47,12 @@ export type AuthStackParamList = {
   Register: undefined;
   Verification: undefined;
   PasswordRecoveryRequest: undefined;
+  PasswordRecoveryCode: undefined;
   PasswordRecoveryConfirm: undefined;
 };
 
 export type OnboardingStackParamList = {
-  ProfileConfirmation: undefined;
+  AcademicOnboarding: undefined;
 };
 
 export type HomeStackParamList = {
@@ -89,7 +91,7 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Hydration: { status: HydrationRouteStatus };
   Auth: { screen: AuthRouteName };
-  Onboarding: { screen: "ProfileConfirmation" };
+  Onboarding: { screen: "AcademicOnboarding" };
   MainTabs: { screen: MainTabRouteName };
   Unknown: undefined;
 };
@@ -116,7 +118,7 @@ export type AuthRoute = {
   [Name in AuthRouteName]: { name: Name };
 }[AuthRouteName];
 
-export type OnboardingRoute = { name: "ProfileConfirmation" };
+export type OnboardingRoute = { name: "AcademicOnboarding" };
 
 export type AnnouncementRoute =
   | { name: "Announcements" }
@@ -177,7 +179,7 @@ const AUTH_ROUTE_SET = new Set<string>(AUTH_ROUTE_NAMES);
 const SETTINGS_ROUTE_SET = new Set<string>(SETTINGS_ROUTE_NAMES);
 const NO_PARAM_ROUTE_SET = new Set<string>([
   ...AUTH_ROUTE_NAMES,
-  "ProfileConfirmation",
+  "AcademicOnboarding",
   "Home",
   "Announcements",
   "SummerSchool",
@@ -197,8 +199,9 @@ export const appRoutes = {
   register: (): AuthRoute => ({ name: "Register" }),
   verification: (): AuthRoute => ({ name: "Verification" }),
   passwordRecoveryRequest: (): AuthRoute => ({ name: "PasswordRecoveryRequest" }),
+  passwordRecoveryCode: (): AuthRoute => ({ name: "PasswordRecoveryCode" }),
   passwordRecoveryConfirm: (): AuthRoute => ({ name: "PasswordRecoveryConfirm" }),
-  profileConfirmation: (): OnboardingRoute => ({ name: "ProfileConfirmation" }),
+  academicOnboarding: (): OnboardingRoute => ({ name: "AcademicOnboarding" }),
   home: (): ProtectedAppRoute => ({ name: "Home" }),
   announcements: (): AnnouncementRoute => ({ name: "Announcements" }),
   summerSchool: (): AnnouncementRoute => ({ name: "SummerSchool" }),
@@ -242,7 +245,7 @@ export function isAuthRoute(route: AppRoute): route is AuthRoute {
 }
 
 export function isOnboardingRoute(route: AppRoute): route is OnboardingRoute {
-  return route.name === "ProfileConfirmation";
+  return route.name === "AcademicOnboarding";
 }
 
 export function isProtectedRoute(route: AppRoute): route is ProtectedAppRoute {
@@ -296,10 +299,12 @@ export function parentRouteFor(route: AppRoute): AppRoute | null {
     case "Register":
     case "Verification":
     case "PasswordRecoveryRequest":
-    case "ProfileConfirmation":
+    case "AcademicOnboarding":
       return appRoutes.login();
-    case "PasswordRecoveryConfirm":
+    case "PasswordRecoveryCode":
       return appRoutes.passwordRecoveryRequest();
+    case "PasswordRecoveryConfirm":
+      return appRoutes.passwordRecoveryCode();
     case "SummerSchool":
     case "YokAnnouncements":
     case "AnnouncementDetail":

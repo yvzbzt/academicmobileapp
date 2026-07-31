@@ -122,7 +122,7 @@ export function Button({
   const palette = resolveButtonPalette(theme, variant, status, interactionDisabled);
   const visibleLabel = status === "idle" ? label : (statusLabel ?? label);
   const minimumHeight = compact
-    ? adaptation.minimumTouchTarget
+    ? Math.max(48, adaptation.minimumTouchTarget)
     : Math.max(adaptation.minimumTouchTarget, 52);
 
   return (
