@@ -292,3 +292,11 @@ Collection limits are not deletion evidence. After live Google verification, eve
 - Replacing all existing code before fixing session/content correctness.
 - Treating an Expo Web screenshot as evidence for iOS or Android.
 - Adding a large UI framework only to obtain basic tokens, buttons, cards, or sheets.
+
+### D-040 — Home is a bounded daily brief, not a dashboard or duplicate feed
+
+**Decision:** Home prioritizes real student decisions in this order: identity/academic context, today's local-calendar-day items, nearest future important item, newest trusted announcement, three additional trusted items, then one actionable Phase 3 integration state. Missing university takes precedence over all data states; loading, populated, genuine empty, and recoverable error remain mutually exclusive.
+
+**Data boundary:** Calendar events and owner-scoped manual exams supply academic dates. Phase 2 normalized trusted content supplies announcements. Publication/source-update time controls announcement order; crawler discovery/fetch time never substitutes. Background refresh preserves retained content and marks refreshing/stale/partial/offline truthfully. Countdown copy is derived from a live minute clock rather than stored.
+
+**Navigation and scope:** Full announcement rows enter the existing trusted detail route, the compact recent action enters Announcements, and Calendar retains personal exam creation. Home does not reproduce the Announcements feed, Calendar, Profile, Summer School, or YÖK screens and does not add social actions or engagement metrics. Phase 8 is not started.

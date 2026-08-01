@@ -187,6 +187,15 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
     );
   }
 
+  if (route === "Home") {
+    return (
+      <Screen edges={[...authenticatedEdges]} fullBleed>
+        {globalFeedback}
+        {screens.Home}
+      </Screen>
+    );
+  }
+
   return (
     <Screen
       scroll

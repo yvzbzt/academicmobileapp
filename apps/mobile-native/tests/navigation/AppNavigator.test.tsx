@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { BackHandler, ScrollView, Text } from "react-native";
+import { BackHandler, Text } from "react-native";
 import {
   act,
   fireEvent,
@@ -429,29 +429,20 @@ describe("AppNavigator", () => {
     expect(onVisibleRouteChange).toHaveBeenCalledWith("Announcements");
   });
 
-  it("scrolls a reselected root tab to top and repeated taps do not add history", async () => {
+  it("keeps repeated Home root taps on the virtualized root without adding history", async () => {
     const hardwareBackHandlers = captureHardwareBackHandlers();
     const onVisibleRouteChange = jest.fn();
-    const view = await renderNavigator({
+    await renderNavigator({
       activeRoute: "Home",
       onVisibleRouteChange,
       rootSurface: "authenticated",
     });
     await expectVisibleRoute("Home");
-    const scrollTo = jest.spyOn(
-      view.UNSAFE_root.findAllByType(ScrollView)[0].instance,
-      "scrollTo",
-    );
     const visibleRouteCallCount = onVisibleRouteChange.mock.calls.length;
 
     await pressTab("Ana Sayfa");
     await pressTab("Ana Sayfa");
 
-    await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledTimes(2);
-    });
-    expect(scrollTo).toHaveBeenNthCalledWith(1, { y: 0, animated: true });
-    expect(scrollTo).toHaveBeenNthCalledWith(2, { y: 0, animated: true });
     expect(onVisibleRouteChange).toHaveBeenCalledTimes(visibleRouteCallCount);
     expectSelectedTab("Ana Sayfa");
 

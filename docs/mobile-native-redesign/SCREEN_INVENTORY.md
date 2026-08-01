@@ -183,3 +183,11 @@ Phase 0 did not capture these: `VISIBLE_NATIVE_QA_ENVIRONMENT_BLOCKED` because n
 Phase 3 native launch and strict signed-out notification-URL handoff passed on `AcademicPhase1Low`; the captured Login/Register surface and exact boundary are indexed in [`evidence/phase-03-native`](./evidence/phase-03-native/README.md). The sole authorized AVD is API 24, so it cannot demonstrate API 26+ notification channels or the API 33+ runtime permission prompt. iOS remains unavailable on Windows/Xcode and lacks an authorized `GoogleService-Info.plist`. No authorized non-production Firebase/APNs delivery credentials or Google account/calendar fixture were supplied, so real token delivery and provider chooser/mutation/revoke visuals are not claimed.
 
 Phase 5 native shell acceptance and its exact commands, hashes, semantic assertions, clean-log scan, restoration proof, and unavailable-evidence boundaries are indexed in the [Phase 5 native evidence README](./evidence/phase-05-native/README.md). Windows/iOS runtime, predictive Back, API 33 notification permission, provider integrations, TalkBack, tablet/rail, and full-screen large-text acceptance remain unclaimed.
+
+## Phase 7 Home inventory
+
+| Surface | Final hierarchy | Primary states | Destinations |
+|---|---|---|---|
+| Home | Greeting + academic context → Today → next important item → important trusted announcement → up to 3 recent trusted announcements → optional actionable integration | Incomplete profile; initial loading; populated; genuine empty; recoverable error; retained refreshing/stale/partial/offline status | Academic Profile settings; trusted Announcement detail; Announcements tab; Calendar; notification/Google Calendar settings |
+
+Removed from the reachable Home surface: untimed `Bugün / Sınav / Duyuru` counts, four duplicate destination shortcut cards, nested exam/event dashboard cards, large hero treatment, and the inline manual-exam form. The manual-exam form remains reachable on Calendar without changing its storage or API contract.

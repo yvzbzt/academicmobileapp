@@ -63,3 +63,17 @@ jest.mock("expo-glass-effect", () => {
     isLiquidGlassAvailable: () => false,
   };
 });
+
+jest.mock("expo-network", () => ({
+  addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
+  getNetworkStateAsync: jest.fn(async () => ({
+    isConnected: true,
+    isInternetReachable: true,
+    type: "WIFI",
+  })),
+  useNetworkState: jest.fn(() => ({
+    isConnected: true,
+    isInternetReachable: true,
+    type: "WIFI",
+  })),
+}));

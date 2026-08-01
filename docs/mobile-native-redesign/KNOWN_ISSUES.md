@@ -215,3 +215,19 @@ Final Phase 6 deterministic validation passes focused pure contracts at 4 files 
 - The Phase 1 snapshot had no React Native component-test runner. Phase 4 supersedes that component gap with Jest Expo + React Native Testing Library; native end-to-end and screenshot-regression harnesses remain absent under MN-019.
 - Android native tooling is available and hardware accelerated. Phase 5 supersedes the former bottom-navigation wrapping limitation with the corrected 320 dp/font-2 native recapture. TalkBack and full-screen large-text acceptance remain open under MN-029, including the API 24 system-clock clipping and preserved legacy screen-body/placeholder limitations.
 - The selected image's effective 384 MB heap and approximately 5.8 GB data partition exceed the requested approximate 256 MB/maximum 4 GB budget. The prelaunch data request was 2,047 MB, but post-boot `config.ini` normalized it to 6,442,450,944 bytes (MN-028).
+
+## Phase 7 status
+
+| Issue | Phase 7 result |
+|---|---|
+| MN-010 | Further reduced: Home presentation and pure policy moved to `src/home`; `App.tsx` still owns orchestration and later legacy screen bodies. |
+| MN-012 | Resolved for Home only through one non-nested `FlatList`; the full Announcements feed remains Phase 8 scope. |
+| MN-013 | Resolved for Home semantic light/dark presentation; untouched later screens still prevent whole-app acceptance. |
+| MN-017 | Manual exam creation remains reachable on Calendar and owner-scoped; edit/delete remains Phase 9. |
+| MN-019 | Home gains focused pure/semantic renderer tests and a synthetic native preview; no Maestro/Detox/Appium or automated screenshot regression was added. |
+| MN-020 | `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains open; TypeScript, tests, builds, whitespace, and scans are reported separately. |
+| MN-029 | Deterministic 320 dp/font-scale-2 Home contract exists. TalkBack and complete installed-app screen-reader acceptance remain unavailable. |
+| MN-032 | Phase 7 uses a development-only synthetic trusted fixture for native presentation; no production data or authorized authenticated backend fixture is used. |
+| MN-033 | Android API 24 evidence cannot prove API 33 behavior; Windows still cannot provide iOS runtime or VoiceOver acceptance. |
+
+The development preview is dual-gated by `__DEV__` and `EXPO_PUBLIC_PHASE7_HOME_PREVIEW=1`. Its `incomplete`, `populated`, `empty`, `stale`, `error`, and `long-title` scenarios import no API, persistence, provider, or production-data module.

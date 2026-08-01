@@ -157,6 +157,11 @@ import {
   type TrustedContentCollection,
   type TrustedMobileContentRecord
 } from "./src/content/content-trust";
+import { HomeDailyBrief } from "./src/home/HomeDailyBrief";
+import {
+  HomeDailyBriefPreview,
+  type HomeDailyBriefPreviewScenario
+} from "./src/home/HomeDailyBriefPreview";
 
 type AuthMode = "login" | "register";
 type AlarmMode = "all_calendar" | "selected_fields";
@@ -1186,6 +1191,11 @@ function MainApplication() {
     active: false
   });
   const [notificationDestinationNotice, setNotificationDestinationNotice] = useState<NotificationDestinationNotice | null>(null);
+  const [activeTrustedDetail, setActiveTrustedDetail] = useState<{
+    type: "announcement" | "calendar_event";
+    id: string;
+    title: string;
+  } | null>(null);
   const [academicProfileExpanded, setAcademicProfileExpanded] = useState(false);
   const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
   const [announcementContentFilter, setAnnouncementContentFilter] = useState<AnnouncementContentFilter>("all");
@@ -6491,6 +6501,37 @@ function MainApplication() {
                 </Section>
               )}
 
+              {route === "Calendar" && (
+                <Section title="Kişisel Sınav Ekle">
+                  <Text style={styles.helperText}>Dersine ait kişisel sınavı bu cihazdaki hesabına ekle.</Text>
+                  <TextInput
+                    accessibilityLabel="Kişisel sınav adı"
+                    value={manualExamTitle}
+                    onChangeText={setManualExamTitle}
+                    placeholder="Sınav adı"
+                    style={styles.input}
+                  />
+                  <TextInput
+                    accessibilityLabel="Kişisel sınav tarihi"
+                    value={manualExamDate}
+                    onChangeText={setManualExamDate}
+                    placeholder="Sınav tarihi (YYYY-MM-DD)"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={styles.input}
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Kişisel sınavı ekle"
+                    style={[styles.button, styles.secondaryButton]}
+                    onPress={addManualExam}
+                    disabled={busy}
+                  >
+                    <Text style={styles.secondaryButtonText}>Sınav Ekle</Text>
+                  </Pressable>
+                </Section>
+              )}
+
               <Section title="Google Takvim">
                 <View style={styles.calendarConnectionHero}>
                   <View style={styles.calendarPanelIcon}>
@@ -7230,11 +7271,64 @@ function MainApplication() {
     );
   }
 
-  const trustedDetail = notificationDestinationNotice?.status === "opened"
+  const homeEvents = [
+    ...(calendar.data?.events ?? []),
+    ...(upcoming.data ?? []).filter(
+      (event) => !(calendar.data?.events ?? []).some((calendarEvent) => calendarEvent.id === event.id)
+    )
+  ];
+  const homeManualExams = session?.user.id === manualExamOwnerId && manualExamsHydrated
+    ? manualExams
+    : [];
+  const homeDailyBrief = session ? (
+    <HomeDailyBrief
+      fullName={session.user.fullName}
+      profileComplete={Boolean(registerUniversityId)}
+      universityName={selectedUniversity?.name ?? (registerUniversityId ? "Üniversite bilgisi kayıtlı" : undefined)}
+      facultyName={selectedFaculty?.name}
+      departmentName={selectedDepartment?.name}
+      events={homeEvents}
+      manualExams={homeManualExams}
+      announcements={announcementFeed}
+      calendarLoading={calendar.loading || upcoming.loading}
+      calendarAttempted={Boolean(calendar.attempted && upcoming.attempted)}
+      calendarError={calendar.error ?? upcoming.error}
+      calendarStale={calendar.stale || upcoming.stale}
+      announcementLoading={announcements.loading}
+      announcementAttempted={Boolean(announcements.attempted)}
+      announcementError={announcements.error}
+      announcementStale={announcements.stale}
+      announcementState={announcements.data?.state}
+      googleCalendarState={googleCalendarState}
+      notificationPermission={notificationLifecycle.permission}
+      notificationPreferenceEnabled={notificationLifecycle.preferenceEnabled}
+      notificationActive={notificationLifecycle.active}
+      onCompleteProfile={() => requestAppRoute("AcademicProfileSettings")}
+      onOpenAnnouncement={(item) => {
+        setActiveTrustedDetail({ type: "announcement", id: item.id, title: item.title });
+        requestAppRoute("AnnouncementDetail", { announcementId: item.id });
+      }}
+      onOpenAnnouncements={() => requestAppRoute("Announcements")}
+      onOpenCalendar={() => requestAppRoute("Calendar")}
+      onOpenGoogleCalendarSettings={() => requestAppRoute("GoogleCalendarSettings")}
+      onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
+      onRefresh={() => {
+        void Promise.allSettled([loadMyCalendar(), loadUpcoming(), loadAnnouncements()]);
+      }}
+    />
+  ) : null;
+
+  const trustedDetailRecord = activeTrustedDetail
+    ?? (notificationDestinationNotice?.status === "opened" ? {
+      type: notificationDestinationNotice.destination.type,
+      id: notificationDestinationNotice.destination.id,
+      title: notificationDestinationNotice.title ?? "Güvenilir içerik"
+    } : null);
+  const trustedDetail = trustedDetailRecord
     ? (
-      <Section title={notificationDestinationNotice.destination.type === "announcement" ? "Duyuru Ayrıntısı" : "Takvim Ayrıntısı"}>
+      <Section title={trustedDetailRecord.type === "announcement" ? "Duyuru Ayrıntısı" : "Takvim Ayrıntısı"}>
         <View style={styles.inlineInfoCard} accessibilityLiveRegion="polite">
-          <Text style={styles.inlineInfoTitle}>{notificationDestinationNotice.title ?? "Güvenilir içerik"}</Text>
+          <Text style={styles.inlineInfoTitle}>{trustedDetailRecord.title}</Text>
           <Text style={styles.inlineInfoText}>
             Bu kayıt güncel hesap ve güvenilir kaynak sınırı içinde tam kimliğiyle doğrulandı.
           </Text>
@@ -7270,7 +7364,7 @@ function MainApplication() {
     PasswordRecoveryCode: renderRoutedScreen("PasswordRecoveryCode"),
     PasswordRecoveryConfirm: renderRoutedScreen("PasswordRecoveryConfirm"),
     AcademicOnboarding: renderRoutedScreen("AcademicOnboarding"),
-    Home: renderRoutedScreen("Home"),
+    Home: homeDailyBrief,
     Announcements: renderRoutedScreen("Announcements"),
     SummerSchool: renderRoutedScreen("SummerSchool"),
     YokAnnouncements: renderRoutedScreen("YokAnnouncements"),
@@ -7304,12 +7398,26 @@ function MainApplication() {
 }
 
 export default function App() {
+  const showPhase7HomePreview = __DEV__
+    && process.env.EXPO_PUBLIC_PHASE7_HOME_PREVIEW === "1";
   const showPhase6AuthPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE6_AUTH_PREVIEW === "1";
   const showPhase5AppShellPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
+
+  if (showPhase7HomePreview) {
+    const previewTheme = process.env.EXPO_PUBLIC_PHASE7_HOME_PREVIEW_THEME === "dark"
+      ? "dark"
+      : "light";
+    return (
+      <HomeDailyBriefPreview
+        preference={previewTheme}
+        scenario={process.env.EXPO_PUBLIC_PHASE7_HOME_PREVIEW_SCENARIO as HomeDailyBriefPreviewScenario | undefined}
+      />
+    );
+  }
 
   if (showPhase6AuthPreview) {
     const previewTheme = process.env.EXPO_PUBLIC_PHASE6_AUTH_PREVIEW_THEME === "dark"

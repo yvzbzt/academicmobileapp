@@ -128,3 +128,11 @@ Authentication and onboarding share routes, validation, hierarchy, and accessibi
 - Phase 0's missing-native-environment statement is historical; `AcademicPhase1Low` now supplies the bounded Android launch target.
 
 Each visual phase must capture equivalent iOS and Android states where the environment permits and record intentional differences rather than treating them as drift.
+
+## Phase 7 Home adaptation
+
+- Home is one `FlatList` with shell-owned insets and a 720 logical-unit readable maximum. At widths below 375 it uses a 16-unit gutter; content remains one column at 320 dp and 200% text scale.
+- iOS Home content is always opaque. Liquid Glass eligibility remains confined to the Phase 5 top/bottom navigation chrome, with Reduce Transparency selecting the existing opaque fallback.
+- Android uses the shared Material-compatible tonal hierarchy, native ripple on actionable cards/buttons, 48 dp targets, and deliberate edge-to-edge safe-area ownership. It does not imitate iOS glass.
+- Tab re-selection continues to use React Navigation's root scroll-to-top registration on the Home virtualized list. Ordinary Android Back and independent tab stacks are unchanged.
+- Windows renderer tests prove adaptation selection and semantics, not iOS runtime, Dynamic Type, VoiceOver, or Liquid Glass visual acceptance.
