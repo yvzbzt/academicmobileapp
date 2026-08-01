@@ -148,6 +148,7 @@ export function Toast({ style, ...bannerProps }: ToastProps) {
 
 export interface SkeletonProps {
   accessibilityLabel?: string;
+  decorative?: boolean;
   width?: DimensionValue;
   height?: number;
   radius?: number;
@@ -156,6 +157,7 @@ export interface SkeletonProps {
 
 export function Skeleton({
   accessibilityLabel = "İçerik yükleniyor",
+  decorative = false,
   width = "100%",
   height = 20,
   radius,
@@ -194,10 +196,12 @@ export function Skeleton({
 
   return (
     <Animated.View
-      accessible
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole="progressbar"
-      accessibilityState={{ busy: true }}
+      accessible={!decorative}
+      accessibilityElementsHidden={decorative}
+      accessibilityLabel={decorative ? undefined : accessibilityLabel}
+      accessibilityRole={decorative ? undefined : "progressbar"}
+      accessibilityState={decorative ? undefined : { busy: true }}
+      importantForAccessibility={decorative ? "no-hide-descendants" : "auto"}
       style={[
         {
           width,

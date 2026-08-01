@@ -95,7 +95,9 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
     [clock, props.events, props.manualExams]
   );
   const trustedAnnouncements = useMemo(
-    () => normalizeTrustedContentCollection(props.announcements).items.filter(
+    () => normalizeTrustedContentCollection(
+      props.announcements.filter((item) => item.trustStatus === "trusted")
+    ).items.filter(
       (item) => Boolean(item.sourceId.trim() && item.sourceName.trim())
     ),
     [props.announcements]
@@ -250,10 +252,12 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
               <Button label="Akademik profili tamamla" onPress={props.onCompleteProfile} />
             </Card>
           ) : primaryState === "initial_loading" ? (
-            <View accessibilityLabel="Günlük özet yükleniyor" accessibilityRole="progressbar" accessibilityState={{ busy: true }} style={{ gap: theme.spacing.sm }}>
-              <Skeleton accessibilityLabel="" height={24} width="55%" />
-              <Skeleton accessibilityLabel="" height={92} />
-              <Skeleton accessibilityLabel="" height={128} />
+            <View accessible accessibilityLabel="Günlük özet yükleniyor" accessibilityRole="progressbar" accessibilityState={{ busy: true }} style={{ gap: theme.spacing.sm }}>
+              <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ gap: theme.spacing.sm }}>
+                <Skeleton decorative height={24} width="55%" />
+                <Skeleton decorative height={92} />
+                <Skeleton decorative height={128} />
+              </View>
             </View>
           ) : primaryState === "recoverable_error" ? (
             <Banner title="Günlük özet yüklenemedi" message={error ?? "Bağlantını kontrol edip yeniden deneyebilirsin."} tone="error" actionLabel="Tekrar dene" onAction={props.onRefresh} />

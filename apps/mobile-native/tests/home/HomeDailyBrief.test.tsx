@@ -110,6 +110,7 @@ describe("Phase 7 Home daily brief", () => {
   it("keeps initial loading, empty, and recoverable error mutually exclusive", async () => {
     const view = await renderHome(props({ events: [], announcements: [], calendarLoading: true, calendarAttempted: false, announcementLoading: true, announcementAttempted: false }));
     expect(screen.getByLabelText("Günlük özet yükleniyor").props.accessibilityState).toEqual({ busy: true });
+    expect(screen.getAllByRole("progressbar")).toHaveLength(1);
     expect(screen.queryByText("Bugün gündemin sakin")).not.toBeOnTheScreen();
     await view.rerenderAsync(
       <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 640 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
@@ -144,9 +145,17 @@ describe("Phase 7 Home daily brief", () => {
       canonicalUrl: "https://example.edu.tr/source-less",
       link: "https://example.edu.tr/source-less",
     });
-    await renderHome(props({ announcements: [...props().announcements, rejected, sourceLess] }));
+    const trustMissing = content({
+      id: "trust-missing",
+      title: "Güven durumu olmayan içerik görünmemeli",
+      canonicalUrl: "https://example.edu.tr/trust-missing",
+      link: "https://example.edu.tr/trust-missing",
+      trustStatus: undefined as unknown as "trusted",
+    });
+    await renderHome(props({ announcements: [...props().announcements, rejected, sourceLess, trustMissing] }));
     expect(screen.queryByText("Bu reddedilmiş içerik görünmemeli")).not.toBeOnTheScreen();
     expect(screen.queryByText("Kaynağı olmayan içerik görünmemeli")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Güven durumu olmayan içerik görünmemeli")).not.toBeOnTheScreen();
     expect(screen.getByText(/Yayınlandı/)).toBeOnTheScreen();
     expect(screen.getByText(/Güncellendi/)).toBeOnTheScreen();
   });

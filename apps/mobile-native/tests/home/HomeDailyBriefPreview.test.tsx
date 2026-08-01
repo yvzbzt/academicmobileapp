@@ -21,6 +21,7 @@ describe("Phase 7 synthetic Home preview", () => {
 
   it.each([
     ["incomplete", "Akademik profilin eksik"],
+    ["loading", "Günlük özet yükleniyor"],
     ["populated", "Güz dönemi ders kayıt takvimi açıklandı"],
     ["empty", "Bugün gündemin sakin"],
     ["stale", "Son bilgiler gösteriliyor"],
@@ -28,6 +29,7 @@ describe("Phase 7 synthetic Home preview", () => {
     ["long-title", "çok uzun Türkçe duyuru başlığı"],
   ] as const)("renders the %s scenario", async (scenario, expected) => {
     await renderAsync(<HomeDailyBriefPreview scenario={scenario as HomeDailyBriefPreviewScenario} preference="light" />);
-    expect(screen.getByText(new RegExp(expected, "u"))).toBeOnTheScreen();
+    const expectedPattern = new RegExp(expected, "u");
+    expect(screen.queryByText(expectedPattern) ?? screen.queryByLabelText(expectedPattern)).toBeOnTheScreen();
   });
 });

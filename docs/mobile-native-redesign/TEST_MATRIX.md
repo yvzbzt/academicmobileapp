@@ -610,15 +610,15 @@ Accepted in Phase 4: Jest Expo + React Native Testing Library is the single nati
 |---|---|
 | Incomplete profile and state exclusivity | Pure resolver plus semantic component states |
 | Retained data on refresh failure; partial/stale/offline | Pure availability resolver plus retained-content renderer case |
-| Local calendar-day Today selection and nearest future item | Pure time-zone-sensitive date fixtures |
-| Trusted-only content, publication/update semantics, recent order/limit | Content normalization plus pure/component assertions |
+| Local calendar-day Today selection and nearest future item | Pure time-zone-sensitive, date-only, and spanning-period fixtures |
+| Trusted-only content, publication/update semantics, recent order/limit | Explicit-trust presentation gate, content normalization, and pure/component assertions |
 | Announcement detail, Announcements tab, Calendar/settings actions | Full-row and labelled-button renderer interaction tests |
 | No duplicate primary-tab shortcut cards | Reachable Home renderer absence assertions |
 | 320 dp and 200% font scale | Single-column/gutter pure contract plus wrapping renderer assertions |
 | Accessibility | Headings, full row labels, logical source/title/date/action order, explicit busy state |
 | iOS/Android adaptation | Semantic theme selection; opaque Home content; shared platform primitives |
-| Synthetic native states | `incomplete`, `populated`, `empty`, `stale`, `error`, `long-title`; light/dark selected by environment |
+| Synthetic native states | `incomplete`, `loading`, `populated`, `empty`, `stale`, `error`, `long-title`; light/dark selected by environment |
 
 Focused commands are `npm.cmd test -- tests/unit/mobile-native-home.test.ts --configLoader runner`, `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/home/HomeDailyBrief.test.tsx`, and the equivalent preview test path. Final full-suite/build/native results are recorded in the Phase 7 report.
 
-Final Phase 7 results: focused Home pure coverage 1 file / 7 tests; complete native Jest 13 suites / 95 tests / 0 snapshots; API 30 files / 310 tests; full regression 46 files / 588 tests (above the 45/581 baseline); workspace/native TypeScript, admin/mobile builds, Android x86_64 assembly, whitespace, and targeted sensitive scans passed. Native artifacts are indexed in [`evidence/phase-07-native`](./evidence/phase-07-native/README.md).
+Final Phase 7 acceptance results: focused Home pure coverage 1 file / 8 tests; complete native Jest 13 suites / 96 tests / 0 snapshots; API 30 files / 310 tests; full regression 46 files / 589 tests (above the 45/581 Phase 6 baseline); workspace/native TypeScript, admin/mobile builds, and Android x86_64 assembly passed. The final whitespace, sensitive-log, and forbidden-test-modifier scans are recorded in the acceptance handoff. Native artifacts, including the reconciled loading-state pair, are indexed in [`evidence/phase-07-native`](./evidence/phase-07-native/README.md).

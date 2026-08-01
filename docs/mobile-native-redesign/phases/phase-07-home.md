@@ -11,7 +11,7 @@ Starting HEAD: `00e03ace0a05d9ee3dcdbfe8903cc5d6d34ebccb`
 - Added deterministic local-day, nearest-item, announcement ordering, recent-limit, primary-state, retained-data, integration-action, responsive, and countdown rules in `src/home/home-model.ts`.
 - Preserved Phase 1 owner-scoped personal exams and moved their existing creation entry to Calendar; Phase 9 still owns full Calendar/manual-exam redesign and edit/delete.
 - Reused Phase 2 trusted-content normalization and timestamp labels. Home re-normalizes its input fail-closed before rendering.
-- Added a development-only synthetic Home preview with incomplete, populated, empty, stale, error, and long-title fixtures, plus light/dark theme selection and local detail navigation.
+- Added a development-only synthetic Home preview with incomplete, loading, populated, empty, stale, error, and long-title fixtures, plus light/dark theme selection and local detail navigation.
 - Added focused pure and native-renderer coverage. No `.skip`, `.only`, snapshot acceptance, weakened assertion, API/schema, persistence, authentication, notification, Google Calendar, or production-data change was introduced.
 
 ## Final information hierarchy and data priority
@@ -61,18 +61,18 @@ No endpoint, DTO, schema, repository, storage key/envelope, authentication/sessi
 
 | Exact command/check | Final result |
 |---|---|
-| `npm.cmd test -- tests/unit/mobile-native-home.test.ts --configLoader runner` | PASS, 1 file / 7 tests |
+| `npm.cmd test -- tests/unit/mobile-native-home.test.ts --configLoader runner` | PASS, 1 file / 8 tests |
 | `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/home/HomeDailyBrief.test.tsx` | PASS, 1 suite / 9 tests / 0 snapshots |
-| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/home/HomeDailyBriefPreview.test.tsx` | PASS, 1 suite / 7 tests / 0 snapshots |
-| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | Final PASS, 13 suites / 95 tests / 0 snapshots, 67.579 s |
-| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS, 30 files / 310 tests, 40.93 s Vitest duration; existing non-failing Mongoose `new` deprecation warning |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/home/HomeDailyBriefPreview.test.tsx` | PASS, 1 suite / 8 tests / 0 snapshots |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | Final PASS, 13 suites / 96 tests / 0 snapshots, 27.975 s |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS, 30 files / 310 tests, 21.24 s Vitest duration; existing non-failing Mongoose `new` deprecation warning |
 | `npm.cmd run typecheck` | Final PASS |
 | `npm.cmd --prefix apps/mobile-native run typecheck` | Final PASS |
-| `npm.cmd test -- --configLoader runner` | Final PASS, 46 files / 588 tests, 44.89 s; above the 45/581 baseline |
+| `npm.cmd test -- --configLoader runner` | Final PASS, 46 files / 589 tests, 22.43 s; current count remains above the 45/581 Phase 6 baseline |
 | `npm.cmd run build:admin` | PASS, 1,742 modules, 250.51 kB main JS / 73.89 kB gzip |
 | `npm.cmd run build:mobile` | PASS, 1,754 modules, 349.18 kB main JS / 104.25 kB gzip |
-| `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` | PASS, 42 s, 245 tasks (7 executed / 238 up-to-date); 56,804,991-byte APK; SHA-256 `72B5EB3EE7AE19777BF1CF1FB6D9E2929EE4C37B0A83076DDA95C2548992F4B7` |
-| Android install/launch/Home smoke | PASS for debug install, Fabric/Metro launch, seven reviewed PNG/XML state pairs plus one complementary large-text pair, vertical scroll, and announcement-detail handoff |
+| `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` | PASS, 46 s, 245 tasks (7 executed / 238 up-to-date); 56,804,991-byte APK; SHA-256 `72B5EB3EE7AE19777BF1CF1FB6D9E2929EE4C37B0A83076DDA95C2548992F4B7` |
+| Android install/launch/Home smoke | PASS for debug install, Fabric/Metro launch, eight reviewed primary PNG/XML state pairs plus one complementary large-text pair, vertical scroll, and announcement-detail handoff |
 | `git diff --check` | PASS; line-ending conversion notices only |
 | Targeted source/evidence credential scans | PASS; no credential/log pattern found |
 | Mobile-native lint | `MOBILE_NATIVE_LINT: NOT AVAILABLE`; no lint script/config/dependency exists |
@@ -84,3 +84,7 @@ The preview contains synthetic records under `preview.edu.tr` and performs no AP
 ## Handoff
 
 Phase 8 was not started. The Announcements feed, Calendar design, and Profile screens remain their existing phased scope. Remaining release-wide issues continue under MN-019, MN-020, MN-024, MN-026–MN-034 as applicable.
+
+## Acceptance reconciliation — 2 August 2026
+
+The acceptance audit started from `ffde279964dfd67689eef469cbd3c7c1c755a00e` with the Phase 6 and candidate commits reachable and tracked/index state clean. It found and repaired three narrow Phase 7 gaps: explicit trust is now required again at the Home renderer boundary; date-only and multi-day academic periods are selected by the device local calendar day; and the initial-loading skeletons are truly decorative beneath one accessible busy region. The synthetic preview gained the missing loading fixture and reviewed Android PNG/XML evidence. No endpoint, DTO, schema, repository, persistence, authentication, integration lifecycle, production data, or Phase 8 feed file changed.

@@ -44,11 +44,28 @@ const IMPORTANT_CATEGORY_ORDER = new Map<string, number>([
 ]);
 
 export function isSameLocalCalendarDay(value: string, now: Date): boolean {
+  const dateOnly = parseDateOnly(value);
+  if (dateOnly) {
+    return dateOnly.year === now.getFullYear()
+      && dateOnly.month === now.getMonth() + 1
+      && dateOnly.day === now.getDate();
+  }
   const candidate = new Date(value);
   return !Number.isNaN(candidate.getTime())
     && candidate.getFullYear() === now.getFullYear()
     && candidate.getMonth() === now.getMonth()
     && candidate.getDate() === now.getDate();
+}
+
+export function isActiveOnLocalCalendarDay(
+  startDate: string,
+  endDate: string | undefined,
+  now: Date
+): boolean {
+  const today = localCalendarDayNumber(now);
+  const start = calendarDayNumber(startDate);
+  const end = calendarDayNumber(endDate ?? startDate);
+  return start !== null && end !== null && start <= today && today <= end;
 }
 
 export function selectTodayItems(
@@ -57,7 +74,7 @@ export function selectTodayItems(
   now: Date
 ): HomeImportantItem[] {
   const academic = events
-    .filter((event) => isSameLocalCalendarDay(event.startDate, now))
+    .filter((event) => isActiveOnLocalCalendarDay(event.startDate, event.endDate, now))
     .map(toImportantItem);
   const personal = manualExams
     .filter((exam) => isSameLocalCalendarDay(exam.examDate, now))
@@ -209,4 +226,30 @@ function compareImportantItems(left: HomeImportantItem, right: HomeImportantItem
 
 function announcementTimestamp(item: TrustedMobileContentRecord): number {
   return Date.parse(item.publishedAt ?? item.sourceUpdatedAt ?? "") || 0;
+}
+
+function calendarDayNumber(value: string): number | null {
+  const dateOnly = parseDateOnly(value);
+  if (dateOnly) return Date.UTC(dateOnly.year, dateOnly.month - 1, dateOnly.day);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : localCalendarDayNumber(date);
+}
+
+function localCalendarDayNumber(value: Date): number {
+  return Date.UTC(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function parseDateOnly(value: string): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const validation = new Date(Date.UTC(year, month - 1, day));
+  if (
+    validation.getUTCFullYear() !== year
+    || validation.getUTCMonth() !== month - 1
+    || validation.getUTCDate() !== day
+  ) return null;
+  return { year, month, day };
 }

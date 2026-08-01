@@ -9,6 +9,7 @@ All content is local synthetic `__DEV__` preview data under `preview.edu.tr`. Th
 | PNG/XML pair | Reviewed result |
 |---|---|
 | `incomplete-light` | Exclusive incomplete-profile hierarchy; primary completion action visible and reachable; no zero dashboard |
+| `loading-light` | Initial loading hierarchy with greeting/context and one labelled busy region; decorative skeletons expose no duplicate labels or roles |
 | `populated-light` | Greeting/context, Today, live remaining time, important trusted announcement; opaque single-column hierarchy |
 | `empty-light` | Genuine empty copy and Calendar action; no simultaneous loading/error |
 | `stale-light` | Retained useful content plus explicit stale/retry banner |
@@ -67,6 +68,8 @@ E5040DB7A89AE8860BDA9699E9375F5EE4DECB2C900BEEF7DBE2DE06C3E0CC74  long-title-dar
 92618AC8749602EBD6292F93EE781BD7B3F31A6381345A032AB67729AB6EFC63  populated-light.xml
 185924A3546B345E657BF52288B0F393E09E26F8D1B27E0C9F2C29D04208341A  stale-light.png
 26450DBADA488384EC7FE5047DC320130D203857D31F397B6576EDEA984F814C  stale-light.xml
+53E45030CE0FE895EAB5ABFA1B899FA3E0FD80285ACF966653CE076666245DBD  loading-light.png
+D321BD5606C3B96FA1DF3D812FBA7E19834DE6005D4E9EBC2AF71112EC2C475E  loading-light.xml
 ```
 
 ## Exact blockers

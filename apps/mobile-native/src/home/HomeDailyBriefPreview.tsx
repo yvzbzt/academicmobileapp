@@ -9,6 +9,7 @@ import { HomeDailyBrief, type HomeDailyBriefProps } from "./HomeDailyBrief";
 
 export type HomeDailyBriefPreviewScenario =
   | "incomplete"
+  | "loading"
   | "populated"
   | "empty"
   | "stale"
@@ -28,7 +29,7 @@ export function HomeDailyBriefPreview({
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<TrustedMobileContentRecord | null>(null);
   return (
     <SafeAreaProvider>
-      <ThemeProvider preference={preference}>
+      <ThemeProvider preference={preference} reducedMotion>
         <NavigationContainer>
           <PreviewStack.Navigator screenOptions={{ headerShown: false }}>
             <PreviewStack.Screen name="Home">
@@ -98,10 +99,10 @@ function previewProps(scenario: HomeDailyBriefPreviewScenario): HomeDailyBriefPr
     announcements: scenario === "populated" || scenario === "stale" || scenario === "long-title"
       ? populatedAnnouncements
       : [],
-    calendarLoading: false,
-    calendarAttempted: true,
-    announcementLoading: false,
-    announcementAttempted: true,
+    calendarLoading: scenario === "loading",
+    calendarAttempted: scenario !== "loading",
+    announcementLoading: scenario === "loading",
+    announcementAttempted: scenario !== "loading",
     calendarError: scenario === "stale" ? "Takvim kaynağı şu anda yenilenemedi." : scenario === "error" ? "Sunucuya ulaşılamadı." : undefined,
     calendarStale: scenario === "stale",
     announcementState: scenario === "stale" ? "partial" : "fresh",

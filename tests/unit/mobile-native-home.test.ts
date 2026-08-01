@@ -3,6 +3,7 @@ import {
   HOME_RECENT_ANNOUNCEMENT_LIMIT,
   formatRemainingTime,
   homeAvailability,
+  isActiveOnLocalCalendarDay,
   isSameLocalCalendarDay,
   orderHomeAnnouncements,
   resolveActionableIntegration,
@@ -42,6 +43,19 @@ describe("Phase 7 Home daily-brief contracts", () => {
       { id: "today", title: "Bugünkü kayıt", category: "course_registration", startDate: localToday },
       { id: "tomorrow", title: "Yarınki kayıt", category: "event", startDate: localTomorrow },
     ], [{ id: "exam", title: "Kişisel sınav", examDate: new Date(2026, 7, 1, 15).toISOString() }], now).map((item) => item.id)).toEqual(["today", "exam"]);
+  });
+
+  it("keeps date-only and spanning academic periods on the current local day", () => {
+    expect(isSameLocalCalendarDay("2026-08-01", now)).toBe(true);
+    expect(isActiveOnLocalCalendarDay("2026-07-30", "2026-08-02", now)).toBe(true);
+    expect(isActiveOnLocalCalendarDay("2026-08-02", "2026-08-03", now)).toBe(false);
+    expect(selectTodayItems([{
+      id: "registration-period",
+      title: "Registration period",
+      category: "course_registration",
+      startDate: "2026-07-30",
+      endDate: "2026-08-02",
+    }], [], now).map((item) => item.id)).toEqual(["registration-period"]);
   });
 
   it("selects the nearest future exam, deadline, registration period, or event", () => {
