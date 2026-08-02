@@ -271,12 +271,42 @@ describe("mobile native content-state wiring", () => {
     expect(loadableHandler).toContain("preserveDataOnRefresh && previous.data !== undefined");
     expect(loadableHandler).toContain("data: previous.data, error: message");
     expect(loadableHandler).toContain("stale: true");
-    expect(appSource).toContain("announcements.attempted && !announcements.loading && !announcements.error");
-    expect(appSource).toContain("yokAnnouncements.attempted && !yokAnnouncements.loading && !yokAnnouncements.error");
-    expect(appSource).toContain("summerSchool.attempted && !summerSchool.loading && !summerSchool.error");
-    expect(appSource).toContain("/announcements/my/trusted?limit=60");
-    expect(appSource).toContain("/announcements/yok/trusted?limit=30");
+    expect(appSource).toContain("const contentFeedAttempted = Boolean(");
+    expect(appSource).toContain("announcements.attempted");
+    expect(appSource).toContain("yokAnnouncements.attempted");
+    expect(appSource).toContain("summerSchool.attempted");
+    expect(appSource).toContain("attempted={contentFeedAttempted}");
+    expect(appSource).toContain("refreshing={contentFeedLoading && contentFeedHasRetainedData}");
+    expect(appSource).toContain("`/announcements/my/trusted?limit=${limitOverride}`");
+    expect(appSource).toContain("`/announcements/yok/trusted?limit=${limitOverride}`");
+    expect(appSource).toContain("const nextLimit = nextContentFeedLimit(contentFeedLimit)");
+    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.beginRefresh()");
+    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.beginPagination()");
+    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.isCurrent(requestLease)");
+    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.captureGeneration()");
+    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)");
+    expect(appSource.match(/settleContentFeedLoading\(previous\)/gu)).toHaveLength(3);
+    expect(appSource).toContain("isOperationCurrent: () => boolean = () => true");
+    expect(appSource).toContain("onPress={() => void refreshContentFeed()}");
+    expect(appSource).toContain("Promise.allSettled([loadMyCalendar(), loadUpcoming(), refreshContentFeed()])");
+    expect(appSource).not.toContain("onPress={() => void loadYokAnnouncements()}");
+    expect(appSource).toContain("Mevcut doğrulanmış kayıtlar korunuyor.");
     expect(appSource).toContain("normalizeTrustedContentEnvelope");
+  });
+
+  it("binds protected announcement detail routes to the requested trusted identifier", () => {
+    const protectedDetailHandler = appSource.slice(
+      appSource.indexOf("function loadProtectedAnnouncementDetail"),
+      appSource.indexOf("function openProtectedAppRoute")
+    );
+
+    expect(protectedDetailHandler).toContain("++announcementDetailRequestGenerationRef.current");
+    expect(protectedDetailHandler).toContain("item.record.id === announcementId");
+    expect(protectedDetailHandler).toContain("/announcements/my/trusted/${encodeURIComponent(announcementId)}");
+    expect(protectedDetailHandler).toContain(".find((item) => item.id === announcementId)");
+    expect(protectedDetailHandler).toContain("requestGeneration !== announcementDetailRequestGenerationRef.current");
+    expect(appSource).toContain("activeTrustedDetail.id === announcementDetailLoad.id");
+    expect(appSource.match(/invalidateContentFeedOwnership\(\);/gu)).toHaveLength(3);
   });
 
   it("revalidates official HTTP(S) links at handoff and contains Linking failures", () => {

@@ -20,7 +20,7 @@ At the Phase 3 snapshot there was no navigation library or route tree. One mount
 | 6 | Calendar | `session`, `activeTab=calendar` | Read dates and run Google sync | **Calendar tab**: timeline/planning, manual exams, event detail, integrations |
 | 7 | Summer School | `session`, `activeTab=summer` | Read summer dates/requirements/options | **Announcements** source/filter and scoped detail; calendar dates also appear in Calendar |
 | 8 | YÖK | `session`, `activeTab=yok` | Read/open YÖK announcements | **Announcements** source/filter; capability preserved, bottom tab removed |
-| 9 | Agenda | `session`, `activeTab=announcements` | Filter announcements/news/events and open official links | **Announcements tab**: current trusted content retained; Phase 8 targets a unified virtualized feed with scope/source/type filters |
+| 9 | Agenda | `session`, `activeTab=announcements` | Filter announcements/news/events and open official links | **Announcements tab**: Phase 8 now supplies the unified virtualized feed with search plus scope/source/type filters |
 | 10 | Profile | `session`, `activeTab=profile` | Academic identity, notification permission/delivery, logout/deletion | **Profile tab**: grouped identity/settings/integrations/data controls |
 
 ## Shell migration mapping
@@ -110,7 +110,7 @@ Pure and native-renderer tests cover the exact four-item map, Turkish labels, se
 | Calendar | Calendar spinner; Google checking/authorizing/syncing progress | No dates / no source-authored transferable records | Calendar inline error; Google expired/error/partial outcomes | Disconnected, checking, connected, expired, syncing, partial, error; verified mapping summary | Live verification, preflight, safe partial deletion, account change, disconnect, remove-managed, and revoke actions now exist; rendered provider-account evidence remains blocked |
 | Summer School | Payload spinner | Guidance/no requirements/no announcements/no options | Payload and source-health error/partial/stale states | University/faculty/department-scoped variants | Refresh reloads Summer and visible calendar ownership; URL-less records are non-pressable |
 | YÖK | First-entry/manual spinner | No YÖK announcements | Visible load error | External-source handoff | No page-view/open telemetry |
-| Agenda | Source spinner | No school or no matching content | Visible source error plus partial/stale retained-data states | Four local filters; grouped trusted scope sections | Source-authored timestamps and URL trust are enforced; whole feed still mounts in `ScrollView` until Phase 8 |
+| Announcements | One labelled initial busy surface; retained background refresh; pagination progress footer | Genuine empty after all sources attempt; distinct filtered no-results state | Recoverable first-load error; retained stale/partial/offline/pagination-failure feedback with retry | Debounced search; content-type and academic-source groups; YÖK/Yaz Okulu destinations; full-row in-app detail | One full-bleed `FlatList`, canonical stable keys, source-authored ordering, 20→100 controlled loading, and fail-closed Phase 2 presentation gate |
 | Profile school picker | University/faculty/department loading | Explicit no-result states | University, faculty, and department errors rendered | Selected/saving/expanded states | Complete replacement contract clears omitted descendants; broader selector visual work remains Phase 10 |
 | Notification settings | Permission inspection and device registration have checking/registering states | Preference defaults disabled | Denied, permanently denied, unavailable, token/registration/detach error | Master/mode/category drafts plus explicit delivery-active state and system-settings handoff | OS permission, FCM token rotation, backend registration/detach, and app-resume reconciliation are wired; API 33+/provider visual evidence remains blocked |
 | Logout/deletion | Global busy; destructive alerts | N/A | Controlled cleanup card lists only failed targets | Logout retains Google remote events/grant; data-delete keeps account but attempts managed-event removal/revoke; account-delete returns to Login | Session, device registration, pending notification, Google remote/local, and server cleanup are observable and retryable; recent-auth backend gap remains |
@@ -191,3 +191,34 @@ Phase 5 native shell acceptance and its exact commands, hashes, semantic asserti
 | Home | Greeting + academic context → Today → next important item → important trusted announcement → up to 3 recent trusted announcements → optional actionable integration | Incomplete profile; initial loading; populated; genuine empty; recoverable error; retained refreshing/stale/partial/offline status | Academic Profile settings; trusted Announcement detail; Announcements tab; Calendar; notification/Google Calendar settings |
 
 Removed from the reachable Home surface: untimed `Bugün / Sınav / Duyuru` counts, four duplicate destination shortcut cards, nested exam/event dashboard cards, large hero treatment, and the inline manual-exam form. The manual-exam form remains reachable on Calendar without changing its storage or API contract.
+
+## Phase 8 Announcements inventory
+
+The Phase 4/5 route ownership is retained; Phase 8 replaces the Announcements screen body and completes its existing detail route without adding a primary destination:
+
+```text
+AnnouncementsTab
+├─ Announcements
+│  ├─ Search: title, safe summary, official source name
+│  ├─ Content type: Tümü | Duyurular | Haberler | Etkinlikler
+│  ├─ Scope/source: Tüm kaynaklar | Üniversitem | Fakültem | Bölümüm | YÖK | Yaz Okulu
+│  ├─ One chronological trusted FlatList
+│  ├─ YÖK sayfasını aç → YokAnnouncements
+│  └─ Yaz Okulu sayfasını aç → SummerSchool
+├─ AnnouncementDetail({ announcementId })
+├─ YokAnnouncements
+└─ SummerSchool
+```
+
+| Surface | Final information hierarchy | Primary states/actions | Data and route boundary |
+|---|---|---|---|
+| Announcements | Title + available university/faculty/department context → labelled search → two wrapped filter groups → selected-filter/result summary → YÖK/Yaz Okulu nested destinations → availability → source-first rows → pagination footer | Initial loading; background refresh; populated; genuine empty; no-results; stale; partial; offline; recoverable error; pagination loading/failure; pull-to-refresh; retry; full-row detail | Phase 2 trusted academic and YÖK collection envelopes plus compatible trusted Summer School announcement arrays; canonical URL stable identity; no crawl/fetch ordering; 20/40/60/80/100 server limits for academic/YÖK collections |
+| Announcement detail | Trusted type/scope → wrapping title → official source/domain → publication and update labels → safe summary → controlled result banner → Share / Open Official Source | Loading; invalid/unavailable trusted record; native share busy/failure; official-handoff busy/unsupported/failure; ordinary stack Back | Carries the already normalized `ContentFeedItem` in current application memory after an allowlisted route ID is requested; revalidates trusted identity and official authority; opens the specific canonical item URL, not an arbitrary or generic source URL |
+| YÖK nested screen | Existing YÖK trusted collection and health presentation | Existing loading/empty/partial/stale/error and in-app detail entry | Remains `YokAnnouncements` inside Announcements and retains its exact protected deep link; it is also a feed source/filter, never a primary tab |
+| Summer School nested screen | Existing profile, requirement, date, announcement, and option presentation | Existing Summer School refresh and source-health states; compatible announcement rows enter detail | Remains `SummerSchool` inside Announcements and retains its exact protected deep link. Only trusted announcement DTOs join the unified feed; requirement/option/calendar payloads remain on this nested screen |
+
+Search is debounced by 300 ms and is held only in component memory. It is not logged, persisted, put in navigation params, or transmitted by the feed. Selecting a row pushes the in-app detail route; ordinary Android Back and iOS stack navigation return to the still-mounted feed, preserving its search/filter state. Selecting the dedicated YÖK or Yaz Okulu action enters the existing nested screen rather than reintroducing a bottom tab.
+
+The Phase 2 DTO currently supplies identity, source/scope/type, normalized title, optional safe summary, canonical and official URLs, source publication/update times, and freshness. It does not supply a complete body, attachments, event/deadline period, durable Save/read state, or a feed-owned calendar mutation. Phase 8 therefore renders no invented sections or disabled actions for those capabilities. Home, Calendar, Profile, auth, onboarding, provider, and persistence ownership are unchanged; Phase 9 is not started.
+
+The development-only `ContentFeedPreview` scenarios are `populated`, `search-results`, `no-results`, `active-filters`, `partial`, `stale`, `offline`, `error`, `pagination-error`, `detail`, `yok`, `summer-school`, `official-source-handoff`, `long-title`, and `long-feed`. They use synthetic trusted records only. Native Android review is indexed separately in [`evidence/phase-08-native`](./evidence/phase-08-native/README.md); until that manifest records results, no screenshot or interaction acceptance is claimed. iOS runtime and VoiceOver remain unavailable on Windows.

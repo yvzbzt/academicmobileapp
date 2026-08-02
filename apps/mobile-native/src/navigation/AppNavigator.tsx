@@ -187,11 +187,11 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
     );
   }
 
-  if (route === "Home") {
+  if (route === "Home" || route === "Announcements" || route === "AnnouncementDetail") {
     return (
       <Screen edges={[...authenticatedEdges]} fullBleed>
         {globalFeedback}
-        {screens.Home}
+        {screens[route]}
       </Screen>
     );
   }
@@ -351,7 +351,7 @@ function AnnouncementsNavigator() {
       <AnnouncementStack.Screen name="Announcements" component={AnnouncementsScreen} options={{ title: "Duyurular" }} />
       <AnnouncementStack.Screen name="SummerSchool" component={SummerSchoolScreen} options={{ title: "Yaz Okulu" }} />
       <AnnouncementStack.Screen name="YokAnnouncements" component={YokAnnouncementsScreen} options={{ title: "YÖK" }} />
-      <AnnouncementStack.Screen name="AnnouncementDetail" component={AnnouncementDetailScreen} options={{ title: "Duyuru" }} />
+      <AnnouncementStack.Screen name="AnnouncementDetail" component={AnnouncementDetailScreen} options={{ title: "İçerik" }} />
     </AnnouncementStack.Navigator>
   );
 }

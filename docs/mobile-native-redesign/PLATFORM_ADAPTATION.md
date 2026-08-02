@@ -1,6 +1,6 @@
 # Platform Adaptation Contract
 
-Last updated: 31 July 2026
+Last updated: 2 August 2026
 
 ## Shared product semantics
 
@@ -136,3 +136,13 @@ Each visual phase must capture equivalent iOS and Android states where the envir
 - Android uses the shared Material-compatible tonal hierarchy, native ripple on actionable cards/buttons, 48 dp targets, and deliberate edge-to-edge safe-area ownership. It does not imitate iOS glass.
 - Tab re-selection continues to use React Navigation's root scroll-to-top registration on the Home virtualized list. Ordinary Android Back and independent tab stacks are unchanged.
 - Windows renderer tests prove adaptation selection and semantics, not iOS runtime, Dynamic Type, VoiceOver, or Liquid Glass visual acceptance.
+
+## Phase 8 Announcements and detail adaptation
+
+- Announcements owns one full-bleed `FlatList` under the existing Announcements stack. The shell continues to own navigation insets and root re-selection; the list owns its vertical content, pull-to-refresh, incremental loading, and scroll-to-top registration. Announcement detail owns one bounded opaque `ScrollView`. Neither surface is nested in the transitional routed `ScrollView`.
+- Shared semantics are source-first rows, truthful source timestamps, wrapping title/summary, two labelled filter groups, selected-filter state, full-row detail navigation, native Share, and safe official-source handoff. Search/filter/state policy remains shared rather than being duplicated in platform files.
+- On iOS, feed rows, detail metadata, summary, banners, errors, and reading surfaces stay opaque. Liquid Glass remains eligible only for supported Phase 5 navigation/control chrome when runtime APIs allow it and Reduce Transparency is off. Windows renderer selection cannot establish iOS runtime, Dynamic Type, VoiceOver, share-sheet, external-handoff, or Liquid Glass acceptance.
+- On Android, shared semantic cards resolve to Material-compatible tonal opaque surfaces, actionable rows and buttons use native ripple, targets remain at least 48 dp, and the existing edge-to-edge/safe-area split remains in force. Ordinary stack Back returns from detail to the mounted feed and its in-memory search/filter state; predictive Back remains disabled and unclaimed.
+- Below 375 logical units the feed uses a 16-unit gutter and stacked/wrapped filter controls; at 200% font scale it retains one column and permits vertical growth. Filter choices never use a horizontally scrolling strip. Source names and Turkish titles wrap without a title line cap; the concise feed summary may be line-bounded while the detail summary remains fully readable.
+- Availability is textual and semantic on both platforms: one exclusive initial busy surface; retained background-refresh, stale, partial, and offline banners; independent no-results/empty/error surfaces; and a retained-row pagination footer. Decorative skeletons are hidden from accessibility.
+- `ContentFeedPreview` provides deterministic synthetic Android evidence scenarios behind the dual development gate. Its fixtures do not contact an API, persistence layer, provider, production account, or production data. The reviewed native result and any unresolved Android limitations belong in `evidence/phase-08-native`; no iOS result may be inferred on this Windows host.

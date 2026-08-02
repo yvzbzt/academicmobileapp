@@ -622,3 +622,54 @@ Accepted in Phase 4: Jest Expo + React Native Testing Library is the single nati
 Focused commands are `npm.cmd test -- tests/unit/mobile-native-home.test.ts --configLoader runner`, `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/home/HomeDailyBrief.test.tsx`, and the equivalent preview test path. Final full-suite/build/native results are recorded in the Phase 7 report.
 
 Final Phase 7 acceptance results: focused Home pure coverage 1 file / 8 tests; complete native Jest 13 suites / 96 tests / 0 snapshots; API 30 files / 310 tests; full regression 46 files / 589 tests (above the 45/581 Phase 6 baseline); workspace/native TypeScript, admin/mobile builds, and Android x86_64 assembly passed. The final whitespace, sensitive-log, and forbidden-test-modifier scans are recorded in the acceptance handoff. Native artifacts, including the reconciled loading-state pair, are indexed in [`evidence/phase-07-native`](./evidence/phase-07-native/README.md).
+
+## Phase 8 trusted Announcements feed matrix
+
+| Contract | Coverage added |
+|---|---|
+| Trusted-only feed gate | Pure cases for explicit trust, item/source/scope identity, normalized text, canonical/link equivalence, official institutional authority, unsafe/missing URLs, and source-less fallback rejection; component absence assertions for rejected/source-less/unsafe rows |
+| Stable identity, deduplication, and chronology | Canonical URL key/deduplication cases, duplicate API-ID case, deterministic source-family merge, publication/source-update newest-first order, and explicit discovery/fetch exclusion |
+| Search and debounce | Turkish dotted/dotless I/diacritic folding across title/summary/source, multi-token matching, 300 ms component debounce, no-results recovery, and source scan prohibiting search logging/persistence |
+| Content/source filters | Separate **İçerik türü** and **Akademik kapsam ve kaynak** groups; combined announcement/news/event and university/faculty/department/YÖK/Yaz Okulu cases; selected accessibility state and filter-result summary |
+| One virtualized feed | Renderer assertion for exactly one `FlatList`, stable key data, root scroll-to-top registration, bounded initial/batch/window settings, pull-to-refresh, and no routed `ScrollView` wrapper for Announcements/detail |
+| State exclusivity and retention | Pure dominant-state table for initial loading, background refresh, populated, empty, no-results, stale, partial, offline, recoverable error, pagination loading/failure; component cases for single busy semantics, empty/error separation, retained rows, and native network-derived offline state |
+| Controlled loading | Pure 20/40/60/80/100 ceiling/has-more policy plus renderer end-reached, loading suppression, retained pagination failure, and retry cases |
+| YÖK and Summer School | Source-family filtering, dedicated nested-destination actions, synthetic source-specific scenarios, full-row detail entry, and retained exact Announcements-stack route ownership |
+| Detail trust and content | Normalized title/source/summary, source domain disclosure, separate publication/update labels, invalid/untrusted/unsafe/mismatched-source fail-closed states, loading/error exclusivity, and 320 dp/200% markers; any requested detail ID is identity-bound to a matching cached trusted item or exact `/announcements/my/trusted/:id` result, with direct and notification-origin routes both failing closed |
+| Real actions only | Native Share payload uses normalized title plus specific canonical URL; official handoff uses the specific safe URL and contains unsupported/failure locally; explicit absence of Save/read/calendar/attachment/fake-social controls |
+| Platform and responsive selection | Android/iOS semantic markers, opaque feed/detail surfaces even when iOS material is eligible, 48 dp contract, one column, 16-unit compact gutter, wrapped filter groups, 720-unit readable width, and long Turkish fixture |
+| Accessibility | Screen/filter headings, search role/label, selected filter state, feed/detail busy state, full-row name/order, nested-destination names, destination domain disclosure, decorative skeleton suppression, and controlled error copy |
+| Synthetic native harness | Stable 15-scenario inventory, deterministic 100-record long feed, dual development gate, reserved `preview.edu.tr`/YÖK URLs, API/storage/provider import prohibition, detail→Back feed-state retention, and contained official-handoff fixture |
+| Forbidden test/product behavior | No snapshot acceptance, `.skip`, `.only`, empty assertion, blind update, raw secret/error display, fake likes/comments/reposts/connections, or invented capability action |
+
+### Phase 8 validation ledger
+
+Final validation ran from the reconciled Phase 8 worktree at pre-commit HEAD `d96dff5a3b1e6ac87ae095061946347285c0f44d`. The current test runner discovered 47 files / 621 tests, one file and 32 tests above the accepted Phase 7 result immediately above; no older fixed count was substituted.
+
+| Exact command/check | Result |
+|---|---|
+| `npm.cmd test -- tests/unit/mobile-native-content-feed.test.ts tests/unit/mobile-native-content-trust.test.ts tests/unit/mobile-native-route-foundation.test.ts --configLoader runner` | PASS, 3 files / 95 tests, 1.63 s |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/announcements/AnnouncementsFeed.test.tsx tests/announcements/AnnouncementDetail.test.tsx tests/announcements/ContentFeedPreview.test.tsx` | PASS, 3 suites / 51 tests / 0 snapshots, 30.306 s |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/announcements/AnnouncementsFeed.test.tsx tests/announcements/AnnouncementDetail.test.tsx tests/announcements/ContentFeedPreview.test.tsx tests/navigation/AppNavigator.test.tsx` | PASS, 4 suites / 65 tests / 0 snapshots, 30.378 s |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS, 16 suites / 147 tests / 0 snapshots, 74.227 s |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS, 30 files / 310 tests, 28.69 s; existing non-failing Mongoose `new` deprecation warning only |
+| `npm.cmd test -- --configLoader runner` | PASS, 47 files / 621 tests, 38.80 s; Phase 7 was 46/589 (+1 file / +32 tests) |
+| `npm.cmd run typecheck` | PASS, workspace TypeScript |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS, native TypeScript |
+| `npm.cmd run build:admin` | PASS, 1,742 modules; 250.51 kB main JS; 4.22 s |
+| `npm.cmd run build:mobile` | PASS, 1,754 modules; 349.18 kB main JS; 7.94 s |
+| `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` from `apps/mobile-native/android` | PASS: installed evidence build in 1m48s, then final incremental verification after request-ownership fixes in 1m7s; both reported 245 tasks (7 executed / 238 up-to-date) and the same 56,804,991-byte APK with SHA-256 `72B5EB3EE7AE19777BF1CF1FB6D9E2929EE4C37B0A83076DDA95C2548992F4B7` |
+| `adb install -r -d app-debug.apk` and Android feed/detail smoke on `emulator-5554` | PASS; install returned `Success`; 20 reviewed original-resolution PNG/XML pairs, interaction proofs, live-Metro clean log, and restoration record |
+| `git diff --check` | PASS |
+| Forbidden modifiers, snapshots, vacuous tests, search log/persistence, credential/production literals, unsafe preview URL, raw diagnostic search, credential diagnostic, and fatal runtime scans | PASS, no prohibited match |
+| Mobile-native lint inventory | `MOBILE_NATIVE_LINT: NOT AVAILABLE`; no lint script/config/dependency was invented, and other checks are not relabelled as lint |
+
+### Phase 8 native evidence results
+
+The dual-gated preview supplies synthetic `populated`, `search-results`, `no-results`, `active-filters`, `partial`, `stale`, `offline`, `error`, `pagination-error`, `detail`, `yok`, `summer-school`, `official-source-handoff`, `long-title`, and `long-feed` states. Native review ran on `emulator-5554` / `AcademicPhase1Low`, Android 7.0 / API 24 / x86_64, at 720×1280 physical pixels. Normal density 320 produced 360 dp at font scale 1.0; the exact compact case used density 360 for 320 dp at font scale 2.0.
+
+The 20 visually reviewed original-resolution PNG/XML pairs cover populated light/dark feeds; search result, in-app detail, same-process Android Back, and retained feed scroll; no-results; active filters; retained partial/stale banners; YÖK feed/detail; Summer School feed/detail; contained official handoff with the same PID and resumed app; exact compact dark long-title feed/detail with the official-source action reachable; and the 100-record long feed at top and after scrolling to rows 023/024. All artifacts are 720×1280, basename pairing passed, and hashes are stored in [`raw/integrity-index.txt`](./evidence/phase-08-native/raw/integrity-index.txt).
+
+The live-Metro runtime scan passed with no fatal/TypeError/runtime-error pattern. Two expected `Cannot connect to Metro` warnings emitted only after intentional development-server teardown are transparently preserved and classified separately; the teardown fatal-exception scan also passed. Debug-emulator `gfxinfo` is observational only: 547 total frames, 528 janky (96.53%), p50 26 ms, p90 42 ms, p95 46 ms, p99 61 ms. No release/performance threshold or production-runtime claim is made from that result.
+
+Restoration passed at 720×1280, density 320, font scale 1.0, with no ADB reverse, no port-8081 listener, and no app PID; the emulator was deliberately retained. `accessibility_enabled=0` and no TalkBack service was available, so UIAutomator is not screen-reader acceptance. Synthetic UI evidence does not prove live API/session/provider behavior or production data. Windows cannot supply iOS build/runtime, Dynamic Type, VoiceOver, native Share, or Liquid Glass acceptance; API 24 cannot prove predictive Back. Phase 9 was not started.

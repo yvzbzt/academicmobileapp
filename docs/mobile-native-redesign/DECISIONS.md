@@ -1,6 +1,6 @@
 # Redesign Decisions
 
-Last updated: 31 July 2026
+Last updated: 2 August 2026
 
 ## Accepted decisions
 
@@ -280,8 +280,8 @@ Collection limits are not deletion evidence. After live Google verification, eve
 | Which component test runner is compatible with the current Expo/RN stack? | Phase 4 | **Resolved by D-036:** Jest Expo + React Native Testing Library only |
 | Which native material API provides supported iOS translucent chrome? | Phase 4/11 | **Foundation resolved by D-037:** runtime-gated `expo-glass-effect`; native iOS visual acceptance remains Phase 11 |
 | Should tablets use a navigation rail/sidebar while keeping four destinations? | Phase 5/11 | Phase 5 retains the same four semantic destinations and the Android rail selected at the existing wide-width breakpoint; native tablet visual acceptance remains Phase 11 |
-| What is the durable Save model for feed items? | Phase 8 | Requires product/API decision; omit Save until persistence exists |
-| Should Share use only the native share sheet or also a backend short link? | Phase 8 | Start with privacy-reviewed native share payload; never share crawler/internal URLs blindly |
+| What is the durable Save model for feed items? | Phase 8 | **Resolved for Phase 8 by D-041:** no durable contract exists, so Save/read state is omitted; a later product/API decision is still required to add it |
+| Should Share use only the native share sheet or also a backend short link? | Phase 8 | **Resolved for Phase 8 by D-041:** use the native share sheet with normalized title and specific trusted canonical URL; no backend short link is invented |
 | What analytics provider and consent model will implement page views? | Separate approved instrumentation work | Follow the privacy-safe taxonomy in `docs/20-mobile-native-in-app-user-activity-report.md` |
 
 ## Rejected directions
@@ -299,4 +299,20 @@ Collection limits are not deletion evidence. After live Google verification, eve
 
 **Data boundary:** Calendar events and owner-scoped manual exams supply academic dates. Phase 2 normalized trusted content supplies announcements. Publication/source-update time controls announcement order; crawler discovery/fetch time never substitutes. Background refresh preserves retained content and marks refreshing/stale/partial/offline truthfully. Countdown copy is derived from a live minute clock rather than stored.
 
-**Navigation and scope:** Full announcement rows enter the existing trusted detail route, the compact recent action enters Announcements, and Calendar retains personal exam creation. Home does not reproduce the Announcements feed, Calendar, Profile, Summer School, or YÖK screens and does not add social actions or engagement metrics. Phase 8 is not started.
+**Navigation and scope:** Full announcement rows enter the existing trusted detail route, the compact recent action enters Announcements, and Calendar retains personal exam creation. Home does not reproduce the Announcements feed, Calendar, Profile, Summer School, or YÖK screens and does not add social actions or engagement metrics. Phase 8 now owns the unified Announcements experience under D-041 without changing this bounded Home contract.
+
+### D-041 — Announcements is one trusted virtualized feed with capability-honest detail
+
+**Decision:** The Announcements root is one content-first `FlatList`, not a page-wide or nested `ScrollView`. Its fixed hierarchy is academic context, labelled search, a wrapped **İçerik türü** group, a wrapped **Akademik kapsam ve kaynak** group, selected-filter/result summary, the existing YÖK/Yaz Okulu nested destinations, availability status, source-first rows, and a pagination footer. Content-type choices are **Tümü**, **Duyurular**, **Haberler**, and **Etkinlikler**; source choices are **Tüm kaynaklar**, **Üniversitem**, **Fakültem**, **Bölümüm**, **YÖK**, and **Yaz Okulu**. These controls wrap rather than becoming one horizontally scrolling strip.
+
+**Trust, identity, and time:** Phase 8 consumes only the additive Phase 2 trusted DTO and applies a second fail-closed presentation gate. Explicit trust, item/source/scope identity, already normalized display text, safe canonical/link/official URLs, and matching institutional authority are required. Canonical official URL is the stable row and deduplication identity. Publication time orders first, with source-update time as the only display fallback; discovery/fetch time never affects display order or becomes publication copy. Equivalent canonical items merge their source-family membership deterministically.
+
+**Search, availability, and loading:** Search is a 300 ms client-side match over normalized title, safe summary, and source name, including Turkish character folding. The raw query stays in component memory and is not logged, persisted, routed, or instrumented. Initial loading, background refresh, populated, genuine empty, no-results, stale, partial, offline, recoverable error, pagination loading, and pagination failure have one dominant resolver state. Useful rows survive refresh and pagination failures. The existing trusted academic and YÖK endpoints have a limit rather than a cursor/total contract, so controlled loading increases the requested cap through 20, 40, 60, 80, and 100 and stops there; it does not claim unbounded or cursor pagination.
+
+**Detail and action boundary:** Full-row selection enters the existing in-app `AnnouncementDetail` route before any external handoff. The detail revalidates the record and shows normalized title, type/scope, source name/domain, separately labelled publication/update dates, and the complete safe summary that the DTO actually supplies. Native Share includes only normalized title and the specific trusted canonical item URL. Open Official Source displays the destination domain, allowlists/canonicalizes HTTP/HTTPS again, catches unsupported/failing handoff, and leaves the current route intact when it cannot open. The Phase 2 DTO has no complete body, attachments, deadline/event period, durable Save/read state, or feed-owned calendar mutation, so Phase 8 does not invent those sections or actions.
+
+**YÖK and Summer School placement:** Trusted YÖK items and compatible trusted Summer School announcements join the same chronological feed and have source filters. `YokAnnouncements` and `SummerSchool` remain nested under Announcements with their existing exact protected deep links. Summer requirements, options, and calendar dates are separate contract shapes and remain on the nested Summer School screen; they are not coerced into trusted announcement records. Neither capability returns to primary navigation.
+
+**Platform, accessibility, and evidence boundary:** Reading surfaces remain opaque on both platforms. Eligible iOS material remains navigation/control chrome only; Android uses semantic tonal surfaces, ripple, 48 dp targets, existing edge-to-edge inset ownership, and ordinary stack Back. The feed stays one column, uses a 16-unit gutter below 375, caps readable width at 720, and exposes headings, busy state, selected filters, wrapping Turkish text, and source/time/title/summary/action reading order. `ContentFeedPreview` is dual-gated by `__DEV__` plus `EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW=1`, uses synthetic `preview.edu.tr`/YÖK records, and imports no API, persistence, or provider module. Renderer tests and the preview do not establish native iOS, VoiceOver, provider, production-data, or final Android acceptance; those results must be recorded separately.
+
+**Compatibility and rollback:** No endpoint, DTO, database schema, repository, storage key, authentication/session rule, notification lifecycle, Google Calendar lifecycle, permission, or production data changes. Rollback is code-only and leaves Phase 1–7 records and route identifiers compatible. Calendar redesign remains Phase 9 and is not part of this decision.

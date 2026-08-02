@@ -162,14 +162,26 @@ import {
   HomeDailyBriefPreview,
   type HomeDailyBriefPreviewScenario
 } from "./src/home/HomeDailyBriefPreview";
+import { AnnouncementsFeed } from "./src/announcements/AnnouncementsFeed";
+import { AnnouncementDetail } from "./src/announcements/AnnouncementDetail";
+import {
+  CONTENT_FEED_INITIAL_LIMIT,
+  CONTENT_FEED_MAX_LIMIT,
+  buildContentFeed,
+  createContentFeedRequestCoordinator,
+  nextContentFeedLimit,
+  settleContentFeedLoading,
+  type ContentFeedItem
+} from "./src/announcements/feed-model";
+import {
+  ContentFeedPreview,
+  type ContentFeedPreviewScenario
+} from "./src/announcements/ContentFeedPreview";
 
 type AuthMode = "login" | "register";
 type AlarmMode = "all_calendar" | "selected_fields";
 type TabId = "profile" | "announcements" | "home" | "calendar" | "summer" | "yok";
 type AcademicSelectionLevel = "university" | "faculty" | "department";
-type AnnouncementContentType = "announcement" | "news" | "event";
-type AnnouncementContentFilter = "all" | AnnouncementContentType;
-type AnnouncementScopeType = "university" | "faculty" | "department";
 type AuthStage =
   | "auth"
   | "verify"
@@ -786,68 +798,6 @@ function isUniversityAcademicCalendarEvent(event: EventRecord): boolean {
   return event.category !== "course_schedule" && event.category !== "department_exam_schedule";
 }
 
-const ANNOUNCEMENT_CONTENT_ORDER: AnnouncementContentType[] = ["announcement", "news", "event"];
-const ANNOUNCEMENT_SCOPE_ORDER: AnnouncementScopeType[] = ["university", "faculty", "department"];
-const ANNOUNCEMENT_CONTENT_LABELS: Record<AnnouncementContentType, string> = {
-  announcement: "Duyurular",
-  news: "Haberler",
-  event: "Etkinlikler"
-};
-const ANNOUNCEMENT_SCOPE_LABELS: Record<AnnouncementScopeType, string> = {
-  university: "Üniversite",
-  faculty: "Fakülte",
-  department: "Bölüm"
-};
-const ANNOUNCEMENT_OPEN_LABELS: Record<AnnouncementContentType, string> = {
-  announcement: "Duyuruyu Aç",
-  news: "Haberi Aç",
-  event: "Etkinliği Aç"
-};
-const ANNOUNCEMENT_FILTER_OPTIONS: Array<{
-  value: AnnouncementContentFilter;
-  label: string;
-  icon: "apps-outline" | "megaphone-outline" | "newspaper-outline" | "calendar-outline";
-}> = [
-  { value: "all", label: "Tümü", icon: "apps-outline" },
-  { value: "announcement", label: "Duyurular", icon: "megaphone-outline" },
-  { value: "news", label: "Haberler", icon: "newspaper-outline" },
-  { value: "event", label: "Etkinlikler", icon: "calendar-outline" }
-];
-
-type AnnouncementSection = {
-  key: string;
-  title: string;
-  items: AnnouncementRecord[];
-};
-
-function normalizeAnnouncementContentType(item: AnnouncementRecord): AnnouncementContentType {
-  return item.contentType === "news" || item.contentType === "event" ? item.contentType : "announcement";
-}
-
-function normalizeAnnouncementScopeType(item: AnnouncementRecord): AnnouncementScopeType {
-  return item.scopeType === "faculty" || item.scopeType === "department" ? item.scopeType : "university";
-}
-
-function groupAnnouncementsForDisplay(items: AnnouncementRecord[]): AnnouncementSection[] {
-  const sections: AnnouncementSection[] = [];
-  for (const contentType of ANNOUNCEMENT_CONTENT_ORDER) {
-    for (const scopeType of ANNOUNCEMENT_SCOPE_ORDER) {
-      const scopedItems = items.filter((item) => normalizeAnnouncementContentType(item) === contentType && normalizeAnnouncementScopeType(item) === scopeType);
-      if (scopedItems.length === 0) continue;
-      sections.push({
-        key: `${scopeType}-${contentType}`,
-        title: `${ANNOUNCEMENT_SCOPE_LABELS[scopeType]} ${ANNOUNCEMENT_CONTENT_LABELS[contentType]}`,
-        items: scopedItems
-      });
-    }
-  }
-  return sections;
-}
-
-function announcementOpenLabel(item: AnnouncementRecord): string {
-  return ANNOUNCEMENT_OPEN_LABELS[normalizeAnnouncementContentType(item)];
-}
-
 function formatDateShort(value?: string): string {
   if (!value) return "-";
   const date = new Date(value);
@@ -960,6 +910,17 @@ function contentAvailabilityMessage(state: ContentCollectionState | undefined, r
   if (state === "partial") return "Bazı kaynaklar doğrulanamadı. Kullanılabilir resmî içerik gösteriliyor.";
   if (state === "stale") return "Kaynakların son doğrulanmış içeriği gösteriliyor.";
   return null;
+}
+
+function contentFeedDetailItem(
+  record: AnnouncementRecord,
+  origin: "academic" | "yok" | "summer-school"
+): ContentFeedItem | null {
+  return buildContentFeed({
+    academic: origin === "academic" ? [record] : [],
+    yok: origin === "yok" ? [record] : [],
+    summerSchool: origin === "summer-school" ? [record] : []
+  })[0] ?? null;
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -1191,14 +1152,23 @@ function MainApplication() {
     active: false
   });
   const [notificationDestinationNotice, setNotificationDestinationNotice] = useState<NotificationDestinationNotice | null>(null);
-  const [activeTrustedDetail, setActiveTrustedDetail] = useState<{
-    type: "announcement" | "calendar_event";
+  const [activeTrustedDetail, setActiveTrustedDetail] = useState<
+    | { type: "announcement"; id: string; title: string; item: ContentFeedItem }
+    | { type: "calendar_event"; id: string; title: string }
+    | null
+  >(null);
+  const [announcementDetailLoad, setAnnouncementDetailLoad] = useState<{
     id: string;
-    title: string;
+    loading: boolean;
+    error?: string;
   } | null>(null);
   const [academicProfileExpanded, setAcademicProfileExpanded] = useState(false);
   const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
-  const [announcementContentFilter, setAnnouncementContentFilter] = useState<AnnouncementContentFilter>("all");
+  const [contentFeedLimit, setContentFeedLimit] = useState(CONTENT_FEED_INITIAL_LIMIT);
+  const [contentFeedPagination, setContentFeedPagination] = useState<{
+    loading: boolean;
+    error?: string;
+  }>({ loading: false });
   const [cleanupIssue, setCleanupIssue] = useState<{
     action: "logout" | "session_expiry" | "data_deletion" | "account_deletion" | "verification_save" | "verification_clear" | "activation" | "manual_exam_save" | "notification_settings";
     failedTargets: AccountCleanupTarget[];
@@ -1209,6 +1179,9 @@ function MainApplication() {
   const refreshSessionPromiseRef = useRef<Promise<SessionPayload | null> | null>(null);
   const academicSelectionPendingRef = useRef<AcademicSelectionLevel | null>(null);
   const accountGuardRef = useRef(new AccountGenerationGuard());
+  const announcementDetailRequestGenerationRef = useRef(0);
+  const contentFeedRequestCoordinatorRef = useRef(createContentFeedRequestCoordinator());
+  const contentFeedAbortControllerRef = useRef<AbortController | null>(null);
   const authenticatedRequestControllersRef = useRef(new Set<AbortController>());
   const storageMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const googleSdkQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -1270,22 +1243,6 @@ function MainApplication() {
     () => announcements.data?.items ?? [],
     [announcements.data]
   );
-  const announcementContentCounts = useMemo(() => ({
-    all: announcementFeed.length,
-    announcement: announcementFeed.filter((item) => normalizeAnnouncementContentType(item) === "announcement").length,
-    news: announcementFeed.filter((item) => normalizeAnnouncementContentType(item) === "news").length,
-    event: announcementFeed.filter((item) => normalizeAnnouncementContentType(item) === "event").length
-  }), [announcementFeed]);
-  const filteredAnnouncementFeed = useMemo(
-    () => announcementContentFilter === "all"
-      ? announcementFeed
-      : announcementFeed.filter((item) => normalizeAnnouncementContentType(item) === announcementContentFilter),
-    [announcementContentFilter, announcementFeed]
-  );
-  const announcementSections = useMemo(
-    () => groupAnnouncementsForDisplay(filteredAnnouncementFeed),
-    [filteredAnnouncementFeed]
-  );
   const yokAnnouncementItems = useMemo(
     () => yokAnnouncements.data?.items ?? [],
     [yokAnnouncements.data]
@@ -1301,7 +1258,40 @@ function MainApplication() {
     ]).items,
     [summerSchool.data]
   );
-  const announcementAvailabilityMessage = contentAvailabilityMessage(announcements.data?.state, announcements.stale);
+  const contentFeedHasRetainedData = announcementFeed.length > 0
+    || yokAnnouncementItems.length > 0
+    || summerSchoolAnnouncements.length > 0;
+  const contentFeedHasMore = contentFeedLimit < CONTENT_FEED_MAX_LIMIT && (
+    announcementFeed.length >= contentFeedLimit
+    || yokAnnouncementItems.length >= contentFeedLimit
+  );
+  const contentFeedSourceErrors = [announcements.error, yokAnnouncements.error, summerSchool.error]
+    .filter((value): value is string => Boolean(value));
+  const contentFeedError = contentFeedSourceErrors.join(" ") || undefined;
+  const contentFeedPartial = announcements.data?.state === "partial"
+    || yokAnnouncements.data?.state === "partial"
+    || summerSchool.data?.contentState === "partial"
+    || (
+      contentFeedHasRetainedData
+      && contentFeedSourceErrors.length > 0
+      && contentFeedSourceErrors.length < 3
+    );
+  const contentFeedStale = Boolean(
+    announcements.stale
+    || yokAnnouncements.stale
+    || summerSchool.stale
+    || announcements.data?.state === "stale"
+    || yokAnnouncements.data?.state === "stale"
+    || summerSchool.data?.contentState === "stale"
+  );
+  const contentFeedLoading = announcements.loading
+    || yokAnnouncements.loading
+    || summerSchool.loading;
+  const contentFeedAttempted = Boolean(
+    announcements.attempted
+    && yokAnnouncements.attempted
+    && summerSchool.attempted
+  );
   const yokAvailabilityMessage = contentAvailabilityMessage(yokAnnouncements.data?.state, yokAnnouncements.stale);
   const summerAvailabilityMessage = contentAvailabilityMessage(summerSchool.data?.contentState, summerSchool.stale);
   const summerDateAvailabilityMessage = contentAvailabilityMessage(undefined, calendar.stale);
@@ -1594,6 +1584,7 @@ function MainApplication() {
     ownerSnapshot: AccountGenerationSnapshot
   ): Promise<void> {
     let destinationTitle: string | undefined;
+    let destinationAnnouncement: AnnouncementRecord | undefined;
     const resolution = await resolveNotificationDestination({
       record,
       currentOwner: { ownerId: ownerSnapshot.ownerId, generation: ownerSnapshot.generation },
@@ -1635,7 +1626,10 @@ function MainApplication() {
         }
         const normalized = normalizeTrustedContentCollection([payload]);
         const match = normalized.items.find((item) => item.id === destination.id);
-        if (match) destinationTitle = match.title;
+        if (match) {
+          destinationTitle = match.title;
+          destinationAnnouncement = match;
+        }
         setAnnouncements((previous) => ({
           loading: false,
           data: normalizeTrustedContentCollection([
@@ -1675,6 +1669,36 @@ function MainApplication() {
       const targetRoute = resolution.destination.type === "announcement"
         ? "AnnouncementDetail"
         : "CalendarEventDetail";
+      if (resolution.destination.type === "announcement") {
+        announcementDetailRequestGenerationRef.current += 1;
+        setActiveTrustedDetail((previous) => previous?.type === "announcement" ? null : previous);
+        const detailItem = destinationAnnouncement
+          ? contentFeedDetailItem(destinationAnnouncement, "academic")
+          : null;
+        if (detailItem) {
+          setAnnouncementDetailLoad(null);
+          setActiveTrustedDetail({
+            type: "announcement",
+            id: detailItem.record.id,
+            title: detailItem.record.title,
+            item: detailItem
+          });
+        } else {
+          setAnnouncementDetailLoad({
+            id: resolution.destination.id,
+            loading: false,
+            error: "Güvenilir içerik doğrulanamadı."
+          });
+        }
+      } else if (resolution.destination.type === "calendar_event") {
+        announcementDetailRequestGenerationRef.current += 1;
+        setAnnouncementDetailLoad(null);
+        setActiveTrustedDetail({
+          type: "calendar_event",
+          id: resolution.destination.id,
+          title: destinationTitle ?? "Takvim ayrıntısı"
+        });
+      }
       const requestKey = requestAppRoute(
         targetRoute,
         resolution.destination.type === "announcement"
@@ -1735,7 +1759,115 @@ function MainApplication() {
     await resolvePendingNotificationForSession(record, currentSession, ownerSnapshot);
   }
 
+  function invalidateAnnouncementDetailOwnership(): void {
+    announcementDetailRequestGenerationRef.current += 1;
+    setAnnouncementDetailLoad(null);
+    setActiveTrustedDetail((previous) => previous?.type === "announcement" ? null : previous);
+  }
+
+  function invalidateContentFeedOwnership(): void {
+    contentFeedAbortControllerRef.current?.abort();
+    contentFeedAbortControllerRef.current = null;
+    contentFeedRequestCoordinatorRef.current.reset();
+    setAnnouncements((previous) => settleContentFeedLoading(previous));
+    setYokAnnouncements((previous) => settleContentFeedLoading(previous));
+    setSummerSchool((previous) => settleContentFeedLoading(previous));
+    setContentFeedPagination({ loading: false });
+    invalidateAnnouncementDetailOwnership();
+  }
+
+  function openContentFeedItem(item: ContentFeedItem): void {
+    announcementDetailRequestGenerationRef.current += 1;
+    setAnnouncementDetailLoad(null);
+    setActiveTrustedDetail({
+      type: "announcement",
+      id: item.record.id,
+      title: item.record.title,
+      item
+    });
+    requestAppRoute("AnnouncementDetail", { announcementId: item.record.id });
+  }
+
+  function loadProtectedAnnouncementDetail(announcementId: string): void {
+    const requestGeneration = ++announcementDetailRequestGenerationRef.current;
+    const cachedItem = buildContentFeed({
+      academic: announcementFeed,
+      yok: [],
+      summerSchool: []
+    }).find((item) => item.record.id === announcementId);
+
+    setActiveTrustedDetail((previous) => previous?.type === "announcement" ? null : previous);
+    if (cachedItem) {
+      setAnnouncementDetailLoad(null);
+      setActiveTrustedDetail({
+        type: "announcement",
+        id: cachedItem.record.id,
+        title: cachedItem.record.title,
+        item: cachedItem
+      });
+      return;
+    }
+
+    setAnnouncementDetailLoad({ id: announcementId, loading: true });
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot || currentSession.user.id !== ownerSnapshot.ownerId) {
+      setAnnouncementDetailLoad({
+        id: announcementId,
+        loading: false,
+        error: "Güvenilir içerik doğrulanamadı."
+      });
+      return;
+    }
+
+    void apiRequest<AnnouncementApiRecord>(
+      `/announcements/my/trusted/${encodeURIComponent(announcementId)}`,
+      {},
+      currentSession.accessToken,
+      { ownerSnapshot }
+    ).then((payload) => {
+      if (
+        requestGeneration !== announcementDetailRequestGenerationRef.current
+        || !accountGuardRef.current.isCurrent(ownerSnapshot)
+      ) return;
+      const record = normalizeTrustedContentCollection([payload]).items
+        .find((item) => item.id === announcementId);
+      const detailItem = record ? contentFeedDetailItem(record, "academic") : null;
+      if (!detailItem) {
+        setAnnouncementDetailLoad({
+          id: announcementId,
+          loading: false,
+          error: "Güvenilir içerik doğrulanamadı."
+        });
+        return;
+      }
+      setActiveTrustedDetail({
+        type: "announcement",
+        id: detailItem.record.id,
+        title: detailItem.record.title,
+        item: detailItem
+      });
+      setAnnouncementDetailLoad(null);
+    }).catch((error: unknown) => {
+      if (
+        error instanceof StaleAccountRequestError
+        || requestGeneration !== announcementDetailRequestGenerationRef.current
+        || !accountGuardRef.current.isCurrent(ownerSnapshot)
+      ) return;
+      setAnnouncementDetailLoad({
+        id: announcementId,
+        loading: false,
+        error: "Güvenilir içerik şu anda yüklenemedi."
+      });
+    });
+  }
+
   function openProtectedAppRoute(route: ProtectedAppRoute): void {
+    if (route.name === "AnnouncementDetail") {
+      loadProtectedAnnouncementDetail(route.params.announcementId);
+    } else if (route.name === "CalendarEventDetail") {
+      invalidateAnnouncementDetailOwnership();
+    }
     const target = navigationTargetForProtectedRoute(route);
     setActiveTab(target.legacyTab);
     requestAppRoute(target.route, target.params);
@@ -1976,15 +2108,19 @@ function MainApplication() {
 
   useEffect(() => {
     if (!session) return;
+    const announcementsExperienceVisible = activeTab === "announcements"
+      || activeTab === "yok"
+      || activeTab === "summer";
+    if (!announcementsExperienceVisible) return;
 
-    if (activeTab === "yok" && !yokAnnouncements.loading && !yokAnnouncements.data) {
-      void loadYokAnnouncements();
+    if (!yokAnnouncements.loading && !yokAnnouncements.data) {
+      void loadYokAnnouncements(true, contentFeedLimit);
     }
 
-    if (activeTab === "summer" && registerUniversityId && !summerSchool.loading && !summerSchool.data) {
+    if (registerUniversityId && !summerSchool.loading && !summerSchool.data) {
       void loadSummerSchool();
     }
-  }, [activeTab, session?.user.id, registerUniversityId]);
+  }, [activeTab, contentFeedLimit, session?.user.id, registerUniversityId]);
 
   useEffect(() => {
     const needsPublicCatalog = (authMode === "register" && authStage === "auth")
@@ -2805,19 +2941,24 @@ function MainApplication() {
     setter: Dispatch<SetStateAction<Loadable<T>>>,
     action: () => Promise<T>,
     ownerSnapshot: AccountGenerationSnapshot | null = accountGuardRef.current.capture(),
-    preserveDataOnRefresh = false
+    preserveDataOnRefresh = false,
+    isOperationCurrent: () => boolean = () => true
   ): Promise<T | null> {
-    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) return null;
+    if ((ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) || !isOperationCurrent()) return null;
     setter((previous) => preserveDataOnRefresh && previous.data !== undefined
       ? { loading: true, data: previous.data, attempted: true, stale: Boolean(previous.stale) }
       : { loading: true, attempted: true });
     try {
       const data = await action();
-      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) return null;
+      if ((ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) || !isOperationCurrent()) return null;
       setter({ loading: false, data, attempted: true, stale: false });
       return data;
     } catch (error) {
-      if (error instanceof StaleAccountRequestError || (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot))) {
+      if (
+        error instanceof StaleAccountRequestError
+        || (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot))
+        || !isOperationCurrent()
+      ) {
         return null;
       }
       const message = userMessageFromError(error, "İşlem tamamlanamadı. Lütfen tekrar dene.");
@@ -3741,6 +3882,14 @@ function MainApplication() {
     setAnnouncements({ loading: false });
     setYokAnnouncements({ loading: false });
     setSummerSchool({ loading: false });
+    setContentFeedLimit(CONTENT_FEED_INITIAL_LIMIT);
+    setContentFeedPagination({ loading: false });
+    contentFeedAbortControllerRef.current?.abort();
+    contentFeedAbortControllerRef.current = null;
+    contentFeedRequestCoordinatorRef.current.reset();
+    announcementDetailRequestGenerationRef.current += 1;
+    setAnnouncementDetailLoad(null);
+    setActiveTrustedDetail(null);
     setPreferences({ loading: false });
     setAlarmEnabled(false);
     setAlarmMode("all_calendar");
@@ -4226,6 +4375,7 @@ function MainApplication() {
       setAcademicProfileExpanded(true);
       setDepartments({ loading: false, data: [] });
       setSummerSchool({ loading: false });
+      invalidateContentFeedOwnership();
       setMessage({ text: "Üniversite güncellendi.", tone: "success" });
 
       void Promise.allSettled([
@@ -4272,6 +4422,7 @@ function MainApplication() {
       setRegisterPicker("department");
       setAcademicProfileExpanded(true);
       setSummerSchool({ loading: false });
+      invalidateContentFeedOwnership();
       setMessage({ text: "Fakülte güncellendi.", tone: "success" });
 
       void loadAnnouncements(accessToken, registerUniversityId);
@@ -4314,6 +4465,7 @@ function MainApplication() {
       setRegisterClassLevel(null);
       setRegisterPicker("none");
       setSummerSchool({ loading: false });
+      invalidateContentFeedOwnership();
       setMessage({ text: "Bölüm güncellendi.", tone: "success" });
 
       void loadAnnouncements(accessToken, registerUniversityId);
@@ -4367,10 +4519,13 @@ function MainApplication() {
     tokenOverride?: string,
     universityIdOverride?: string,
     ownerSnapshot = accountGuardRef.current.capture(),
-    preserveDataOnRefresh = tokenOverride === undefined && universityIdOverride === undefined
+    preserveDataOnRefresh = tokenOverride === undefined && universityIdOverride === undefined,
+    limitOverride = contentFeedLimit,
+    signal?: AbortSignal,
+    requestGeneration = contentFeedRequestCoordinatorRef.current.captureGeneration()
   ): Promise<void> {
     const token = tokenOverride ?? accessToken;
-    if (!token) return;
+    if (!token || !contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)) return;
 
     const universityId = universityIdOverride ?? registerUniversityId;
     if (!universityId) {
@@ -4380,21 +4535,39 @@ function MainApplication() {
 
     await withLoadable(
       setAnnouncements,
-      () => apiRequest<AnnouncementCollectionApiPayload>("/announcements/my/trusted?limit=60", {}, token, { ownerSnapshot })
+      () => apiRequest<AnnouncementCollectionApiPayload>(
+        `/announcements/my/trusted?limit=${limitOverride}`,
+        signal ? { signal } : {},
+        token,
+        { ownerSnapshot }
+      )
         .then(normalizeTrustedContentEnvelope),
       ownerSnapshot,
-      preserveDataOnRefresh
+      preserveDataOnRefresh,
+      () => contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)
     );
   }
 
-  async function loadYokAnnouncements(preserveDataOnRefresh = true): Promise<void> {
+  async function loadYokAnnouncements(
+    preserveDataOnRefresh = true,
+    limitOverride = contentFeedLimit,
+    signal?: AbortSignal,
+    requestGeneration = contentFeedRequestCoordinatorRef.current.captureGeneration()
+  ): Promise<void> {
     const ownerSnapshot = accountGuardRef.current.capture();
+    if (!contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)) return;
     await withLoadable(
       setYokAnnouncements,
-      () => apiRequest<AnnouncementCollectionApiPayload>("/announcements/yok/trusted?limit=30", {}, undefined, { ownerSnapshot })
+      () => apiRequest<AnnouncementCollectionApiPayload>(
+        `/announcements/yok/trusted?limit=${limitOverride}`,
+        signal ? { signal } : {},
+        undefined,
+        { ownerSnapshot }
+      )
         .then(normalizeTrustedContentEnvelope),
       ownerSnapshot,
-      preserveDataOnRefresh
+      preserveDataOnRefresh,
+      () => contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)
     );
   }
 
@@ -4402,10 +4575,12 @@ function MainApplication() {
     tokenOverride?: string,
     universityIdOverride?: string,
     ownerSnapshot = accountGuardRef.current.capture(),
-    preserveDataOnRefresh = tokenOverride === undefined && universityIdOverride === undefined
+    preserveDataOnRefresh = tokenOverride === undefined && universityIdOverride === undefined,
+    signal?: AbortSignal,
+    requestGeneration = contentFeedRequestCoordinatorRef.current.captureGeneration()
   ): Promise<void> {
     const token = tokenOverride ?? accessToken;
-    if (!token) return;
+    if (!token || !contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)) return;
 
     const universityId = universityIdOverride ?? registerUniversityId;
     if (!universityId) {
@@ -4415,10 +4590,16 @@ function MainApplication() {
 
     await withLoadable(
       setSummerSchool,
-      () => apiRequest<SummerSchoolApiPayload>("/calendar/summer-school/my", {}, token, { ownerSnapshot })
+      () => apiRequest<SummerSchoolApiPayload>(
+        "/calendar/summer-school/my",
+        signal ? { signal } : {},
+        token,
+        { ownerSnapshot }
+      )
         .then(normalizeSummerSchoolPayloadForDisplay),
       ownerSnapshot,
-      preserveDataOnRefresh
+      preserveDataOnRefresh,
+      () => contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)
     );
   }
 
@@ -4429,6 +4610,130 @@ function MainApplication() {
       loadMyCalendar(undefined, ownerSnapshot, true),
       loadSummerSchool(undefined, undefined, ownerSnapshot, true)
     ]);
+  }
+
+  async function refreshContentFeed(): Promise<void> {
+    const requestLease = contentFeedRequestCoordinatorRef.current.beginRefresh();
+    if (!requestLease) return;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!ownerSnapshot) {
+      contentFeedRequestCoordinatorRef.current.finish(requestLease);
+      return;
+    }
+    contentFeedAbortControllerRef.current?.abort();
+    const requestController = new AbortController();
+    contentFeedAbortControllerRef.current = requestController;
+    setContentFeedPagination({ loading: false });
+    try {
+      await Promise.allSettled([
+        loadAnnouncements(undefined, undefined, ownerSnapshot, true, contentFeedLimit, requestController.signal),
+        loadYokAnnouncements(true, contentFeedLimit, requestController.signal),
+        loadSummerSchool(undefined, undefined, ownerSnapshot, true, requestController.signal)
+      ]);
+    } finally {
+      if (contentFeedAbortControllerRef.current === requestController) {
+        contentFeedAbortControllerRef.current = null;
+      }
+      contentFeedRequestCoordinatorRef.current.finish(requestLease);
+    }
+  }
+
+  async function loadMoreContentFeed(): Promise<void> {
+    if (contentFeedPagination.loading || contentFeedLimit >= CONTENT_FEED_MAX_LIMIT) return;
+    const requestLease = contentFeedRequestCoordinatorRef.current.beginPagination();
+    if (!requestLease) return;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    const token = accessToken;
+    if (!ownerSnapshot || !token || !registerUniversityId) {
+      contentFeedRequestCoordinatorRef.current.finish(requestLease);
+      return;
+    }
+    const requestController = new AbortController();
+    contentFeedAbortControllerRef.current = requestController;
+
+    const nextLimit = nextContentFeedLimit(contentFeedLimit);
+    const requests: Array<{
+      kind: "academic" | "yok";
+      promise: Promise<TrustedContentCollection>;
+    }> = [];
+    if ((announcements.data?.items.length ?? 0) >= contentFeedLimit) {
+      requests.push({
+        kind: "academic",
+        promise: apiRequest<AnnouncementCollectionApiPayload>(
+          `/announcements/my/trusted?limit=${nextLimit}`,
+          { signal: requestController.signal },
+          token,
+          { ownerSnapshot }
+        ).then(normalizeTrustedContentEnvelope)
+      });
+    }
+    if ((yokAnnouncements.data?.items.length ?? 0) >= contentFeedLimit) {
+      requests.push({
+        kind: "yok",
+        promise: apiRequest<AnnouncementCollectionApiPayload>(
+          `/announcements/yok/trusted?limit=${nextLimit}`,
+          { signal: requestController.signal },
+          undefined,
+          { ownerSnapshot }
+        ).then(normalizeTrustedContentEnvelope)
+      });
+    }
+    if (requests.length === 0) {
+      if (contentFeedAbortControllerRef.current === requestController) {
+        contentFeedAbortControllerRef.current = null;
+      }
+      contentFeedRequestCoordinatorRef.current.finish(requestLease);
+      return;
+    }
+
+    setContentFeedPagination({ loading: true });
+    const results = await Promise.allSettled(requests.map((request) => request.promise));
+    if (
+      !accountGuardRef.current.isCurrent(ownerSnapshot)
+      || !contentFeedRequestCoordinatorRef.current.isCurrent(requestLease)
+    ) {
+      if (contentFeedAbortControllerRef.current === requestController) {
+        contentFeedAbortControllerRef.current = null;
+      }
+      contentFeedRequestCoordinatorRef.current.finish(requestLease);
+      return;
+    }
+
+    let failed = false;
+    results.forEach((result, index) => {
+      const request = requests[index];
+      if (!request) return;
+      if (result.status === "rejected") {
+        failed = true;
+        return;
+      }
+      const nextState: Loadable<TrustedContentCollection> = {
+        loading: false,
+        data: result.value,
+        attempted: true,
+        stale: false
+      };
+      if (request.kind === "academic") setAnnouncements(nextState);
+      else setYokAnnouncements(nextState);
+    });
+
+    if (failed) {
+      if (contentFeedAbortControllerRef.current === requestController) {
+        contentFeedAbortControllerRef.current = null;
+      }
+      contentFeedRequestCoordinatorRef.current.finish(requestLease);
+      setContentFeedPagination({
+        loading: false,
+        error: "Daha fazla içerik yüklenemedi. Mevcut doğrulanmış kayıtlar korunuyor."
+      });
+      return;
+    }
+    if (contentFeedAbortControllerRef.current === requestController) {
+      contentFeedAbortControllerRef.current = null;
+    }
+    contentFeedRequestCoordinatorRef.current.finish(requestLease);
+    setContentFeedLimit(nextLimit);
+    setContentFeedPagination({ loading: false });
   }
 
   async function loadPreferences(
@@ -5277,27 +5582,45 @@ function MainApplication() {
     }
   }
 
-  async function openAnnouncement(link: string): Promise<void> {
+  async function openAnnouncement(link: string): Promise<boolean> {
     const safeLink = canonicalizeOfficialAcademicUrl(link);
     if (!safeLink) {
       setMessage({ text: "Yalnızca doğrulanmış HTTP veya HTTPS bağlantıları açılabilir.", tone: "error" });
-      return;
+      return false;
     }
     try {
       const supported = await Linking.canOpenURL(safeLink);
       if (!supported) {
         setMessage({ text: "Bu resmî bağlantı cihazda açılamıyor.", tone: "error" });
-        return;
+        return false;
       }
       await Linking.openURL(safeLink);
+      return true;
     } catch {
       setMessage({ text: "Resmî bağlantı açılamadı. Lütfen tekrar dene.", tone: "error" });
+      return false;
     }
   }
 
-  function renderAnnouncementCard(item: AnnouncementRecord) {
+  function renderAnnouncementCard(
+    item: AnnouncementRecord,
+    origin: "academic" | "yok" | "summer-school"
+  ) {
     return (
-      <Pressable key={item.id} style={styles.announcementCard} onPress={() => void openAnnouncement(item.link)}>
+      <Pressable
+        key={item.canonicalUrl}
+        accessibilityRole="button"
+        accessibilityLabel={`${item.sourceName}. ${item.title}. ${contentTimestampLabel(item)}. Ayrıntıyı aç.`}
+        style={styles.announcementCard}
+        onPress={() => {
+          const detailItem = contentFeedDetailItem(item, origin);
+          if (!detailItem) {
+            setMessage({ text: "Bu içerik güvenilir ayrıntı sınırında doğrulanamadı.", tone: "error" });
+            return;
+          }
+          openContentFeedItem(detailItem);
+        }}
+      >
         <View style={styles.announcementTopRow}>
           <Text style={styles.announcementSourcePill}>{item.sourceName}</Text>
           <Text style={styles.announcementDate}>{contentTimestampLabel(item)}</Text>
@@ -5305,8 +5628,8 @@ function MainApplication() {
         <Text style={styles.announcementTitle}>{item.title}</Text>
         {item.summary && <Text style={styles.announcementSummary}>{item.summary}</Text>}
         <View style={styles.announcementActionRow}>
-          <Text style={styles.linkText}>{announcementOpenLabel(item)}</Text>
-          <Ionicons name="open-outline" size={16} color="#2563eb" />
+          <Text style={styles.linkText}>Ayrıntıyı aç</Text>
+          <Ionicons name="chevron-forward" size={16} color="#2563eb" />
         </View>
       </Pressable>
     );
@@ -5406,8 +5729,13 @@ function MainApplication() {
         setActiveTab("home");
         return;
       case "Announcements":
+        setActiveTab("announcements");
+        return;
       case "AnnouncementDetail":
         setActiveTab("announcements");
+        if (activeTrustedDetail?.type !== "announcement" && !announcementDetailLoad) {
+          requestAppRoute("Announcements");
+        }
         return;
       case "SummerSchool":
         setActiveTab("summer");
@@ -6769,7 +7097,7 @@ function MainApplication() {
                         </View>
                       );
                     })}
-                    {summerSchoolAnnouncements.map(renderAnnouncementCard)}
+                    {summerSchoolAnnouncements.map((item) => renderAnnouncementCard(item, "summer-school"))}
 
                     {summerSchool.attempted && !summerSchool.loading && !summerSchool.error && (summerSchool.data?.requirements ?? []).length === 0 && summerSchoolAnnouncements.length === 0 && (
                       <View style={styles.emptyStatePanel}>
@@ -6839,7 +7167,7 @@ function MainApplication() {
 
               <Pressable
                 style={[styles.button, styles.secondaryButton, (yokAnnouncements.loading || busy) && styles.buttonDisabled]}
-                onPress={() => void loadYokAnnouncements()}
+                onPress={() => void refreshContentFeed()}
                 disabled={yokAnnouncements.loading || busy}
               >
                 <Ionicons name="refresh-outline" size={18} color="#1e293b" />
@@ -6849,104 +7177,13 @@ function MainApplication() {
               {yokAnnouncements.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
               {yokAnnouncements.error && <Text style={styles.errorText}>{yokAnnouncements.error}</Text>}
               {yokAvailabilityMessage && <Text style={styles.caption}>{yokAvailabilityMessage}</Text>}
-              {yokAnnouncementItems.map(renderAnnouncementCard)}
+              {yokAnnouncementItems.map((item) => renderAnnouncementCard(item, "yok"))}
 
               {yokAnnouncements.attempted && !yokAnnouncements.loading && !yokAnnouncements.error && yokAnnouncementItems.length === 0 && (
                 <View style={styles.emptyStatePanel}>
                   <Ionicons name="newspaper-outline" size={24} color="#0f766e" />
                   <Text style={styles.emptyStateTitle}>YÖK duyurusu bulunamadı</Text>
                   <Text style={styles.caption}>Resmi kaynak yanıt verdiğinde duyurular burada listelenecek.</Text>
-                </View>
-              )}
-            </Section>
-          )}
-
-          {session && route === "Announcements" && (
-            <Section title="Duyurular, Haberler ve Etkinlikler">
-              <View style={styles.announcementHeader}>
-                <View style={styles.flexOne}>
-                  <Text style={styles.helperText}>Üniversite, fakülte ve bölüm kaynaklarından gelen içerikleri ayrı ayrı takip et.</Text>
-                  <Text style={styles.caption}>{selectedUniversity?.name ?? "Üniversite seçilmedi"}</Text>
-                </View>
-                <View style={styles.announcementCountBadge}>
-                  <Text style={styles.announcementCountValue}>{announcementFeed.length}</Text>
-                  <Text style={styles.announcementCountLabel}>kayıt</Text>
-                </View>
-              </View>
-
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.contentFilterRow}>
-                {ANNOUNCEMENT_FILTER_OPTIONS.map((option) => {
-                  const selected = announcementContentFilter === option.value;
-                  return (
-                    <Pressable
-                      key={option.value}
-                      style={[styles.contentFilterOption, selected && styles.contentFilterOptionActive]}
-                      onPress={() => setAnnouncementContentFilter(option.value)}
-                    >
-                      <Ionicons name={option.icon} size={17} color={selected ? "#ffffff" : "#475569"} />
-                      <Text style={[styles.contentFilterText, selected && styles.contentFilterTextActive]}>{option.label}</Text>
-                      <Text style={[styles.contentFilterCount, selected && styles.contentFilterCountActive]}>
-                        {announcementContentCounts[option.value]}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-
-              <Pressable
-                style={[
-                  styles.button,
-                  styles.secondaryButton,
-                  (!registerUniversityId || announcements.loading || busy) && styles.buttonDisabled
-                ]}
-                onPress={() => void loadAnnouncements()}
-                disabled={!registerUniversityId || announcements.loading || busy}
-              >
-                <Ionicons name="refresh-outline" size={18} color="#1e293b" />
-                <Text style={styles.secondaryButtonText}>{announcements.error ? "Tekrar Dene" : "Kaynakları Yenile"}</Text>
-              </Pressable>
-
-              {announcements.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
-              {announcements.error && registerUniversityId && <Text style={styles.errorText}>{announcements.error}</Text>}
-              {announcementAvailabilityMessage && <Text style={styles.caption}>{announcementAvailabilityMessage}</Text>}
-
-              {announcementSections.map((section) => (
-                <View key={section.key} style={styles.announcementGroup}>
-                  <View style={styles.announcementGroupHeader}>
-                    <Text style={styles.announcementGroupTitle}>{section.title}</Text>
-                    <Text style={styles.announcementGroupCount}>{section.items.length} kayıt</Text>
-                  </View>
-                  {section.items.map(renderAnnouncementCard)}
-                </View>
-              ))}
-
-              {announcements.attempted && !announcements.loading && !announcements.error && filteredAnnouncementFeed.length === 0 && (
-                <View style={styles.emptyStatePanel}>
-                  <Ionicons
-                    name={announcementContentFilter === "news" ? "newspaper-outline" : announcementContentFilter === "event" ? "calendar-outline" : "megaphone-outline"}
-                    size={24}
-                    color="#b45309"
-                  />
-                  <Text style={styles.emptyStateTitle}>
-                    {!registerUniversityId
-                      ? "Üniversite seçildiğinde hazır"
-                      : announcementFeed.length > 0
-                        ? "Bu filtrede sonuç yok"
-                      : announcementContentFilter === "news"
-                        ? "Henüz haber yok"
-                        : announcementContentFilter === "event"
-                          ? "Henüz etkinlik yok"
-                          : announcementContentFilter === "announcement"
-                            ? "Henüz duyuru yok"
-                            : "Henüz içerik yok"}
-                  </Text>
-                  <Text style={styles.caption}>
-                    {registerUniversityId
-                      ? announcementFeed.length > 0
-                        ? "Diğer içerik türlerini görmek için farklı bir filtre seç."
-                        : "Resmi kaynaklar güncellendiğinde yeni içerikler burada listelenecek."
-                      : "Profil sekmesinden üniversiteni seçtiğinde içerikler burada listelenecek."}
-                  </Text>
                 </View>
               )}
             </Section>
@@ -7305,30 +7542,78 @@ function MainApplication() {
       notificationActive={notificationLifecycle.active}
       onCompleteProfile={() => requestAppRoute("AcademicProfileSettings")}
       onOpenAnnouncement={(item) => {
-        setActiveTrustedDetail({ type: "announcement", id: item.id, title: item.title });
-        requestAppRoute("AnnouncementDetail", { announcementId: item.id });
+        const detailItem = contentFeedDetailItem(item, "academic");
+        if (!detailItem) return;
+        openContentFeedItem(detailItem);
       }}
       onOpenAnnouncements={() => requestAppRoute("Announcements")}
       onOpenCalendar={() => requestAppRoute("Calendar")}
       onOpenGoogleCalendarSettings={() => requestAppRoute("GoogleCalendarSettings")}
       onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
       onRefresh={() => {
-        void Promise.allSettled([loadMyCalendar(), loadUpcoming(), loadAnnouncements()]);
+        void Promise.allSettled([loadMyCalendar(), loadUpcoming(), refreshContentFeed()]);
       }}
     />
   ) : null;
 
-  const trustedDetailRecord = activeTrustedDetail
-    ?? (notificationDestinationNotice?.status === "opened" ? {
-      type: notificationDestinationNotice.destination.type,
-      id: notificationDestinationNotice.destination.id,
-      title: notificationDestinationNotice.title ?? "Güvenilir içerik"
-    } : null);
-  const trustedDetail = trustedDetailRecord
+  const announcementsContentFeed = session ? (
+    <AnnouncementsFeed
+      academicItems={announcementFeed}
+      yokItems={yokAnnouncementItems}
+      summerItems={summerSchoolAnnouncements}
+      universityName={selectedUniversity?.name}
+      facultyName={selectedFaculty?.name}
+      departmentName={selectedDepartment?.name}
+      loading={contentFeedLoading}
+      attempted={contentFeedAttempted}
+      refreshing={contentFeedLoading && contentFeedHasRetainedData}
+      error={contentFeedError}
+      stale={contentFeedStale}
+      partial={contentFeedPartial}
+      serverLimit={contentFeedLimit}
+      hasMore={contentFeedHasMore}
+      paginationLoading={contentFeedPagination.loading}
+      paginationError={contentFeedPagination.error}
+      onRefresh={() => void refreshContentFeed()}
+      onRetry={() => void refreshContentFeed()}
+      onLoadMore={() => void loadMoreContentFeed()}
+      onRetryPagination={() => void loadMoreContentFeed()}
+      onOpenItem={openContentFeedItem}
+      onOpenYok={() => requestAppRoute("YokAnnouncements")}
+      onOpenSummerSchool={() => requestAppRoute("SummerSchool")}
+    />
+  ) : null;
+
+  const routeBoundAnnouncementDetail = activeTrustedDetail?.type === "announcement"
+    && (!announcementDetailLoad || activeTrustedDetail.id === announcementDetailLoad.id)
+    ? activeTrustedDetail
+    : null;
+  const announcementDetail = (
+    <AnnouncementDetail
+      item={routeBoundAnnouncementDetail?.item ?? null}
+      loading={Boolean(announcementDetailLoad?.loading)}
+      error={announcementDetailLoad?.error}
+      onRetry={announcementDetailLoad?.error
+        ? () => loadProtectedAnnouncementDetail(announcementDetailLoad.id)
+        : undefined}
+      onOpenOfficialSource={openAnnouncement}
+    />
+  );
+  const calendarDetailRecord = activeTrustedDetail?.type === "calendar_event"
+    ? activeTrustedDetail
+    : notificationDestinationNotice?.status === "opened"
+      && notificationDestinationNotice.destination.type === "calendar_event"
+      ? {
+        type: "calendar_event" as const,
+        id: notificationDestinationNotice.destination.id,
+        title: notificationDestinationNotice.title ?? "Takvim ayrıntısı"
+      }
+      : null;
+  const calendarTrustedDetail = calendarDetailRecord
     ? (
-      <Section title={trustedDetailRecord.type === "announcement" ? "Duyuru Ayrıntısı" : "Takvim Ayrıntısı"}>
+      <Section title="Takvim Ayrıntısı">
         <View style={styles.inlineInfoCard} accessibilityLiveRegion="polite">
-          <Text style={styles.inlineInfoTitle}>{trustedDetailRecord.title}</Text>
+          <Text style={styles.inlineInfoTitle}>{calendarDetailRecord.title}</Text>
           <Text style={styles.inlineInfoText}>
             Bu kayıt güncel hesap ve güvenilir kaynak sınırı içinde tam kimliğiyle doğrulandı.
           </Text>
@@ -7365,12 +7650,12 @@ function MainApplication() {
     PasswordRecoveryConfirm: renderRoutedScreen("PasswordRecoveryConfirm"),
     AcademicOnboarding: renderRoutedScreen("AcademicOnboarding"),
     Home: homeDailyBrief,
-    Announcements: renderRoutedScreen("Announcements"),
+    Announcements: announcementsContentFeed,
     SummerSchool: renderRoutedScreen("SummerSchool"),
     YokAnnouncements: renderRoutedScreen("YokAnnouncements"),
-    AnnouncementDetail: trustedDetail,
+    AnnouncementDetail: announcementDetail,
     Calendar: renderRoutedScreen("Calendar"),
-    CalendarEventDetail: trustedDetail,
+    CalendarEventDetail: calendarTrustedDetail,
     Profile: renderRoutedScreen("Profile"),
     AcademicProfileSettings: renderRoutedScreen("AcademicProfileSettings"),
     NotificationSettings: renderRoutedScreen("NotificationSettings"),
@@ -7398,6 +7683,8 @@ function MainApplication() {
 }
 
 export default function App() {
+  const showPhase8ContentFeedPreview = __DEV__
+    && process.env.EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW === "1";
   const showPhase7HomePreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE7_HOME_PREVIEW === "1";
   const showPhase6AuthPreview = __DEV__
@@ -7406,6 +7693,18 @@ export default function App() {
     && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
+
+  if (showPhase8ContentFeedPreview) {
+    const previewTheme = process.env.EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW_THEME === "dark"
+      ? "dark"
+      : "light";
+    return (
+      <ContentFeedPreview
+        preference={previewTheme}
+        scenario={process.env.EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW_SCENARIO as ContentFeedPreviewScenario | undefined}
+      />
+    );
+  }
 
   if (showPhase7HomePreview) {
     const previewTheme = process.env.EXPO_PUBLIC_PHASE7_HOME_PREVIEW_THEME === "dark"

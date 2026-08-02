@@ -1,0 +1,13 @@
+git diff --check=PASS
+forbidden_test_modifiers=PASS (no matches)
+snapshot_assertions=PASS (no matches)
+empty_or_vacuous_tests=PASS (no matches)
+search_logging_or_persistence=PASS (no matches)
+credential_or_production_endpoint_literals=PASS (no matches)
+unsafe_preview_url_literals=PASS (no matches)
+raw_search_in_diagnostics=PASS (no matches)
+credentials_or_production_endpoints_in_diagnostics=PASS (no matches)
+fatal_runtime_patterns_live_log=PASS (no matches)
+fatal_runtime_patterns_teardown_log=PASS (no matches)
+preview_allowed_hosts=PASS (preview.edu.tr and yok.gov.tr, enforced by source assertions and native hierarchy review)
+mobile_native_lint=MOBILE_NATIVE_LINT: NOT AVAILABLE

@@ -1,0 +1,3 @@
+WM_SIZE=Physical size: 720x1280
+WM_DENSITY=Physical density: 320 Override density: 360
+FONT_SCALE=2.0
