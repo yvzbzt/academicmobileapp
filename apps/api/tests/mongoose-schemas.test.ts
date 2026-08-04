@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { academicCalendarSchema, academicEventSchema, academicUnitSuggestionSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, followedAcademicScopeSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
+import { academicCalendarSchema, academicEventSchema, academicUnitSuggestionSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, followedAcademicScopeSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, recentAuthenticationProofSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
 
 describe("mongoose schemas", () => {
   it("defaults credential generations to zero and rejects negative values", () => {
@@ -38,6 +38,33 @@ describe("mongoose schemas", () => {
       [{ tokenHash: 1 }, expect.objectContaining({ unique: true, name: "password_recovery_tokens_hash_unique" })],
       [{ userId: 1, createdAt: -1 }, expect.objectContaining({ name: "password_recovery_tokens_user_latest" })],
       [{ expiresAt: 1 }, expect.objectContaining({ expireAfterSeconds: 0, name: "password_recovery_tokens_expires_ttl" })]
+    ]));
+  });
+
+  it("stores only purpose-bound recent-authentication proof digests with TTL cleanup", () => {
+    expect(recentAuthenticationProofSchema.get("collection")).toBe("recent_authentication_proofs");
+    expect(recentAuthenticationProofSchema.path("ownerId").isRequired).toBe(true);
+    expect(recentAuthenticationProofSchema.path("credentialGeneration").options).toEqual(
+      expect.objectContaining({ required: true, min: 0 })
+    );
+    expect(recentAuthenticationProofSchema.path("purpose").options.enum).toEqual([
+      "delete_personal_data",
+      "delete_account"
+    ]);
+    for (const path of ["jtiDigest", "createdAt", "expiresAt", "consumedAt"]) {
+      expect(recentAuthenticationProofSchema.path(path), `recent-auth path ${path}`).toBeDefined();
+    }
+    expect(recentAuthenticationProofSchema.path("jti")).toBeUndefined();
+    expect(recentAuthenticationProofSchema.path("proof")).toBeUndefined();
+    expect(recentAuthenticationProofSchema.indexes()).toEqual(expect.arrayContaining([
+      [
+        { jtiDigest: 1 },
+        expect.objectContaining({ unique: true, name: "recent_authentication_proofs_jti_digest_unique" })
+      ],
+      [
+        { expiresAt: 1 },
+        expect.objectContaining({ expireAfterSeconds: 0, name: "recent_authentication_proofs_expires_ttl" })
+      ]
     ]));
   });
 

@@ -343,8 +343,18 @@ export class AuthApplicationService {
       }
     }
 
+    const issuedProof = this.tokenService.issueRecentAuthenticationProof(user, input.method, input.purpose);
+    await this.authRepository.createRecentAuthenticationProof({
+      ownerId: user.id,
+      credentialGeneration: user.credentialGeneration,
+      purpose: input.purpose,
+      jtiDigest: this.tokenService.hashRecentAuthenticationJti(issuedProof.jti),
+      createdAt: issuedProof.createdAt,
+      expiresAt: issuedProof.expiresAt
+    });
+
     return {
-      proof: this.tokenService.signRecentAuthenticationProof(user, input.method),
+      proof: issuedProof.proof,
       expiresInSeconds: this.tokenService.getRecentAuthenticationTtlSeconds()
     };
   }

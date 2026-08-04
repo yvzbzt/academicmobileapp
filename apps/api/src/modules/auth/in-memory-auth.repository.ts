@@ -6,7 +6,9 @@ import type {
   CompletePasswordRecoveryInput,
   CreateAuthUserInput,
   CreatePasswordRecoveryTokenInput,
+  CreateRecentAuthenticationProofInput,
   CreateRefreshTokenInput,
+  ConsumeRecentAuthenticationProofInput,
   EmailVerificationTokenRecord,
   PasswordRecoveryTokenRecord,
   RefreshTokenRecord
@@ -22,6 +24,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   private readonly users = new Map<string, AuthUserRecord>();
   private readonly emailVerificationTokens = new Map<string, EmailVerificationTokenRecord>();
   private readonly passwordRecoveryTokens = new Map<string, PasswordRecoveryTokenRecord>();
+  private readonly recentAuthenticationProofs = new Map<string, CreateRecentAuthenticationProofInput & { consumedAt?: Date }>();
   private readonly refreshTokens = new Map<string, RefreshTokenRecord>();
 
   async createUser(input: CreateAuthUserInput): Promise<AuthUserRecord> {
@@ -334,6 +337,29 @@ export class InMemoryAuthRepository implements AuthRepository {
     for (const [id, token] of this.passwordRecoveryTokens.entries()) {
       if (token.userId === userId) this.passwordRecoveryTokens.delete(id);
     }
+  }
+
+  async createRecentAuthenticationProof(input: CreateRecentAuthenticationProofInput): Promise<void> {
+    if (this.recentAuthenticationProofs.has(input.jtiDigest)) {
+      throw new Error("RECENT_AUTHENTICATION_JTI_DIGEST_ALREADY_EXISTS");
+    }
+    this.recentAuthenticationProofs.set(input.jtiDigest, { ...input });
+  }
+
+  async consumeRecentAuthenticationProof(input: ConsumeRecentAuthenticationProofInput): Promise<boolean> {
+    const record = this.recentAuthenticationProofs.get(input.jtiDigest);
+    if (
+      !record
+      || record.ownerId !== input.ownerId
+      || record.credentialGeneration !== input.credentialGeneration
+      || record.purpose !== input.purpose
+      || record.consumedAt
+      || record.expiresAt.getTime() <= input.consumedAt.getTime()
+    ) {
+      return false;
+    }
+    this.recentAuthenticationProofs.set(input.jtiDigest, { ...record, consumedAt: input.consumedAt });
+    return true;
   }
 
   async revokeRefreshTokensByUserId(userId: string, revokedAt: Date): Promise<void> {

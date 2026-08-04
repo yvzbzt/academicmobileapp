@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { getAuth } from "firebase-admin/auth";
+import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
 import { FirebaseAdminService } from "../../database/firebase-admin.service.js";
 
 export interface VerifiedGoogleIdentity {
@@ -53,13 +54,23 @@ type GoogleTokenInfoResponse = {
   error?: string;
 };
 
-async function verifyGoogleOAuthIdToken(idToken: string, allowedClientIds: string[]): Promise<VerifiedGoogleIdentity> {
-  const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`, {
-    signal: AbortSignal.timeout(8000)
+export async function verifyGoogleOAuthIdToken(idToken: string, allowedClientIds: string[]): Promise<VerifiedGoogleIdentity> {
+  const response = await safeOutboundRequest(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`, {
+    timeoutMs: 8_000,
+    method: "GET",
+    headers: { Accept: "application/json" },
+    maximumRedirects: 0,
+    maximumResponseBytes: 512 * 1024,
+    providerPolicy: "google-oauth-tokeninfo"
   });
 
-  const payload = (await response.json().catch(() => ({}))) as GoogleTokenInfoResponse;
-  if (!response.ok || payload.error) throw new Error("GOOGLE_TOKEN_INVALID");
+  let payload: GoogleTokenInfoResponse;
+  try {
+    payload = JSON.parse(response.body.toString("utf8")) as GoogleTokenInfoResponse;
+  } catch {
+    payload = {};
+  }
+  if (response.status < 200 || response.status >= 300 || payload.error) throw new Error("GOOGLE_TOKEN_INVALID");
   if (!payload.sub) throw new Error("GOOGLE_TOKEN_MISSING_SUBJECT");
   if (!payload.aud || !allowedClientIds.includes(payload.aud)) throw new Error("GOOGLE_TOKEN_AUDIENCE_MISMATCH");
 

@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import jwt from "jsonwebtoken";
-import type { AuthUserRecord } from "./auth.types.js";
+import type { AuthUserRecord, RecentAuthenticationPurpose } from "./auth.types.js";
 import { PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_TTL_SECONDS } from "./auth.constants.js";
 
 export interface AccessTokenPayload {
@@ -15,6 +15,15 @@ export interface RecentAuthenticationPayload {
   sub: string;
   credentialGeneration: number;
   method: "password" | "google";
+  purpose: RecentAuthenticationPurpose;
+  jti: string;
+}
+
+export interface RecentAuthenticationProofIssueResult {
+  proof: string;
+  jti: string;
+  createdAt: Date;
+  expiresAt: Date;
 }
 
 export interface RefreshTokenIssueResult {
@@ -73,20 +82,33 @@ export class TokenService {
     };
   }
 
-  signRecentAuthenticationProof(
+  issueRecentAuthenticationProof(
     user: Pick<AuthUserRecord, "id" | "credentialGeneration">,
-    method: RecentAuthenticationPayload["method"]
-  ): string {
-    return jwt.sign(
+    method: RecentAuthenticationPayload["method"],
+    purpose: RecentAuthenticationPurpose
+  ): RecentAuthenticationProofIssueResult {
+    const issuedAtSeconds = Math.floor(Date.now() / 1_000);
+    const expiresAtSeconds = issuedAtSeconds + this.recentAuthenticationTtlSeconds;
+    const jti = randomBytes(32).toString("base64url");
+    const proof = jwt.sign(
       {
         sub: user.id,
         kind: "recent_authentication",
         credentialGeneration: user.credentialGeneration,
-        method
+        method,
+        purpose,
+        jti,
+        iat: issuedAtSeconds,
+        exp: expiresAtSeconds
       },
-      this.accessTokenSecret(),
-      { expiresIn: this.recentAuthenticationTtlSeconds }
+      this.accessTokenSecret()
     );
+    return {
+      proof,
+      jti,
+      createdAt: new Date(issuedAtSeconds * 1_000),
+      expiresAt: new Date(expiresAtSeconds * 1_000)
+    };
   }
 
   verifyRecentAuthenticationProof(token: string): RecentAuthenticationPayload {
@@ -97,16 +119,31 @@ export class TokenService {
       candidate.kind !== "recent_authentication"
       || typeof candidate.sub !== "string"
       || (candidate.method !== "password" && candidate.method !== "google")
+      || (candidate.purpose !== "delete_personal_data" && candidate.purpose !== "delete_account")
+      || typeof candidate.jti !== "string"
+      || !/^[A-Za-z0-9_-]{43}$/u.test(candidate.jti)
       || !Number.isSafeInteger(candidate.credentialGeneration)
       || (candidate.credentialGeneration as number) < 0
+      || !Number.isSafeInteger(candidate.iat)
+      || !Number.isSafeInteger(candidate.exp)
+      || (candidate.exp as number) - (candidate.iat as number) !== this.recentAuthenticationTtlSeconds
+      || (candidate.iat as number) > Math.floor(Date.now() / 1_000) + 5
     ) {
       throw new Error("INVALID_RECENT_AUTHENTICATION_PROOF");
     }
     return {
       sub: candidate.sub,
       credentialGeneration: candidate.credentialGeneration as number,
-      method: candidate.method
+      method: candidate.method,
+      purpose: candidate.purpose,
+      jti: candidate.jti
     };
+  }
+
+  hashRecentAuthenticationJti(jti: string): string {
+    return createHash("sha256")
+      .update(`recent-authentication-jti:v1:${jti}`)
+      .digest("hex");
   }
 
   issueRefreshToken(existingFamilyId?: string): RefreshTokenIssueResult {

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   assertPinnedRemoteAddress,
+  GOOGLE_METADATA_TOKEN_URL,
   isForbiddenIpAddress,
   requirePublicHttpUrl,
-  resolveInvalidTlsPolicy,
   resolveSafeOutboundAddresses,
   safeOutboundRequest,
   type ResolvedOutboundAddress,
@@ -156,12 +156,104 @@ describe("safe outbound requests", () => {
     expect(requestHop).toHaveBeenCalledTimes(1);
   });
 
-  it("permits invalid TLS only behind an explicit development-only gate", () => {
-    expect(resolveInvalidTlsPolicy(false, "production")).toBe(false);
-    expect(resolveInvalidTlsPolicy(true, "development")).toBe(true);
-    expect(() => resolveInvalidTlsPolicy(true, "production"))
-      .toThrow("OUTBOUND_INVALID_TLS_DEVELOPMENT_ONLY");
-    expect(() => resolveInvalidTlsPolicy(true, "test"))
-      .toThrow("OUTBOUND_INVALID_TLS_DEVELOPMENT_ONLY");
+  it("supports bounded methods, headers, and request bodies without bypassing the pinned transport", async () => {
+    const requestHop = vi.fn(async (_url, pinnedAddress: ResolvedOutboundAddress, input): Promise<SafeOutboundHopResponse> => {
+      expect(input.method).toBe("POST");
+      expect(input.headers).toMatchObject({ "Content-Type": "application/json" });
+      expect(input.body?.toString("utf8")).toBe('{"query":"safe"}');
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from("{}"),
+        remoteAddress: pinnedAddress.address
+      };
+    });
+
+    await expect(safeOutboundRequest("https://example.edu.tr/search", {
+      timeoutMs: 1_000,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: '{"query":"safe"}',
+      maximumRequestBytes: 100,
+      maximumResponseBytes: 100,
+      maximumRedirects: 0
+    }, {
+      resolveHostname: async () => [firstPublicAddress],
+      requestHop
+    })).resolves.toEqual(expect.objectContaining({ status: 200 }));
+    expect(requestHop).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows the fixed Google metadata token endpoint only with its exact header and connected address", async () => {
+    await expect(safeOutboundRequest(GOOGLE_METADATA_TOKEN_URL, {
+      timeoutMs: 1_000,
+      headers: { "Metadata-Flavor": "Google" },
+      maximumRedirects: 0,
+      maximumResponseBytes: 1024,
+      providerPolicy: "google-metadata-token"
+    }, {
+      resolveHostname: async () => [{ address: "169.254.169.254", family: 4 }],
+      requestHop: async (_url, pinnedAddress) => ({
+        status: 200,
+        headers: {},
+        body: Buffer.from('{"access_token":"fixture"}'),
+        remoteAddress: pinnedAddress.address
+      })
+    })).resolves.toEqual(expect.objectContaining({ status: 200 }));
+
+    await expect(safeOutboundRequest("http://169.254.169.254/latest/meta-data", {
+      timeoutMs: 1_000,
+      headers: { "Metadata-Flavor": "Google" },
+      maximumRedirects: 0,
+      maximumResponseBytes: 1024,
+      providerPolicy: "google-metadata-token"
+    })).rejects.toThrow("OUTBOUND_METADATA_URL_FORBIDDEN");
+
+    await expect(safeOutboundRequest(GOOGLE_METADATA_TOKEN_URL, {
+      timeoutMs: 1_000,
+      maximumRedirects: 0,
+      maximumResponseBytes: 1024,
+      providerPolicy: "google-metadata-token"
+    })).rejects.toThrow("OUTBOUND_METADATA_HEADER_REQUIRED");
+  });
+
+  it("rejects provider policies used for arbitrary authorities", async () => {
+    await expect(safeOutboundRequest("https://attacker.example/tokeninfo?id_token=fixture", {
+      timeoutMs: 1_000,
+      maximumRedirects: 0,
+      maximumResponseBytes: 1024,
+      providerPolicy: "google-oauth-tokeninfo"
+    })).rejects.toThrow("OUTBOUND_GOOGLE_AUTHORITY_FORBIDDEN");
+
+    await expect(safeOutboundRequest("https://attacker.example/v1/projects/p/locations/eu/processors/x:process", {
+      timeoutMs: 1_000,
+      method: "POST",
+      headers: {
+        Authorization: "Bearer fixture",
+        "Content-Type": "application/json"
+      },
+      body: "{}",
+      maximumRedirects: 0,
+      maximumRequestBytes: 1024,
+      maximumResponseBytes: 1024,
+      providerPolicy: "google-document-ai"
+    })).rejects.toThrow("OUTBOUND_GOOGLE_AUTHORITY_FORBIDDEN");
+  });
+
+  it("does not forward credential-bearing headers across authorities", async () => {
+    const requestHop = vi.fn(async (_url: string, pinnedAddress: ResolvedOutboundAddress): Promise<SafeOutboundHopResponse> => ({
+      status: 302,
+      headers: { location: "https://cdn.example.edu.tr/result" },
+      body: Buffer.alloc(0),
+      remoteAddress: pinnedAddress.address
+    }));
+    await expect(safeOutboundRequest("https://example.edu.tr/start", {
+      timeoutMs: 1_000,
+      headers: { Authorization: "Bearer fixture" }
+    }, {
+      resolveHostname: async () => [firstPublicAddress],
+      requestHop
+    })).rejects.toThrow("OUTBOUND_REDIRECT_SENSITIVE_HEADERS_FORBIDDEN");
+    expect(requestHop).toHaveBeenCalledTimes(1);
   });
 });

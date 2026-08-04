@@ -19,12 +19,23 @@ export interface SafeOutboundResponse extends SafeOutboundHopResponse {
   finalUrl: string;
 }
 
+export type SafeOutboundHttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
+export type SafeOutboundProviderPolicy =
+  | "public"
+  | "google-oauth-tokeninfo"
+  | "google-document-ai"
+  | "google-metadata-token"
+  | "yok-atlas";
+
 export interface SafeOutboundRequestOptions {
   timeoutMs: number;
+  method?: SafeOutboundHttpMethod;
   headers?: OutgoingHttpHeaders;
+  body?: string | Buffer | Uint8Array;
   maximumRedirects?: number;
+  maximumRequestBytes?: number;
   maximumResponseBytes?: number;
-  allowInvalidTls?: boolean;
+  providerPolicy?: SafeOutboundProviderPolicy;
   validateUrl?: (candidate: string, previousUrl?: string) => string;
 }
 
@@ -35,15 +46,21 @@ export interface SafeOutboundRequestDependencies {
     pinnedAddress: ResolvedOutboundAddress,
     input: {
       timeoutMs: number;
+      method: SafeOutboundHttpMethod;
       headers: OutgoingHttpHeaders;
+      body?: Buffer;
       maximumResponseBytes: number;
-      allowInvalidTls: boolean;
+      providerPolicy: SafeOutboundProviderPolicy;
     }
   ) => Promise<SafeOutboundHopResponse>;
 }
 
 const DEFAULT_MAXIMUM_REDIRECTS = 5;
+const DEFAULT_MAXIMUM_REQUEST_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAXIMUM_RESPONSE_BYTES = 5 * 1024 * 1024;
+const GOOGLE_METADATA_ADDRESS = "169.254.169.254";
+export const GOOGLE_METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
+export const YOK_ATLAS_SEARCH_URL = "https://yokatlas.yok.gov.tr/api/tercih-kilavuz/search";
 
 let testDependencies: SafeOutboundRequestDependencies | undefined;
 
@@ -62,43 +79,68 @@ export async function safeOutboundRequest(
   options: SafeOutboundRequestOptions,
   dependencies?: SafeOutboundRequestDependencies
 ): Promise<SafeOutboundResponse> {
+  if (dependencies && process.env.NODE_ENV !== "test") {
+    throw new Error("OUTBOUND_TEST_DEPENDENCIES_FORBIDDEN");
+  }
+  const method = options.method ?? "GET";
+  const providerPolicy = options.providerPolicy ?? "public";
   const timeoutMs = requirePositiveInteger(options.timeoutMs, "OUTBOUND_TIMEOUT_INVALID");
   const maximumRedirects = requireNonNegativeInteger(
-    options.maximumRedirects ?? DEFAULT_MAXIMUM_REDIRECTS,
+    options.maximumRedirects ?? defaultRedirectLimit(providerPolicy),
     "OUTBOUND_REDIRECT_LIMIT_INVALID"
+  );
+  const maximumRequestBytes = requirePositiveInteger(
+    options.maximumRequestBytes ?? DEFAULT_MAXIMUM_REQUEST_BYTES,
+    "OUTBOUND_REQUEST_LIMIT_INVALID"
   );
   const maximumResponseBytes = requirePositiveInteger(
     options.maximumResponseBytes ?? DEFAULT_MAXIMUM_RESPONSE_BYTES,
     "OUTBOUND_RESPONSE_LIMIT_INVALID"
   );
-  const allowInvalidTls = resolveInvalidTlsPolicy(options.allowInvalidTls === true);
+  const headers = sanitizeOutboundHeaders(options.headers ?? {});
+  const body = normalizeRequestBody(options.body, maximumRequestBytes);
+  validateRequestPolicy({
+    method,
+    headers,
+    body,
+    maximumRedirects,
+    maximumRequestBytes,
+    maximumResponseBytes,
+    providerPolicy,
+    timeoutMs
+  });
   const effectiveDependencies = dependencies ?? testDependencies ?? {};
   const resolveHostname = effectiveDependencies.resolveHostname ?? resolveHostnameWithSystemDns;
   const requestHop = effectiveDependencies.requestHop ?? requestPinnedHop;
   const deadline = Date.now() + timeoutMs;
 
-  let currentUrl = validateOutboundUrl(sourceUrl, undefined, options.validateUrl);
+  let currentUrl = validateOutboundUrl(sourceUrl, undefined, options.validateUrl, providerPolicy);
   for (let redirectCount = 0; redirectCount <= maximumRedirects; redirectCount += 1) {
     const remainingMs = Math.max(0, deadline - Date.now());
     if (remainingMs <= 0) throw new Error("OUTBOUND_REQUEST_TIMEOUT");
     const url = new URL(currentUrl);
     const addresses = await withTimeout(
-      resolveSafeOutboundAddresses(url.hostname, resolveHostname),
+      resolveOutboundAddressesForPolicy(url.hostname, providerPolicy, resolveHostname),
       remainingMs,
       "OUTBOUND_REQUEST_TIMEOUT"
     );
     const response = await requestResolvedHop(currentUrl, addresses, {
       deadline,
-      headers: options.headers ?? {},
+      method,
+      headers,
+      ...(body ? { body } : {}),
       maximumResponseBytes,
-      allowInvalidTls
+      providerPolicy
     }, requestHop);
 
     const location = firstHeaderValue(response.headers.location);
     if (response.status >= 300 && response.status < 400) {
       if (!location) throw new Error("OUTBOUND_REDIRECT_LOCATION_MISSING");
+      const redirectUrl = validateOutboundUrl(location, currentUrl, options.validateUrl, providerPolicy);
+      assertRedirectHeadersSafe(currentUrl, redirectUrl, headers);
       if (redirectCount >= maximumRedirects) throw new Error("OUTBOUND_REDIRECT_LIMIT");
-      currentUrl = validateOutboundUrl(location, currentUrl, options.validateUrl);
+      if (method !== "GET" && method !== "HEAD") throw new Error("OUTBOUND_REDIRECT_METHOD_FORBIDDEN");
+      currentUrl = redirectUrl;
       continue;
     }
 
@@ -203,12 +245,288 @@ export function isForbiddenIpAddress(addressInput: string): boolean {
   ].some(([base, prefix]) => isInCidr(ipv6, parseIpv6(String(base))!, Number(prefix), 128));
 }
 
-export function resolveInvalidTlsPolicy(requested: boolean, environment = process.env.NODE_ENV): boolean {
-  if (!requested) return false;
-  if (environment !== "development") {
-    throw new Error("OUTBOUND_INVALID_TLS_DEVELOPMENT_ONLY");
+function defaultRedirectLimit(providerPolicy: SafeOutboundProviderPolicy): number {
+  return providerPolicy === "public" ? DEFAULT_MAXIMUM_REDIRECTS : 0;
+}
+
+function normalizeRequestBody(
+  body: SafeOutboundRequestOptions["body"],
+  maximumRequestBytes: number
+): Buffer | undefined {
+  if (body === undefined) return undefined;
+  const normalized = typeof body === "string" ? Buffer.from(body, "utf8") : Buffer.from(body);
+  if (normalized.length > maximumRequestBytes) throw new Error("OUTBOUND_REQUEST_TOO_LARGE");
+  return normalized;
+}
+
+function sanitizeOutboundHeaders(headers: OutgoingHttpHeaders): OutgoingHttpHeaders {
+  const sanitized: OutgoingHttpHeaders = {};
+  const forbidden = new Set([
+    "connection",
+    "content-length",
+    "host",
+    "proxy-authorization",
+    "proxy-connection",
+    "transfer-encoding",
+    "upgrade"
+  ]);
+  const seen = new Set<string>();
+  for (const [name, rawValue] of Object.entries(headers)) {
+    const normalizedName = name.trim().toLocaleLowerCase("en-US");
+    if (!normalizedName || forbidden.has(normalizedName)) throw new Error("OUTBOUND_HEADER_FORBIDDEN");
+    if (seen.has(normalizedName)) throw new Error("OUTBOUND_HEADER_DUPLICATE");
+    seen.add(normalizedName);
+    if (rawValue === undefined) continue;
+    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    if (values.some((value) => (
+      (typeof value !== "string" && typeof value !== "number")
+      || (typeof value === "number" && !Number.isFinite(value))
+      || /[\r\n]/u.test(String(value))
+    ))) {
+      throw new Error("OUTBOUND_HEADER_INVALID");
+    }
+    sanitized[name] = rawValue;
   }
-  return true;
+  return sanitized;
+}
+
+function validateRequestPolicy(input: {
+  method: SafeOutboundHttpMethod;
+  headers: OutgoingHttpHeaders;
+  body: Buffer | undefined;
+  maximumRedirects: number;
+  maximumRequestBytes: number;
+  maximumResponseBytes: number;
+  providerPolicy: SafeOutboundProviderPolicy;
+  timeoutMs: number;
+}): void {
+  if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].includes(input.method)) {
+    throw new Error("OUTBOUND_METHOD_FORBIDDEN");
+  }
+  if ((input.method === "GET" || input.method === "HEAD") && input.body) {
+    throw new Error("OUTBOUND_REQUEST_BODY_FORBIDDEN");
+  }
+
+  switch (input.providerPolicy) {
+    case "public":
+      return;
+    case "google-oauth-tokeninfo":
+      requireProviderRequest(input, {
+        method: "GET",
+        maximumRedirects: 0,
+        maximumResponseBytes: 512 * 1024,
+        timeoutMs: 10_000
+      });
+      if (input.body) throw new Error("OUTBOUND_PROVIDER_BODY_FORBIDDEN");
+      return;
+    case "google-document-ai":
+      requireProviderRequest(input, {
+        method: "POST",
+        maximumRedirects: 0,
+        maximumRequestBytes: 80 * 1024 * 1024,
+        maximumResponseBytes: 16 * 1024 * 1024,
+        timeoutMs: 60_000
+      });
+      if (!input.body) throw new Error("OUTBOUND_PROVIDER_BODY_REQUIRED");
+      if (!/^Bearer\s+\S+$/u.test(readHeader(input.headers, "authorization") ?? "")) {
+        throw new Error("OUTBOUND_PROVIDER_AUTHORIZATION_REQUIRED");
+      }
+      if (!/^application\/json(?:\s*;|$)/iu.test(readHeader(input.headers, "content-type") ?? "")) {
+        throw new Error("OUTBOUND_PROVIDER_CONTENT_TYPE_REQUIRED");
+      }
+      return;
+    case "google-metadata-token":
+      requireProviderRequest(input, {
+        method: "GET",
+        maximumRedirects: 0,
+        maximumResponseBytes: 32 * 1024,
+        timeoutMs: 2_500
+      });
+      if (input.body) throw new Error("OUTBOUND_METADATA_BODY_FORBIDDEN");
+      if (readHeader(input.headers, "metadata-flavor") !== "Google") {
+        throw new Error("OUTBOUND_METADATA_HEADER_REQUIRED");
+      }
+      return;
+    case "yok-atlas":
+      requireProviderRequest(input, {
+        method: "POST",
+        maximumRedirects: 0,
+        maximumRequestBytes: 256 * 1024,
+        maximumResponseBytes: 32 * 1024 * 1024,
+        timeoutMs: 30_000
+      });
+      if (!input.body) throw new Error("OUTBOUND_PROVIDER_BODY_REQUIRED");
+      if (!/^application\/json(?:\s*;|$)/iu.test(readHeader(input.headers, "content-type") ?? "")) {
+        throw new Error("OUTBOUND_PROVIDER_CONTENT_TYPE_REQUIRED");
+      }
+      return;
+    default:
+      throw new Error("OUTBOUND_PROVIDER_POLICY_INVALID");
+  }
+}
+
+function requireProviderRequest(
+  input: {
+    method: SafeOutboundHttpMethod;
+    maximumRedirects: number;
+    maximumRequestBytes: number;
+    maximumResponseBytes: number;
+    timeoutMs: number;
+  },
+  limits: {
+    method: SafeOutboundHttpMethod;
+    maximumRedirects: number;
+    maximumRequestBytes?: number;
+    maximumResponseBytes: number;
+    timeoutMs: number;
+  }
+): void {
+  if (input.method !== limits.method) throw new Error("OUTBOUND_PROVIDER_METHOD_FORBIDDEN");
+  if (input.maximumRedirects > limits.maximumRedirects) throw new Error("OUTBOUND_PROVIDER_REDIRECT_LIMIT");
+  if (limits.maximumRequestBytes !== undefined && input.maximumRequestBytes > limits.maximumRequestBytes) {
+    throw new Error("OUTBOUND_PROVIDER_REQUEST_LIMIT");
+  }
+  if (input.maximumResponseBytes > limits.maximumResponseBytes) throw new Error("OUTBOUND_PROVIDER_RESPONSE_LIMIT");
+  if (input.timeoutMs > limits.timeoutMs) throw new Error("OUTBOUND_PROVIDER_TIMEOUT_LIMIT");
+}
+
+function readHeader(headers: OutgoingHttpHeaders, requestedName: string): string | undefined {
+  const entry = Object.entries(headers).find(([name]) => name.toLocaleLowerCase("en-US") === requestedName);
+  if (!entry || entry[1] === undefined || Array.isArray(entry[1])) return undefined;
+  return String(entry[1]);
+}
+
+function assertRedirectHeadersSafe(
+  currentUrl: string,
+  redirectUrl: string,
+  headers: OutgoingHttpHeaders
+): void {
+  if (new URL(currentUrl).protocol === "https:" && new URL(redirectUrl).protocol !== "https:") {
+    throw new Error("OUTBOUND_REDIRECT_DOWNGRADE_FORBIDDEN");
+  }
+  if (new URL(currentUrl).origin === new URL(redirectUrl).origin) return;
+  const sensitiveNames = /^(?:authorization|cookie|proxy-authorization|x-api-key|x-auth-token)$/iu;
+  if (Object.keys(headers).some((name) => sensitiveNames.test(name))) {
+    throw new Error("OUTBOUND_REDIRECT_SENSITIVE_HEADERS_FORBIDDEN");
+  }
+}
+
+function requireProviderPolicyUrl(
+  candidate: string,
+  baseUrl: string | undefined,
+  providerPolicy: SafeOutboundProviderPolicy
+): string {
+  if (providerPolicy === "google-metadata-token") {
+    return requireGoogleMetadataTokenUrl(candidate, baseUrl);
+  }
+
+  const absolute = requirePublicHttpUrl(candidate, baseUrl);
+  const url = new URL(absolute);
+  switch (providerPolicy) {
+    case "public":
+      return absolute;
+    case "google-oauth-tokeninfo": {
+      const parameterNames = [...url.searchParams.keys()];
+      if (
+        url.protocol !== "https:"
+        || url.hostname !== "oauth2.googleapis.com"
+        || url.pathname !== "/tokeninfo"
+        || url.hash
+        || parameterNames.length !== 1
+        || parameterNames[0] !== "id_token"
+        || !url.searchParams.get("id_token")
+      ) {
+        throw new Error("OUTBOUND_GOOGLE_AUTHORITY_FORBIDDEN");
+      }
+      return url.toString();
+    }
+    case "google-document-ai": {
+      const location = url.pathname.match(/^\/v1\/projects\/[^/]+\/locations\/([^/]+)\/processors\/[^/]+(?::process|\/processorVersions\/[^/]+:process)$/u)?.[1];
+      if (
+        url.protocol !== "https:"
+        || !location
+        || url.hostname !== `${location.toLocaleLowerCase("en-US")}-documentai.googleapis.com`
+        || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(location)
+        || url.search
+        || url.hash
+      ) {
+        throw new Error("OUTBOUND_GOOGLE_AUTHORITY_FORBIDDEN");
+      }
+      return url.toString();
+    }
+    case "yok-atlas":
+      if (url.toString() !== YOK_ATLAS_SEARCH_URL) throw new Error("OUTBOUND_YOK_ATLAS_AUTHORITY_FORBIDDEN");
+      return url.toString();
+    default:
+      throw new Error("OUTBOUND_PROVIDER_POLICY_INVALID");
+  }
+}
+
+function requireGoogleMetadataTokenUrl(candidate: string, baseUrl?: string): string {
+  let url: URL;
+  try {
+    url = baseUrl ? new URL(candidate, baseUrl) : new URL(candidate);
+  } catch {
+    throw new Error("OUTBOUND_URL_INVALID");
+  }
+  if (url.username || url.password) throw new Error("OUTBOUND_URL_CREDENTIALS_FORBIDDEN");
+  if (url.toString() !== GOOGLE_METADATA_TOKEN_URL) throw new Error("OUTBOUND_METADATA_URL_FORBIDDEN");
+  return url.toString();
+}
+
+async function resolveOutboundAddressesForPolicy(
+  hostname: string,
+  providerPolicy: SafeOutboundProviderPolicy,
+  resolveHostname: (hostname: string) => Promise<readonly ResolvedOutboundAddress[]>
+): Promise<ResolvedOutboundAddress[]> {
+  if (providerPolicy !== "google-metadata-token") {
+    return resolveSafeOutboundAddresses(hostname, resolveHostname);
+  }
+  if (hostname !== "metadata.google.internal") throw new Error("OUTBOUND_METADATA_URL_FORBIDDEN");
+  const resolved = await resolveHostname(hostname).catch(() => {
+    throw new Error("OUTBOUND_DNS_LOOKUP_FAILED");
+  });
+  if (resolved.length === 0) throw new Error("OUTBOUND_DNS_NO_ADDRESS");
+  const unique = new Map<string, ResolvedOutboundAddress>();
+  for (const candidate of resolved) {
+    if (
+      candidate.family !== 4
+      || isIP(stripAddressZone(candidate.address)) !== 4
+      || normalizeIpAddress(candidate.address) !== normalizeIpAddress(GOOGLE_METADATA_ADDRESS)
+    ) {
+      throw new Error("OUTBOUND_METADATA_ADDRESS_FORBIDDEN");
+    }
+    unique.set(normalizeIpAddress(candidate.address), {
+      address: stripAddressZone(candidate.address),
+      family: 4
+    });
+  }
+  return [...unique.values()];
+}
+
+function assertPinnedRemoteAddressForPolicy(
+  pinnedAddress: ResolvedOutboundAddress,
+  remoteAddress: string | undefined,
+  providerPolicy: SafeOutboundProviderPolicy
+): void {
+  if (providerPolicy !== "google-metadata-token") {
+    assertPinnedRemoteAddress(pinnedAddress, remoteAddress);
+    return;
+  }
+  if (
+    !remoteAddress
+    || normalizeIpAddress(pinnedAddress.address) !== normalizeIpAddress(GOOGLE_METADATA_ADDRESS)
+    || normalizeIpAddress(remoteAddress) !== normalizeIpAddress(GOOGLE_METADATA_ADDRESS)
+  ) {
+    throw new Error("OUTBOUND_METADATA_CONNECTED_ADDRESS_FORBIDDEN");
+  }
+}
+
+function assertBoundedResponse(response: SafeOutboundHopResponse, maximumResponseBytes: number): void {
+  const declaredLength = Number(firstHeaderValue(response.headers["content-length"]));
+  if ((Number.isFinite(declaredLength) && declaredLength > maximumResponseBytes) || response.body.length > maximumResponseBytes) {
+    throw new Error("OUTBOUND_RESPONSE_TOO_LARGE");
+  }
 }
 
 async function requestResolvedHop(
@@ -216,9 +534,11 @@ async function requestResolvedHop(
   addresses: readonly ResolvedOutboundAddress[],
   input: {
     deadline: number;
+    method: SafeOutboundHttpMethod;
     headers: OutgoingHttpHeaders;
+    body?: Buffer;
     maximumResponseBytes: number;
-    allowInvalidTls: boolean;
+    providerPolicy: SafeOutboundProviderPolicy;
   },
   requestHop: NonNullable<SafeOutboundRequestDependencies["requestHop"]>
 ): Promise<SafeOutboundHopResponse> {
@@ -227,11 +547,23 @@ async function requestResolvedHop(
     try {
       const timeoutMs = Math.max(0, input.deadline - Date.now());
       if (timeoutMs <= 0) throw new Error("OUTBOUND_REQUEST_TIMEOUT");
-      const response = await requestHop(url, address, { ...input, timeoutMs });
-      assertPinnedRemoteAddress(address, response.remoteAddress);
+      const response = await withTimeout(
+        requestHop(url, address, {
+          timeoutMs,
+          method: input.method,
+          headers: input.headers,
+          ...(input.body ? { body: input.body } : {}),
+          maximumResponseBytes: input.maximumResponseBytes,
+          providerPolicy: input.providerPolicy
+        }),
+        timeoutMs,
+        "OUTBOUND_REQUEST_TIMEOUT"
+      );
+      assertPinnedRemoteAddressForPolicy(address, response.remoteAddress, input.providerPolicy);
+      assertBoundedResponse(response, input.maximumResponseBytes);
       return response;
     } catch (error) {
-      if (error instanceof Error && /^(?:OUTBOUND_CONNECTED_ADDRESS_|OUTBOUND_DESTINATION_)/u.test(error.message)) {
+      if (error instanceof Error && /^(?:OUTBOUND_CONNECTED_ADDRESS_|OUTBOUND_DESTINATION_|OUTBOUND_METADATA_)/u.test(error.message)) {
         throw error;
       }
       lastError = error;
@@ -254,9 +586,11 @@ function requestPinnedHop(
   pinnedAddress: ResolvedOutboundAddress,
   input: {
     timeoutMs: number;
+    method: SafeOutboundHttpMethod;
     headers: OutgoingHttpHeaders;
+    body?: Buffer;
     maximumResponseBytes: number;
-    allowInvalidTls: boolean;
+    providerPolicy: SafeOutboundProviderPolicy;
   }
 ): Promise<SafeOutboundHopResponse> {
   const url = new URL(urlString);
@@ -269,17 +603,14 @@ function requestPinnedHop(
   return new Promise((resolve, reject) => {
     const request = client.request(url, {
       agent: false,
-      method: "GET",
+      method: input.method,
       headers: input.headers,
-      lookup,
-      ...(url.protocol === "https:"
-        ? { rejectUnauthorized: !input.allowInvalidTls, servername: stripAddressBrackets(url.hostname) }
-        : {})
+      lookup
     }, (response) => {
       let remoteAddress: string;
       try {
         remoteAddress = response.socket.remoteAddress ?? "";
-        assertPinnedRemoteAddress(pinnedAddress, remoteAddress);
+        assertPinnedRemoteAddressForPolicy(pinnedAddress, remoteAddress, input.providerPolicy);
       } catch (error) {
         response.destroy();
         reject(error);
@@ -322,18 +653,19 @@ function requestPinnedHop(
     );
     request.once("close", () => clearTimeout(absoluteTimeout));
     request.on("error", reject);
-    request.end();
+    request.end(input.body);
   });
 }
 
 function validateOutboundUrl(
   candidate: string,
   previousUrl: string | undefined,
-  validateUrl: SafeOutboundRequestOptions["validateUrl"]
+  validateUrl: SafeOutboundRequestOptions["validateUrl"],
+  providerPolicy: SafeOutboundProviderPolicy
 ): string {
-  const absolute = requirePublicHttpUrl(candidate, previousUrl);
+  const absolute = requireProviderPolicyUrl(candidate, previousUrl, providerPolicy);
   const policyValidated = validateUrl ? validateUrl(absolute, previousUrl) : absolute;
-  return requirePublicHttpUrl(policyValidated, previousUrl);
+  return requireProviderPolicyUrl(policyValidated, previousUrl, providerPolicy);
 }
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {

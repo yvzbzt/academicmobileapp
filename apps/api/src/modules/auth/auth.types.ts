@@ -85,6 +85,28 @@ export interface PasswordRecoveryTokenRecord {
   createdAt: Date;
 }
 
+export type RecentAuthenticationPurpose = "delete_personal_data" | "delete_account";
+
+export interface RecentAuthenticationProofRecord {
+  ownerId: string;
+  credentialGeneration: number;
+  purpose: RecentAuthenticationPurpose;
+  jtiDigest: string;
+  createdAt: Date;
+  expiresAt: Date;
+  consumedAt?: Date;
+}
+
+export type CreateRecentAuthenticationProofInput = Omit<RecentAuthenticationProofRecord, "consumedAt">;
+
+export interface ConsumeRecentAuthenticationProofInput {
+  ownerId: string;
+  credentialGeneration: number;
+  purpose: RecentAuthenticationPurpose;
+  jtiDigest: string;
+  consumedAt: Date;
+}
+
 export interface PasswordRecoveryRequestResult {
   status: "recovery_requested";
   message: string;
@@ -101,8 +123,8 @@ export interface PasswordRecoveryConfirmInput {
 }
 
 export type RecentAuthenticationInput =
-  | { method: "password"; password: string }
-  | { method: "google"; idToken: string };
+  | { method: "password"; password: string; purpose: RecentAuthenticationPurpose }
+  | { method: "google"; idToken: string; purpose: RecentAuthenticationPurpose };
 
 export interface RecentAuthenticationResult {
   proof: string;
@@ -224,6 +246,8 @@ export interface AuthRepository {
   invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void>;
   consumePasswordRecoveryToken(id: string, consumedAt: Date): Promise<boolean>;
   deletePasswordRecoveryTokensByUserId(userId: string): Promise<void>;
+  createRecentAuthenticationProof(input: CreateRecentAuthenticationProofInput): Promise<void>;
+  consumeRecentAuthenticationProof(input: ConsumeRecentAuthenticationProofInput): Promise<boolean>;
   createRefreshToken(input: CreateRefreshTokenInput): Promise<RefreshTokenRecord>;
   findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null>;
   revokeRefreshToken(id: string, revokedAt: Date): Promise<void>;

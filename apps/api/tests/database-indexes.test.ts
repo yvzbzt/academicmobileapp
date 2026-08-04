@@ -71,6 +71,23 @@ describe("mongoIndexDefinitions", () => {
     ]));
   });
 
+  it("contains digest lookup and TTL indexes for recent authentication", () => {
+    expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collection: "recent_authentication_proofs",
+        keys: { jtiDigest: 1 },
+        name: "recent_authentication_proofs_jti_digest_unique",
+        unique: true
+      }),
+      expect.objectContaining({
+        collection: "recent_authentication_proofs",
+        keys: { expiresAt: 1 },
+        name: "recent_authentication_proofs_expires_ttl",
+        ttlSeconds: 0
+      })
+    ]));
+  });
+
   it("contains academic-unit suggestion review and ownership indexes", () => {
     expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
       expect.objectContaining({

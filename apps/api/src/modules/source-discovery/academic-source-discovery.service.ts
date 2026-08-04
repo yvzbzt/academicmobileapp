@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource } from "../../bootstrap/verified-source-registry.js";
+import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import { cleanText, fetchText } from "../announcements/announcement-parser.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
@@ -583,15 +584,28 @@ function hostFromUrl(value?: string): string | undefined {
   return new URL(url).hostname.replace(/^www\./u, "").toLocaleLowerCase("en-US");
 }
 
-async function fetchConfiguredSearchResults(query: string): Promise<WebSearchResult[]> {
+export async function fetchConfiguredSearchResults(query: string): Promise<WebSearchResult[]> {
   const endpoint = process.env.WEB_SOURCE_SEARCH_ENDPOINT;
   if (!endpoint) return [];
   try {
     const url = new URL(endpoint);
     url.searchParams.set("q", query);
-    const response = await fetch(url, { signal: AbortSignal.timeout(readPositiveInteger(process.env.WEB_SOURCE_SEARCH_TIMEOUT_MS, 5000)) });
-    if (!response.ok) return [];
-    return normalizeSearchPayload(await response.json());
+    const configuredOrigin = url.origin;
+    const response = await safeOutboundRequest(url.toString(), {
+      timeoutMs: readBoundedPositiveInteger(process.env.WEB_SOURCE_SEARCH_TIMEOUT_MS, 5_000, 15_000),
+      method: "GET",
+      headers: { Accept: "application/json" },
+      maximumRedirects: 2,
+      maximumResponseBytes: 1024 * 1024,
+      validateUrl: (candidate) => {
+        if (new URL(candidate).origin !== configuredOrigin) {
+          throw new Error("WEB_SOURCE_SEARCH_REDIRECT_AUTHORITY_FORBIDDEN");
+        }
+        return candidate;
+      }
+    });
+    if (response.status < 200 || response.status >= 300) return [];
+    return normalizeSearchPayload(JSON.parse(response.body.toString("utf8")) as unknown);
   } catch {
     return [];
   }
@@ -893,6 +907,11 @@ async function runWithConcurrency<TInput, TOutput>(items: TInput[], concurrency:
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readBoundedPositiveInteger(value: string | undefined, fallback: number, maximum: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= maximum ? parsed : fallback;
 }
 
 function foldForMatch(value: string): string {

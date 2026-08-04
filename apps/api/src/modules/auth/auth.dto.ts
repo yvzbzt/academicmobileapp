@@ -111,6 +111,9 @@ export class PasswordRecoveryConfirmDto {
 }
 
 export class RecentAuthenticationDto {
+  @IsIn(["delete_personal_data", "delete_account"])
+  purpose!: "delete_personal_data" | "delete_account";
+
   @IsIn(["password", "google"])
   method!: "password" | "google";
 

@@ -5,7 +5,8 @@ import {
   normalizeAccountAuthProvider,
   readRecentAuthenticationResponse,
   recentAuthenticationHeader,
-  recentAuthenticationMethods
+  recentAuthenticationMethods,
+  recentAuthenticationPurpose
 } from "../../apps/mobile-native/src/auth/recent-authentication";
 
 describe("mobile native recent authentication", () => {
@@ -32,9 +33,17 @@ describe("mobile native recent authentication", () => {
     expect(() => recentAuthenticationHeader(" ")).toThrow("RECENT_AUTHENTICATION_PROOF_REQUIRED");
   });
 
-  it("requests owner-bound proof before destructive calls and never persists it", () => {
+  it("binds data deletion and account deletion to separate proof purposes", () => {
+    expect(recentAuthenticationPurpose("data")).toBe("delete_personal_data");
+    expect(recentAuthenticationPurpose("account")).toBe("delete_account");
+    expect(recentAuthenticationPurpose("data")).not.toBe(recentAuthenticationPurpose("account"));
+  });
+
+  it("requests a fresh action-specific proof before each destructive call and never persists it", () => {
     const source = readFileSync(resolve("apps/mobile-native/App.tsx"), "utf8");
     expect(source).toContain('"/auth/recent-authentication"');
+    expect(source).toContain("const purpose = recentAuthenticationPurpose(action);");
+    expect(source).toMatch(/const proof = await requestRecentAuthenticationProof\(\s*action,/u);
     expect(source).toContain('headers: recentAuthenticationHeader(recentAuthenticationProof)');
     expect(source.match(/headers: recentAuthenticationHeader\(recentAuthenticationProof\)/gu)).toHaveLength(2);
     expect(source).toContain('if (action === "data") await deleteMyData(proof)');

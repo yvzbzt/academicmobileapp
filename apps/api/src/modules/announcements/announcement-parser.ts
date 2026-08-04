@@ -64,14 +64,7 @@ export function parseFetchedSourceItems(
 
 export async function fetchText(sourceUrl: string, timeoutMs = 7000, input: { accept?: string } = {}): Promise<{ text: string; finalUrl: string; status: number }> {
   const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
-  try {
-    return await fetchTextWithSafeRequest(officialSourceUrl, timeoutMs, input, false);
-  } catch (error) {
-    if (shouldRetryWithInvalidTls(officialSourceUrl, error)) {
-      return fetchTextWithSafeRequest(officialSourceUrl, timeoutMs, input, true);
-    }
-    throw error;
-  }
+  return fetchTextWithSafeRequest(officialSourceUrl, timeoutMs, input);
 }
 
 export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItems: ParsedAnnouncementItem[], fetchedAt = new Date()): AnnouncementItem[] {
@@ -1009,14 +1002,12 @@ function preserveFetchTrailingSlash(canonicalUrl: string, candidate: string, bas
 async function fetchTextWithSafeRequest(
   sourceUrl: string,
   timeoutMs: number,
-  input: { accept?: string },
-  allowInvalidTls: boolean
+  input: { accept?: string }
 ): Promise<{ text: string; finalUrl: string; status: number }> {
   const response = await safeOutboundRequest(sourceUrl, {
     timeoutMs,
     maximumRedirects: 5,
     maximumResponseBytes: 5 * 1024 * 1024,
-    allowInvalidTls,
     headers: {
       Accept: input.accept ?? "text/html,*/*;q=0.8",
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
@@ -1058,16 +1049,6 @@ function preferAnnouncementItem(candidate: AnnouncementItem, current: Announceme
   if (recency !== 0) return recency > 0;
   if (candidate.link.startsWith("https://") !== current.link.startsWith("https://")) return candidate.link.startsWith("https://");
   return candidate.title.length + (candidate.summary?.length ?? 0) > current.title.length + (current.summary?.length ?? 0);
-}
-
-function shouldRetryWithInvalidTls(sourceUrl: string, error: unknown): boolean {
-  if (process.env.ANNOUNCEMENT_ALLOW_INVALID_TLS !== "true") return false;
-  if (process.env.NODE_ENV !== "development") return false;
-  if (!sourceUrl.startsWith("https://")) return false;
-  const message = error instanceof Error ? `${error.message} ${String((error as { cause?: unknown }).cause ?? "")}` : String(error);
-  const host = new URL(sourceUrl).hostname;
-  if (host.endsWith(".edu.tr") && ["fetch failed", "UND_ERR_SOCKET", "ECONNRESET", "unable to verify"].some((hint) => message.includes(hint))) return true;
-  return ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "SELF_SIGNED_CERT_IN_CHAIN", "CERT_HAS_EXPIRED", "unable to verify"].some((hint) => message.includes(hint));
 }
 
 function ensureCrawlerSystemCa(): void {

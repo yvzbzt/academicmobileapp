@@ -94,6 +94,32 @@ passwordRecoveryTokenSchema.index({ tokenHash: 1 }, { unique: true, name: "passw
 passwordRecoveryTokenSchema.index({ userId: 1, createdAt: -1 }, { name: "password_recovery_tokens_user_latest" });
 passwordRecoveryTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "password_recovery_tokens_expires_ttl" });
 
+export const recentAuthenticationProofSchema = new Schema(
+  {
+    ownerId: { type: String, required: true },
+    credentialGeneration: { type: Number, required: true, min: 0 },
+    purpose: {
+      type: String,
+      required: true,
+      enum: ["delete_personal_data", "delete_account"]
+    },
+    jtiDigest: { type: String, required: true },
+    createdAt: { type: Date, required: true },
+    expiresAt: { type: Date, required: true },
+    consumedAt: { type: Date, required: false }
+  },
+  { collection: "recent_authentication_proofs", versionKey: false }
+);
+
+recentAuthenticationProofSchema.index(
+  { jtiDigest: 1 },
+  { unique: true, name: "recent_authentication_proofs_jti_digest_unique" }
+);
+recentAuthenticationProofSchema.index(
+  { expiresAt: 1 },
+  { expireAfterSeconds: 0, name: "recent_authentication_proofs_expires_ttl" }
+);
+
 export const academicUnitSuggestionSchema = new Schema(
   {
     _id: { type: String, required: true },

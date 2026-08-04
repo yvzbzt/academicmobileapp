@@ -363,27 +363,80 @@ describe("auth and academic-profile HTTP contracts", () => {
     const recentAuthentication = await request("/auth/recent-authentication", {
       method: "POST",
       headers: { Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}` },
-      body: JSON.stringify({ method: "password", password: "HTTP New Password 123!" })
+      body: JSON.stringify({
+        method: "password",
+        password: "HTTP New Password 123!",
+        purpose: "delete_personal_data"
+      })
     });
     expect(recentAuthentication).toEqual({
       status: 201,
       body: { proof: expect.any(String), expiresInSeconds: 300 }
     });
 
-    const deletedData = await request("/me/data", {
+    const dataProofAgainstAccountDeletion = await request("/me", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}`,
+        "x-recent-authentication": recentAuthentication.body.proof as string
+      },
+      body: JSON.stringify({ deleteData: true })
+    });
+    expect(dataProofAgainstAccountDeletion).toEqual({
+      status: 401,
+      body: expect.objectContaining({ statusCode: 401 })
+    });
+
+    const concurrentDataDeletions = await Promise.all([
+      request("/me/data", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}`,
+          "x-recent-authentication": recentAuthentication.body.proof as string
+        }
+      }),
+      request("/me/data", {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}`,
+          "x-recent-authentication": recentAuthentication.body.proof as string
+        }
+      })
+    ]);
+    expect(concurrentDataDeletions.map((response) => response.status).sort()).toEqual([200, 401]);
+    expect(concurrentDataDeletions.find((response) => response.status === 200)).toEqual({
+      status: 200,
+      body: { status: "deleted" }
+    });
+
+    const reusedDataProof = await request("/me/data", {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}`,
         "x-recent-authentication": recentAuthentication.body.proof as string
       }
     });
-    expect(deletedData).toEqual({ status: 200, body: { status: "deleted" } });
+    expect(reusedDataProof.status).toBe(401);
+
+    const accountRecentAuthentication = await request("/auth/recent-authentication", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}` },
+      body: JSON.stringify({
+        method: "password",
+        password: "HTTP New Password 123!",
+        purpose: "delete_account"
+      })
+    });
+    expect(accountRecentAuthentication).toEqual({
+      status: 201,
+      body: { proof: expect.any(String), expiresInSeconds: 300 }
+    });
 
     const deletedAccount = await request("/me", {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}`,
-        "x-recent-authentication": recentAuthentication.body.proof as string
+        "x-recent-authentication": accountRecentAuthentication.body.proof as string
       },
       body: JSON.stringify({ deleteData: true })
     });

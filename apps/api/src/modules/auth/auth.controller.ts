@@ -67,8 +67,16 @@ export class AuthController {
     @Body() body: RecentAuthenticationDto
   ) {
     return body.method === "password"
-      ? this.authService.createRecentAuthenticationProof(user.id, { method: "password", password: body.password! })
-      : this.authService.createRecentAuthenticationProof(user.id, { method: "google", idToken: body.idToken! });
+      ? this.authService.createRecentAuthenticationProof(user.id, {
+          method: "password",
+          password: body.password!,
+          purpose: body.purpose
+        })
+      : this.authService.createRecentAuthenticationProof(user.id, {
+          method: "google",
+          idToken: body.idToken!,
+          purpose: body.purpose
+        });
   }
 
   @Post("logout")

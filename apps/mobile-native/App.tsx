@@ -123,6 +123,7 @@ import {
   readRecentAuthenticationResponse,
   recentAuthenticationHeader,
   recentAuthenticationMethods,
+  recentAuthenticationPurpose,
   type AccountAuthProvider,
   type DestructiveAccountAction,
   type RecentAuthenticationMethod
@@ -4123,14 +4124,16 @@ function MainApplication() {
   }
 
   async function requestRecentAuthenticationProof(
+    action: DestructiveAccountAction,
     method: RecentAuthenticationMethod,
     currentSession: SessionPayload,
     ownerSnapshot: AccountGenerationSnapshot,
     passwordCredential?: string
   ): Promise<string> {
+    const purpose = recentAuthenticationPurpose(action);
     const body = method === "password"
-      ? { method, password: passwordCredential ?? "" }
-      : { method, idToken: await freshGoogleIdTokenForRecentAuthentication() };
+      ? { method, purpose, password: passwordCredential ?? "" }
+      : { method, purpose, idToken: await freshGoogleIdTokenForRecentAuthentication() };
     if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
     const response = await apiRequest<unknown>(
       "/auth/recent-authentication",
@@ -4156,7 +4159,13 @@ function MainApplication() {
     const passwordCredential = method === "password" ? recentAuthPassword : undefined;
     setRecentAuthPassword("");
     try {
-      const proof = await requestRecentAuthenticationProof(method, currentSession, ownerSnapshot, passwordCredential);
+      const proof = await requestRecentAuthenticationProof(
+        action,
+        method,
+        currentSession,
+        ownerSnapshot,
+        passwordCredential
+      );
       if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
       setRecentAuthAction(null);
       setRecentAuthPassword("");

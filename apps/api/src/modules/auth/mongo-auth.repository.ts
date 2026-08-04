@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { emailVerificationTokenSchema, passwordRecoveryTokenSchema, refreshTokenSchema, userSchema } from "../../database/mongoose-schemas.js";
+import { emailVerificationTokenSchema, passwordRecoveryTokenSchema, recentAuthenticationProofSchema, refreshTokenSchema, userSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
 import type {
@@ -8,7 +8,9 @@ import type {
   CompletePasswordRecoveryInput,
   CreateAuthUserInput,
   CreatePasswordRecoveryTokenInput,
+  CreateRecentAuthenticationProofInput,
   CreateRefreshTokenInput,
+  ConsumeRecentAuthenticationProofInput,
   EmailVerificationTokenRecord,
   PasswordRecoveryTokenRecord,
   RefreshTokenRecord
@@ -327,6 +329,28 @@ export class MongoAuthRepository implements AuthRepository {
     );
     const model = await this.model("PasswordRecoveryToken", passwordRecoveryTokenSchema);
     await model.deleteMany({ userId });
+  }
+
+  async createRecentAuthenticationProof(input: CreateRecentAuthenticationProofInput): Promise<void> {
+    const model = await this.model("RecentAuthenticationProof", recentAuthenticationProofSchema);
+    await model.create(input);
+  }
+
+  async consumeRecentAuthenticationProof(input: ConsumeRecentAuthenticationProofInput): Promise<boolean> {
+    const model = await this.model("RecentAuthenticationProof", recentAuthenticationProofSchema);
+    const document = await model.findOneAndUpdate(
+      {
+        ownerId: input.ownerId,
+        credentialGeneration: input.credentialGeneration,
+        purpose: input.purpose,
+        jtiDigest: input.jtiDigest,
+        consumedAt: null,
+        expiresAt: { $gt: input.consumedAt }
+      },
+      { $set: { consumedAt: input.consumedAt } },
+      { new: true }
+    );
+    return Boolean(document);
   }
 
   async revokeRefreshTokensByUserId(userId: string, revokedAt: Date): Promise<void> {

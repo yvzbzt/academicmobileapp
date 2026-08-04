@@ -2,7 +2,10 @@ import { BadRequestException, ForbiddenException, UnauthorizedException, type Ex
 import { Reflector } from "@nestjs/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JwtAuthGuard } from "../src/common/guards/jwt-auth.guard.js";
-import { RecentAuthGuard } from "../src/common/guards/recent-auth.guard.js";
+import {
+  RECENT_AUTHENTICATION_PURPOSE_KEY,
+  RecentAuthGuard
+} from "../src/common/guards/recent-auth.guard.js";
 import { RolesGuard } from "../src/common/guards/roles.guard.js";
 import { AuthApplicationService } from "../src/modules/auth/auth-application.service.js";
 import { EmailVerificationSenderService, type SendVerificationEmailInput } from "../src/modules/auth/email-verification-sender.service.js";
@@ -21,9 +24,14 @@ class FakeEmailVerificationSenderService extends EmailVerificationSenderService 
   }
 }
 
-function createExecutionContext(request: Record<string, unknown>, requiredRoles?: string[]): ExecutionContext {
+function createExecutionContext(
+  request: Record<string, unknown>,
+  requiredRoles?: string[],
+  recentAuthenticationPurpose?: "delete_personal_data" | "delete_account"
+): ExecutionContext {
   const handler = () => undefined;
   Reflect.defineMetadata("roles", requiredRoles, handler);
+  Reflect.defineMetadata(RECENT_AUTHENTICATION_PURPOSE_KEY, recentAuthenticationPurpose, handler);
   return {
     switchToHttp: () => ({ getRequest: () => request }),
     getHandler: () => handler,
@@ -316,32 +324,52 @@ describe("UsersService", () => {
 });
 
 describe("RecentAuthGuard", () => {
-  it("accepts only an unexpired proof owned by the current account generation", () => {
+  it("atomically accepts only an unexpired purpose-bound proof owned by the current generation", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-04T08:00:00.000Z"));
     const tokenService = new TokenService();
-    const proof = tokenService.signRecentAuthenticationProof({ id: "owner-1", credentialGeneration: 4 }, "password");
-    const guard = new RecentAuthGuard(tokenService);
+    const authRepository = new InMemoryAuthRepository();
+    const issue = tokenService.issueRecentAuthenticationProof(
+      { id: "owner-1", credentialGeneration: 4 },
+      "password",
+      "delete_personal_data"
+    );
+    await authRepository.createRecentAuthenticationProof({
+      ownerId: "owner-1",
+      credentialGeneration: 4,
+      purpose: "delete_personal_data",
+      jtiDigest: tokenService.hashRecentAuthenticationJti(issue.jti),
+      createdAt: issue.createdAt,
+      expiresAt: issue.expiresAt
+    });
+    const guard = new RecentAuthGuard(tokenService, authRepository, new Reflector());
     const validRequest = {
-      headers: { "x-recent-authentication": proof },
+      headers: { "x-recent-authentication": issue.proof },
       user: { id: "owner-1", credentialGeneration: 4 }
     };
 
-    expect(guard.canActivate(createExecutionContext(validRequest))).toBe(true);
-    expect(() => guard.canActivate(createExecutionContext({
+    await expect(guard.canActivate(
+      createExecutionContext(validRequest, undefined, "delete_personal_data")
+    )).resolves.toBe(true);
+    await expect(guard.canActivate(
+      createExecutionContext(validRequest, undefined, "delete_personal_data")
+    )).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(guard.canActivate(createExecutionContext({
       ...validRequest,
       user: { id: "owner-2", credentialGeneration: 4 }
-    }))).toThrow(UnauthorizedException);
-    expect(() => guard.canActivate(createExecutionContext({
+    }, undefined, "delete_personal_data"))).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(guard.canActivate(createExecutionContext({
       ...validRequest,
       user: { id: "owner-1", credentialGeneration: 5 }
-    }))).toThrow(UnauthorizedException);
-    expect(() => guard.canActivate(createExecutionContext({
+    }, undefined, "delete_personal_data"))).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(guard.canActivate(createExecutionContext({
       headers: { "x-recent-authentication": "malformed" },
       user: { id: "owner-1", credentialGeneration: 4 }
-    }))).toThrow(UnauthorizedException);
+    }, undefined, "delete_personal_data"))).rejects.toBeInstanceOf(UnauthorizedException);
 
     vi.advanceTimersByTime(tokenService.getRecentAuthenticationTtlSeconds() * 1_000 + 1_000);
-    expect(() => guard.canActivate(createExecutionContext(validRequest))).toThrow(UnauthorizedException);
+    await expect(guard.canActivate(
+      createExecutionContext(validRequest, undefined, "delete_personal_data")
+    )).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

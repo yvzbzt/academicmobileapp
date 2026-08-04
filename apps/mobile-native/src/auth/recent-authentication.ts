@@ -4,6 +4,8 @@ export type RecentAuthenticationMethod = "password" | "google";
 
 export type DestructiveAccountAction = "data" | "account";
 
+export type RecentAuthenticationPurpose = "delete_personal_data" | "delete_account";
+
 export interface RecentAuthenticationResponse {
   proof: string;
   expiresInSeconds: number;
@@ -13,6 +15,12 @@ export function normalizeAccountAuthProvider(value: unknown): AccountAuthProvide
   return value === "password" || value === "google" || value === "password_google"
     ? value
     : undefined;
+}
+
+export function recentAuthenticationPurpose(
+  action: DestructiveAccountAction
+): RecentAuthenticationPurpose {
+  return action === "data" ? "delete_personal_data" : "delete_account";
 }
 
 export function recentAuthenticationMethods(
