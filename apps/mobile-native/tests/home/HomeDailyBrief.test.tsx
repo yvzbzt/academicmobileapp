@@ -160,6 +160,44 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getByText(/Güncellendi/)).toBeOnTheScreen();
   });
 
+  it("promotes only explicitly important announcements while recent content stays independent", async () => {
+    const genericNewest = content({
+      id: "generic-newest",
+      title: "Kampüs yaşamından haftalık haberler",
+      canonicalUrl: "https://example.edu.tr/duyuru/generic",
+      link: "https://example.edu.tr/duyuru/generic",
+      publishedAt: "2026-08-01T09:00:00.000Z",
+    });
+    const qualifiedOlder = content({
+      id: "qualified-older",
+      title: "Ders kayıt tarihleri açıklandı",
+      canonicalUrl: "https://example.edu.tr/duyuru/kayit-tarihleri",
+      link: "https://example.edu.tr/duyuru/kayit-tarihleri",
+      publishedAt: "2026-07-30T09:00:00.000Z",
+    });
+    await renderHome(props({ events: [], announcements: [genericNewest, qualifiedOlder] }));
+
+    expect(screen.getByRole("header", { name: "Önemli duyuru" })).toBeOnTheScreen();
+    expect(screen.getAllByText("Ders kayıt tarihleri açıklandı")).toHaveLength(1);
+    expect(screen.getAllByText("Kampüs yaşamından haftalık haberler")).toHaveLength(1);
+  });
+
+  it("keeps a generic newest announcement in recent content without inventing importance", async () => {
+    await renderHome(props({
+      events: [],
+      announcements: [content({
+        id: "generic-only",
+        title: "Kampüs yaşamından haftalık haberler",
+        canonicalUrl: "https://example.edu.tr/duyuru/generic-only",
+        link: "https://example.edu.tr/duyuru/generic-only",
+      })],
+    }));
+
+    expect(screen.queryByRole("header", { name: "Önemli duyuru" })).not.toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Son duyurular" })).toBeOnTheScreen();
+    expect(screen.getByText("Kampüs yaşamından haftalık haberler")).toBeOnTheScreen();
+  });
+
   it("uses full-row announcement navigation and the existing Announcements destination", async () => {
     await renderHome(props());
     fireEvent.press(screen.getAllByLabelText(/Öğrenci İşleri Daire Başkanlığı.*Ayrıntıyı aç/)[0]);
@@ -194,5 +232,69 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getByText("Google Takvim bağlantısı hazır değil")).toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "Ayarları aç" }));
     expect(callbacks.onOpenGoogleCalendarSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an actionable integration visible when it is the only module", async () => {
+    await renderHome(props({
+      events: [],
+      manualExams: [],
+      announcements: [],
+      googleCalendarState: "disconnected",
+    }));
+
+    expect(screen.getByRole("header", { name: "Bugün gündemin sakin" })).toBeOnTheScreen();
+    expect(screen.getByText("Google Takvim bağlantısı hazır değil")).toBeOnTheScreen();
+  });
+
+  it("renders mutually exclusive no-data offline, partial, error, and genuine empty states", async () => {
+    const offline = await renderHome(props({
+      events: [],
+      announcements: [],
+      offline: true,
+      calendarError: "network failed",
+      announcementState: "partial",
+    }));
+    expect(screen.getByText("Çevrimdışısın")).toBeOnTheScreen();
+    expect(screen.queryByText("Bazı kaynaklara ulaşılamadı")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Günlük özet yüklenemedi")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Bugün gündemin sakin")).not.toBeOnTheScreen();
+    await offline.unmountAsync();
+
+    const partial = await renderHome(props({
+      events: [],
+      announcements: [],
+      offline: false,
+      calendarError: "one source failed",
+      announcementState: "partial",
+    }));
+    expect(screen.getByText("Bazı kaynaklara ulaşılamadı")).toBeOnTheScreen();
+    expect(screen.queryByText("Çevrimdışısın")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Günlük özet yüklenemedi")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Bugün gündemin sakin")).not.toBeOnTheScreen();
+    await partial.unmountAsync();
+
+    const error = await renderHome(props({
+      events: [],
+      announcements: [],
+      offline: false,
+      calendarError: "request failed",
+      announcementState: "fresh",
+    }));
+    expect(screen.getByText("Günlük özet yüklenemedi")).toBeOnTheScreen();
+    expect(screen.queryByText("Çevrimdışısın")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Bazı kaynaklara ulaşılamadı")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Bugün gündemin sakin")).not.toBeOnTheScreen();
+    await error.unmountAsync();
+
+    await renderHome(props({
+      events: [],
+      announcements: [],
+      offline: false,
+      announcementState: "fresh",
+    }));
+    expect(screen.getByRole("header", { name: "Bugün gündemin sakin" })).toBeOnTheScreen();
+    expect(screen.queryByText("Çevrimdışısın")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Bazı kaynaklara ulaşılamadı")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Günlük özet yüklenemedi")).not.toBeOnTheScreen();
   });
 });

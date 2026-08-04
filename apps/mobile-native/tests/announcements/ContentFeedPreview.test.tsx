@@ -12,6 +12,10 @@ import {
   createContentFeedPreviewFixture,
   type ContentFeedPreviewScenario,
 } from "../../src/announcements/ContentFeedPreview";
+import {
+  CONTENT_FEED_PERFORMANCE_MARKER,
+  CONTENT_FEED_PERFORMANCE_RECORD_COUNT,
+} from "../../src/announcements/ContentFeedPerformanceHarness";
 
 jest.mock("@react-navigation/native", () => {
   const actual = jest.requireActual("@react-navigation/native");
@@ -85,11 +89,42 @@ describe("Phase 8 synthetic content-feed preview", () => {
     const first = createContentFeedPreviewFixture("long-feed");
     const second = createContentFeedPreviewFixture("long-feed");
 
-    expect(first.academicItems).toHaveLength(CONTENT_FEED_PREVIEW_LONG_FEED_SIZE);
+    expect([
+      ...first.academicItems,
+      ...first.yokItems,
+      ...first.summerItems,
+    ]).toHaveLength(CONTENT_FEED_PREVIEW_LONG_FEED_SIZE);
+    expect(first.yokItems).toEqual([]);
+    expect(first.summerItems).toEqual([]);
     expect(new Set(first.academicItems.map((item) => item.id)).size).toBe(
       CONTENT_FEED_PREVIEW_LONG_FEED_SIZE,
     );
     expect(first.academicItems).toEqual(second.academicItems);
+  });
+
+  it("keeps the release performance entry isolated, ungated, and fixed at one hundred records", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const entrySource = fs.readFileSync(
+      path.resolve(__dirname, "../../index.feed-performance.ts"),
+      "utf8",
+    );
+    const harnessSource = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "../../src/announcements/ContentFeedPerformanceHarness.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(CONTENT_FEED_PERFORMANCE_RECORD_COUNT).toBe(100);
+    expect(CONTENT_FEED_PERFORMANCE_MARKER).toContain("100 records");
+    expect(entrySource).toContain("ContentFeedPerformanceHarness");
+    expect(entrySource).not.toMatch(/from ["']\.\/App["']/u);
+    expect(harnessSource).not.toContain("if (!__DEV__) return null");
+    expect(harnessSource).not.toMatch(
+      /apiRequest|SecureStore|AsyncStorage|GoogleSignin|fetch\s*\(|PRODUCTION_API/iu,
+    );
   });
 
   it("selects the matching source filter in YÖK and Summer School evidence scenarios", () => {

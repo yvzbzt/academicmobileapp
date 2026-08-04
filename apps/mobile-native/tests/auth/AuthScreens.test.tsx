@@ -269,10 +269,11 @@ function onboardingProps(
 
 describe("Phase 6 rendered authentication screens", () => {
   describe("LoginScreen", () => {
-    it("orders local errors from the first invalid field and moves IME focus to password", async () => {
+    it("focuses the first invalid field and moves IME focus to password", async () => {
       const onSubmit = jest.fn();
       const invalid = loginProps({ email: "invalid", password: "", onSubmit });
       const view = await renderAuth(<LoginScreen {...invalid} />);
+      const emailFocus = spyOnInputFocus("E-posta adresi");
 
       await userEvent.press(screen.getByRole("button", { name: "Giriş yap" }));
 
@@ -280,7 +281,9 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(alerts[0]).toHaveTextContent("Geçerli bir e-posta adresi gir.");
       expect(alerts[1]).toHaveTextContent("Şifre zorunludur.");
       expect(screen.getByLabelText("E-posta adresi")).toHaveProp("aria-invalid", true);
+      expect(emailFocus).toHaveBeenCalledTimes(1);
       expect(onSubmit).not.toHaveBeenCalled();
+      emailFocus.mockRestore();
 
       const passwordOnlyInvalid = loginProps({
         email: "student@example.edu",
@@ -417,6 +420,7 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
       expect(screen.getByLabelText("Şifre")).toBeVisible();
       expect(screen.getByLabelText("Şifre tekrar")).toBeVisible();
+      expect(screen.getByText("1 / 3 · Hesap")).toBeVisible();
       const nameFocus = spyOnInputFocus("Ad soyad");
       await userEvent.press(screen.getByRole("button", { name: "Hesap oluştur" }));
 
@@ -476,6 +480,7 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(
         screen.getByText("s***e@example.edu adresine gönderilen 4 haneli kodu gir."),
       ).toBeVisible();
+      expect(screen.getByText("2 / 3 · E-posta doğrulama")).toBeVisible();
       const code = screen.getByLabelText("Doğrulama kodu");
       expect(code).toHaveProp("keyboardType", "number-pad");
       expect(code).toHaveProp("inputMode", "numeric");
@@ -652,6 +657,7 @@ describe("Phase 6 rendered authentication screens", () => {
         <AcademicOnboardingScreen {...onboardingProps({ onSave })} />,
       );
 
+      expect(screen.getByText("3 / 3 · Akademik profil")).toBeVisible();
       expect(screen.getByRole("combobox", { name: "Fakülte" })).toBeDisabled();
       expect(screen.getByRole("combobox", { name: "Bölüm" })).toBeDisabled();
       expect(screen.getByRole("combobox", { name: "Sınıf" })).toBeDisabled();

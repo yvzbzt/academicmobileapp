@@ -10,6 +10,7 @@
     "dev:mobile": "vite --config apps/mobile/vite.config.ts",
     "dev:mobile:native": "npm --prefix apps/mobile-native run start",
     "android:mobile:native": "npm --prefix apps/mobile-native run android",
+    "measure:mobile-native:feed-release": "tsx scripts/measure-mobile-native-feed-performance.ts",
     "ios:mobile:native": "npm --prefix apps/mobile-native run ios",
     "build:admin": "vite build --config apps/admin/vite.config.ts",
     "build:mobile": "vite build --config apps/mobile/vite.config.ts",

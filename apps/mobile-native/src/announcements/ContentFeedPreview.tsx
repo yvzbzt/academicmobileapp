@@ -229,6 +229,8 @@ export function createContentFeedPreviewFixture(
     case "long-feed":
       return {
         ...base,
+        yokItems: [],
+        summerItems: [],
         academicItems: Array.from(
           { length: CONTENT_FEED_PREVIEW_LONG_FEED_SIZE },
           (_, index) => previewRecord({

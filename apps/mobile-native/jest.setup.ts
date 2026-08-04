@@ -28,7 +28,7 @@ jest.mock("react-native-safe-area-context", () => {
       children,
     }: {
       children: (value: typeof insets) => React.ReactNode;
-    }) => children(insets),
+    }) => React.createElement(actual.SafeAreaInsetsContext.Consumer, null, (value: typeof insets | null) => children(value ?? insets)),
     SafeAreaView: ({
       children,
       edges: _edges,
@@ -38,8 +38,8 @@ jest.mock("react-native-safe-area-context", () => {
       edges?: string[];
     }) => React.createElement(View, props, children),
     initialWindowMetrics: { insets, frame },
-    useSafeAreaFrame: () => frame,
-    useSafeAreaInsets: () => insets,
+    useSafeAreaFrame: () => React.useContext(actual.SafeAreaFrameContext) ?? frame,
+    useSafeAreaInsets: () => React.useContext(actual.SafeAreaInsetsContext) ?? insets,
   };
 });
 

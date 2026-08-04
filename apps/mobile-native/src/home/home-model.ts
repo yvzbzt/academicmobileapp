@@ -43,8 +43,19 @@ export type HomePrimaryState =
   | "incomplete_profile"
   | "initial_loading"
   | "populated"
+  | "offline_no_data"
+  | "partial_no_data"
   | "empty"
   | "recoverable_error";
+
+const IMPORTANT_ANNOUNCEMENT_TITLE_PATTERNS = [
+  /(?:^|\s)(?:acil|zorunlu)(?:\s|$)/u,
+  /(?:iptal|ertelen)/u,
+  /(?:son başvuru|başvuru son tarihi|başvuru süresi)/u,
+  /(?:ders kayıt(?:ları)?|kayıt takvimi|kayıt tarihleri|kayıt yenileme|ekle bırak)/u,
+  /(?:sınav takvimi|sınav tarihi|vize sınav|final sınav|bütünleme sınav|tek ders sınav)/u,
+  /(?:(?:ödeme|harç) son tarihi)/u,
+];
 
 const IMPORTANT_CATEGORY_ORDER = new Map<string, number>([
   ["midterm_exam", 0],
@@ -166,15 +177,23 @@ export function orderHomeAnnouncements(
 export function selectImportantAnnouncement(
   items: readonly TrustedMobileContentRecord[]
 ): TrustedMobileContentRecord | null {
-  return orderHomeAnnouncements(items)[0] ?? null;
+  return orderHomeAnnouncements(items.filter(isImportantAnnouncement))[0] ?? null;
+}
+
+export function isImportantAnnouncement(item: TrustedMobileContentRecord): boolean {
+  const title = item.title.normalize("NFKC").toLocaleLowerCase("tr-TR").replace(/\s+/gu, " ").trim();
+  return IMPORTANT_ANNOUNCEMENT_TITLE_PATTERNS.some((pattern) => pattern.test(title));
 }
 
 export function selectRecentAnnouncements(
   items: readonly TrustedMobileContentRecord[],
   importantId?: string
 ): TrustedMobileContentRecord[] {
+  const qualifiedImportantId = importantId && items.some(
+    (item) => item.id === importantId && isImportantAnnouncement(item)
+  ) ? importantId : undefined;
   return orderHomeAnnouncements(items)
-    .filter((item) => item.id !== importantId)
+    .filter((item) => item.id !== qualifiedImportantId)
     .slice(0, HOME_RECENT_ANNOUNCEMENT_LIMIT);
 }
 
@@ -184,10 +203,14 @@ export function resolveHomePrimaryState(input: {
   attempted: boolean;
   hasData: boolean;
   error?: string;
+  contentState?: ContentCollectionState;
+  offline?: boolean;
 }): HomePrimaryState {
   if (!input.profileComplete) return "incomplete_profile";
   if (input.loading && !input.hasData) return "initial_loading";
   if (input.hasData) return "populated";
+  if (input.offline) return "offline_no_data";
+  if (input.contentState === "partial") return "partial_no_data";
   if (input.error) return "recoverable_error";
   if (input.attempted) return "empty";
   return "initial_loading";

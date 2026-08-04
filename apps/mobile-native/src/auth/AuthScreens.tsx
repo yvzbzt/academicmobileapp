@@ -145,6 +145,7 @@ export interface LoginScreenProps {
 export function LoginScreen(props: LoginScreenProps) {
   const theme = useTheme();
   const [attempted, setAttempted] = useState(false);
+  const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const validation = validateLoginForm({ email: props.email, password: props.password });
   const interactionBusy = props.busy || props.googleBusy;
@@ -152,7 +153,10 @@ export function LoginScreen(props: LoginScreenProps) {
   function submit() {
     setAttempted(true);
     if (!validation.valid) {
-      if (validation.errors.email) return;
+      if (validation.errors.email) {
+        emailRef.current?.focus();
+        return;
+      }
       passwordRef.current?.focus();
       return;
     }
@@ -178,6 +182,7 @@ export function LoginScreen(props: LoginScreenProps) {
         onChangeText={props.onEmailChange}
         onSubmitEditing={() => passwordRef.current?.focus()}
         placeholder="ornek@universite.edu.tr"
+        ref={emailRef}
         returnKeyType="next"
         submitBehavior="submit"
         textContentType="emailAddress"
@@ -279,6 +284,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
   return (
     <AuthScaffold
       description="Hesabını oluştur; e-postanı doğruladıktan sonra akademik profilini tek adımda tamamla."
+      eyebrow="1 / 3 · Hesap"
       feedback={props.feedback}
       onDismissFeedback={props.onDismissFeedback}
       title="Akademik yolculuğuna başla"

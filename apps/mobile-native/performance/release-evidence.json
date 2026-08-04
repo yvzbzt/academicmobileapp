@@ -1,0 +1,148 @@
+{
+  "recordedAt": "2026-08-04",
+  "contract": {
+    "buildVariant": "release",
+    "entryFile": "index.feed-performance.ts",
+    "nodeEnv": "production",
+    "architecture": "x86_64",
+    "fixtureRecords": 100,
+    "postBuildSettlingMs": 15000,
+    "warmupTrials": 1,
+    "measuredTrials": 5,
+    "frameSource": "adb shell dumpsys gfxinfo com.anssoft.akademiktakvim framestats",
+    "percentileMethod": "nearest-rank",
+    "thresholds": {
+      "minimumFramesPerTrial": 100,
+      "maximumAggregateP90Ms": 32,
+      "maximumAggregateP95Ms": 50,
+      "frozenFrameThresholdMs": 700,
+      "maximumFrozenFrames": 0
+    }
+  },
+  "acceptedRun": {
+    "accepted": true,
+    "freshBuild": {
+      "gradleTasksExecuted": 391,
+      "apkBytes": 29407480,
+      "apkSha256": "ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26",
+      "abis": [
+        "x86_64"
+      ],
+      "debuggable": false,
+      "metroRequired": false
+    },
+    "runtime": {
+      "serial": "emulator-5554",
+      "avdName": "AcademicPhase1Low",
+      "apiLevel": 24,
+      "deviceAbi": "x86_64",
+      "model": "Android SDK built for x86_64",
+      "buildFingerprint": "Android/sdk_google_phone_x86_64/generic_x86_64:7.0/NYC/6696031:userdebug/dev-keys",
+      "screen": {
+        "width": 720,
+        "height": 1280,
+        "densityDpi": 320,
+        "fontScale": 1.0,
+        "refreshRateHz": 60.000004
+      },
+      "graphicsRenderer": "Google (Intel), Android Emulator OpenGL ES Translator (Intel(R) Iris(R) Xe Graphics), OpenGL ES 2.0 (4.5.0 - Build 30.0.101.3111)",
+      "harnessMarkerObserved": true,
+      "embeddedRecordCount": 100,
+      "metroConnectionErrorObserved": false
+    },
+    "aggregate": {
+      "frameCount": 600,
+      "p90Ms": 24.928167,
+      "p95Ms": 35.777763,
+      "frozenFrames": 0
+    },
+    "trials": [
+      {
+        "trial": 1,
+        "frameCount": 120,
+        "p90Ms": 54.1542,
+        "p95Ms": 72.483434,
+        "frozenFrames": 0
+      },
+      {
+        "trial": 2,
+        "frameCount": 120,
+        "p90Ms": 23.194492,
+        "p95Ms": 25.057218,
+        "frozenFrames": 0
+      },
+      {
+        "trial": 3,
+        "frameCount": 120,
+        "p90Ms": 21.317847,
+        "p95Ms": 22.272567,
+        "frozenFrames": 0
+      },
+      {
+        "trial": 4,
+        "frameCount": 120,
+        "p90Ms": 23.108724,
+        "p95Ms": 26.949278,
+        "frozenFrames": 0
+      },
+      {
+        "trial": 5,
+        "frameCount": 120,
+        "p90Ms": 22.029607,
+        "p95Ms": 23.896301,
+        "frozenFrames": 0
+      }
+    ]
+  },
+  "rendererControl": {
+    "reason": "The initial AVD was explicitly launched with SwiftShader. Its end-to-end FrameCompleted minus IntendedVsync results measured the software renderer rather than a proven feed bottleneck.",
+    "swiftShaderBaseline": {
+      "accepted": false,
+      "apkBytes": 29407480,
+      "apkSha256": "72d8ade476c58aa253ab2334087c5c97c4f9b2f871a7714373197accdc583580",
+      "trialFrameCounts": [
+        120,
+        112,
+        120,
+        120,
+        120
+      ],
+      "aggregate": {
+        "frameCount": 592,
+        "p90Ms": 70.649202,
+        "p95Ms": 77.171868,
+        "frozenFrames": 0
+      }
+    },
+    "rejectedVirtualizationExperiment": {
+      "accepted": false,
+      "apkBytes": 29407508,
+      "apkSha256": "bd1169a8444004bde53df79d752202ba23a539d69037c6331dc4042135fa500c",
+      "trialFrameCounts": [
+        120,
+        120,
+        118,
+        120,
+        120
+      ],
+      "aggregate": {
+        "frameCount": 598,
+        "p90Ms": 73.497194,
+        "p95Ms": 82.665697,
+        "frozenFrames": 0
+      },
+      "conclusion": "The smaller render batches were not a proven improvement, so every experimental production FlatList change and its assertions were reverted before the accepted run."
+    }
+  },
+  "teardown": {
+    "benchmarkPackageUninstalled": true,
+    "temporaryHierarchyRemoved": true,
+    "alternateEntryApkRemoved": true,
+    "preexistingReleaseArtifactRestored": {
+      "bytes": 59068160,
+      "modifiedAt": "2026-07-24T16:13:11.629+03:00"
+    },
+    "displaySettingsChanged": false,
+    "adbReverseAdded": false
+  }
+}

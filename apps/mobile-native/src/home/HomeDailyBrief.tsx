@@ -116,12 +116,17 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
   const attempted = props.calendarAttempted && props.announcementAttempted;
   const hasUsefulData = Boolean(todayItems.length || nextItem || importantAnnouncement || recentAnnouncements.length);
   const error = props.calendarError ?? props.announcementError;
+  const offline = props.offline ?? (
+    networkState.isConnected === false || networkState.isInternetReachable === false
+  );
   const primaryState = resolveHomePrimaryState({
     profileComplete,
     loading,
     attempted,
     hasData: hasUsefulData,
     error,
+    contentState: props.announcementState,
+    offline,
   });
   const availability = homeAvailability({
     loading,
@@ -129,9 +134,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
     error,
     stale: props.calendarStale || props.announcementStale,
     contentState: props.announcementState,
-    offline: props.offline ?? (
-      networkState.isConnected === false || networkState.isInternetReachable === false
-    ),
+    offline,
   });
   const integration = resolveActionableIntegration({
     profileComplete,
@@ -140,9 +143,12 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
     notificationPreferenceEnabled: props.notificationPreferenceEnabled,
     notificationActive: props.notificationActive,
   });
-  const modules: BriefModule[] = primaryState === "populated"
-    ? ["today", "next", "important", "recent", ...(integration ? ["integration" as const] : [])]
-    : [];
+  const modules: BriefModule[] = [
+    ...(primaryState === "populated" ? ["today", "next", "important", "recent"] as const : []),
+    ...(integration && primaryState !== "incomplete_profile" && primaryState !== "initial_loading"
+      ? ["integration" as const]
+      : []),
+  ];
 
   const renderModule: ListRenderItem<BriefModule> = ({ item }) => {
     switch (item) {
@@ -270,6 +276,10 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 <Skeleton decorative height={128} />
               </View>
             </View>
+          ) : primaryState === "offline_no_data" ? (
+            <Banner title="Çevrimdışısın" message="Bu cihazda gösterilecek kayıtlı bir günlük özet yok. Bağlantını kontrol edip yeniden deneyebilirsin." tone="warning" actionLabel="Yeniden dene" onAction={props.onRefresh} />
+          ) : primaryState === "partial_no_data" ? (
+            <Banner title="Bazı kaynaklara ulaşılamadı" message="Ulaşılabilen kaynaklarda şu anda gösterilecek bir günlük özet bulunamadı." tone="warning" actionLabel="Yeniden dene" onAction={props.onRefresh} />
           ) : primaryState === "recoverable_error" ? (
             <Banner title="Günlük özet yüklenemedi" message={error ?? "Bağlantını kontrol edip yeniden deneyebilirsin."} tone="error" actionLabel="Tekrar dene" onAction={props.onRefresh} />
           ) : primaryState === "empty" ? (

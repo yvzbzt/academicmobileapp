@@ -1,5 +1,7 @@
 import { useMemo, type ReactNode } from "react";
-import { BackHandler, Text } from "react-native";
+import { BackHandler, FlatList, Keyboard, Platform, Text } from "react-native";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   act,
   fireEvent,
@@ -15,6 +17,8 @@ import {
   type AppVisibleRoute,
 } from "../../src/navigation/AppNavigator";
 import { ThemeProvider } from "../../src/design-system/theme";
+import { HomeDailyBrief } from "../../src/home/HomeDailyBrief";
+import type { TrustedMobileContentRecord } from "../../src/content/content-trust";
 
 const visibleRoutes: AppVisibleRoute[] = [
   "BootstrapLoading",
@@ -54,6 +58,108 @@ function createScreenSlots(): AppScreenSlots {
 
 const screens = createScreenSlots();
 
+interface TestSafeAreaMetrics {
+  frame: { x: number; y: number; width: number; height: number };
+  insets: { top: number; right: number; bottom: number; left: number };
+}
+
+interface NavigatorHarnessProps extends AppNavigatorProps {
+  safeAreaMetrics?: TestSafeAreaMetrics;
+}
+
+function TabBarHeightEvidence() {
+  const tabBarHeight = useBottomTabBarHeight();
+  return (
+    <>
+      <Text accessibilityRole="header">SCREEN:Home</Text>
+      <Text>{`TAB_HEIGHT:${tabBarHeight}`}</Text>
+    </>
+  );
+}
+
+function createProductionHomeScreens(): AppScreenSlots {
+  return {
+    ...screens,
+    Home: (
+      <HomeDailyBrief
+        fullName="Deniz Yılmaz"
+        profileComplete
+        universityName="Örnek Üniversitesi"
+        facultyName="Mühendislik Fakültesi"
+        departmentName="Bilgisayar Mühendisliği"
+        events={[
+          {
+            id: "today-registration",
+            title: "Ders kayıtları",
+            category: "course_registration",
+            temporalKind: "date",
+            startDate: "2026-08-04",
+          },
+          {
+            id: "future-exam",
+            title: "Final sınavı",
+            category: "final_exam",
+            temporalKind: "timestamp",
+            startDate: "2026-08-06T06:30:00.000Z",
+          },
+        ]}
+        manualExams={[]}
+        announcements={[
+          trustedHomeItem("important", "Ders kayıt tarihleri açıklandı", "2026-08-03T09:00:00.000Z"),
+          trustedHomeItem("recent-1", "Kampüs yaşamından haberler", "2026-08-04T08:00:00.000Z"),
+          trustedHomeItem("recent-2", "Kütüphane çalışma saatleri", "2026-08-02T08:00:00.000Z"),
+          trustedHomeItem("recent-3", "Öğrenci toplulukları buluşması", "2026-08-01T08:00:00.000Z"),
+        ]}
+        calendarLoading={false}
+        calendarAttempted
+        announcementLoading={false}
+        announcementAttempted
+        announcementState="fresh"
+        googleCalendarState="connected"
+        notificationPermission="granted"
+        notificationPreferenceEnabled
+        notificationActive
+        now={new Date("2026-08-04T09:00:00+03:00")}
+        onCompleteProfile={jest.fn()}
+        onOpenAnnouncement={jest.fn()}
+        onOpenAnnouncements={jest.fn()}
+        onOpenCalendar={jest.fn()}
+        onOpenGoogleCalendarSettings={jest.fn()}
+        onOpenNotificationSettings={jest.fn()}
+        onRefresh={jest.fn()}
+      />
+    ),
+  };
+}
+
+function createTabBarEvidenceScreens(): AppScreenSlots {
+  return { ...screens, Home: <TabBarHeightEvidence /> };
+}
+
+function trustedHomeItem(id: string, title: string, publishedAt: string): TrustedMobileContentRecord {
+  return {
+    id,
+    sourceId: "trusted-student-affairs",
+    sourceName: "Öğrenci İşleri Daire Başkanlığı",
+    scopeType: "university",
+    scopeId: "university-1",
+    contentType: "announcement",
+    title,
+    summary: "Doğrulanmış akademik içerik özeti.",
+    link: `https://example.edu.tr/duyuru/${id}`,
+    canonicalUrl: `https://example.edu.tr/duyuru/${id}`,
+    publicationKind: "timestamp",
+    publishedAt,
+    trustStatus: "trusted",
+  };
+}
+
+function currentProductionListOffset(list: FlatList<unknown>): number | undefined {
+  return (list as unknown as {
+    _listRef?: { _scrollMetrics?: { offset?: number } };
+  })._listRef?._scrollMetrics?.offset;
+}
+
 const primaryTabRoutes = [
   { label: "Ana Sayfa", route: "Home" },
   { label: "Duyurular", route: "Announcements" },
@@ -64,29 +170,48 @@ const primaryTabRoutes = [
   route: AppVisibleRoute;
 }>;
 
-function NavigatorHarness(props: AppNavigatorProps) {
-  const stableScreens = useMemo(() => screens, []);
+function NavigatorHarness({ safeAreaMetrics, screens: screenSlots, ...props }: NavigatorHarnessProps) {
+  const stableScreens = useMemo(() => screenSlots, [screenSlots]);
   return (
-    <ThemeProvider
-      liquidGlassAvailable={false}
-      platform="android"
-      preference="light"
-      reducedMotion
-      reducedTransparency={false}
-      systemMode="light"
-      windowWidth={390}
-    >
-      <AppNavigator {...props} screens={stableScreens} />
-    </ThemeProvider>
+    <SafeAreaProvider {...(safeAreaMetrics ? { initialMetrics: safeAreaMetrics } : {})}>
+      <ThemeProvider
+        liquidGlassAvailable={false}
+        platform="android"
+        preference="light"
+        reducedMotion
+        reducedTransparency={false}
+        systemMode="light"
+        windowWidth={390}
+      >
+        <AppNavigator {...props} screens={stableScreens} />
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
 
-async function renderNavigator(props: Omit<AppNavigatorProps, "screens">) {
-  return renderAsync(<NavigatorHarness {...props} screens={screens} />);
+async function renderNavigator(
+  props: Omit<AppNavigatorProps, "screens">,
+  options: { screenSlots?: AppScreenSlots; safeAreaMetrics?: TestSafeAreaMetrics } = {},
+) {
+  return renderAsync(
+    <NavigatorHarness
+      {...props}
+      screens={options.screenSlots ?? screens}
+      {...(options.safeAreaMetrics ? { safeAreaMetrics: options.safeAreaMetrics } : {})}
+    />,
+  );
 }
 
 function getTabControl(label: string) {
   return screen.getByRole("button", { name: label });
+}
+
+function getTabBarContainer() {
+  let node = getTabControl("Ana Sayfa");
+  while (node.parent && node.props.pointerEvents !== "auto" && node.props.pointerEvents !== "none") {
+    node = node.parent;
+  }
+  return node;
 }
 
 async function pressTab(label: string) {
@@ -120,6 +245,15 @@ function captureHardwareBackHandlers() {
   jest.spyOn(BackHandler, "addEventListener").mockImplementation((event, handler) => {
     if (event === "hardwareBackPress") handlers.push(handler);
     return { remove: jest.fn() };
+  });
+  return handlers;
+}
+
+function captureKeyboardHandlers() {
+  const handlers: Record<string, Array<() => void>> = {};
+  jest.spyOn(Keyboard, "addListener").mockImplementation((event, listener) => {
+    (handlers[event] ??= []).push(() => listener({} as never));
+    return { remove: jest.fn() } as never;
   });
   return handlers;
 }
@@ -452,6 +586,81 @@ describe("AppNavigator", () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 40));
     });
     await expectVisibleRoute("Home");
+  });
+
+  it("reselects the current root FlatList to top while preserving it across tab switches", async () => {
+    const view = await renderNavigator(
+      { activeRoute: "Home", rootSurface: "authenticated" },
+      { screenSlots: createProductionHomeScreens() },
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Öğrenci günlük özeti")).toBeVisible();
+    });
+
+    const initialListNode = view.UNSAFE_getByType(FlatList);
+    const initialListInstance = initialListNode.instance as FlatList<unknown>;
+    const scrollToOffset = jest
+      .spyOn(initialListInstance, "scrollToOffset")
+      .mockImplementation(() => undefined);
+    fireEvent.scroll(screen.getByLabelText("Öğrenci günlük özeti"), {
+      timeStamp: 1_000,
+      nativeEvent: {
+        contentOffset: { x: 0, y: 276 },
+        contentSize: { height: 2400, width: 390 },
+        layoutMeasurement: { height: 700, width: 390 },
+        zoomScale: 1,
+      },
+    });
+    await waitFor(() => expect(currentProductionListOffset(initialListInstance)).toBe(276));
+
+    await pressTab("Duyurular");
+    await expectVisibleRoute("Announcements");
+    await pressTab("Ana Sayfa");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Öğrenci günlük özeti")).toBeVisible();
+    });
+
+    expect(view.UNSAFE_getByType(FlatList).instance).toBe(initialListInstance);
+    expect(currentProductionListOffset(initialListInstance)).toBe(276);
+    expect(scrollToOffset).not.toHaveBeenCalled();
+
+    await pressTab("Ana Sayfa");
+    await waitFor(() => {
+      expect(scrollToOffset).toHaveBeenCalledTimes(1);
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+    });
+  });
+
+  it("includes the Android bottom inset and hides then restores the tab bar for the keyboard", async () => {
+    const keyboardHandlers = captureKeyboardHandlers();
+    await renderNavigator(
+      { activeRoute: "Home", rootSurface: "authenticated" },
+      {
+        screenSlots: createTabBarEvidenceScreens(),
+        safeAreaMetrics: {
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 24, right: 0, bottom: 34, left: 0 },
+        },
+      },
+    );
+    await expectVisibleRoute("Home");
+    expect(screen.getByText("TAB_HEIGHT:114")).toBeVisible();
+
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    expect(keyboardHandlers[showEvent]).toHaveLength(1);
+    expect(keyboardHandlers[hideEvent]).toHaveLength(1);
+    expect(getTabBarContainer().props.pointerEvents).toBe("auto");
+
+    act(() => keyboardHandlers[showEvent]![0]!());
+    await waitFor(() => {
+      expect(getTabBarContainer().props.pointerEvents).toBe("none");
+    });
+
+    act(() => keyboardHandlers[hideEvent]![0]!());
+    await waitFor(() => {
+      expect(getTabBarContainer().props.pointerEvents).toBe("auto");
+    });
   });
 
   it("returns from a nested calendar destination with Android hardware Back", async () => {

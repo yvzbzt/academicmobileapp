@@ -3,6 +3,7 @@ import {
   HOME_RECENT_ANNOUNCEMENT_LIMIT,
   formatRemainingTime,
   homeAvailability,
+  isImportantAnnouncement,
   isActiveOnLocalCalendarDay,
   isSameLocalCalendarDay,
   orderHomeAnnouncements,
@@ -10,6 +11,7 @@ import {
   resolveHomeLayout,
   resolveHomePrimaryState,
   selectExamCountdownItems,
+  selectImportantAnnouncement,
   selectNearestImportantItem,
   selectRecentAnnouncements,
   selectTodayItems,
@@ -118,12 +120,71 @@ describe("Phase 7 Home daily-brief contracts", () => {
     expect(selectRecentAnnouncements(items, "new")).toHaveLength(HOME_RECENT_ANNOUNCEMENT_LIMIT);
   });
 
+  it("uses explicit academic urgency for importance and never crawler rank or generic recency", () => {
+    const genericNewest = {
+      ...announcement("generic-newest", "2026-08-01T10:00:00.000Z"),
+      title: "Kampüs yaşamından haftalık haberler",
+    };
+    const crawlerRanked = {
+      ...announcement("crawler-ranked", "2026-08-01T09:00:00.000Z"),
+      title: "Yeni yemekhane menüsü yayımlandı",
+      priority: 999,
+    } as TrustedMobileContentRecord & { priority: number };
+    const qualified = {
+      ...announcement("qualified", "2026-07-30T08:00:00.000Z"),
+      title: "Ders kayıt tarihleri açıklandı",
+    };
+    const items = [qualified, crawlerRanked, genericNewest];
+
+    expect(isImportantAnnouncement(genericNewest)).toBe(false);
+    expect(isImportantAnnouncement(crawlerRanked)).toBe(false);
+    expect(isImportantAnnouncement(qualified)).toBe(true);
+    expect(selectImportantAnnouncement(items)?.id).toBe("qualified");
+    expect(selectRecentAnnouncements(items, "generic-newest").map((item) => item.id)).toContain("generic-newest");
+    expect(selectRecentAnnouncements(items, "qualified").map((item) => item.id)).not.toContain("qualified");
+  });
+
   it("keeps loading, empty, populated, error, and incomplete-profile states exclusive", () => {
     expect(resolveHomePrimaryState({ profileComplete: false, loading: true, attempted: false, hasData: false })).toBe("incomplete_profile");
     expect(resolveHomePrimaryState({ profileComplete: true, loading: true, attempted: false, hasData: false })).toBe("initial_loading");
     expect(resolveHomePrimaryState({ profileComplete: true, loading: true, attempted: true, hasData: true, error: "failed" })).toBe("populated");
     expect(resolveHomePrimaryState({ profileComplete: true, loading: false, attempted: true, hasData: false })).toBe("empty");
     expect(resolveHomePrimaryState({ profileComplete: true, loading: false, attempted: true, hasData: false, error: "failed" })).toBe("recoverable_error");
+  });
+
+  it("resolves no-data offline and partial states before genuine error or empty states", () => {
+    expect(resolveHomePrimaryState({
+      profileComplete: true,
+      loading: false,
+      attempted: true,
+      hasData: false,
+      error: "network failed",
+      contentState: "partial",
+      offline: true,
+    })).toBe("offline_no_data");
+    expect(resolveHomePrimaryState({
+      profileComplete: true,
+      loading: false,
+      attempted: true,
+      hasData: false,
+      error: "one source failed",
+      contentState: "partial",
+    })).toBe("partial_no_data");
+    expect(resolveHomePrimaryState({
+      profileComplete: true,
+      loading: false,
+      attempted: true,
+      hasData: false,
+      error: "request failed",
+      contentState: "fresh",
+    })).toBe("recoverable_error");
+    expect(resolveHomePrimaryState({
+      profileComplete: true,
+      loading: false,
+      attempted: true,
+      hasData: false,
+      contentState: "fresh",
+    })).toBe("empty");
   });
 
   it("preserves retained data as refreshing or stale after refresh failure", () => {
