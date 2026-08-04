@@ -3,9 +3,10 @@ import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } f
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
-import { canonicalContentKey, compareAcademicContentDuplicateRecency, isOfficialContentUrl, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
+import { canonicalContentKey, compareAcademicContentDuplicateRecency, isOfficialContentUrl, scopedContentFingerprintKey, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
 import { fetchSourceItems, toAnnouncementItems, type ParsedAnnouncementItem } from "./announcement-parser.js";
 import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord } from "./announcements.types.js";
+import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 @Injectable()
 export class AnnouncementsService {
@@ -13,7 +14,8 @@ export class AnnouncementsService {
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
     @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
-    @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService
+    @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService,
+    @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
   ) {}
 
   async getMyAnnouncements(userId: string, limit = 20): Promise<TrustedAcademicContentDto[]> {
@@ -53,7 +55,7 @@ export class AnnouncementsService {
       return toContentCollection(presentTrustedItems(cachedItems, sources).slice(0, boundedLimit), 0, 0);
     }
     const refreshed = await this.refreshSources(sources, cachedItems);
-    const merged = refreshed.items.length > 0 ? refreshed.items : cachedItems.map(markStale);
+    const merged = refreshed.items;
     return toContentCollection(
       presentTrustedItems(merged, sources).slice(0, boundedLimit),
       sources.length,
@@ -64,17 +66,43 @@ export class AnnouncementsService {
   async getMyTrustedAnnouncement(userId: string, announcementId: string): Promise<TrustedAcademicContentDto> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
-    if (!user.universityId) throw new BadRequestException("User must select a university first.");
-
-    const match = await this.announcementRepository.findTrustedItemByIdInScope({
-      announcementId,
+    const userScope = user.universityId ? {
       universityId: user.universityId,
       ...(user.facultyId ? { facultyId: user.facultyId } : {}),
       ...(user.departmentId ? { departmentId: user.departmentId } : {})
-    });
-    const presented = match ? toTrustedAcademicContentDto(match.item, match.source) : null;
+    } : undefined;
+    const match = (userScope
+      ? await this.announcementRepository.findTrustedItemByIdInScope({ announcementId, ...userScope })
+      : null)
+      ?? await this.announcementRepository.findTrustedItemByIdInScope({
+        announcementId,
+        universityId: YOK_ANNOUNCEMENT_SCOPE_ID
+      });
+    if (!match) {
+      if (!userScope) throw new BadRequestException("User must select a university first.");
+      throw new NotFoundException("Trusted announcement not found.");
+    }
+    const presented = toTrustedAcademicContentDto(match.item, match.source);
     if (!presented) throw new NotFoundException("Trusted announcement not found.");
-    return presented;
+    const trustedPresentation: TrustedAcademicContentDto = presented;
+    const presentationScope = match.source.scopeType === "university"
+      && match.source.scopeId === YOK_ANNOUNCEMENT_SCOPE_ID
+      ? { universityId: YOK_ANNOUNCEMENT_SCOPE_ID }
+      : userScope!;
+    const sources = await this.announcementRepository.listSourcesByScope(presentationScope);
+    const scopedItems = await this.announcementRepository.listItemsByScope({
+      ...presentationScope,
+      limit: 1_000
+    });
+    const logical = presentTrustedItems(scopedItems, sources).find((item) =>
+      item.scopeType === trustedPresentation.scopeType
+      && item.scopeId === trustedPresentation.scopeId
+      && item.contentFingerprint === trustedPresentation.contentFingerprint);
+    return logical ? {
+      ...trustedPresentation,
+      ...(logical.canonicalUrlAliases ? { canonicalUrlAliases: logical.canonicalUrlAliases } : {}),
+      ...(logical.sourceRelationships ? { sourceRelationships: logical.sourceRelationships } : {})
+    } : trustedPresentation;
   }
 
   async getYokAnnouncements(limit = 60): Promise<TrustedAcademicContentDto[]> {
@@ -108,9 +136,17 @@ export class AnnouncementsService {
     try {
       const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser);
       const items = toAnnouncementItems(source, parsedItems, fetchedAt);
+      if (parsedItems.length === 0) {
+        const delta = await this.announcementRepository.replaceItemsForSource(source, [], { authoritativeEmpty: true });
+        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
+        const persistedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
+        return toContentCollection(presentTrustedItems(persistedItems, [source]).slice(0, boundedLimit), 1, 0);
+      }
       if (items.length > 0) {
-        await this.announcementRepository.replaceItemsForSource(source, items);
-        return toContentCollection(presentTrustedItems(items, [source]).slice(0, boundedLimit), 1, 0);
+        const delta = await this.announcementRepository.replaceItemsForSource(source, items);
+        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
+        const persistedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
+        return toContentCollection(presentTrustedItems(persistedItems, [source]).slice(0, boundedLimit), 1, 0);
       }
     } catch {
       // A stale, previously trusted cache is safer and more honest than a
@@ -169,17 +205,27 @@ export class AnnouncementsService {
     try {
       const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7_000));
       const items = toAnnouncementItems(source, parsedItems, fetchedAt);
+      const authoritativeEmpty = parsedItems.length === 0;
+      const succeeded = items.length > 0 || authoritativeEmpty;
       await this.announcementRepository.recordSourceCheck(source.id, {
-        healthStatus: items.length > 0 ? "healthy" : "degraded",
+        healthStatus: succeeded ? "healthy" : "degraded",
         lastCheckedAt: fetchedAt,
-        ...(items.length > 0 ? { lastSuccessAt: fetchedAt } : {}),
-        ...(items.length > 0 ? {} : { lastError: "No trusted announcement items parsed." }),
-        consecutiveFailures: items.length > 0 ? 0 : (source.consecutiveFailures ?? 0) + 1,
+        ...(succeeded ? { lastSuccessAt: fetchedAt } : {}),
+        ...(succeeded ? {} : { lastError: "No trusted announcement items parsed." }),
+        consecutiveFailures: succeeded ? 0 : (source.consecutiveFailures ?? 0) + 1,
         itemCount: items.length
       });
-      if (items.length > 0) {
-        await this.announcementRepository.replaceItemsForSource(source, items);
-        return { items, failed: false };
+      if (succeeded) {
+        const delta = await this.announcementRepository.replaceItemsForSource(
+          source,
+          items,
+          authoritativeEmpty ? { authoritativeEmpty: true } : {}
+        );
+        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
+        return {
+          items: await this.announcementRepository.listItemsForSource(source.id, 1_000),
+          failed: false
+        };
       }
     } catch (error) {
       await this.announcementRepository.recordSourceCheck(source.id, {
@@ -202,6 +248,7 @@ function fallbackParsedItems(source: AnnouncementSourceRecord): ParsedAnnounceme
     rawTitle: item.rawTitle ?? item.title,
     link: item.link,
     ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
+    ...(item.publishedDate ? { publishedDate: item.publishedDate, publicationKind: item.publicationKind ?? "date" as const } : {}),
     ...(item.sourceUpdatedAt ? { sourceUpdatedAt: item.sourceUpdatedAt } : {}),
     ...(item.summary ? { summary: item.summary } : {})
   }));
@@ -213,10 +260,29 @@ function presentTrustedItems(items: AnnouncementItem[], sources: AnnouncementSou
   for (const item of items) {
     const presented = toTrustedAcademicContentDto(item, sourcesById.get(item.sourceId));
     if (!presented) continue;
-    const key = canonicalContentKey(presented.canonicalUrl);
-    if (!key) continue;
+    const key = presented.contentFingerprint
+      ? scopedContentFingerprintKey({
+        scopeType: presented.scopeType,
+        scopeId: presented.scopeId,
+        contentFingerprint: presented.contentFingerprint
+      })
+      : `${presented.scopeType}\u0000${presented.scopeId}\u0000${canonicalContentKey(presented.canonicalUrl) ?? ""}`;
     const existing = unique.get(key);
-    if (!existing || compareAcademicContentDuplicateRecency(presented, existing) > 0) unique.set(key, presented);
+    if (!existing) {
+      unique.set(key, presented);
+      continue;
+    }
+    const preferred = compareAcademicContentDuplicateRecency(presented, existing) > 0 ? presented : existing;
+    unique.set(key, {
+      ...preferred,
+      canonicalUrlAliases: [...new Set([
+        existing.canonicalUrl,
+        ...(existing.canonicalUrlAliases ?? []),
+        presented.canonicalUrl,
+        ...(presented.canonicalUrlAliases ?? [])
+      ])].sort((left, right) => left.localeCompare(right, "en-US")),
+      sourceRelationships: mergeSourceRelationships(existing, presented)
+    });
   }
   return [...unique.values()].sort((left, right) => contentTimestamp(right) - contentTimestamp(left));
 }
@@ -244,9 +310,24 @@ function persistedFailedSourceCount(sources: AnnouncementSourceRecord[]): number
 }
 
 function contentTimestamp(item: TrustedAcademicContentDto): number {
-  return Math.max(...[item.publishedAt, item.sourceUpdatedAt, item.discoveredAt]
+  return Math.max(...[item.publishedAt, item.sourceUpdatedAt, item.discoveredAt, item.publishedDate ? `${item.publishedDate}T12:00:00+03:00` : undefined]
     .map((value) => value ? Date.parse(value) : 0)
     .filter(Number.isFinite), 0);
+}
+
+function mergeSourceRelationships(
+  left: TrustedAcademicContentDto,
+  right: TrustedAcademicContentDto
+): NonNullable<TrustedAcademicContentDto["sourceRelationships"]> {
+  const relationships = [...(left.sourceRelationships ?? []), ...(right.sourceRelationships ?? [])];
+  return [...new Map(relationships.map((relationship) => [
+    [relationship.scopeType, relationship.scopeId, relationship.sourceId, relationship.canonicalUrl].join("\u0000"),
+    relationship
+  ])).values()].sort((first, second) =>
+    first.scopeType.localeCompare(second.scopeType, "en-US")
+    || first.scopeId.localeCompare(second.scopeId, "en-US")
+    || first.sourceId.localeCompare(second.sourceId, "en-US")
+    || first.canonicalUrl.localeCompare(second.canonicalUrl, "en-US"));
 }
 
 function areAnnouncementItemsFresh(items: AnnouncementItem[], now = Date.now()): boolean {

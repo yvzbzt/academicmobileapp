@@ -1,9 +1,10 @@
-import { Inject, Injectable, OnApplicationBootstrap, OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchSourceItems, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
 import { canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
 import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
+import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 export interface AnnouncementDiscoveryResult {
   universityId: string;
@@ -40,7 +41,8 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
 
   constructor(
     @Inject("CatalogRepository") private readonly catalogRepository: CatalogRepository,
-    @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository
+    @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
+    @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
   ) {}
 
   onApplicationBootstrap() {
@@ -244,14 +246,23 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     try {
       const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000));
       const items = toAnnouncementItems(source, parsedItems, checkedAt);
-      if (items.length > 0) await this.announcementRepository.replaceItemsForSource(source, items);
-      const status = items.length > 0 ? "healthy" : "degraded";
+      const authoritativeEmpty = parsedItems.length === 0;
+      const succeeded = items.length > 0 || authoritativeEmpty;
+      if (succeeded) {
+        const delta = await this.announcementRepository.replaceItemsForSource(
+          source,
+          items,
+          authoritativeEmpty ? { authoritativeEmpty: true } : {}
+        );
+        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, checkedAt);
+      }
+      const status = succeeded ? "healthy" : "degraded";
       await this.announcementRepository.recordSourceCheck(source.id, {
         healthStatus: status,
         lastCheckedAt: checkedAt,
-        ...(items.length > 0 ? { lastSuccessAt: checkedAt } : {}),
-        ...(items.length > 0 ? {} : { lastError: "No announcement items parsed." }),
-        consecutiveFailures: items.length > 0 ? 0 : (source.consecutiveFailures ?? 0) + 1,
+        ...(succeeded ? { lastSuccessAt: checkedAt } : {}),
+        ...(succeeded ? {} : { lastError: "No trusted announcement items parsed." }),
+        consecutiveFailures: succeeded ? 0 : (source.consecutiveFailures ?? 0) + 1,
         itemCount: items.length
       });
       return { sourceId: source.id, sourceName: source.sourceName, sourceUrl: source.sourceUrl, status, itemCount: items.length, sampleTitles: items.slice(0, 3).map((item) => item.title) };

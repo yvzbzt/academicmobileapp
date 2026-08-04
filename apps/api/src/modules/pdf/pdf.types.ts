@@ -1,3 +1,4 @@
+import type { AcademicEventTemporalKind } from "../../../../../packages/shared/src/contracts.js";
 import type { AcademicEventCategory, AcademicTerm, DatePrecision } from "../../domain/academic-event.types.js";
 
 export type PdfSourceStatus = "uploaded" | "duplicate" | "rejected" | "archived";
@@ -41,6 +42,10 @@ export interface ExtractedEventRecord {
   normalizedCategory: AcademicEventCategory;
   startDate?: Date;
   endDate?: Date;
+  temporalKind?: AcademicEventTemporalKind;
+  endTemporalKind?: AcademicEventTemporalKind;
+  dateOnlyStart?: string;
+  dateOnlyEnd?: string;
   startTime?: string;
   endTime?: string;
   hasExplicitTime?: boolean;

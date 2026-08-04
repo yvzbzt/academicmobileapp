@@ -9,6 +9,7 @@ import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import type { CalendarScopeView } from "./calendar.dto.js";
 import { CalendarIngestionService, isAcceptableAcademicYear, isUnitSpecificCalendarSource } from "./calendar-ingestion.service.js";
+import { compareEventStart, temporalStartValue } from "./calendar-temporal.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
 
 export interface CalendarWithEventsResponse {
@@ -31,7 +32,7 @@ export interface DepartmentScheduleResponse {
 
 export interface SummerSchoolRequirementRecord {
   message: string;
-  date?: Date;
+  date?: string;
   sourceUrl?: string;
   eventId?: string;
 }
@@ -212,7 +213,7 @@ export class CalendarService {
         const sourceUrl = sourceUrlFromEvent(event, university);
         return {
           message: normalizeDisplayText(event.title, 320) || "Resmî yaz okulu bilgisi",
-          date: event.startDate,
+          date: temporalStartValue(event),
           eventId: event.id,
           ...(sourceUrl ? { sourceUrl } : {})
         };
@@ -339,7 +340,7 @@ export class CalendarService {
       .flat()
       .filter((event) => event.departmentId === departmentId)
       .filter((event) => isAcceptableAcademicYear(event.academicYear))
-      .sort((left, right) => left.startDate.getTime() - right.startDate.getTime())
+      .sort(compareEventStart)
       .slice(0, 200);
 
     const sourceUrl = await this.findDepartmentScheduleSource({
@@ -411,7 +412,7 @@ export class CalendarService {
     return groups
       .flat()
       .filter((event) => isAcceptableAcademicYear(event.academicYear))
-      .sort((left, right) => left.startDate.getTime() - right.startDate.getTime());
+      .sort(compareEventStart);
   }
 
   private async findSameDepartmentSummerSchoolOptions(department: DepartmentRecord, selectedUniversityId: string): Promise<SummerSchoolUniversityOption[]> {
@@ -608,7 +609,7 @@ function dedupeCalendarEvents(events: AcademicEventRecord[]): AcademicEventRecor
     const existing = unique.get(event.id);
     if (!existing || event.updatedAt.getTime() > existing.updatedAt.getTime()) unique.set(event.id, event);
   }
-  return [...unique.values()].sort((left, right) => left.startDate.getTime() - right.startDate.getTime() || left.title.localeCompare(right.title, "tr-TR"));
+  return [...unique.values()].sort(compareEventStart);
 }
 
 function renderIcsCalendar(input: { name: string; description: string; events: AcademicEventRecord[] }): string {
@@ -632,14 +633,31 @@ function renderIcsCalendar(input: { name: string; description: string; events: A
 }
 
 function renderIcsEvent(event: AcademicEventRecord): string[] {
-  const startDate = icsDate(event.startDate);
-  const endDate = icsDate(addDays(event.endDate ?? event.startDate, 1));
   const description = [
     event.description,
     `Kategori: ${event.category}`,
     `Akademik yil: ${event.academicYear}`,
     event.originalDateText ? `Kaynak tarih: ${event.originalDateText}` : undefined
   ].filter((value): value is string => Boolean(value));
+
+  const hasDateOnlyStart = event.temporalKind === "date" && Boolean(event.dateOnlyStart);
+  const hasTimestampEnd = event.endTemporalKind === "timestamp" && Boolean(event.endDate);
+  const temporalLines = hasDateOnlyStart && !hasTimestampEnd
+    ? [
+        `DTSTART;VALUE=DATE:${icsCalendarDate(event.dateOnlyStart!)}`,
+        `DTEND;VALUE=DATE:${icsCalendarDate(addCalendarDays(event.dateOnlyEnd ?? event.dateOnlyStart!, 1))}`
+      ]
+    : hasDateOnlyStart && hasTimestampEnd
+      ? [
+          `DTSTART:${icsTimestamp(istanbulCalendarStart(event.dateOnlyStart!))}`,
+          `DTEND:${icsTimestamp(event.endDate!)}`
+        ]
+    : [
+        `DTSTART:${icsTimestamp(event.startDate)}`,
+        ...(event.endTemporalKind === "date" && event.dateOnlyEnd
+          ? [`DTEND:${icsTimestamp(exclusiveIstanbulCalendarEnd(event.dateOnlyEnd))}`]
+          : event.endDate ? [`DTEND:${icsTimestamp(event.endDate)}`] : [])
+      ];
 
   return [
     "BEGIN:VEVENT",
@@ -649,8 +667,7 @@ function renderIcsEvent(event: AcademicEventRecord): string[] {
     `SUMMARY:${escapeIcsText(event.title)}`,
     `DESCRIPTION:${escapeIcsText(description.join("\n"))}`,
     `CATEGORIES:${escapeIcsText(event.category)}`,
-    `DTSTART;VALUE=DATE:${startDate}`,
-    `DTEND;VALUE=DATE:${endDate}`,
+    ...temporalLines,
     "TRANSP:TRANSPARENT",
     "END:VEVENT"
   ];
@@ -668,10 +685,22 @@ function icsTimestamp(date: Date): string {
   return `${icsDate(date)}T${String(date.getUTCHours()).padStart(2, "0")}${String(date.getUTCMinutes()).padStart(2, "0")}${String(date.getUTCSeconds()).padStart(2, "0")}Z`;
 }
 
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
+function icsCalendarDate(dateOnly: string): string {
+  return dateOnly.replaceAll("-", "");
+}
+
+function addCalendarDays(dateOnly: string, days: number): string {
+  const next = new Date(`${dateOnly}T12:00:00.000Z`);
   next.setUTCDate(next.getUTCDate() + days);
-  return next;
+  return next.toISOString().slice(0, 10);
+}
+
+function exclusiveIstanbulCalendarEnd(inclusiveEnd: string): Date {
+  return new Date(`${addCalendarDays(inclusiveEnd, 1)}T00:00:00.000+03:00`);
+}
+
+function istanbulCalendarStart(dateOnly: string): Date {
+  return new Date(`${dateOnly}T00:00:00.000+03:00`);
 }
 
 function escapeIcsText(value: string): string {

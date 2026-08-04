@@ -1,13 +1,19 @@
 import type { ContentCollectionState, TrustedMobileContentRecord } from "../content/content-trust";
+import {
+  compareAcademicTemporalStart,
+  formatAcademicRemainingTime,
+  isAcademicTemporalActiveOnDay,
+  isAcademicTemporalCurrentOrFuture,
+  type AcademicTemporalKind,
+  type AcademicTemporalValue,
+} from "../temporal/academic-temporal";
 
 export const HOME_RECENT_ANNOUNCEMENT_LIMIT = 3;
 
-export interface HomeAcademicEvent {
+export interface HomeAcademicEvent extends AcademicTemporalValue {
   id: string;
   title: string;
   category: string;
-  startDate: string;
-  endDate?: string;
 }
 
 export interface HomeManualExam {
@@ -16,11 +22,20 @@ export interface HomeManualExam {
   examDate: string;
 }
 
+export interface HomeExamCountdownItem extends AcademicTemporalValue {
+  id: string;
+  title: string;
+  source: "calendar" | "manual";
+}
+
 export interface HomeImportantItem {
   id: string;
   title: string;
   category: string;
   date: string;
+  endDate?: string;
+  temporalKind?: AcademicTemporalKind;
+  endTemporalKind?: AcademicTemporalKind;
   kind: "exam" | "deadline" | "registration" | "event";
 }
 
@@ -74,7 +89,7 @@ export function selectTodayItems(
   now: Date
 ): HomeImportantItem[] {
   const academic = events
-    .filter((event) => isActiveOnLocalCalendarDay(event.startDate, event.endDate, now))
+    .filter((event) => isAcademicTemporalActiveOnDay(event, now))
     .map(toImportantItem);
   const personal = manualExams
     .filter((exam) => isSameLocalCalendarDay(exam.examDate, now))
@@ -94,7 +109,7 @@ export function selectNearestImportantItem(
   now: Date
 ): HomeImportantItem | null {
   const candidates = [
-    ...events.map(toImportantItem),
+    ...events.filter((event) => isAcademicTemporalCurrentOrFuture(event, now)).map(toImportantItem),
     ...manualExams.map((exam) => ({
       id: exam.id,
       title: exam.title,
@@ -103,10 +118,40 @@ export function selectNearestImportantItem(
       kind: "exam" as const,
     })),
   ].filter((item) => {
+    if (item.category !== "personal_exam") return true;
     const time = Date.parse(item.date);
     return !Number.isNaN(time) && time >= now.getTime();
   });
   return candidates.sort(compareImportantItems)[0] ?? null;
+}
+
+export function selectExamCountdownItems(
+  events: HomeAcademicEvent[],
+  manualExams: HomeManualExam[],
+  now: Date
+): HomeExamCountdownItem[] {
+  const examCategories = new Set(["midterm_exam", "final_exam", "makeup_exam", "single_course_exam"]);
+  const calendarExams: HomeExamCountdownItem[] = events
+    .filter((event) => examCategories.has(event.category))
+    .map((event) => ({
+      id: event.id,
+      title: event.title,
+      startDate: event.startDate,
+      ...(event.endDate ? { endDate: event.endDate } : {}),
+      ...(event.temporalKind ? { temporalKind: event.temporalKind } : {}),
+      ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {}),
+      source: "calendar"
+    }));
+  const personalExams: HomeExamCountdownItem[] = manualExams.map((exam) => ({
+    id: exam.id,
+    title: exam.title,
+    startDate: exam.examDate,
+    temporalKind: "timestamp",
+    source: "manual"
+  }));
+  return [...calendarExams, ...personalExams]
+    .filter((exam) => isAcademicTemporalCurrentOrFuture(exam, now))
+    .sort(compareAcademicTemporalStart);
 }
 
 export function orderHomeAnnouncements(
@@ -193,15 +238,19 @@ export function resolveHomeLayout(width: number, fontScale: number): {
   };
 }
 
-export function formatRemainingTime(date: string, now: Date): string {
-  const difference = Date.parse(date) - now.getTime();
-  if (!Number.isFinite(difference) || difference < 0) return "Süresi geçti";
-  const minutes = Math.ceil(difference / 60_000);
-  if (minutes < 60) return `${minutes} dakika kaldı`;
-  const hours = Math.ceil(minutes / 60);
-  if (hours < 24) return `${hours} saat kaldı`;
-  const days = Math.ceil(hours / 24);
-  return days === 1 ? "Yarın" : `${days} gün kaldı`;
+export function formatRemainingTime(
+  date: string,
+  now: Date,
+  endDate?: string,
+  temporalKind?: AcademicTemporalKind,
+  endTemporalKind?: AcademicTemporalKind
+): string {
+  return formatAcademicRemainingTime({
+    startDate: date,
+    ...(endDate ? { endDate } : {}),
+    ...(temporalKind ? { temporalKind } : {}),
+    ...(endTemporalKind ? { endTemporalKind } : {})
+  }, now);
 }
 
 function toImportantItem(event: HomeAcademicEvent): HomeImportantItem {
@@ -213,11 +262,23 @@ function toImportantItem(event: HomeAcademicEvent): HomeImportantItem {
       : category.includes("deadline") || category.includes("application")
         ? "deadline"
         : "event";
-  return { id: event.id, title: event.title, category, date: event.startDate, kind };
+  return {
+    id: event.id,
+    title: event.title,
+    category,
+    date: event.startDate,
+    ...(event.endDate ? { endDate: event.endDate } : {}),
+    ...(event.temporalKind ? { temporalKind: event.temporalKind } : {}),
+    ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {}),
+    kind
+  };
 }
 
 function compareImportantItems(left: HomeImportantItem, right: HomeImportantItem): number {
-  const dateDifference = Date.parse(left.date) - Date.parse(right.date);
+  const dateDifference = compareAcademicTemporalStart(
+    { startDate: left.date, ...(left.temporalKind ? { temporalKind: left.temporalKind } : {}) },
+    { startDate: right.date, ...(right.temporalKind ? { temporalKind: right.temporalKind } : {}) }
+  );
   if (dateDifference) return dateDifference;
   const priorityDifference = (IMPORTANT_CATEGORY_ORDER.get(left.category) ?? 9)
     - (IMPORTANT_CATEGORY_ORDER.get(right.category) ?? 9);
@@ -225,6 +286,10 @@ function compareImportantItems(left: HomeImportantItem, right: HomeImportantItem
 }
 
 function announcementTimestamp(item: TrustedMobileContentRecord): number {
+  if (item.publicationKind === "date" && item.publishedDate) {
+    const dateOnly = parseDateOnly(item.publishedDate);
+    if (dateOnly) return Date.UTC(dateOnly.year, dateOnly.month - 1, dateOnly.day, 12);
+  }
   return Date.parse(item.publishedAt ?? item.sourceUpdatedAt ?? "") || 0;
 }
 

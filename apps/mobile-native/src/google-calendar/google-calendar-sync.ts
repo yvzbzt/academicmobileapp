@@ -17,12 +17,17 @@ export type GoogleCalendarAcademicEvent = {
   category: string;
   startDate: string;
   endDate?: string;
+  temporalKind?: "date" | "timestamp";
+  endTemporalKind?: "date" | "timestamp";
+  timezone?: string;
 };
 
 export type GoogleCalendarAnnouncement = {
   id: string;
   title: string;
   link: string;
+  publicationKind?: "date" | "timestamp";
+  publishedDate?: string;
   publishedAt?: string;
   sourceUpdatedAt?: string;
   summary?: string;
@@ -36,6 +41,9 @@ export type GoogleCalendarSyncItem = {
   description: string;
   startDate: string;
   endDate: string;
+  allDay: boolean;
+  timeZone?: string;
+  endTimeUnspecified?: boolean;
   fingerprint: string;
 };
 
@@ -125,6 +133,10 @@ type GoogleApiEvent = {
   status?: string;
   summary?: string;
   description?: string;
+  start?: { date?: string; dateTime?: string; timeZone?: string };
+  end?: { date?: string; dateTime?: string; timeZone?: string };
+  endTimeUnspecified?: boolean;
+  transparency?: "opaque" | "transparent";
   extendedProperties?: {
     private?: Record<string, string>;
   };
@@ -464,18 +476,63 @@ export function buildGoogleCalendarSyncItems(
   const items = new Map<string, GoogleCalendarSyncItem>();
 
   for (const event of calendarEvents) {
-    const startDate = dateOnly(event.startDate);
-    if (!startDate) continue;
-    const inclusiveEndDate = dateOnly(event.endDate ?? event.startDate) ?? startDate;
     const sourceId = `academic-event:${event.id}`;
-    const item = createSyncItem({
-      sourceId,
-      sourceType: "academic_event",
-      summary: event.title,
-      description: `Akademik Takvim\nKategori: ${event.category}`,
-      startDate,
-      endDate: addDays(inclusiveEndDate, 1)
-    });
+    const startKind = event.temporalKind ?? (isExactDateOnly(event.startDate) ? "date" : "timestamp");
+    const description = `Akademik Takvim\nKategori: ${event.category}`;
+    let item: GoogleCalendarSyncItem;
+    if (startKind === "date") {
+      const startDate = exactCalendarDate(event.startDate);
+      if (!startDate) continue;
+      const endKind = event.endTemporalKind
+        ?? (event.endDate && isExactDateOnly(event.endDate) ? "date" : undefined);
+      const timestampEnd = endKind === "timestamp" ? timestamp(event.endDate) : null;
+      const timestampStart = istanbulCalendarStart(startDate);
+      if (timestampEnd && Date.parse(timestampEnd) > Date.parse(timestampStart)) {
+        item = createSyncItem({
+          sourceId,
+          sourceType: "academic_event",
+          summary: event.title,
+          description,
+          startDate: timestampStart,
+          endDate: timestampEnd,
+          allDay: false,
+          timeZone: event.timezone ?? "Europe/Istanbul"
+        });
+      } else {
+        const inclusiveEndDate = endKind === "date"
+          ? exactCalendarDate(event.endDate) ?? startDate
+          : startDate;
+        item = createSyncItem({
+          sourceId,
+          sourceType: "academic_event",
+          summary: event.title,
+          description,
+          startDate,
+          endDate: addDays(inclusiveEndDate, 1),
+          allDay: true
+        });
+      }
+    } else {
+      const startDate = timestamp(event.startDate);
+      if (!startDate) continue;
+      const endKind = event.endTemporalKind
+        ?? (event.endDate && isExactDateOnly(event.endDate) ? "date" : "timestamp");
+      const suppliedEnd = endKind === "date"
+        ? exclusiveIstanbulEnd(event.endDate)
+        : timestamp(event.endDate);
+      const hasValidEnd = Boolean(suppliedEnd && Date.parse(suppliedEnd) > Date.parse(startDate));
+      item = createSyncItem({
+        sourceId,
+        sourceType: "academic_event",
+        summary: event.title,
+        description,
+        startDate,
+        endDate: hasValidEnd ? suppliedEnd! : addMinutes(startDate, 60),
+        allDay: false,
+        timeZone: event.timezone ?? "Europe/Istanbul",
+        ...(!hasValidEnd ? { endTimeUnspecified: true } : {})
+      });
+    }
     items.set(sourceId, item);
   }
 
@@ -484,7 +541,9 @@ export function buildGoogleCalendarSyncItems(
     if (contentType === "news") continue;
     // Only a source-authored publication/update timestamp may become a calendar date.
     // Discovery/fetch/crawl timestamps are deliberately ignored.
-    const startDate = dateOnly(announcement.publishedAt ?? announcement.sourceUpdatedAt);
+    const startDate = announcement.publishedDate
+      ? exactCalendarDate(announcement.publishedDate)
+      : dateOnly(announcement.publishedAt ?? announcement.sourceUpdatedAt);
     if (!startDate) continue;
     const sourceType = contentType === "event" ? "event" : "announcement";
     const sourceId = `${sourceType}:${announcement.id}`;
@@ -492,7 +551,7 @@ export function buildGoogleCalendarSyncItems(
     const details = [
       label,
       announcement.summary,
-      !announcement.publishedAt && announcement.sourceUpdatedAt
+      !announcement.publishedDate && !announcement.publishedAt && announcement.sourceUpdatedAt
         ? "Kaynakta yayın tarihi bulunmadığı için kaynak güncelleme tarihi kullanıldı."
         : undefined,
       announcement.link ? `Kaynak: ${announcement.link}` : undefined
@@ -503,7 +562,8 @@ export function buildGoogleCalendarSyncItems(
       summary: `${label}: ${announcement.title}`,
       description: details.join("\n"),
       startDate,
-      endDate: addDays(startDate, 1)
+      endDate: addDays(startDate, 1),
+      allDay: true
     });
     items.set(sourceId, item);
   }
@@ -522,17 +582,29 @@ function createSyncItem(input: Omit<GoogleCalendarSyncItem, "fingerprint">): Goo
       input.summary,
       input.description,
       input.startDate,
-      input.endDate
+      input.endDate,
+      String(input.allDay),
+      input.timeZone ?? "",
+      String(input.endTimeUnspecified ?? false)
     ].join("\u001f"))
   };
 }
 
 function toGoogleEventBody(item: GoogleCalendarSyncItem, ownerId: string): GoogleApiEvent {
+  const temporalFields = item.allDay
+    ? {
+      start: { date: item.startDate },
+      end: { date: item.endDate }
+    }
+    : {
+      start: { dateTime: item.startDate, timeZone: item.timeZone ?? "Europe/Istanbul" },
+      end: { dateTime: item.endDate, timeZone: item.timeZone ?? "Europe/Istanbul" },
+      ...(item.endTimeUnspecified ? { endTimeUnspecified: true } : {})
+    };
   return {
     summary: item.summary,
     description: item.description,
-    start: { date: item.startDate },
-    end: { date: item.endDate },
+    ...temporalFields,
     transparency: "transparent",
     extendedProperties: {
       private: {
@@ -543,7 +615,7 @@ function toGoogleEventBody(item: GoogleCalendarSyncItem, ownerId: string): Googl
         [FINGERPRINT_PROPERTY]: item.fingerprint
       }
     }
-  } as GoogleApiEvent;
+  };
 }
 
 function collectEventMappings(events: GoogleApiEvent[]): GoogleCalendarEventMapping[] {
@@ -604,17 +676,58 @@ function uniqueEventsById(events: GoogleApiEvent[]): GoogleApiEvent[] {
 
 function dateOnly(value: string | undefined): string | null {
   if (!value) return null;
-  const direct = value.match(/^(\d{4}-\d{2}-\d{2})/u)?.[1];
-  if (direct && !Number.isNaN(Date.parse(`${direct}T00:00:00.000Z`))) return direct;
+  const direct = exactCalendarDate(value);
+  if (direct) return direct;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  return istanbulCalendarDate(parsed);
+}
+
+function exactCalendarDate(value: string | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null;
+  const parsed = new Date(`${value}T12:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : null;
+}
+
+function isExactDateOnly(value: string): boolean {
+  return exactCalendarDate(value) !== null;
+}
+
+function timestamp(value: string | undefined): string | null {
+  if (!value || isExactDateOnly(value)) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function exclusiveIstanbulEnd(value: string | undefined): string | null {
+  const inclusiveEnd = exactCalendarDate(value);
+  if (!inclusiveEnd) return null;
+  return `${addDays(inclusiveEnd, 1)}T00:00:00.000+03:00`;
+}
+
+function istanbulCalendarStart(value: string): string {
+  return `${value}T00:00:00.000+03:00`;
+}
+
+function istanbulCalendarDate(value: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(value);
+  const part = (type: "year" | "month" | "day") => parts.find((entry) => entry.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 function addDays(value: string, days: number): string {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function addMinutes(value: string, minutes: number): string {
+  return new Date(Date.parse(value) + minutes * 60_000).toISOString();
 }
 
 function fingerprint(value: string): string {

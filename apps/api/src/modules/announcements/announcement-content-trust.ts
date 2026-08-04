@@ -256,8 +256,8 @@ export function canonicalContentKey(input: string): string | null {
 }
 
 export function compareAcademicContentDuplicateRecency(
-  candidate: Pick<AnnouncementItem, "publishedAt" | "sourceUpdatedAt" | "discoveredAt" | "fetchedAt"> & Partial<Pick<AnnouncementItem, "id">>,
-  current: Pick<AnnouncementItem, "publishedAt" | "sourceUpdatedAt" | "discoveredAt" | "fetchedAt"> & Partial<Pick<AnnouncementItem, "id">>
+  candidate: Pick<AnnouncementItem, "publishedAt" | "publishedDate" | "sourceUpdatedAt" | "discoveredAt" | "fetchedAt"> & Partial<Pick<AnnouncementItem, "id">>,
+  current: Pick<AnnouncementItem, "publishedAt" | "publishedDate" | "sourceUpdatedAt" | "discoveredAt" | "fetchedAt"> & Partial<Pick<AnnouncementItem, "id">>
 ): number {
   const candidateSourceTime = sourceAuthorityTimestamp(candidate);
   const currentSourceTime = sourceAuthorityTimestamp(current);
@@ -271,6 +271,36 @@ export function compareAcademicContentDuplicateRecency(
 export function createContentDedupeKey(input: string): string | null {
   const key = canonicalContentKey(input);
   return key ? createHash("sha256").update(key).digest("hex").slice(0, 32) : null;
+}
+
+export function createNormalizedContentFingerprint(input: {
+  title: string;
+  summary?: string;
+  contentType?: AnnouncementContentType;
+  publicationKind?: "date" | "timestamp";
+  publishedDate?: string;
+  publishedAt?: string;
+}): string {
+  const publication = input.publicationKind === "date"
+    ? `date:${toDateOnlyString(input.publishedDate) ?? "invalid"}`
+    : input.publicationKind === "timestamp" || input.publishedAt
+      ? `timestamp:${toIsoString(input.publishedAt) ?? "invalid"}`
+      : "none";
+  const normalized = [
+    foldTurkish(normalizeDisplayText(input.title, 500)),
+    foldTurkish(normalizeDisplayText(input.summary, 1_200)),
+    input.contentType ?? "announcement",
+    publication
+  ].join("\u0000");
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+export function scopedContentFingerprintKey(input: {
+  scopeType: AnnouncementItem["scopeType"];
+  scopeId: string;
+  contentFingerprint: string;
+}): string {
+  return `${input.scopeType}\u0000${input.scopeId}\u0000${input.contentFingerprint}`;
 }
 
 export function evaluateContentTrust(input: {
@@ -331,16 +361,27 @@ export function toTrustedAcademicContentDto(
   const fetchedAt = toIsoString(item.fetchedAt);
   const discoveredAt = toIsoString(item.discoveredAt);
   const sourceUpdatedAt = item.sourceUpdateTimeSource === "source" ? toIsoString(item.sourceUpdatedAt) : undefined;
-  const parsedPublishedAt = toIsoString(item.publishedAt);
-  const publishedAt = item.publicationTimeSource === "source" ? parsedPublishedAt : undefined;
+  const publication = normalizeSourcePublication(item);
   const summary = normalizeDisplayText(item.summary, 1_200);
   const contentType = source.contentType ?? item.contentType ?? "announcement";
+  const contentFingerprint = createNormalizedContentFingerprint({
+    title: decision.title,
+    ...(summary ? { summary } : {}),
+    contentType,
+    ...publication
+  });
+  const canonicalUrlAliases = normalizeCanonicalUrlAliases(
+    [decision.canonicalUrl, ...(item.canonicalUrlAliases ?? [])],
+    officialSourceUrl
+  );
+  const sourceName = normalizeDisplayText(source.sourceName, 160) || "Resmî akademik kaynak";
+  const normalizedOfficialSourceUrl = canonicalizeContentUrl(officialSourceUrl)!;
 
   return {
     id: item.id,
     sourceId: item.sourceId,
-    sourceName: normalizeDisplayText(source.sourceName, 160) || "Resmî akademik kaynak",
-    officialSourceUrl: canonicalizeContentUrl(officialSourceUrl)!,
+    sourceName,
+    officialSourceUrl: normalizedOfficialSourceUrl,
     contentType,
     scopeType: source.scopeType,
     scopeId: source.scopeId,
@@ -348,7 +389,17 @@ export function toTrustedAcademicContentDto(
     ...(summary ? { summary } : {}),
     link: decision.canonicalUrl,
     canonicalUrl: decision.canonicalUrl,
-    ...(publishedAt ? { publishedAt } : {}),
+    canonicalUrlAliases,
+    contentFingerprint,
+    sourceRelationships: [{
+      sourceId: item.sourceId,
+      sourceName,
+      officialSourceUrl: normalizedOfficialSourceUrl,
+      scopeType: source.scopeType,
+      scopeId: source.scopeId,
+      canonicalUrl: decision.canonicalUrl
+    }],
+    ...publication,
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
     ...(discoveredAt ? { discoveredAt } : {}),
     ...(fetchedAt ? { fetchedAt } : {}),
@@ -372,11 +423,21 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
       contentType
     });
     if (decision.status !== "trusted" || !decision.title || !decision.canonicalUrl || !decision.dedupeKey) continue;
-    const publishedAt = item.publicationTimeSource === "source" ? toIsoString(item.publishedAt) : undefined;
+    const publication = normalizeSourcePublication(item);
     const sourceUpdatedAt = item.sourceUpdateTimeSource === "source" ? toIsoString(item.sourceUpdatedAt) : undefined;
     const discoveredAt = toIsoString(item.discoveredAt);
     const fetchedAt = toIsoString(item.fetchedAt);
     const summary = normalizeDisplayText(item.summary, 1_200);
+    const contentFingerprint = createNormalizedContentFingerprint({
+      title: decision.title,
+      ...(summary ? { summary } : {}),
+      contentType,
+      ...publication
+    });
+    const canonicalUrlAliases = normalizeCanonicalUrlAliases(
+      [decision.canonicalUrl, ...(item.canonicalUrlAliases ?? [])],
+      officialSourceUrl
+    );
     const normalized: AnnouncementItem = {
       id: item.id,
       sourceId: source.id,
@@ -388,8 +449,10 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
       rawTitle: decision.rawTitle,
       link: decision.canonicalUrl,
       canonicalUrl: decision.canonicalUrl,
+      canonicalUrlAliases,
       officialSourceUrl,
-      ...(publishedAt ? { publishedAt, publicationTimeSource: "source" as const } : {}),
+      contentFingerprint,
+      ...(Object.keys(publication).length > 0 ? { ...publication, publicationTimeSource: "source" as const } : {}),
       ...(sourceUpdatedAt ? { sourceUpdatedAt, sourceUpdateTimeSource: "source" as const } : {}),
       ...(discoveredAt ? { discoveredAt } : {}),
       ...(summary ? { summary } : {}),
@@ -399,10 +462,39 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
       trustReasonCodes: [],
       dedupeKey: decision.dedupeKey
     };
-    const existing = unique.get(decision.dedupeKey);
-    if (!existing || compareAcademicContentDuplicateRecency(normalized, existing) > 0) unique.set(decision.dedupeKey, normalized);
+    const existing = unique.get(contentFingerprint);
+    if (!existing) {
+      unique.set(contentFingerprint, normalized);
+      continue;
+    }
+    const preferred = compareAcademicContentDuplicateRecency(normalized, existing) > 0 ? normalized : existing;
+    unique.set(contentFingerprint, {
+      ...preferred,
+      canonicalUrlAliases: normalizeCanonicalUrlAliases(
+        [...(existing.canonicalUrlAliases ?? []), ...(normalized.canonicalUrlAliases ?? [])],
+        officialSourceUrl
+      )
+    });
   }
-  return [...unique.values()];
+  const canonicalUnique = new Map<string, AnnouncementItem>();
+  for (const normalized of unique.values()) {
+    const key = canonicalContentKey(normalized.canonicalUrl ?? normalized.link);
+    if (!key) continue;
+    const existing = canonicalUnique.get(key);
+    if (!existing) {
+      canonicalUnique.set(key, normalized);
+      continue;
+    }
+    const preferred = compareAcademicContentDuplicateRecency(normalized, existing) > 0 ? normalized : existing;
+    canonicalUnique.set(key, {
+      ...preferred,
+      canonicalUrlAliases: normalizeCanonicalUrlAliases(
+        [...(existing.canonicalUrlAliases ?? []), ...(normalized.canonicalUrlAliases ?? [])],
+        officialSourceUrl
+      )
+    });
+  }
+  return [...canonicalUnique.values()];
 }
 
 export function toIsoString(value: string | Date | undefined): string | undefined {
@@ -410,6 +502,31 @@ export function toIsoString(value: string | Date | undefined): string | undefine
   if (typeof value === "string" && !isStrictIsoDate(value)) return undefined;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+export function toDateOnlyString(value: string | undefined): string | undefined {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/u.test(value) || !isStrictIsoDate(value)) return undefined;
+  return value;
+}
+
+function normalizeSourcePublication(item: Pick<AnnouncementItem, "publicationKind" | "publicationTimeSource" | "publishedDate" | "publishedAt">):
+  | { publicationKind: "date"; publishedDate: string }
+  | { publicationKind: "timestamp"; publishedAt: string }
+  | Record<string, never> {
+  if (item.publicationTimeSource !== "source") return {};
+  if (item.publicationKind === "date" || (!item.publicationKind && toDateOnlyString(item.publishedAt))) {
+    const publishedDate = toDateOnlyString(item.publishedDate ?? item.publishedAt);
+    return publishedDate ? { publicationKind: "date", publishedDate } : {};
+  }
+  const publishedAt = toIsoString(item.publishedAt);
+  return publishedAt ? { publicationKind: "timestamp", publishedAt } : {};
+}
+
+function normalizeCanonicalUrlAliases(values: readonly string[], officialSourceUrl: string): string[] {
+  return [...new Set(values.flatMap((value) => {
+    const canonicalUrl = canonicalizeContentUrl(value);
+    return canonicalUrl && isOfficialContentUrl(canonicalUrl, officialSourceUrl) ? [canonicalUrl] : [];
+  }))].sort((left, right) => left.localeCompare(right, "en-US"));
 }
 
 function isStrictIsoDate(value: string): boolean {
@@ -446,10 +563,14 @@ function decodeCodePoint(original: string, value: string, radix: number): string
   }
 }
 
-function sourceAuthorityTimestamp(item: Pick<AnnouncementItem, "publishedAt" | "sourceUpdatedAt">): number {
-  return Math.max(...[item.publishedAt, item.sourceUpdatedAt]
+function sourceAuthorityTimestamp(item: Pick<AnnouncementItem, "publishedAt" | "publishedDate" | "sourceUpdatedAt">): number {
+  return Math.max(...[item.publishedAt, item.sourceUpdatedAt, dateOnlySortInstant(item.publishedDate)]
     .map((value) => value ? Date.parse(value) : 0)
     .filter(Number.isFinite), 0);
+}
+
+function dateOnlySortInstant(value: string | undefined): string | undefined {
+  return toDateOnlyString(value) ? `${value}T12:00:00+03:00` : undefined;
 }
 
 function operationalContentTimestamp(item: Pick<AnnouncementItem, "discoveredAt" | "fetchedAt">): number {

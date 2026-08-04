@@ -2,6 +2,7 @@ import { Inject, Injectable, OnApplicationShutdown, Optional } from "@nestjs/com
 import { Redis } from "ioredis";
 import { readRuntimeConfig } from "../../config/runtime-config.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
+import { NotificationWorkerService } from "../notifications/notification-worker.service.js";
 
 export interface DependencyHealthRecord {
   name: string;
@@ -15,7 +16,8 @@ export class InfrastructureHealthService implements OnApplicationShutdown {
 
   constructor(
     @Inject(MongoConnectionService) private readonly mongo: MongoConnectionService,
-    @Optional() @Inject("REDIS_URL") redisUrl?: string
+    @Optional() @Inject("REDIS_URL") redisUrl?: string,
+    @Optional() @Inject(NotificationWorkerService) private readonly notificationWorker?: NotificationWorkerService
   ) {
     if (redisUrl) this.redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
   }
@@ -25,6 +27,7 @@ export class InfrastructureHealthService implements OnApplicationShutdown {
     const dependencies: DependencyHealthRecord[] = [{ name: "api", status: "ok" }];
     dependencies.push(await this.mongoHealth());
     dependencies.push(await this.redisHealth(config.queueMode === "bullmq" || config.rateLimitStoreMode === "redis"));
+    if (this.notificationWorker) dependencies.push(this.notificationWorkerHealth());
     return { status: dependencies.some((dependency) => dependency.status === "down") ? "degraded" : "ok", dependencies };
   }
 
@@ -53,6 +56,16 @@ export class InfrastructureHealthService implements OnApplicationShutdown {
     } catch (error) {
       return { name: "redis", status: "down", detail: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  private notificationWorkerHealth(): DependencyHealthRecord {
+    const health = this.notificationWorker!.health();
+    if (!health.enabled && health.state === "disabled") return { name: "notification-worker", status: "skipped", detail: "disabled" };
+    const detail = `${health.state}; due=${health.backlog.due}; retrying=${health.backlog.retrying}; processing=${health.backlog.processing}; dead=${health.backlog.dead}`;
+    if (health.state === "degraded" || health.state === "draining") {
+      return { name: "notification-worker", status: "down", detail };
+    }
+    return { name: "notification-worker", status: "ok", detail };
   }
 
 }

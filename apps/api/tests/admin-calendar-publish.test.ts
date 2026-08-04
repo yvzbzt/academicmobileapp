@@ -54,6 +54,35 @@ describe("AdminCalendarService", () => {
     expect(draft.events.every((event) => event.status === "approved")).toBe(true);
   });
 
+  it("carries a date-only start and real timestamp end through the approved draft", async () => {
+    const pdfRepository = new InMemoryPdfRepository();
+    const pdfService = new PdfProcessingService(pdfRepository, disabledOcrService);
+    const source = await pdfService.createPdfSource({
+      ...validPdfInput,
+      fileName: "inverse-mixed-publish-flow.pdf",
+      rawText: "Basvuru sonuclari 01.09.2026 - 03.09.2026 17:00"
+    });
+    const processed = await pdfService.processPdfSource(source.id);
+    await pdfService.approveExtractedEvent(processed.extractedEvents[0]!.id, "admin-1");
+    const service = new AdminCalendarService(new InMemoryCalendarRepository(), pdfRepository);
+
+    const draft = await service.createDraftFromApprovedExtractedEvents({
+      universityId: source.universityId,
+      academicYear: source.academicYear,
+      title: "Karma zaman araligi",
+      sourcePdfId: source.id,
+      createdBy: "admin-1"
+    });
+
+    expect(draft.events[0]).toMatchObject({
+      temporalKind: "date",
+      endTemporalKind: "timestamp",
+      dateOnlyStart: "2026-09-01",
+      startDate: new Date("2026-09-01T00:00:00.000Z"),
+      endDate: new Date("2026-09-03T14:00:00.000Z")
+    });
+  });
+
   it("publishes draft calendar and archives previous published calendar", async () => {
     const { pdfRepository, source } = await createApprovedExtractedEvents();
     const calendarRepository = new InMemoryCalendarRepository();

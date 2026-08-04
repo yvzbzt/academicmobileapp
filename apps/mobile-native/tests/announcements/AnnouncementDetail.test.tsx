@@ -146,6 +146,23 @@ describe("Phase 8 announcement detail", () => {
     expect(screen.queryByText(/<strong>|&amp;|<p>/iu)).not.toBeOnTheScreen();
   });
 
+  it("renders an Istanbul source date without inventing midnight or a clock", async () => {
+    await renderDetail(detailProps({
+      item: item({
+        publicationKind: "date",
+        publishedDate: "2026-08-04",
+        publishedAt: undefined,
+        sourceUpdatedAt: undefined,
+      }, {
+        displayTimestamp: "2026-08-04",
+        displayTimestampKind: "published",
+      }),
+    }));
+
+    expect(screen.getByText("Yayınlandı 04 Ağu 2026")).toBeOnTheScreen();
+    expect(screen.queryByText(/(?:00:00|03:00|3 Ağu|5 Ağu)/u)).not.toBeOnTheScreen();
+  });
+
   it("shares only the normalized specific canonical URL and reports the result", async () => {
     const share = jest.spyOn(Share, "share").mockResolvedValue({
       action: Share.sharedAction,

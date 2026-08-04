@@ -143,7 +143,8 @@ describe("operation services", () => {
 
     expect(queuedCount).toBe(6);
     expect(queuedJobs).toHaveLength(6);
-    expect(queuedJobs[0]?.payload).toEqual(expect.objectContaining({ title: expect.any(String) }));
+    expect(queuedJobs[0]?.payload).toEqual({ notificationJobId: expect.any(String) });
+    expect(JSON.stringify(queuedJobs)).not.toContain("Operations Calendar");
   });
 
   it("records audit log when a calendar is published", async () => {
@@ -400,7 +401,7 @@ describe("operation services", () => {
 
     expect(result).toEqual(expect.objectContaining({ sent: 0, failed: 0, skipped: 1 }));
     expect(sender.messages).toEqual([]);
-    expect(deliveries).toEqual([expect.objectContaining({ status: "skipped", failureReason: "destination_unavailable" })]);
+    expect(deliveries).toEqual([]);
     await expect(notificationRepository.listFailedJobs(10, 0)).resolves.toEqual([]);
   });
 

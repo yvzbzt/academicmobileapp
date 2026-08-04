@@ -371,7 +371,11 @@ function timestampLabel(
   kind: "published" | "updated",
 ): string | null {
   const label = kind === "published"
-    ? contentTimestampLabel({ publishedAt: record.publishedAt })
+    ? contentTimestampLabel({
+      publicationKind: record.publicationKind,
+      publishedDate: record.publishedDate,
+      publishedAt: record.publishedAt
+    })
     : contentTimestampLabel({ sourceUpdatedAt: record.sourceUpdatedAt });
   return label === "Yayın tarihi belirtilmemiş" ? null : label;
 }

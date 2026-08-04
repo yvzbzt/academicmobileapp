@@ -4,6 +4,7 @@ import { AuditService } from "../audit/audit.service.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
 import type { AcademicEventCategory, AcademicTerm } from "../../domain/academic-event.types.js";
+import { academicTemporalFields } from "./calendar-temporal.js";
 
 export interface CreateCalendarDraftInput {
   universityId: string;
@@ -71,6 +72,10 @@ export class AdminCalendarService {
         term: event.term,
         category: event.normalizedCategory,
         title: event.normalizedTitle,
+        ...(event.temporalKind ? { temporalKind: event.temporalKind } : {}),
+        ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {}),
+        ...(event.dateOnlyStart ? { dateOnlyStart: event.dateOnlyStart } : {}),
+        ...(event.dateOnlyEnd ? { dateOnlyEnd: event.dateOnlyEnd } : {}),
         startDate: event.startDate!,
         ...(event.endDate ? { endDate: event.endDate } : {}),
         timezone: event.timezone,
@@ -120,22 +125,24 @@ export class AdminCalendarService {
     });
 
     const events = await this.calendarRepository.createEvents(
-      input.events.map((event) => ({
-        calendarId: calendar.id,
-        universityId: input.universityId,
-        ...(event.facultyId ? { facultyId: event.facultyId } : {}),
-        ...(event.departmentId ? { departmentId: event.departmentId } : {}),
-        academicYear: input.academicYear,
-        term: event.term,
-        category: event.category,
-        title: event.title.trim(),
-        ...(event.description ? { description: event.description.trim() } : {}),
-        startDate: new Date(event.startDate),
-        ...(event.endDate ? { endDate: new Date(event.endDate) } : {}),
-        timezone: "Europe/Istanbul" as const,
-        status: "approved" as const,
-        notificationRules: event.notificationRules?.length ? event.notificationRules : [{ offsetDays: 7, enabled: true }, { offsetDays: 1, enabled: true }, { offsetDays: 0, trigger: "at_time" as const, enabled: true }]
-      }))
+      input.events.map((event) => {
+        const temporal = academicTemporalFields(event.startDate, event.endDate);
+        return {
+          calendarId: calendar.id,
+          universityId: input.universityId,
+          ...(event.facultyId ? { facultyId: event.facultyId } : {}),
+          ...(event.departmentId ? { departmentId: event.departmentId } : {}),
+          academicYear: input.academicYear,
+          term: event.term,
+          category: event.category,
+          title: event.title.trim(),
+          ...(event.description ? { description: event.description.trim() } : {}),
+          ...temporal,
+          timezone: "Europe/Istanbul" as const,
+          status: "approved" as const,
+          notificationRules: event.notificationRules?.length ? event.notificationRules : [{ offsetDays: 7, enabled: true }, { offsetDays: 1, enabled: true }, { offsetDays: 0, trigger: "at_time" as const, enabled: true }]
+        };
+      })
     );
 
     return { calendar, events };
@@ -155,6 +162,14 @@ export class AdminCalendarService {
   async publishCalendar(calendarId: string, approvedBy: string): Promise<PublishCalendarResponse> {
     const calendar = await this.calendarRepository.findCalendarById(calendarId);
     if (!calendar) throw new NotFoundException("Calendar not found.");
+    if (calendar.status === "published") {
+      // Repair a publication interrupted after the parent calendar was persisted but
+      // before its child events (or notification jobs) were durably reconciled.
+      await this.calendarRepository.updateEventsByCalendar(calendarId, { status: "published" });
+      const publishedEvents = await this.calendarRepository.listEventsByCalendar(calendarId);
+      await this.notificationSchedulingService?.scheduleCalendarPublished(calendar, publishedEvents);
+      return { calendar, publishedEvents, archivedCalendarCount: 0 };
+    }
     if (calendar.status !== "draft") throw new BadRequestException("Only draft calendars can be published.");
 
     const draftEvents = await this.calendarRepository.listEventsByCalendar(calendarId);
@@ -189,6 +204,7 @@ export class AdminCalendarService {
     const rolledBack = await this.calendarRepository.updateCalendar(calendarId, { status: "archived" });
     if (!rolledBack) throw new NotFoundException("Calendar not found.");
     await this.calendarRepository.updateEventsByCalendar(calendarId, { status: "archived" });
+    await this.notificationSchedulingService?.retireCalendarJobs(calendarId);
     await this.auditService?.record({
       actorId: "system",
       action: "calendar.rollback_archived",

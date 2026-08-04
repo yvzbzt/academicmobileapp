@@ -18,6 +18,10 @@ import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } 
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../../apps/api/src/modules/catalog/catalog.types.js";
 import { PdfProcessingService } from "../../apps/api/src/modules/pdf/pdf-processing.service.js";
 import type { ExtractedEventRecord, ExtractedEventStatus, PdfRepository, PdfSourceRecord } from "../../apps/api/src/modules/pdf/pdf.types.js";
+import {
+  setSafeOutboundRequestDependenciesForTesting,
+  type SafeOutboundHopResponse
+} from "../../apps/api/src/common/network/safe-outbound-request.js";
 
 const originalFetch = globalThis.fetch;
 const disabledOcrService = {
@@ -28,6 +32,7 @@ const disabledOcrService = {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  setSafeOutboundRequestDependenciesForTesting(undefined);
   vi.restoreAllMocks();
 });
 
@@ -72,11 +77,17 @@ describe("academic calendar extraction", () => {
     expect(processed.extractedEvents).toHaveLength(2);
     expect(processed.extractedEvents[0]).toMatchObject({
       normalizedCategory: "course_registration",
+      temporalKind: "date",
+      endTemporalKind: "date",
+      dateOnlyStart: "2025-09-01",
+      dateOnlyEnd: "2025-09-05",
       startDate: new Date("2025-09-01T00:00:00.000Z"),
-      endDate: new Date("2025-09-05T23:59:59.000Z")
+      endDate: new Date("2025-09-05T23:59:59.999Z")
     });
     expect(processed.extractedEvents[1]).toMatchObject({
       normalizedCategory: "midterm_exam",
+      temporalKind: "date",
+      dateOnlyStart: "2025-11-10",
       startDate: new Date("2025-11-10T00:00:00.000Z")
     });
   });
@@ -139,20 +150,31 @@ describe("CalendarIngestionService", () => {
   });
 
   it("publishes Adana ATU OData calendar rows when no calendar exists", async () => {
-    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+    const payload = {
       d: [
         {
           ID: 1,
           DonemAciklama: "Güz Dönemi",
           Aciklama: "Öğrenci işleri takvimi",
-          BaslamaTarihi: `/Date(${Date.UTC(2025, 8, 1)})/`,
-          BitisTarihi: `/Date(${Date.UTC(2025, 8, 5)})/`,
+          // These instants are still the following calendar days in Europe/Istanbul.
+          // UTC slicing would incorrectly publish 2025-08-31 through 2025-09-04.
+          BaslamaTarihi: `/Date(${Date.UTC(2025, 7, 31, 22)})/`,
+          BitisTarihi: `/Date(${Date.UTC(2025, 8, 4, 22)})/`,
           AdTR: "Ders kayıtları",
           Yil: 2025,
           Durum: 1
         }
       ]
-    }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
+    };
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+      requestHop: async (_url, pinnedAddress): Promise<SafeOutboundHopResponse> => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from(JSON.stringify(payload)),
+        remoteAddress: pinnedAddress.address
+      })
+    });
 
     const calendarRepository = new FakeCalendarRepository();
     const service = new CalendarIngestionService(
@@ -171,8 +193,12 @@ describe("CalendarIngestionService", () => {
     expect(events[0]).toMatchObject({
       category: "course_registration",
       term: "fall",
+      temporalKind: "date",
+      endTemporalKind: "date",
+      dateOnlyStart: "2025-09-01",
+      dateOnlyEnd: "2025-09-05",
       startDate: new Date("2025-09-01T00:00:00.000Z"),
-      endDate: new Date("2025-09-05T00:00:00.000Z")
+      endDate: new Date("2025-09-05T23:59:59.999Z")
     });
   });
 
@@ -301,6 +327,12 @@ class FakeCalendarRepository implements CalendarRepository {
       .filter((calendar) => calendar.universityId === universityId && calendar.status === "published")
       .filter((calendar) => (academicYear ? calendar.academicYear === academicYear : true))
       .sort((left, right) => right.version - left.version)[0] ?? null;
+  }
+
+  async listPublishedCalendars(input: { limit: number; offset: number }): Promise<AcademicCalendarRecord[]> {
+    return this.calendars
+      .filter((calendar) => calendar.status === "published")
+      .slice(input.offset, input.offset + input.limit);
   }
 
   async findCalendarById(calendarId: string): Promise<AcademicCalendarRecord | null> {

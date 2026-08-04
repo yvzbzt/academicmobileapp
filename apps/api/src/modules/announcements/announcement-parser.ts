@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
-import http from "node:http";
-import https from "node:https";
 import tls from "node:tls";
+import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import {
   canonicalContentKey,
   canonicalizeContentUrl,
   compareAcademicContentDuplicateRecency,
   createContentDedupeKey,
+  createNormalizedContentFingerprint,
   evaluateContentTrust,
   isNavigationOrChromeTitle,
   isOfficialContentUrl,
@@ -23,6 +23,8 @@ export interface ParsedAnnouncementItem {
   rawTitle?: string;
   link: string;
   publishedAt?: Date;
+  publicationKind?: "date" | "timestamp";
+  publishedDate?: string;
   sourceUpdatedAt?: Date;
   summary?: string;
 }
@@ -33,38 +35,43 @@ export async function fetchSourceItems(sourceUrl: string, parser: AnnouncementSo
   if (atuItems) return atuItems.slice(0, 30);
 
   const body = await fetchText(officialSourceUrl, timeoutMs, { accept: "text/html,application/json,application/rss+xml,application/xml;q=0.9,*/*;q=0.8" });
-  if (parser === "auto" && looksLikeJson(body.text)) return parseJsonAnnouncements(body.text, body.finalUrl).slice(0, 30);
-  const resolvedParser = parser === "auto" ? (looksLikeXmlFeed(body.text) ? "rss" : "html") : parser;
-  if (resolvedParser === "rss") return parseSyndicatedAnnouncements(body.text, body.finalUrl).slice(0, 30);
-  if (isYokSourceUrl(body.finalUrl)) return parseYokAnnouncementHtml(body.text, body.finalUrl).slice(0, 30);
-  if (isAnkaraUniversitySourceUrl(body.finalUrl)) return parseAnkaraUniversityAnnouncementHtml(body.text, body.finalUrl).slice(0, 30);
-  return parseGenericAnnouncementHtml(body.text, body.finalUrl).slice(0, 30);
+  return parseFetchedSourceItems(body.text, body.finalUrl, parser).slice(0, 30);
+}
+
+export function parseFetchedSourceItems(
+  input: string,
+  sourceUrl: string,
+  parser: AnnouncementSourceParser
+): ParsedAnnouncementItem[] {
+  if (parser === "auto" && looksLikeJson(input)) {
+    const items = parseJsonAnnouncements(input, sourceUrl);
+    if (items.length > 0 || isExplicitEmptyJsonSnapshot(input)) return items;
+    throw new Error("SOURCE_JSON_LAYOUT_INVALID");
+  }
+  const resolvedParser = parser === "auto" ? (looksLikeXmlFeed(input) ? "rss" : "html") : parser;
+  if (resolvedParser === "rss") {
+    if (!hasValidSyndicatedEnvelope(input)) throw new Error("SOURCE_FEED_LAYOUT_INVALID");
+    const items = parseSyndicatedAnnouncements(input, sourceUrl);
+    if (items.length > 0 || !/<(?:item|entry)\b/iu.test(input)) return items;
+    throw new Error("SOURCE_FEED_ITEMS_INVALID");
+  }
+  if (isYokSourceUrl(sourceUrl)) return parseYokAnnouncementHtml(input, sourceUrl);
+  if (isAnkaraUniversitySourceUrl(sourceUrl)) return parseAnkaraUniversityAnnouncementHtml(input, sourceUrl);
+  const items = parseGenericAnnouncementHtml(input, sourceUrl);
+  if (items.length > 0 || isExplicitEmptyHtmlSnapshot(input)) return items;
+  throw new Error("SOURCE_HTML_LAYOUT_INVALID");
 }
 
 export async function fetchText(sourceUrl: string, timeoutMs = 7000, input: { accept?: string } = {}): Promise<{ text: string; finalUrl: string; status: number }> {
   const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    return await fetchTextWithFetch(officialSourceUrl, timeoutMs, input, controller.signal);
+    return await fetchTextWithSafeRequest(officialSourceUrl, timeoutMs, input, false);
   } catch (error) {
-    if (isNonRetryableSourceError(error)) throw error;
-    try {
-      return await fetchTextWithNodeClient(officialSourceUrl, officialSourceUrl, timeoutMs, input, 0, false);
-    } catch (nodeError) {
-      if (shouldRetryWithInvalidTls(officialSourceUrl, error) || shouldRetryWithInvalidTls(officialSourceUrl, nodeError)) {
-        return fetchTextWithNodeClient(officialSourceUrl, officialSourceUrl, timeoutMs, input, 0, true);
-      }
-      throw error;
+    if (shouldRetryWithInvalidTls(officialSourceUrl, error)) {
+      return fetchTextWithSafeRequest(officialSourceUrl, timeoutMs, input, true);
     }
-  } finally {
-    clearTimeout(timeout);
+    throw error;
   }
-}
-
-function isNonRetryableSourceError(error: unknown): boolean {
-  return error instanceof Error && /^(?:SOURCE_FETCH_FAILED:|SOURCE_URL_|SOURCE_REDIRECT_)/u.test(error.message);
 }
 
 export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItems: ParsedAnnouncementItem[], fetchedAt = new Date()): AnnouncementItem[] {
@@ -86,7 +93,7 @@ export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItem
       title: trust.title,
       url: trust.canonicalUrl,
       ...(summary ? { text: summary } : {}),
-      ...(item.publishedAt ? { publishedAt: item.publishedAt } : {})
+      ...(publicationFreshnessDate(item) ? { publishedAt: publicationFreshnessDate(item) } : {})
     });
     if (!freshness.accepted) return [];
 
@@ -101,8 +108,13 @@ export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItem
       rawTitle: trust.rawTitle,
       link: trust.canonicalUrl,
       canonicalUrl: trust.canonicalUrl,
+      canonicalUrlAliases: [trust.canonicalUrl],
       officialSourceUrl,
-      ...(item.publishedAt ? { publishedAt: item.publishedAt.toISOString(), publicationTimeSource: "source" as const } : {}),
+      ...(item.publicationKind === "date" && item.publishedDate
+        ? { publicationKind: "date" as const, publishedDate: item.publishedDate, publicationTimeSource: "source" as const }
+        : item.publishedAt
+          ? { publicationKind: "timestamp" as const, publishedAt: item.publishedAt.toISOString(), publicationTimeSource: "source" as const }
+          : {}),
       ...(item.sourceUpdatedAt ? { sourceUpdatedAt: item.sourceUpdatedAt.toISOString(), sourceUpdateTimeSource: "source" as const } : {}),
       discoveredAt: fetchedAtIso,
       ...(summary ? { summary } : {}),
@@ -120,10 +132,12 @@ export function parseHtmlAnchors(input: string, sourceUrl: string): ParsedAnnoun
 }
 
 export function parseYokAnnouncementHtml(input: string, sourceUrl = "https://www.yok.gov.tr/tr/announcements"): ParsedAnnouncementItem[] {
+  assertSourceAdapterLayout(input, "yok");
   return parseHtmlDocument(input, sourceUrl, "yok");
 }
 
 export function parseAnkaraUniversityAnnouncementHtml(input: string, sourceUrl = "https://oidb.ankara.edu.tr/gecmis-duyurular/"): ParsedAnnouncementItem[] {
+  assertSourceAdapterLayout(input, "ankara");
   return parseHtmlDocument(input, sourceUrl, "ankara");
 }
 
@@ -144,14 +158,29 @@ export function createAnnouncementId(sourceId: string, link: string, title: stri
 export function dedupeAnnouncements(items: AnnouncementItem[]): AnnouncementItem[] {
   const unique = new Map<string, AnnouncementItem>();
   for (const item of items) {
-    const key = item.dedupeKey ?? createContentDedupeKey(item.canonicalUrl ?? item.link) ?? item.link.toLocaleLowerCase("en-US");
+    const contentFingerprint = createNormalizedContentFingerprint(item);
+    const key = `${item.scopeType}\u0000${item.scopeId}\u0000${contentFingerprint}`;
+    const normalized = {
+      ...item,
+      contentFingerprint,
+      canonicalUrlAliases: [...new Set([item.canonicalUrl ?? item.link, ...(item.canonicalUrlAliases ?? [])])]
+        .sort((left, right) => left.localeCompare(right, "en-US"))
+    };
     if (!unique.has(key)) {
-      unique.set(key, item);
+      unique.set(key, normalized);
       continue;
     }
 
     const existing = unique.get(key);
-    if (!existing || preferAnnouncementItem(item, existing)) unique.set(key, item);
+    if (!existing) continue;
+    const preferred = preferAnnouncementItem(normalized, existing) ? normalized : existing;
+    unique.set(key, {
+      ...preferred,
+      canonicalUrlAliases: [...new Set([
+        ...(existing.canonicalUrlAliases ?? []),
+        ...(normalized.canonicalUrlAliases ?? [])
+      ])].sort((left, right) => left.localeCompare(right, "en-US"))
+    });
   }
   return [...unique.values()];
 }
@@ -174,14 +203,21 @@ export function parseJsonAnnouncements(input: string, sourceUrl: string): Parsed
 }
 
 type HtmlParserProfile = "yok" | "ankara" | "generic";
+type SourceSpecificHtmlParserProfile = Exclude<HtmlParserProfile, "generic">;
 
 interface ParsedItemCandidate {
   rawTitle: string;
   link: string;
   publishedAt?: Date;
+  publicationKind?: "date" | "timestamp";
+  publishedDate?: string;
   sourceUpdatedAt?: Date;
   summary?: string;
 }
+
+type ParsedPublication =
+  | { publicationKind: "date"; publishedDate: string }
+  | { publicationKind: "timestamp"; publishedAt: Date };
 
 function parseHtmlDocument(input: string, sourceUrl: string, profile: HtmlParserProfile): ParsedAnnouncementItem[] {
   const officialSourceUrl = canonicalizeContentUrl(sourceUrl);
@@ -208,7 +244,7 @@ function parseHtmlDocument(input: string, sourceUrl: string, profile: HtmlParser
     const item = finalizeParsedItem({
       rawTitle,
       link: candidateUrl,
-      ...(timestamps.publishedAt ? { publishedAt: timestamps.publishedAt } : {}),
+      ...timestamps.publication,
       ...(timestamps.sourceUpdatedAt ? { sourceUpdatedAt: timestamps.sourceUpdatedAt } : {}),
       ...(summary ? { summary } : {})
     }, officialSourceUrl);
@@ -217,6 +253,70 @@ function parseHtmlDocument(input: string, sourceUrl: string, profile: HtmlParser
   }
 
   return dedupeParsedItems(results);
+}
+
+export function assertSourceAdapterLayout(
+  input: string,
+  profile: SourceSpecificHtmlParserProfile
+): void {
+  const elements = readOpeningElements(input);
+  if (profile === "yok") {
+    const hasListingRoot = elements.some((element) => element.tag === "main");
+    const announcementRows = readArticleBlocks(input)
+      .filter((row) => row.classes.has("announcement-card"));
+    // The adapter intentionally requires a listing root and repeated row
+    // structure. A single plausible anchor/card must not bless an otherwise
+    // changed page layout and publish navigation or stale fragments.
+    if (
+      !hasListingRoot
+      || announcementRows.length < 2
+      || announcementRows.some((row) => !/<a\b[^>]*href=["'][^"']+["']/iu.test(row.body))
+    ) {
+      throw new Error("SOURCE_LAYOUT_INVALID:YOK");
+    }
+    return;
+  }
+
+  const hasContentRoot = elements.some((element) => element.id === "content");
+  const announcementRows = readArticleBlocks(input).filter((row) => (
+    row.classes.has("post") && row.classes.has("announcement")
+  ));
+  const hasMalformedRow = announcementRows.some((row) => (
+    !/<[a-z][\w-]*\b[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["'][^"']+["']/iu.test(row.body)
+  ));
+  if (!hasContentRoot || announcementRows.length < 2 || hasMalformedRow) {
+    throw new Error("SOURCE_LAYOUT_INVALID:ANKARA");
+  }
+}
+
+function readArticleBlocks(input: string): Array<{ classes: Set<string>; body: string }> {
+  return [...input.matchAll(/<article\b([^>]*)>([\s\S]*?)<\/article\s*>/giu)].map((match) => ({
+    classes: readClassNames(match[1] ?? ""),
+    body: match[2] ?? ""
+  }));
+}
+
+function readOpeningElements(input: string): Array<{
+  tag: string;
+  id?: string;
+  classes: Set<string>;
+}> {
+  return [...input.matchAll(/<([a-z][\w-]*)\b([^>]*)>/giu)].map((match) => {
+    const attributes = match[2] ?? "";
+    const id = readHtmlAttribute(attributes, "id");
+    return {
+      tag: (match[1] ?? "").toLocaleLowerCase("en-US"),
+      ...(id ? { id: id.toLocaleLowerCase("en-US") } : {}),
+      classes: readClassNames(attributes)
+    };
+  });
+}
+
+function readClassNames(attributes: string): Set<string> {
+  return new Set((readHtmlAttribute(attributes, "class") ?? "")
+    .split(/\s+/u)
+    .map((value) => value.toLocaleLowerCase("en-US"))
+    .filter(Boolean));
 }
 
 function finalizeParsedItem(input: ParsedItemCandidate, officialSourceUrl: string): ParsedAnnouncementItem | null {
@@ -233,7 +333,7 @@ function finalizeParsedItem(input: ParsedItemCandidate, officialSourceUrl: strin
     title: decision.title,
     url: decision.canonicalUrl,
     ...(summary ? { text: summary } : {}),
-    ...(input.publishedAt ? { publishedAt: input.publishedAt } : {})
+    ...(publicationFreshnessDate(input) ? { publishedAt: publicationFreshnessDate(input) } : {})
   });
   if (!freshness.accepted) return null;
 
@@ -241,7 +341,11 @@ function finalizeParsedItem(input: ParsedItemCandidate, officialSourceUrl: strin
     title: decision.title,
     rawTitle: decision.rawTitle,
     link: decision.canonicalUrl,
-    ...(input.publishedAt ? { publishedAt: input.publishedAt } : {}),
+    ...(input.publicationKind === "date" && input.publishedDate
+      ? { publicationKind: "date", publishedDate: input.publishedDate }
+      : input.publishedAt
+        ? { publicationKind: "timestamp", publishedAt: input.publishedAt }
+        : {}),
     ...(input.sourceUpdatedAt ? { sourceUpdatedAt: input.sourceUpdatedAt } : {}),
     ...(summary ? { summary } : {})
   };
@@ -293,29 +397,30 @@ function findContainingContentBlock(input: string, anchorIndex: number): string 
   return selected ? input.slice(selected.start, selected.end) : undefined;
 }
 
-function extractHtmlTimestamps(context: string, title: string, sourceUrl: string): { publishedAt?: Date; sourceUpdatedAt?: Date } {
-  let publishedAt = parseHtmlDateAttribute(context, ["data-published-at", "data-publish-date", "data-date"]);
+function extractHtmlTimestamps(context: string, title: string, sourceUrl: string): { publication: ParsedPublication | Record<string, never>; sourceUpdatedAt?: Date } {
+  let publication = parseHtmlPublicationAttribute(context, ["data-published-at", "data-publish-date", "data-date"]);
   let sourceUpdatedAt = parseHtmlDateAttribute(context, ["data-updated-at", "data-modified-at", "data-update-date"]);
 
   for (const match of context.matchAll(/<time\b([^>]*)>([\s\S]*?)<\/time>/giu)) {
     const attributes = match[1] ?? "";
     const value = readHtmlAttribute(attributes, "datetime") ?? normalizeDisplayText(match[2], 200);
-    const parsed = value ? parseDateMaybe(value) : undefined;
-    if (!parsed) continue;
     const foldedTimeContext = foldAnchorTitle(`${attributes} ${normalizeDisplayText(match[2], 300)}`);
-    if (/(?:updated|modified|guncel|degistiril)/u.test(foldedTimeContext)) sourceUpdatedAt ??= parsed;
-    else publishedAt ??= parsed;
+    if (/(?:updated|modified|guncel|degistiril)/u.test(foldedTimeContext)) {
+      sourceUpdatedAt ??= value ? parseDateMaybe(value) : undefined;
+    } else {
+      publication ??= value ? parsePublicationMaybe(value) : undefined;
+    }
   }
 
   const visibleText = normalizeDisplayText(context, 5_000);
   sourceUpdatedAt ??= parseLabeledDate(visibleText, /(?:guncellenme|guncelleme|degistirilme|updated|modified)\s+tarihi?/u);
-  publishedAt ??= parseLabeledDate(visibleText, /(?:yayin|yayim|publication)\s+tarihi?/u);
-  if (!publishedAt && isKnownLeadingListingDateSource(sourceUrl)) {
+  publication ??= parseLabeledPublication(visibleText, /(?:yayin|yayim|publication)\s+tarihi?/u);
+  if (!publication && isKnownLeadingListingDateSource(sourceUrl)) {
     const leadingDate = title.match(/^\s*((?:\d{1,2}[./-]){2}20\d{2})(?:\s+|$)/u)?.[1];
-    publishedAt = leadingDate ? parseDateMaybe(leadingDate) : undefined;
+    publication = leadingDate ? parsePublicationMaybe(leadingDate) : undefined;
   }
   return {
-    ...(publishedAt ? { publishedAt } : {}),
+    publication: publication ?? {},
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {})
   };
 }
@@ -340,6 +445,16 @@ function parseHtmlDateAttribute(context: string, names: string[]): Date | undefi
   return undefined;
 }
 
+function parseHtmlPublicationAttribute(context: string, names: string[]): ParsedPublication | undefined {
+  for (const name of names) {
+    const match = context.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, "iu"));
+    const value = match?.[1] ? normalizeDisplayText(match[1], 200) : "";
+    const parsed = value ? parsePublicationMaybe(value) : undefined;
+    if (parsed) return parsed;
+  }
+  return undefined;
+}
+
 function readHtmlAttribute(attributes: string, name: string): string | undefined {
   return attributes.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, "iu"))?.[1];
 }
@@ -348,6 +463,12 @@ function parseLabeledDate(input: string, label: RegExp): Date | undefined {
   const folded = foldAnchorTitle(input);
   const match = folded.match(new RegExp(`${label.source}\\s*[: -]*((?:\\d{1,2}[./-]){2}20\\d{2}|\\d{1,2}\\s+[a-z]+\\s+20\\d{2}|20\\d{2}-\\d{2}-\\d{2}(?:t\\d{2}:\\d{2}(?::\\d{2})?(?:z|[+-]\\d{2}:?\\d{2})?)?)`, "u"));
   return match?.[1] ? parseDateMaybe(match[1]) : undefined;
+}
+
+function parseLabeledPublication(input: string, label: RegExp): ParsedPublication | undefined {
+  const folded = foldAnchorTitle(input);
+  const match = folded.match(new RegExp(`${label.source}\\s*[: -]*((?:\\d{1,2}[./-]){2}20\\d{2}|\\d{1,2}\\s+[a-z]+\\s+20\\d{2}|20\\d{2}-\\d{2}-\\d{2}(?:t\\d{2}:\\d{2}(?::\\d{2})?(?:z|[+-]\\d{2}:?\\d{2})?)?)`, "u"));
+  return match?.[1] ? parsePublicationMaybe(match[1]) : undefined;
 }
 
 function extractHtmlSummary(context: string): string | undefined {
@@ -503,6 +624,41 @@ function looksLikeJson(input: string): boolean {
   return text.startsWith("{") || text.startsWith("[");
 }
 
+function isExplicitEmptyJsonSnapshot(input: string): boolean {
+  let value: unknown;
+  try {
+    value = JSON.parse(input);
+  } catch {
+    return false;
+  }
+  return hasExplicitEmptyJsonCollection(value, 0);
+}
+
+function hasExplicitEmptyJsonCollection(value: unknown, depth: number): boolean {
+  if (depth > 4) return false;
+  if (Array.isArray(value)) return value.length === 0;
+  if (!isJsonRecord(value)) return false;
+  const collectionKeys = new Set(["items", "data", "results", "value", "announcements", "duyurular", "entries"]);
+  for (const [key, nested] of Object.entries(value)) {
+    const normalizedKey = foldAnchorTitle(key);
+    if (collectionKeys.has(normalizedKey) && Array.isArray(nested) && nested.length === 0) return true;
+    if (["d", "response", "payload"].includes(normalizedKey) && hasExplicitEmptyJsonCollection(nested, depth + 1)) return true;
+  }
+  return false;
+}
+
+function hasValidSyndicatedEnvelope(input: string): boolean {
+  return /<rss\b[^>]*>[\s\S]*<channel\b[^>]*>[\s\S]*<\/channel\s*>[\s\S]*<\/rss\s*>/iu.test(input)
+    || /<feed\b[^>]*>[\s\S]*<\/feed\s*>/iu.test(input);
+}
+
+function isExplicitEmptyHtmlSnapshot(input: string): boolean {
+  const hasListingRoot = /<(?:main|section|div|ul|ol)\b[^>]*(?:class|id)=["'][^"']*(?:announcement|duyuru|notice|listing|archive|results)[^"']*["'][^>]*>/iu.test(input);
+  if (!hasListingRoot) return false;
+  const text = foldAnchorTitle(normalizeDisplayText(input, 20_000));
+  return /(?:duyuru|kayit|sonuc) bulunamadi|listelenecek duyuru bulunmamaktadir|no (?:announcements|notices|results) (?:found|available)/u.test(text);
+}
+
 export function parseSyndicatedAnnouncements(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
   const rssItems = [...input.matchAll(/<item\b[\s\S]*?<\/item>/gi)]
     .map((match) => parseRssItem(match[0], sourceUrl))
@@ -523,13 +679,13 @@ function parseRssItem(input: string, sourceUrl: string): ParsedAnnouncementItem 
   const published = extractTagValue(input, "pubDate") ?? extractTagValue(input, "published") ?? extractTagValue(input, "dc:date");
   const updated = extractTagValue(input, "updated") ?? extractTagValue(input, "modified");
   const summary = extractTagValue(input, "description");
-  const publishedAt = published ? parseDateMaybe(normalizeDisplayText(published)) : undefined;
+  const publication = published ? parsePublicationMaybe(normalizeDisplayText(published)) : undefined;
   const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
 
   return finalizeParsedItem({
     rawTitle,
     link,
-    ...(publishedAt ? { publishedAt } : {}),
+    ...(publication ?? {}),
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
     ...(summary ? { summary } : {})
   }, sourceUrl);
@@ -544,13 +700,13 @@ function parseAtomEntry(input: string, sourceUrl: string): ParsedAnnouncementIte
   const published = extractTagValue(input, "published");
   const updated = extractTagValue(input, "updated");
   const summary = extractTagValue(input, "summary") ?? extractTagValue(input, "content");
-  const publishedAt = published ? parseDateMaybe(normalizeDisplayText(published)) : undefined;
+  const publication = published ? parsePublicationMaybe(normalizeDisplayText(published)) : undefined;
   const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
 
   return finalizeParsedItem({
     rawTitle,
     link,
-    ...(publishedAt ? { publishedAt } : {}),
+    ...(publication ?? {}),
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
     ...(summary ? { summary } : {})
   }, sourceUrl);
@@ -576,13 +732,64 @@ function parseDateMaybe(input: string): Date | undefined {
   return parseTurkishDate(input);
 }
 
+function parsePublicationMaybe(input: string): ParsedPublication | undefined {
+  const trimmed = input.trim();
+  const explicitTimestamp = parseExplicitSourceTimestamp(trimmed);
+  if (explicitTimestamp) return { publicationKind: "timestamp", publishedAt: explicitTimestamp };
+
+  const numericDate = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](20\d{2})(?:\b|\s)/u);
+  if (numericDate?.[1] && numericDate[2] && numericDate[3]) {
+    const publishedDate = createCalendarDateString(Number(numericDate[3]), Number(numericDate[2]), Number(numericDate[1]));
+    return publishedDate ? { publicationKind: "date", publishedDate } : undefined;
+  }
+  const isoDate = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:\b|\s)/u);
+  if (isoDate?.[1] && isoDate[2] && isoDate[3]) {
+    const publishedDate = createCalendarDateString(Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3]));
+    return publishedDate ? { publicationKind: "date", publishedDate } : undefined;
+  }
+  const turkishDate = parseTurkishDateParts(trimmed, false);
+  if (turkishDate) {
+    const publishedDate = createCalendarDateString(turkishDate.year, turkishDate.month, turkishDate.day);
+    return publishedDate ? { publicationKind: "date", publishedDate } : undefined;
+  }
+  return undefined;
+}
+
+function parseExplicitSourceTimestamp(input: string): Date | undefined {
+  const hasClock = /(?:t|\s)\d{1,2}:\d{2}(?::\d{2})?/iu.test(input);
+  const hasZone = /(?:z|gmt|utc|[+-]\d{2}:?\d{2})\b/iu.test(input);
+  if (!hasClock || !hasZone) return undefined;
+  const timestamp = Date.parse(input);
+  return Number.isNaN(timestamp) ? undefined : new Date(timestamp);
+}
+
 function parseTurkishDate(input: string): Date | undefined {
+  const parts = parseTurkishDateParts(input, false);
+  return parts ? createUtcCalendarDate(parts.year, parts.month, parts.day) : undefined;
+}
+
+function parseTurkishDateParts(input: string, exact: boolean): { year: number; month: number; day: number } | undefined {
   const normalized = foldAnchorTitle(input);
-  const match = normalized.match(/\b(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(20\d{2})\b/u);
+  const expression = exact
+    ? /^(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(20\d{2})$/u
+    : /\b(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(20\d{2})\b/u;
+  const match = normalized.match(expression);
   if (!match?.[1] || !match[2] || !match[3]) return undefined;
   const month = turkishMonths[match[2]];
-  if (!month) return undefined;
-  return createUtcCalendarDate(Number(match[3]), month, Number(match[1]));
+  return month ? { year: Number(match[3]), month, day: Number(match[1]) } : undefined;
+}
+
+function createCalendarDateString(year: number, month: number, day: number): string | undefined {
+  const date = createUtcCalendarDate(year, month, day);
+  return date ? `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : undefined;
+}
+
+function publicationFreshnessDate(item: Pick<ParsedItemCandidate, "publicationKind" | "publishedDate" | "publishedAt">): Date | undefined {
+  if (item.publicationKind === "date" && item.publishedDate) {
+    const date = new Date(`${item.publishedDate}T12:00:00+03:00`);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+  return item.publishedAt;
 }
 
 function createUtcCalendarDate(year: number, month: number, day: number): Date | undefined {
@@ -727,12 +934,12 @@ function collectJsonAnnouncementItems(value: unknown, sourceUrl: string, output:
   const absoluteLink = link ? canonicalizeContentUrl(link, sourceUrl) : null;
 
   if (rawTitle && absoluteLink && (containsAnnouncementHint(normalizeDisplayText(rawTitle), absoluteLink) || containsAnnouncementHint("", sourceUrl))) {
-    const publishedAt = published ? parseDateMaybe(normalizeDisplayText(published)) : undefined;
+    const publication = published ? parsePublicationMaybe(normalizeDisplayText(published)) : undefined;
     const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
     const item = finalizeParsedItem({
       rawTitle,
       link: absoluteLink,
-      ...(publishedAt ? { publishedAt } : {}),
+      ...(publication ?? {}),
       ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
       ...(summary ? { summary } : {})
     }, sourceUrl);
@@ -799,37 +1006,34 @@ function preserveFetchTrailingSlash(canonicalUrl: string, candidate: string, bas
   }
 }
 
-async function fetchTextWithFetch(
+async function fetchTextWithSafeRequest(
   sourceUrl: string,
   timeoutMs: number,
   input: { accept?: string },
-  signal: AbortSignal
+  allowInvalidTls: boolean
 ): Promise<{ text: string; finalUrl: string; status: number }> {
-  let currentUrl = sourceUrl;
-  for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
-    const response = await fetch(currentUrl, {
-      method: "GET",
-      headers: {
-        Accept: input.accept ?? "text/html,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
-        "User-Agent": crawlerUserAgent
-      },
-      redirect: "manual",
-      signal
-    });
-    const location = response.headers.get("location");
-    if (location && response.status >= 300 && response.status < 400) {
-      if (redirectCount >= 5) throw new Error("SOURCE_REDIRECT_LIMIT");
-      currentUrl = requireOfficialRedirectUrl(location, sourceUrl, currentUrl);
-      await response.body?.cancel().catch(() => undefined);
-      continue;
-    }
-    if (response.status >= 300 && response.status < 400) throw new Error("SOURCE_REDIRECT_LOCATION_MISSING");
-    if (!response.ok) throw new Error(`SOURCE_FETCH_FAILED:${response.status}`);
-    const finalUrl = requireOfficialRedirectUrl(response.url || currentUrl, sourceUrl);
-    return { text: await response.text(), finalUrl, status: response.status };
+  const response = await safeOutboundRequest(sourceUrl, {
+    timeoutMs,
+    maximumRedirects: 5,
+    maximumResponseBytes: 5 * 1024 * 1024,
+    allowInvalidTls,
+    headers: {
+      Accept: input.accept ?? "text/html,*/*;q=0.8",
+      "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
+      "User-Agent": crawlerUserAgent
+    },
+    validateUrl: (candidate, previousUrl) => (
+      requireOfficialRedirectUrl(candidate, sourceUrl, previousUrl ?? sourceUrl)
+    )
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`SOURCE_FETCH_FAILED:${response.status}`);
   }
-  throw new Error("SOURCE_REDIRECT_LIMIT");
+  return {
+    text: response.body.toString("utf8"),
+    finalUrl: response.finalUrl,
+    status: response.status
+  };
 }
 
 function preferParsedItem(candidate: ParsedAnnouncementItem, current: ParsedAnnouncementItem): boolean {
@@ -841,11 +1045,12 @@ function preferParsedItem(candidate: ParsedAnnouncementItem, current: ParsedAnno
 }
 
 function parsedItemTimestamp(item: ParsedAnnouncementItem): number {
-  return Math.max(item.publishedAt?.getTime() ?? 0, item.sourceUpdatedAt?.getTime() ?? 0);
+  const publishedDate = item.publishedDate ? new Date(`${item.publishedDate}T12:00:00+03:00`).getTime() : 0;
+  return Math.max(item.publishedAt?.getTime() ?? 0, Number.isFinite(publishedDate) ? publishedDate : 0, item.sourceUpdatedAt?.getTime() ?? 0);
 }
 
 function parsedItemRichness(item: ParsedAnnouncementItem): number {
-  return item.title.length + (item.summary?.length ?? 0) + (item.publishedAt ? 30 : 0) + (item.sourceUpdatedAt ? 20 : 0);
+  return item.title.length + (item.summary?.length ?? 0) + (item.publishedAt || item.publishedDate ? 30 : 0) + (item.sourceUpdatedAt ? 20 : 0);
 }
 
 function preferAnnouncementItem(candidate: AnnouncementItem, current: AnnouncementItem): boolean {
@@ -857,6 +1062,7 @@ function preferAnnouncementItem(candidate: AnnouncementItem, current: Announceme
 
 function shouldRetryWithInvalidTls(sourceUrl: string, error: unknown): boolean {
   if (process.env.ANNOUNCEMENT_ALLOW_INVALID_TLS !== "true") return false;
+  if (process.env.NODE_ENV !== "development") return false;
   if (!sourceUrl.startsWith("https://")) return false;
   const message = error instanceof Error ? `${error.message} ${String((error as { cause?: unknown }).cause ?? "")}` : String(error);
   const host = new URL(sourceUrl).hostname;
@@ -873,57 +1079,4 @@ function ensureCrawlerSystemCa(): void {
   } catch {
     // Older Node builds may not expose the system CA store; the normal bundled CA set still applies.
   }
-}
-
-function fetchTextWithNodeClient(sourceUrl: string, officialSourceUrl: string, timeoutMs: number, input: { accept?: string }, redirectCount: number, allowInvalidTls: boolean): Promise<{ text: string; finalUrl: string; status: number }> {
-  if (redirectCount > 5) return Promise.reject(new Error("SOURCE_FETCH_REDIRECT_LIMIT"));
-  const url = new URL(requireOfficialRedirectUrl(sourceUrl, officialSourceUrl));
-  const client = url.protocol === "http:" ? http : https;
-
-  return new Promise((resolve, reject) => {
-    const request = client.request(url, {
-      method: "GET",
-      timeout: timeoutMs,
-      rejectUnauthorized: url.protocol === "https:" ? !allowInvalidTls : undefined,
-      headers: {
-        Accept: input.accept ?? "text/html,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
-        "User-Agent": crawlerUserAgent
-      }
-    }, (response) => {
-      const status = response.statusCode ?? 0;
-      const location = response.headers.location;
-      if (location && status >= 300 && status < 400) {
-        response.resume();
-        let nextUrl: string;
-        try {
-          nextUrl = requireOfficialRedirectUrl(location, officialSourceUrl, sourceUrl);
-        } catch (error) {
-          reject(error);
-          return;
-        }
-        void fetchTextWithNodeClient(nextUrl, officialSourceUrl, timeoutMs, input, redirectCount + 1, allowInvalidTls).then(resolve, reject);
-        return;
-      }
-
-      if (status < 200 || status >= 300) {
-        response.resume();
-        reject(new Error(`SOURCE_FETCH_FAILED:${status}`));
-        return;
-      }
-
-      response.setEncoding("utf8");
-      let text = "";
-      response.on("data", (chunk: string) => {
-        text += chunk;
-      });
-      response.on("end", () => resolve({ text, finalUrl: sourceUrl, status }));
-    });
-
-    request.on("timeout", () => {
-      request.destroy(new Error("SOURCE_FETCH_TIMEOUT"));
-    });
-    request.on("error", reject);
-    request.end();
-  });
 }

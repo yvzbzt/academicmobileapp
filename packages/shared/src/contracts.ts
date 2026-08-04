@@ -18,6 +18,8 @@ export interface UniversitySummaryDto {
   logoUrl?: string;
 }
 
+export type AcademicEventTemporalKind = "date" | "timestamp";
+
 export interface AcademicEventDto {
   id: string;
   universityId: string;
@@ -25,17 +27,32 @@ export interface AcademicEventDto {
   category: string;
   title: string;
   description?: string;
+  /** Date-only values are calendar dates; timestamp values are real instants. */
+  temporalKind: AcademicEventTemporalKind;
+  /** May differ from the start for a timed start with an inclusive date-only end. */
+  endTemporalKind?: AcademicEventTemporalKind;
   startDate: string;
   endDate?: string;
   timezone: "Europe/Istanbul";
   academicYear: string;
   term: "fall" | "spring" | "summer" | "full_year" | "unknown";
+  status: "draft" | "approved" | "published" | "archived";
 }
 
 export type AcademicContentType = "announcement" | "news" | "event";
 export type AcademicContentScopeType = "university" | "faculty" | "department";
 export type AcademicContentFreshness = "fresh" | "stale";
 export type AcademicContentCollectionState = "fresh" | "stale" | "partial";
+export type AcademicContentPublicationKind = "date" | "timestamp";
+
+export interface AcademicContentSourceRelationshipDto {
+  sourceId: string;
+  sourceName: string;
+  officialSourceUrl: string;
+  scopeType: AcademicContentScopeType;
+  scopeId: string;
+  canonicalUrl: string;
+}
 
 /**
  * Additive, mobile-facing presentation contract for source-derived academic
@@ -55,6 +72,16 @@ export interface TrustedAcademicContentDto {
   /** Backward-compatible alias of canonicalUrl. */
   link: string;
   canonicalUrl: string;
+  /** Other official URLs observed for this same normalized item. */
+  canonicalUrlAliases?: string[];
+  /** Stable normalized title + summary + source-publication fingerprint. */
+  contentFingerprint?: string;
+  /** Source/scope provenance retained when equivalent records are presented once. */
+  sourceRelationships?: AcademicContentSourceRelationshipDto[];
+  /** Explicitly distinguishes a source date from a source timestamp. */
+  publicationKind?: AcademicContentPublicationKind;
+  /** Source-declared calendar date. Never interpreted as midnight UTC. */
+  publishedDate?: string;
   /** Source-declared publication time only. */
   publishedAt?: string;
   /** Source-declared modification time only. */

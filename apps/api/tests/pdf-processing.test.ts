@@ -129,8 +129,11 @@ describe("PdfProcessingService", () => {
     expect(result.extractedEvents[0]).toEqual(
       expect.objectContaining({
         normalizedTitle: "Guz Donemi Ders Kayitlari",
+        temporalKind: "timestamp",
+        endTemporalKind: "date",
+        dateOnlyEnd: "2026-09-19",
         startDate: new Date("2026-09-15T06:30:00.000Z"),
-        endDate: new Date("2026-09-19T23:59:59.000Z"),
+        endDate: new Date("2026-09-19T23:59:59.999Z"),
         startTime: "09:30",
         hasExplicitTime: true
       })
@@ -156,8 +159,11 @@ describe("PdfProcessingService", () => {
       expect.objectContaining({
         normalizedTitle: "Final Sinavlari",
         normalizedCategory: "final_exam",
+        temporalKind: "timestamp",
+        endTemporalKind: "date",
+        dateOnlyEnd: "2026-09-05",
         startDate: new Date("2026-09-01T11:30:00.000Z"),
-        endDate: new Date("2026-09-05T23:59:59.000Z"),
+        endDate: new Date("2026-09-05T23:59:59.999Z"),
         startTime: "14:30",
         hasExplicitTime: true
       })
@@ -228,10 +234,13 @@ describe("PdfProcessingService", () => {
     expect(result.extractedEvents).toHaveLength(2);
     expect(result.extractedEvents[0]).toEqual(expect.objectContaining({
       normalizedCategory: "course_registration",
+      temporalKind: "date",
+      dateOnlyStart: "2026-09-01",
       startDate: new Date("2026-09-01T00:00:00.000Z")
     }));
     expect(result.extractedEvents[1]).toEqual(expect.objectContaining({
       normalizedCategory: "midterm_exam",
+      temporalKind: "timestamp",
       startDate: new Date("2026-11-10T11:30:00.000Z"),
       startTime: "14:30",
       hasExplicitTime: true
@@ -294,5 +303,62 @@ describe("PdfProcessingService", () => {
     expect(approved.reviewedBy).toBe("admin-1");
     expect(rejected.status).toBe("rejected");
     expect(rejected.adminNote).toBe("Wrong row");
+  });
+
+  it("preserves an exact timestamp end on a range with a date-only start", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "inverse-mixed-range.pdf",
+      rawText: "Basvuru sonuclari 01.09.2026 - 03.09.2026 17:00"
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toHaveLength(1);
+    expect(result.extractedEvents[0]).toEqual(expect.objectContaining({
+      temporalKind: "date",
+      endTemporalKind: "timestamp",
+      dateOnlyStart: "2026-09-01",
+      startDate: new Date("2026-09-01T00:00:00.000Z"),
+      endDate: new Date("2026-09-03T14:00:00.000Z"),
+      endTime: "17:00"
+    }));
+  });
+
+  it("clears stale date-only metadata when an admin replaces a range with real timestamps", async () => {
+    const repository = new InMemoryPdfRepository();
+    const service = new PdfProcessingService(repository, {
+      async extractText() {
+        return null;
+      }
+    });
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "admin-temporal-edit.pdf",
+      rawText: "Ders Kayitlari 01.09.2026 - 03.09.2026"
+    });
+    const processed = await service.processPdfSource(source.id);
+    const original = processed.extractedEvents[0]!;
+    expect(original).toMatchObject({
+      temporalKind: "date",
+      endTemporalKind: "date",
+      dateOnlyStart: "2026-09-01",
+      dateOnlyEnd: "2026-09-03"
+    });
+
+    const updated = await service.updateExtractedEvent(original.id, {
+      startDate: "2026-09-01T09:30:00+03:00",
+      endDate: "2026-09-03T11:00:00+03:00"
+    });
+
+    expect(updated).toMatchObject({
+      temporalKind: "timestamp",
+      endTemporalKind: "timestamp",
+      startDate: new Date("2026-09-01T06:30:00.000Z"),
+      endDate: new Date("2026-09-03T08:00:00.000Z")
+    });
+    expect(updated.dateOnlyStart).toBeUndefined();
+    expect(updated.dateOnlyEnd).toBeUndefined();
   });
 });

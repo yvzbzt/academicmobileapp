@@ -5,6 +5,7 @@ import { MyAnnouncementsQueryDto } from "../src/modules/announcements/announceme
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
 import { AnnouncementsService } from "../src/modules/announcements/announcements.service.js";
 import { YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "../src/modules/announcements/announcement-ingestion.service.js";
+import * as announcementParser from "../src/modules/announcements/announcement-parser.js";
 import type { AnnouncementItem } from "../src/modules/announcements/announcements.types.js";
 import type { AuthRepository, AuthUserRecord, AuthenticatedUser } from "../src/modules/auth/auth.types.js";
 
@@ -412,16 +413,16 @@ describe("trusted announcement API contract", () => {
     });
     await repository.replaceItemsForSource(freshSource, [cachedItem(freshSource, "fresh-item", new Date().toISOString())]);
     await repository.replaceItemsForSource(staleSource, [cachedItem(staleSource, "stale-item", "2026-07-01T00:00:00.000Z")]);
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
+    vi.spyOn(announcementParser, "fetchSourceItems").mockImplementation(async (url) => {
       if (url.includes("/guncel")) {
-        return new Response(JSON.stringify([{
+        return [{
           title: "Güncel kaynak duyurusu",
           link: "https://www.ankara.edu.tr/duyuru/guncel",
-          publishedAt: "2026-07-30T09:00:00.000Z"
-        }]), { status: 200, headers: { "content-type": "application/json" } });
+          publicationKind: "timestamp",
+          publishedAt: new Date("2026-07-30T09:00:00.000Z")
+        }];
       }
-      return new Response("unavailable", { status: 503 });
+      throw new Error("SOURCE_FETCH_FAILED:503");
     });
 
     const body = await new AnnouncementsService(createAuthRepository(), repository)

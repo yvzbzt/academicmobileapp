@@ -21,8 +21,10 @@ describe("GoogleCalendarService", () => {
           id: "academic-1",
           title: "Ders kayitlari",
           category: "course_registration",
-          startDate: "2026-09-01T00:00:00.000Z",
-          endDate: "2026-09-03T00:00:00.000Z"
+          temporalKind: "date",
+          endTemporalKind: "date",
+          startDate: "2026-09-01",
+          endDate: "2026-09-03"
         }
       ],
       [
@@ -31,7 +33,8 @@ describe("GoogleCalendarService", () => {
           title: "Kayit duyurusu",
           link: "https://example.edu.tr/duyuru/1",
           contentType: "announcement",
-          publishedAt: "2026-08-20T09:00:00.000Z"
+          publicationKind: "date",
+          publishedDate: "2026-08-20"
         },
         {
           id: "event-1",
@@ -65,8 +68,102 @@ describe("GoogleCalendarService", () => {
     expect(items[1]?.description).toContain("kaynak güncelleme tarihi");
     expect(items[2]).toEqual(expect.objectContaining({
       startDate: "2026-09-01",
-      endDate: "2026-09-04"
+      endDate: "2026-09-04",
+      allDay: true
     }));
+  });
+
+  it("preserves timed academic events while keeping mixed date ends inclusive in Istanbul", () => {
+    const items = buildGoogleCalendarSyncItems([
+      {
+        id: "timed",
+        title: "Ara sınav",
+        category: "midterm_exam",
+        temporalKind: "timestamp",
+        endTemporalKind: "timestamp",
+        startDate: "2026-11-10T09:30:00+03:00",
+        endDate: "2026-11-10T11:00:00+03:00"
+      },
+      {
+        id: "mixed",
+        title: "Başvuru dönemi",
+        category: "application",
+        temporalKind: "timestamp",
+        endTemporalKind: "date",
+        startDate: "2026-09-01T09:30:00+03:00",
+        endDate: "2026-09-03"
+      },
+      {
+        id: "inverse-mixed",
+        title: "BaÅŸvuru sonucu",
+        category: "application",
+        temporalKind: "date",
+        endTemporalKind: "timestamp",
+        startDate: "2026-09-01",
+        endDate: "2026-09-03T17:00:00+03:00"
+      }
+    ], []);
+
+    expect(items.find((item) => item.sourceId === "academic-event:timed")).toEqual(expect.objectContaining({
+      startDate: "2026-11-10T06:30:00.000Z",
+      endDate: "2026-11-10T08:00:00.000Z",
+      allDay: false,
+      timeZone: "Europe/Istanbul"
+    }));
+    expect(items.find((item) => item.sourceId === "academic-event:mixed")).toEqual(expect.objectContaining({
+      startDate: "2026-09-01T06:30:00.000Z",
+      endDate: "2026-09-04T00:00:00.000+03:00",
+      allDay: false,
+      timeZone: "Europe/Istanbul"
+    }));
+    expect(items.find((item) => item.sourceId === "academic-event:inverse-mixed")).toEqual(expect.objectContaining({
+      startDate: "2026-09-01T00:00:00.000+03:00",
+      endDate: "2026-09-03T14:00:00.000Z",
+      allDay: false,
+      timeZone: "Europe/Istanbul"
+    }));
+  });
+
+  it("writes all-day dates and timed instants to the matching Google API fields", async () => {
+    const api = new MemoryGoogleCalendarApi();
+    const service = new GoogleCalendarService(api.fetch);
+
+    await service.sync({
+      accessToken: "google-access-token",
+      ownerId: "app-user-1",
+      calendarEvents: [
+        {
+          id: "all-day",
+          title: "All-day range",
+          category: "course_registration",
+          temporalKind: "date",
+          endTemporalKind: "date",
+          startDate: "2026-09-01",
+          endDate: "2026-09-03"
+        },
+        {
+          id: "timed",
+          title: "Timed range",
+          category: "midterm_exam",
+          temporalKind: "timestamp",
+          endTemporalKind: "timestamp",
+          startDate: "2026-11-10T09:30:00+03:00",
+          endDate: "2026-11-10T11:00:00+03:00"
+        }
+      ],
+      announcements: []
+    });
+
+    const allDay = [...api.events.values()].find((event) => event.summary === "All-day range");
+    const timed = [...api.events.values()].find((event) => event.summary === "Timed range");
+    expect(allDay).toMatchObject({
+      start: { date: "2026-09-01" },
+      end: { date: "2026-09-04" }
+    });
+    expect(timed).toMatchObject({
+      start: { dateTime: "2026-11-10T06:30:00.000Z", timeZone: "Europe/Istanbul" },
+      end: { dateTime: "2026-11-10T08:00:00.000Z", timeZone: "Europe/Istanbul" }
+    });
   });
 
   it("creates events once, returns durable mappings, and skips them on repeated sync", async () => {
@@ -401,7 +498,8 @@ function syncInput() {
         id: "academic-1",
         title: "Academic date",
         category: "course_registration",
-        startDate: "2026-09-01T00:00:00.000Z"
+        temporalKind: "date" as const,
+        startDate: "2026-09-01"
       }
     ],
     announcements: [
@@ -419,6 +517,9 @@ function syncInput() {
 type StoredGoogleEvent = {
   id: string;
   summary?: string;
+  start?: { date?: string; dateTime?: string; timeZone?: string };
+  end?: { date?: string; dateTime?: string; timeZone?: string };
+  endTimeUnspecified?: boolean;
   extendedProperties?: {
     private?: Record<string, string>;
   };

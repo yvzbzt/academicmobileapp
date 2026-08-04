@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  setSafeOutboundRequestDependenciesForTesting,
+  type ResolvedOutboundAddress,
+  type SafeOutboundHopResponse
+} from "../src/common/network/safe-outbound-request.js";
 import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID } from "../src/modules/announcements/announcement-ingestion.service.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
 import {
@@ -33,6 +38,7 @@ const sampleUniversity: UniversityRecord = {
 };
 
 afterEach(() => {
+  setSafeOutboundRequestDependenciesForTesting(undefined);
   vi.unstubAllGlobals();
 });
 
@@ -97,15 +103,15 @@ describe("announcement discovery and ingestion", () => {
   });
 
   it("loads ATU hash-route announcements from the university OData service", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    stubOutboundRequest((input) => {
+      const url = new URL(input);
       if (url.pathname.endsWith("/Siteler")) {
         expect(url.searchParams.get("$filter")).toContain("AlanAdi eq 'www'");
-        return Response.json({ d: [{ ID: 1 }] });
+        return { body: JSON.stringify({ d: [{ ID: 1 }] }) };
       }
       if (url.pathname.endsWith("/V_GuncelIcerik")) {
         expect(url.searchParams.get("$filter")).toContain("GrupTipi eq 2");
-        return Response.json({
+        return { body: JSON.stringify({
           d: [{
             GuID: "ede0278f-9f26-4b6a-96e5-ee10c516ba27",
             Baslik: "2026-2027 Egitim-Ogretim Yili Yatay Gecis Duyurusu",
@@ -113,10 +119,10 @@ describe("announcement discovery and ingestion", () => {
             HTMLicerik: '<a href="https://ogrenci.atu.edu.tr/#!/duyuru/d98b041b-e0f2-4704-bd22-b51944c1ea47">Detay</a>',
             BaslamaTarihi: "/Date(1783641600000)/"
           }]
-        });
+        }) };
       }
-      return new Response("not found", { status: 404 });
-    }));
+      return { body: "not found", status: 404 };
+    });
 
     const items = await fetchSourceItems("https://www.atu.edu.tr/#!/TR/duyurular/", "auto", 1000);
 
@@ -220,7 +226,11 @@ describe("announcement discovery and ingestion", () => {
       "https://selcuk.edu.tr/icerik/ogrenciduyurulari"
     );
 
-    expect(items[0]?.publishedAt?.toISOString()).toBe("2026-06-22T00:00:00.000Z");
+    expect(items[0]).toEqual(expect.objectContaining({
+      publicationKind: "date",
+      publishedDate: "2026-06-22"
+    }));
+    expect(items[0]).not.toHaveProperty("publishedAt");
   });
 
   it("ignores share links even when the listing URL contains an announcement keyword", () => {
@@ -309,6 +319,7 @@ describe("announcement discovery and ingestion", () => {
   });
 
   it("parses the Ankara University fixture with publication and update time kept separate", () => {
+    expect(fixture("ankara-university.html").match(/class="post announcement"/gu)).toHaveLength(2);
     const items = parseAnkaraUniversityAnnouncementHtml(fixture("ankara-university.html"));
 
     expect(items).toEqual([expect.objectContaining({
@@ -318,6 +329,51 @@ describe("announcement discovery and ingestion", () => {
       sourceUpdatedAt: new Date("2026-07-23T13:15:00.000Z"),
       summary: "Başvuru koşulları, belgeler & değerlendirme takvimi açıklanmıştır."
     })]);
+  });
+
+  it("rejects adapter layouts where one plausible row is the only surviving signal", () => {
+    expect(() => parseYokAnnouncementHtml(`
+      <main>
+        <article class="announcement-card">
+          <a href="/tr/announcements/one">Tek geçerli görünen duyuru</a>
+        </article>
+      </main>
+    `)).toThrow("SOURCE_LAYOUT_INVALID:YOK");
+    expect(() => parseAnkaraUniversityAnnouncementHtml(`
+      <div id="content">
+        <article class="post announcement">
+          <h2 class="entry-title"><a href="/duyuru/one">Tek geçerli görünen duyuru</a></h2>
+        </article>
+      </div>
+    `)).toThrow("SOURCE_LAYOUT_INVALID:ANKARA");
+  });
+
+  it("quarantines plausible rows from a broken known layout as source-health failure", async () => {
+    stubFetch({
+      "https://www.yok.gov.tr/tr/announcements": `
+        <main>
+          <article class="announcement-card">
+            <a href="/tr/announcements/one">Tek geçerli görünen duyuru</a>
+          </article>
+        </main>
+      `
+    });
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(createCatalogRepository([]), repository);
+
+    const result = await service.runIngestion({ concurrency: 1 });
+    const items = await repository.listItemsByScope({ universityId: YOK_ANNOUNCEMENT_SCOPE_ID, limit: 10 });
+    const sources = await repository.listAllSources({ status: "active", limit: 10 });
+    const yokSource = sources.find((source) => source.scopeId === YOK_ANNOUNCEMENT_SCOPE_ID);
+
+    expect(result.summary.degraded).toBe(1);
+    expect(result.results[0]?.error).toBe("SOURCE_LAYOUT_INVALID:YOK");
+    expect(items).toEqual([]);
+    expect(yokSource).toEqual(expect.objectContaining({
+      healthStatus: "degraded",
+      lastError: "SOURCE_LAYOUT_INVALID:YOK",
+      itemCount: 0
+    }));
   });
 
   it("classifies a visible update-only time element without fabricating publication time", () => {
@@ -446,22 +502,42 @@ describe("announcement discovery and ingestion", () => {
 
   it("rejects unsafe fetch sources and cross-official-domain redirects before reading content", async () => {
     await expect(fetchText("javascript:alert(1)", 100)).rejects.toThrow("SOURCE_URL_UNSAFE");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, {
+    stubOutboundRequest(() => ({
+      body: "",
       status: 302,
-      headers: { Location: "https://evil.example/duyurular" }
-    })));
+      headers: { location: "https://evil.example/duyurular" }
+    }));
 
     await expect(fetchText("https://example.edu.tr/duyurular", 100)).rejects.toThrow("SOURCE_REDIRECT_UNOFFICIAL");
   });
 });
 
 function stubFetch(pages: Record<string, string>): void {
-  vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
-    const requestUrl = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+  stubOutboundRequest((requestUrl) => {
     const normalized = requestUrl.replace(/\/$/u, "");
     const body = pages[normalized];
-    return new Response(body ?? "<html></html>", { status: body ? 200 : 404 });
-  }));
+    return { body: body ?? "<html></html>", status: body ? 200 : 404 };
+  });
+}
+
+function stubOutboundRequest(handler: (url: string) => {
+  body: string;
+  status?: number;
+  headers?: SafeOutboundHopResponse["headers"];
+}): void {
+  const publicAddress: ResolvedOutboundAddress = { address: "93.184.216.34", family: 4 };
+  setSafeOutboundRequestDependenciesForTesting({
+    resolveHostname: async () => [publicAddress],
+    requestHop: async (url, pinnedAddress) => {
+      const response = handler(url);
+      return {
+        status: response.status ?? 200,
+        headers: response.headers ?? {},
+        body: Buffer.from(response.body),
+        remoteAddress: pinnedAddress.address
+      };
+    }
+  });
 }
 
 function createCatalogRepository(universities: UniversityRecord[]): CatalogRepository {

@@ -3,8 +3,9 @@ import { isValidObjectId } from "mongoose";
 import { announcementItemSchema, announcementSourceSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
-import { canonicalContentKey, canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, normalizeTrustedItemsForSource, officialDomainForUrl } from "./announcement-content-trust.js";
-import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import { canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
+import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class MongoAnnouncementRepository implements AnnouncementRepository {
@@ -66,57 +67,72 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
     return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
   }
 
-  async replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[]): Promise<void> {
-    const trustedItems = normalizeTrustedItemsForSource(source, items);
-    if (trustedItems.length === 0) return;
+  async replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[], options: AnnouncementReplacementOptions = {}): Promise<AnnouncementPersistenceDelta> {
     const model = await this.model("AnnouncementItem", announcementItemSchema);
     const existingDocuments = await model.find({ sourceId: source.id });
-    const existingByCanonicalKey = new Map<string, Array<{ document: (typeof existingDocuments)[number]; record: AnnouncementItem & { createdAt?: Date } }>>();
-    for (const document of existingDocuments) {
-      const record = toDomainRecord<AnnouncementItem & { createdAt?: Date }>(document);
-      const key = canonicalContentKey(record.canonicalUrl ?? record.link);
-      if (key) existingByCanonicalKey.set(key, [...(existingByCanonicalKey.get(key) ?? []), { document, record }]);
-    }
-    const selectedPreviousByKey = new Map<string, { document: (typeof existingDocuments)[number]; record: AnnouncementItem & { createdAt?: Date } }>();
-    for (const item of trustedItems) {
-      const key = canonicalContentKey(item.canonicalUrl ?? item.link);
-      if (!key || selectedPreviousByKey.has(key)) continue;
-      const canonicalUrl = canonicalizeContentUrl(item.canonicalUrl ?? item.link);
-      const candidates = existingByCanonicalKey.get(key) ?? [];
-      candidates.sort((left, right) => Number(right.record.link === canonicalUrl) - Number(left.record.link === canonicalUrl)
-        || (left.record.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER) - (right.record.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER)
-        || left.document.id.localeCompare(right.document.id, "en-US"));
-      const selected = candidates[0];
-      if (selected) selectedPreviousByKey.set(key, selected);
-    }
-    const obsoleteAliasIds = [...selectedPreviousByKey.entries()].flatMap(([key, selected]) =>
-      (existingByCanonicalKey.get(key) ?? []).filter((candidate) => candidate.document.id !== selected.document.id).map((candidate) => candidate.document.id));
-    if (obsoleteAliasIds.length > 0) await model.deleteMany({ _id: { $in: obsoleteAliasIds } });
-    const retainedDocumentIds: string[] = [];
+    const existingItems = existingDocuments.map((document) => toDomainRecord<AnnouncementItem>(document));
+    const plan = planAnnouncementReplacement(source, items, existingItems, options);
+    if (plan.entries.length === 0 && plan.removed.length === 0) return emptyAnnouncementPersistenceDelta();
+    const delta = emptyAnnouncementPersistenceDelta();
+    const removedIds = plan.removed.map((item) => item.id);
+    if (removedIds.length > 0) await model.deleteMany({ _id: { $in: removedIds }, trustStatus: "trusted" });
 
-    for (const item of trustedItems) {
-      const key = canonicalContentKey(item.canonicalUrl ?? item.link);
-      const previous = key ? selectedPreviousByKey.get(key) : undefined;
-      const persisted = {
+    for (const { item, previous, materiallyUpdated } of plan.entries) {
+      const discoveredAt = previous?.discoveredAt ?? item.discoveredAt ?? item.fetchedAt;
+      const persisted: AnnouncementItem = {
         ...item,
+        id: previous?.id ?? item.id,
         sourceId: source.id,
         sourceName: source.sourceName,
         officialSourceUrl: source.canonicalUrl ?? source.sourceUrl,
         contentType: item.contentType ?? source.contentType ?? "announcement",
         scopeType: source.scopeType,
         scopeId: source.scopeId,
-        discoveredAt: previous?.record.discoveredAt ?? previous?.record.createdAt?.toISOString() ?? item.discoveredAt ?? item.fetchedAt
+        ...(discoveredAt ? { discoveredAt } : {})
       };
+      let persistedId: string;
       if (previous) {
-        await model.findByIdAndUpdate(previous.document.id, omitUndefined(persisted as unknown as Record<string, unknown>));
-        retainedDocumentIds.push(previous.document.id);
+        const updated = await model.findByIdAndUpdate(previous.id, omitUndefined(persisted as unknown as Record<string, unknown>), { new: true });
+        if (!updated) throw new Error("ANNOUNCEMENT_ITEM_UPDATE_FAILED");
+        persistedId = updated.id;
       } else {
-        const created = await model.create(persisted);
-        retainedDocumentIds.push(created.id);
+        const created = await model.create(omitUndefined(persisted as unknown as Record<string, unknown>));
+        persistedId = created.id;
       }
+      const reference = toPersistenceReference(persisted, persistedId);
+      if (!reference) continue;
+      if (!previous) delta.created.push(reference);
+      else if (materiallyUpdated) delta.materiallyUpdated.push(reference);
+      else delta.unchanged.push(reference);
     }
+    for (const removed of plan.removed) {
+      const reference = toPersistenceReference(removed);
+      if (reference) delta.removed.push(reference);
+    }
+    return delta;
+  }
 
-    await model.deleteMany({ sourceId: source.id, ...(retainedDocumentIds.length > 0 ? { _id: { $nin: retainedDocumentIds } } : {}) });
+  async acknowledgeNotificationProduction(references: readonly AnnouncementPersistenceReference[]): Promise<number> {
+    const model = await this.model("AnnouncementItem", announcementItemSchema);
+    let acknowledged = 0;
+    const visited = new Set<string>();
+    for (const reference of references) {
+      const key = `${reference.sourceId}\u0000${reference.id}\u0000${reference.contentFingerprint}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const document = await model.findOneAndUpdate({
+        _id: reference.id,
+        sourceId: reference.sourceId,
+        scopeType: reference.scopeType,
+        scopeId: reference.scopeId,
+        contentFingerprint: reference.contentFingerprint,
+        notificationEligibleFingerprint: reference.contentFingerprint
+      }, {
+        $set: { notificationProducedFingerprint: reference.contentFingerprint }
+      });
+      if (document) acknowledged += 1;
+    }
+    return acknowledged;
   }
 
   async listItemsForSource(sourceId: string, limit = 1_000): Promise<AnnouncementItem[]> {

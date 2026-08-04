@@ -31,6 +31,7 @@ import {
   type HomeAcademicEvent,
   type HomeManualExam,
 } from "./home-model";
+import { formatAcademicTemporal } from "../temporal/academic-temporal";
 
 export interface HomeDailyBriefProps {
   fullName: string;
@@ -153,7 +154,12 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 <View style={styles.rowCopy}>
                   <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{event.title}</Text>
                   <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
-                    {event.kind === "exam" ? "Sınav" : "Akademik tarih"} · {formatLocalDateTime(event.date)}
+                    {event.kind === "exam" ? "Sınav" : "Akademik tarih"} · {formatAcademicTemporal({
+                      startDate: event.date,
+                      ...(event.endDate ? { endDate: event.endDate } : {}),
+                      ...(event.temporalKind ? { temporalKind: event.temporalKind } : {}),
+                      ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {})
+                    })}
                   </Text>
                 </View>
               </View>
@@ -169,11 +175,16 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
         return (
           <BriefSection title="Sıradaki önemli tarih">
             {nextItem ? (
-              <Card variant="tonal" accessibilityLabel={`${nextItem.title}. ${formatRemainingTime(nextItem.date, clock)}`}>
+              <Card variant="tonal" accessibilityLabel={`${nextItem.title}. ${formatRemainingTime(nextItem.date, clock, nextItem.endDate, nextItem.temporalKind, nextItem.endTemporalKind)}`}>
                 <View style={{ gap: theme.spacing.xs }}>
                   <Text style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>{nextItem.title}</Text>
-                  <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.link }]}>{formatRemainingTime(nextItem.date, clock)}</Text>
-                  <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{formatLocalDateTime(nextItem.date)}</Text>
+                  <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.link }]}>{formatRemainingTime(nextItem.date, clock, nextItem.endDate, nextItem.temporalKind, nextItem.endTemporalKind)}</Text>
+                  <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{formatAcademicTemporal({
+                    startDate: nextItem.date,
+                    ...(nextItem.endDate ? { endDate: nextItem.endDate } : {}),
+                    ...(nextItem.temporalKind ? { temporalKind: nextItem.temporalKind } : {}),
+                    ...(nextItem.endTemporalKind ? { endTemporalKind: nextItem.endTemporalKind } : {})
+                  })}</Text>
                 </View>
               </Card>
             ) : (
@@ -271,7 +282,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
         </View>
       )}
       ListFooterComponent={primaryState === "populated" ? (
-        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary, textAlign: "center" }]}>Saatler cihazının yerel saatine göre gösterilir.</Text>
+        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary, textAlign: "center" }]}>Saatli akademik kayıtlar İstanbul saatine göre gösterilir.</Text>
       ) : null}
       showsVerticalScrollIndicator={false}
       style={{ backgroundColor: theme.colors.background.canvas, flex: 1 }}
@@ -349,17 +360,6 @@ function AvailabilityBanner({
 
 function firstName(fullName: string): string {
   return fullName.trim().split(/\s+/u)[0] || "öğrenci";
-}
-
-function formatLocalDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Tarih belirtilmemiş";
-  return new Intl.DateTimeFormat("tr-TR", {
-    day: "numeric",
-    month: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
 }
 
 const styles = StyleSheet.create({

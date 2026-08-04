@@ -1,4 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
+import { isOfficialContentUrl } from "../announcements/announcement-content-trust.js";
 import type { PdfSourceRecord } from "./pdf.types.js";
 
 export interface PdfOcrResult {
@@ -128,20 +130,21 @@ async function readGoogleAccessToken(): Promise<string | undefined> {
   }
 }
 
-async function downloadPdfData(url?: string): Promise<Buffer | undefined> {
+export async function downloadPdfData(url?: string): Promise<Buffer | undefined> {
   if (!url) return undefined;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), readPositiveInteger(process.env.OCR_SOURCE_TIMEOUT_MS, 20000));
-  try {
-    const response = await fetch(url, {
-      headers: { Accept: "application/pdf,*/*;q=0.8" },
-      signal: controller.signal
-    });
-    if (!response.ok) return undefined;
-    return Buffer.from(await response.arrayBuffer());
-  } finally {
-    clearTimeout(timeout);
-  }
+  const response = await safeOutboundRequest(url, {
+    timeoutMs: readPositiveInteger(process.env.OCR_SOURCE_TIMEOUT_MS, 20000),
+    maximumRedirects: 5,
+    maximumResponseBytes: 50 * 1024 * 1024,
+    headers: { Accept: "application/pdf,*/*;q=0.8" },
+    validateUrl: (candidate) => {
+      if (!isOfficialContentUrl(candidate, url)) throw new Error("OCR_SOURCE_DOMAIN_UNTRUSTED");
+      return candidate;
+    }
+  });
+  if (response.status < 200 || response.status >= 300) return undefined;
+  if (!response.body.subarray(0, 4).equals(Buffer.from("%PDF"))) return undefined;
+  return response.body;
 }
 
 function documentAiPageText(response: DocumentAiResponse): string {

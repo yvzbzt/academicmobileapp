@@ -256,6 +256,82 @@ describe("CalendarService", () => {
     expect(events.some((event) => event.title.includes("Diger Fakulteler"))).toBe(false);
   });
 
+  it("keeps same-day, ongoing, and mixed-end events upcoming with Istanbul semantics", async () => {
+    const repository = new InMemoryCalendarRepository();
+    const calendar = await repository.createCalendar({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "Temporal calendar",
+      status: "published",
+      version: 1,
+      publishedAt: new Date("2026-08-01T00:00:00.000Z")
+    });
+    const common = {
+      calendarId: calendar.id,
+      universityId: calendar.universityId,
+      academicYear: calendar.academicYear,
+      term: "fall" as const,
+      category: "course_registration" as const,
+      timezone: "Europe/Istanbul" as const,
+      confidenceScore: 98,
+      status: "published" as const,
+      notificationRules: []
+    };
+    await repository.createEvents([
+      {
+        ...common,
+        title: "Same Istanbul day",
+        temporalKind: "date",
+        dateOnlyStart: "2026-08-04",
+        startDate: new Date("2026-08-04T00:00:00.000Z")
+      },
+      {
+        ...common,
+        title: "Ongoing timestamp",
+        temporalKind: "timestamp",
+        endTemporalKind: "timestamp",
+        startDate: new Date("2026-08-03T10:00:00.000Z"),
+        endDate: new Date("2026-08-04T19:00:00.000Z")
+      },
+      {
+        ...common,
+        title: "Mixed inclusive end",
+        temporalKind: "timestamp",
+        endTemporalKind: "date",
+        dateOnlyEnd: "2026-08-04",
+        startDate: new Date("2026-08-01T10:00:00.000Z"),
+        endDate: new Date("2026-08-04T23:59:59.999Z")
+      },
+      {
+        ...common,
+        title: "Already ended timestamp",
+        temporalKind: "timestamp",
+        endTemporalKind: "timestamp",
+        startDate: new Date("2026-08-03T10:00:00.000Z"),
+        endDate: new Date("2026-08-04T17:00:00.000Z")
+      },
+      {
+        ...common,
+        title: "Previous Istanbul day",
+        temporalKind: "date",
+        dateOnlyStart: "2026-08-03",
+        startDate: new Date("2026-08-03T00:00:00.000Z")
+      }
+    ]);
+
+    const events = await repository.listUpcomingEvents({
+      universityId: calendar.universityId,
+      fromDate: new Date("2026-08-04T18:00:00.000Z"),
+      limit: 10
+    });
+
+    expect(events.map((event) => event.title)).toEqual([
+      "Mixed inclusive end",
+      "Ongoing timestamp",
+      "Same Istanbul day"
+    ]);
+  });
+
   it("returns department-specific course and exam schedule tabs separately", async () => {
     const { authRepository, session } = await createStudentWithUniversity();
     const calendarRepository = await createSeededCalendarRepository();
@@ -282,6 +358,77 @@ describe("CalendarService", () => {
   it("creates mobile calendar subscription links and a tokenized ICS feed", async () => {
     const { authRepository, session } = await createStudentWithUniversity();
     const calendarRepository = await createSeededCalendarRepository();
+    const calendar = await calendarRepository.findPublishedCalendar("sample-university-1", "2026-2027");
+    await calendarRepository.createEvents([
+      {
+        calendarId: calendar!.id,
+        universityId: calendar!.universityId,
+        academicYear: calendar!.academicYear,
+        term: "fall",
+        category: "course_registration",
+        title: "Inclusive date range",
+        temporalKind: "date",
+        endTemporalKind: "date",
+        dateOnlyStart: "2026-09-01",
+        dateOnlyEnd: "2026-09-03",
+        startDate: new Date("2026-09-01T00:00:00.000Z"),
+        endDate: new Date("2026-09-03T23:59:59.999Z"),
+        timezone: "Europe/Istanbul",
+        confidenceScore: 98,
+        status: "published",
+        notificationRules: []
+      },
+      {
+        calendarId: calendar!.id,
+        universityId: calendar!.universityId,
+        academicYear: calendar!.academicYear,
+        term: "fall",
+        category: "midterm_exam",
+        title: "Real timed range",
+        temporalKind: "timestamp",
+        endTemporalKind: "timestamp",
+        startDate: new Date("2026-11-10T06:30:00.000Z"),
+        endDate: new Date("2026-11-10T08:00:00.000Z"),
+        timezone: "Europe/Istanbul",
+        confidenceScore: 98,
+        status: "published",
+        notificationRules: []
+      },
+      {
+        calendarId: calendar!.id,
+        universityId: calendar!.universityId,
+        academicYear: calendar!.academicYear,
+        term: "fall",
+        category: "custom_event",
+        title: "Mixed temporal range",
+        temporalKind: "timestamp",
+        endTemporalKind: "date",
+        dateOnlyEnd: "2026-09-12",
+        startDate: new Date("2026-09-10T06:30:00.000Z"),
+        endDate: new Date("2026-09-12T23:59:59.999Z"),
+        timezone: "Europe/Istanbul",
+        confidenceScore: 98,
+        status: "published",
+        notificationRules: []
+      },
+      {
+        calendarId: calendar!.id,
+        universityId: calendar!.universityId,
+        academicYear: calendar!.academicYear,
+        term: "fall",
+        category: "custom_event",
+        title: "Inverse mixed temporal range",
+        temporalKind: "date",
+        endTemporalKind: "timestamp",
+        dateOnlyStart: "2026-09-01",
+        startDate: new Date("2026-09-01T00:00:00.000Z"),
+        endDate: new Date("2026-09-03T14:00:00.000Z"),
+        timezone: "Europe/Istanbul",
+        confidenceScore: 98,
+        status: "published",
+        notificationRules: []
+      }
+    ]);
     const service = new CalendarService(calendarRepository, authRepository);
 
     const links = await service.getMyCalendarIntegrationLinks(session.user.id, "https://api.example.test/");
@@ -302,6 +449,10 @@ describe("CalendarService", () => {
     expect(feed.content).toContain("SUMMARY:Bilgisayar Muhendisligi Ders Programi");
     expect(feed.content).toContain("SUMMARY:Bilgisayar Muhendisligi Sinav Programi");
     expect(feed.content).toContain("SUMMARY:Yaz Okulu");
+    expect(feed.content).toContain("DTSTART;VALUE=DATE:20260901\r\nDTEND;VALUE=DATE:20260904");
+    expect(feed.content).toContain("DTSTART:20261110T063000Z\r\nDTEND:20261110T080000Z");
+    expect(feed.content).toContain("DTSTART:20260910T063000Z\r\nDTEND:20260912T210000Z");
+    expect(feed.content).toContain("DTSTART:20260831T210000Z\r\nDTEND:20260903T140000Z");
     expect(feed.content).not.toContain("Baska Bolum Ders Programi");
     expect(feed.content).not.toContain("Diger Fakulteler Ara Sinav Takvimi");
   });

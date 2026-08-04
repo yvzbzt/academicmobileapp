@@ -251,7 +251,13 @@ export const announcementItemSchema = new Schema(
     rawTitle: { type: String, required: false },
     link: { type: String, required: true, trim: true },
     canonicalUrl: { type: String, required: false, trim: true },
+    canonicalUrlAliases: [{ type: String, required: false, trim: true }],
     officialSourceUrl: { type: String, required: false, trim: true },
+    contentFingerprint: { type: String, required: false, trim: true, index: true },
+    notificationEligibleFingerprint: { type: String, required: false, trim: true },
+    notificationProducedFingerprint: { type: String, required: false, trim: true },
+    publicationKind: { type: String, required: false, enum: ["date", "timestamp"] },
+    publishedDate: { type: String, required: false },
     publishedAt: { type: String, required: false },
     publicationTimeSource: { type: String, required: false, enum: ["source"] },
     sourceUpdatedAt: { type: String, required: false },
@@ -272,6 +278,7 @@ announcementItemSchema.index({ sourceId: 1, link: 1 }, { unique: true, name: "an
 announcementItemSchema.index({ sourceId: 1, canonicalUrl: 1 }, { name: "announcement_items_source_canonical" });
 announcementItemSchema.index({ trustStatus: 1, dedupeKey: 1 }, { name: "announcement_items_trust_dedupe" });
 announcementItemSchema.index({ scopeType: 1, scopeId: 1 }, { name: "announcement_items_scope" });
+announcementItemSchema.index({ scopeType: 1, scopeId: 1, contentFingerprint: 1 }, { name: "announcement_items_scope_fingerprint" });
 
 export const academicCalendarSchema = new Schema(
   {
@@ -333,6 +340,10 @@ export const academicEventSchema = new Schema(
     },
     title: { type: String, required: true, trim: true },
     description: { type: String, required: false },
+    temporalKind: { type: String, required: false, enum: ["date", "timestamp"], index: true },
+    endTemporalKind: { type: String, required: false, enum: ["date", "timestamp"] },
+    dateOnlyStart: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u, index: true },
+    dateOnlyEnd: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u },
     startDate: { type: Date, required: true, index: true },
     endDate: { type: Date, required: false },
     timezone: { type: String, required: true, default: "Europe/Istanbul" },
@@ -395,6 +406,10 @@ export const extractedEventSchema = new Schema(
     originalDateText: { type: String, required: true },
     normalizedTitle: { type: String, required: true },
     normalizedCategory: { type: String, required: true, index: true },
+    temporalKind: { type: String, required: false, enum: ["date", "timestamp"] },
+    endTemporalKind: { type: String, required: false, enum: ["date", "timestamp"] },
+    dateOnlyStart: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u, index: true },
+    dateOnlyEnd: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u },
     startDate: { type: Date, required: false, index: true },
     endDate: { type: Date, required: false },
     startTime: { type: String, required: false },
@@ -464,6 +479,21 @@ export const notificationJobSchema = new Schema(
     eventId: { type: String, required: true, index: true },
     destinationType: { type: String, required: false, enum: ["calendar_event", "announcement"] },
     destinationId: { type: String, required: false, index: true },
+    destinationScopeType: { type: String, required: false, enum: ["global", "university", "faculty", "department"], index: true },
+    destinationScopeId: { type: String, required: false, index: true },
+    destinationFingerprint: { type: String, required: false, trim: true, index: true },
+    producerKey: { type: String, required: false, trim: true, index: true },
+    producerKeys: [{ type: String, required: false, trim: true }],
+    producerDestinations: [{
+      _id: false,
+      producerKey: { type: String, required: true, trim: true },
+      calendarId: { type: String, required: true },
+      eventId: { type: String, required: true },
+      destinationId: { type: String, required: true },
+      title: { type: String, required: true, trim: true }
+    }],
+    producerRelationRevision: { type: Number, required: true, min: 0, default: 0 },
+    producerGroupKey: { type: String, required: false, trim: true, index: true },
     userId: { type: String, required: false, index: true },
     alarmId: { type: String, required: false, index: true },
     eventType: { type: String, required: false, enum: ["exam", "calendar_event", "announcement", "course"] },
@@ -476,7 +506,17 @@ export const notificationJobSchema = new Schema(
     offsetHours: { type: Number, required: false, min: 0, max: 720, default: 0 },
     trigger: { type: String, required: true, enum: ["before", "at_time", "approaching"], default: "before" },
     scheduledAt: { type: Date, required: true, index: true },
-    status: { type: String, required: true, enum: ["scheduled", "processing", "sent", "failed", "cancelled"], default: "scheduled", index: true },
+    status: { type: String, required: true, enum: ["scheduled", "processing", "sent", "failed", "dead", "cancelled"], default: "scheduled", index: true },
+    revision: { type: Number, required: true, min: 1, default: 1 },
+    attemptCount: { type: Number, required: true, min: 0, default: 0 },
+    maxAttempts: { type: Number, required: true, min: 1, max: 20, default: 5 },
+    lastAttemptAt: { type: Date, required: false },
+    lastFailureReason: {
+      type: String,
+      required: false,
+      enum: ["provider_unavailable", "provider_rejected", "destination_unavailable", "destination_changed", "worker_interrupted"]
+    },
+    exhaustedAt: { type: Date, required: false },
     processingClaimId: { type: String, required: false },
     processingLeaseUntil: { type: Date, required: false }
   },
@@ -486,6 +526,13 @@ export const notificationJobSchema = new Schema(
 notificationJobSchema.index({ status: 1, scheduledAt: 1 }, { name: "notification_jobs_due" });
 notificationJobSchema.index({ status: 1, processingLeaseUntil: 1, scheduledAt: 1 }, { name: "notification_jobs_claim_recovery" });
 notificationJobSchema.index({ userId: 1, eventId: 1, trigger: 1, offsetDays: 1, offsetHours: 1 }, { unique: true, name: "notification_jobs_user_event_reminder_unique" });
+notificationJobSchema.index({ producerKey: 1, status: 1 }, { name: "notification_jobs_producer_status" });
+notificationJobSchema.index({ producerKeys: 1, status: 1 }, { name: "notification_jobs_producer_relationships" });
+notificationJobSchema.index({ producerGroupKey: 1, producerKey: 1, status: 1 }, { name: "notification_jobs_producer_group" });
+notificationJobSchema.index(
+  { destinationType: 1, destinationScopeType: 1, destinationScopeId: 1, destinationFingerprint: 1 },
+  { name: "notification_jobs_trusted_destination" }
+);
 
 export const studentAlarmSchema = new Schema(
   {
@@ -514,6 +561,7 @@ studentAlarmSchema.index({ userId: 1, targetId: 1, eventType: 1, trigger: 1, amo
 export const notificationDeliverySchema = new Schema(
   {
     jobId: { type: String, required: true, index: true },
+    jobRevision: { type: Number, required: false, min: 1, default: 1, index: true },
     userId: { type: String, required: true, index: true },
     deviceTokenId: { type: String, required: true, index: true },
     status: { type: String, required: true, enum: ["sent", "failed", "deferred", "skipped"], index: true },

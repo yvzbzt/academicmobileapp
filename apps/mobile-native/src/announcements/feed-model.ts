@@ -124,6 +124,7 @@ const sourceFamilyOrder: readonly ContentFeedSourceFamily[] = [
 ];
 
 const strictIsoTimestampPattern = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u;
+const strictDateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/u;
 
 /**
  * Builds the renderable feed from records that have already crossed the Phase 2
@@ -321,21 +322,26 @@ function toFeedCandidate(
   if (!isStrictTrustedFeedRecord(record)) return null;
 
   const canonicalUrl = canonicalizeOfficialAcademicUrl(record.canonicalUrl)!;
-  const publishedTimestamp = trustedTimestamp(record.publishedAt);
+  const publishedDate = record.publicationKind === "date" ? trustedDateOnly(record.publishedDate) : null;
+  const publishedTimestamp = publishedDate?.sortValue ?? trustedTimestamp(record.publishedAt);
   const updatedTimestamp = trustedTimestamp(record.sourceUpdatedAt);
-  const displayTimestamp = publishedTimestamp
-    ? record.publishedAt ?? null
+  const displayTimestamp = publishedDate
+    ? publishedDate.value
+    : publishedTimestamp
+      ? record.publishedAt ?? null
     : updatedTimestamp
       ? record.sourceUpdatedAt ?? null
       : null;
-  const displayTimestampKind: ContentFeedTimestampKind | null = publishedTimestamp
+  const displayTimestampKind: ContentFeedTimestampKind | null = publishedDate || publishedTimestamp
     ? "published"
     : updatedTimestamp
       ? "updated"
       : null;
 
   return {
-    key: canonicalFeedKey(canonicalUrl),
+    key: record.contentFingerprint
+      ? `feed:${record.scopeType}:${record.scopeId}:${record.contentFingerprint}`
+      : canonicalFeedKey(canonicalUrl),
     record,
     contentType: record.contentType ?? "announcement",
     family,
@@ -391,8 +397,8 @@ function academicSourceFamily(value: string): Extract<ContentFeedSourceFamily, "
 }
 
 function compareContentFeedItems(left: ContentFeedItem, right: ContentFeedItem): number {
-  const leftPublished = trustedTimestamp(left.record.publishedAt);
-  const rightPublished = trustedTimestamp(right.record.publishedAt);
+  const leftPublished = trustedPublicationTimestamp(left.record);
+  const rightPublished = trustedPublicationTimestamp(right.record);
   const leftDisplay = leftPublished ?? trustedTimestamp(left.record.sourceUpdatedAt) ?? Number.NEGATIVE_INFINITY;
   const rightDisplay = rightPublished ?? trustedTimestamp(right.record.sourceUpdatedAt) ?? Number.NEGATIVE_INFINITY;
   if (leftDisplay !== rightDisplay) return rightDisplay - leftDisplay;
@@ -451,6 +457,24 @@ function trustedTimestamp(value: string | undefined): number | null {
   ) return null;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function trustedDateOnly(value: string | undefined): { value: string; sortValue: number } | null {
+  if (!value) return null;
+  const match = strictDateOnlyPattern.exec(value);
+  if (!match?.[1] || !match[2] || !match[3]) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate()) return null;
+  // Noon is used only as an internal monotonic sort key; the API value and UI
+  // remain a calendar date and never expose a fabricated midnight/clock.
+  return { value, sortValue: Date.UTC(year, month - 1, day, 12) };
+}
+
+function trustedPublicationTimestamp(record: TrustedMobileContentRecord): number | null {
+  const dateOnly = record.publicationKind === "date" ? trustedDateOnly(record.publishedDate) : null;
+  return dateOnly?.sortValue ?? trustedTimestamp(record.publishedAt);
 }
 
 function officialAuthority(value: string): string | null {

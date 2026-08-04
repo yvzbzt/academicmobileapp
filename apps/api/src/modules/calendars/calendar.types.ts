@@ -1,3 +1,4 @@
+import type { AcademicEventTemporalKind } from "../../../../../packages/shared/src/contracts.js";
 import type { AcademicEventCategory, AcademicTerm } from "../../domain/academic-event.types.js";
 
 export type CalendarStatus = "draft" | "published" | "archived";
@@ -38,8 +39,14 @@ export interface AcademicEventRecord {
   category: AcademicEventCategory;
   title: string;
   description?: string;
+  /** Compatibility/sort instant. Use dateOnlyStart when temporalKind is date. */
   startDate: Date;
+  /** Compatibility/sort instant. Use dateOnlyEnd when endTemporalKind is date. */
   endDate?: Date;
+  temporalKind?: AcademicEventTemporalKind;
+  endTemporalKind?: AcademicEventTemporalKind;
+  dateOnlyStart?: string;
+  dateOnlyEnd?: string;
   timezone: "Europe/Istanbul";
   originalDateText?: string;
   originalText?: string;
@@ -80,6 +87,7 @@ export interface CalendarEventScope {
 
 export interface CalendarRepository {
   findPublishedCalendar(universityId: string, academicYear?: string): Promise<AcademicCalendarRecord | null>;
+  listPublishedCalendars(input: { limit: number; offset: number }): Promise<AcademicCalendarRecord[]>;
   findCalendarById(calendarId: string): Promise<AcademicCalendarRecord | null>;
   createCalendar(input: Omit<AcademicCalendarRecord, "id" | "createdAt" | "updatedAt">): Promise<AcademicCalendarRecord>;
   updateCalendar(calendarId: string, input: Partial<Omit<AcademicCalendarRecord, "id" | "createdAt" | "updatedAt">>): Promise<AcademicCalendarRecord | null>;

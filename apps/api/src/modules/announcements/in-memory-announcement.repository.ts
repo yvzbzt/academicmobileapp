@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { canonicalContentKey, canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, normalizeTrustedItemsForSource, officialDomainForUrl } from "./announcement-content-trust.js";
-import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import { canonicalContentKey, canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
+import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class InMemoryAnnouncementRepository implements AnnouncementRepository {
@@ -64,30 +65,65 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
     return updated;
   }
 
-  async replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[]): Promise<void> {
-    const trustedItems = normalizeTrustedItemsForSource(source, items);
-    if (trustedItems.length === 0) return;
+  async replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[], options: AnnouncementReplacementOptions = {}): Promise<AnnouncementPersistenceDelta> {
     const existing = this.items.get(source.id) ?? [];
-    const existingByCanonicalKey = new Map(existing.flatMap((item) => {
-      const key = canonicalContentKey(item.canonicalUrl ?? item.link);
-      return key ? [[key, item] as const] : [];
-    }));
-    this.items.set(source.id, trustedItems
-      .map((item) => {
-        const key = canonicalContentKey(item.canonicalUrl ?? item.link);
-        const previous = key ? existingByCanonicalKey.get(key) : undefined;
-        const discoveredAt = previous?.discoveredAt ?? item.discoveredAt ?? item.fetchedAt;
-        return {
-          ...item,
-          sourceId: source.id,
-          sourceName: source.sourceName,
-          officialSourceUrl: source.canonicalUrl ?? source.sourceUrl,
-          contentType: item.contentType ?? source.contentType ?? "announcement",
-          scopeType: source.scopeType,
-          scopeId: source.scopeId,
-          ...(discoveredAt ? { discoveredAt } : {})
-        };
-      }));
+    const plan = planAnnouncementReplacement(source, items, existing, options);
+    if (plan.entries.length === 0 && plan.removed.length === 0) return emptyAnnouncementPersistenceDelta();
+    const delta = emptyAnnouncementPersistenceDelta();
+    const persistedItems = plan.entries.map(({ item, previous, materiallyUpdated }) => {
+      const discoveredAt = previous?.discoveredAt ?? item.discoveredAt ?? item.fetchedAt;
+      const persisted: AnnouncementItem = {
+        ...item,
+        id: previous?.id ?? item.id,
+        sourceId: source.id,
+        sourceName: source.sourceName,
+        officialSourceUrl: source.canonicalUrl ?? source.sourceUrl,
+        contentType: item.contentType ?? source.contentType ?? "announcement",
+        scopeType: source.scopeType,
+        scopeId: source.scopeId,
+        ...(discoveredAt ? { discoveredAt } : {})
+      };
+      const reference = toPersistenceReference(persisted);
+      if (reference) {
+        if (!previous) delta.created.push(reference);
+        else if (materiallyUpdated) delta.materiallyUpdated.push(reference);
+        else delta.unchanged.push(reference);
+      }
+      return persisted;
+    });
+    for (const removed of plan.removed) {
+      const reference = toPersistenceReference(removed);
+      if (reference) delta.removed.push(reference);
+    }
+    this.items.set(source.id, [
+      ...existing.filter((item) => item.trustStatus !== "trusted"),
+      ...persistedItems
+    ]);
+    return delta;
+  }
+
+  async acknowledgeNotificationProduction(references: readonly AnnouncementPersistenceReference[]): Promise<number> {
+    let acknowledged = 0;
+    const visited = new Set<string>();
+    for (const reference of references) {
+      const key = `${reference.sourceId}\u0000${reference.id}\u0000${reference.contentFingerprint}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const sourceItems = this.items.get(reference.sourceId);
+      const index = sourceItems?.findIndex((item) =>
+        item.id === reference.id
+        && item.scopeType === reference.scopeType
+        && item.scopeId === reference.scopeId
+        && item.contentFingerprint === reference.contentFingerprint
+        && item.notificationEligibleFingerprint === reference.contentFingerprint) ?? -1;
+      if (!sourceItems || index < 0) continue;
+      sourceItems[index] = {
+        ...sourceItems[index]!,
+        notificationProducedFingerprint: reference.contentFingerprint
+      };
+      acknowledged += 1;
+    }
+    return acknowledged;
   }
 
   async listItemsForSource(sourceId: string, limit = 1_000): Promise<AnnouncementItem[]> {

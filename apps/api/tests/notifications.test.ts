@@ -184,12 +184,35 @@ describe("NotificationsService", () => {
 
   it("creates and cancels per-student custom alarms", async () => {
     const repository = new InMemoryNotificationRepository();
-    const service = new NotificationsService(repository);
+    const calendarRepository = new InMemoryCalendarRepository();
     const user = { ...studentUser, universityId: "university-1", facultyId: "faculty-1", departmentId: "department-1" };
+    const calendar = await calendarRepository.createCalendar({
+      universityId: user.universityId,
+      academicYear: "2026-2027",
+      title: "Published calendar",
+      status: "published",
+      version: 1
+    });
+    const [event] = await calendarRepository.createEvents([{
+      calendarId: calendar.id,
+      universityId: user.universityId,
+      facultyId: user.facultyId,
+      departmentId: user.departmentId,
+      academicYear: "2026-2027",
+      term: "fall",
+      category: "final_exam",
+      title: "Algorithms Final",
+      startDate: new Date("2026-10-01T06:30:00.000Z"),
+      timezone: "Europe/Istanbul",
+      status: "published",
+      notificationRules: []
+    }]);
+    if (!event) throw new Error("Expected calendar event fixture.");
+    const service = new NotificationsService(repository, calendarRepository);
 
     const alarm = await service.createStudentAlarm(user, {
       eventType: "exam",
-      targetId: "exam-1",
+      targetId: event.id,
       title: "Algorithms Final",
       scheduledFor: "2026-10-01T06:30:00.000Z",
       trigger: "before",
@@ -202,7 +225,7 @@ describe("NotificationsService", () => {
 
     expect(alarm).toEqual(expect.objectContaining({
       eventType: "exam",
-      targetId: "exam-1",
+      targetId: event.id,
       scheduledAt: "2026-10-01T03:30:00.000Z",
       timezone: "Europe/Istanbul",
       status: "scheduled"
@@ -479,10 +502,13 @@ describe("NotificationWorkerService", () => {
 
     const first = await worker.processDueJobs(new Date("2027-01-01T00:00:00.000Z"));
     expect(first).toEqual(expect.objectContaining({ sent: 1, failed: 1 }));
-    expect((await repository.listJobsByCalendar(job.calendarId))[0]?.status).toBe("failed");
+    expect((await repository.listJobsByCalendar(job.calendarId))[0]).toEqual(expect.objectContaining({
+      status: "scheduled",
+      attemptCount: 1,
+      lastFailureReason: "provider_unavailable"
+    }));
 
     sender.failedTokens.clear();
-    await worker.retryFailedJob(job.id, new Date("2027-01-01T00:01:00.000Z"));
     const retry = await worker.processDueJobs(new Date("2027-01-01T00:01:00.000Z"));
     const deliveries = await repository.listDeliveriesByJob(job.id, 10, 0);
 

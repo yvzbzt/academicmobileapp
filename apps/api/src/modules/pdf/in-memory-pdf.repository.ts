@@ -53,6 +53,8 @@ export class InMemoryPdfRepository implements PdfRepository {
     const event = this.extractedEvents.get(id);
     if (!event) return null;
     const updated: ExtractedEventRecord = { ...event, ...input, updatedAt: new Date() };
+    if (input.temporalKind === "timestamp") delete updated.dateOnlyStart;
+    if (input.endTemporalKind === "timestamp") delete updated.dateOnlyEnd;
     this.extractedEvents.set(id, updated);
     return updated;
   }

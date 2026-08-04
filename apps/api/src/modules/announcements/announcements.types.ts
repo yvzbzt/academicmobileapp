@@ -1,5 +1,6 @@
 import type {
   AcademicContentFreshness,
+  AcademicContentPublicationKind,
   AcademicContentScopeType,
   AcademicContentType,
   TrustedAcademicContentDto
@@ -26,6 +27,8 @@ export interface AnnouncementFallbackItem {
   rawTitle?: string;
   link: string;
   publishedAt?: Date;
+  publishedDate?: string;
+  publicationKind?: AcademicContentPublicationKind;
   sourceUpdatedAt?: Date;
   discoveredAt?: Date;
   summary?: string;
@@ -70,7 +73,13 @@ export interface AnnouncementItem {
   rawTitle?: string;
   link: string;
   canonicalUrl?: string;
+  canonicalUrlAliases?: string[];
   officialSourceUrl?: string;
+  contentFingerprint?: string;
+  notificationEligibleFingerprint?: string;
+  notificationProducedFingerprint?: string;
+  publicationKind?: AcademicContentPublicationKind;
+  publishedDate?: string;
   publishedAt?: string;
   publicationTimeSource?: "source";
   sourceUpdatedAt?: string;
@@ -90,12 +99,38 @@ export type MobileAnnouncementItem = TrustedAcademicContentDto;
 export type UpsertAnnouncementSourceInput = Omit<AnnouncementSourceRecord, "id" | "createdAt" | "updatedAt"> & { id?: string };
 export type SourceCheckInput = Pick<AnnouncementSourceRecord, "healthStatus" | "lastCheckedAt" | "lastSuccessAt" | "lastError" | "consecutiveFailures" | "itemCount">;
 
+export interface AnnouncementPersistenceReference {
+  id: string;
+  sourceId: string;
+  scopeType: AnnouncementScopeType;
+  scopeId: string;
+  canonicalUrl: string;
+  contentFingerprint: string;
+}
+
+export interface AnnouncementPersistenceDelta {
+  created: AnnouncementPersistenceReference[];
+  materiallyUpdated: AnnouncementPersistenceReference[];
+  unchanged: AnnouncementPersistenceReference[];
+  removed: AnnouncementPersistenceReference[];
+}
+
+export interface AnnouncementReplacementOptions {
+  /** Fetch and parser succeeded and authoritatively reported zero source rows. */
+  authoritativeEmpty?: boolean;
+}
+
 export interface AnnouncementRepository {
   listSourcesByScope(input: { universityId: string; facultyId?: string; departmentId?: string }): Promise<AnnouncementSourceRecord[]>;
   listAllSources(input?: { status?: AnnouncementSourceStatus; limit?: number; offset?: number }): Promise<AnnouncementSourceRecord[]>;
   upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord>;
   recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null>;
-  replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[]): Promise<void>;
+  replaceItemsForSource(
+    source: AnnouncementSourceRecord,
+    items: AnnouncementItem[],
+    options?: AnnouncementReplacementOptions
+  ): Promise<AnnouncementPersistenceDelta>;
+  acknowledgeNotificationProduction(references: readonly AnnouncementPersistenceReference[]): Promise<number>;
   listItemsForSource(sourceId: string, limit?: number): Promise<AnnouncementItem[]>;
   listItemsByScope(input: { universityId: string; facultyId?: string; departmentId?: string; limit: number }): Promise<AnnouncementItem[]>;
   findTrustedItemByIdInScope(input: {

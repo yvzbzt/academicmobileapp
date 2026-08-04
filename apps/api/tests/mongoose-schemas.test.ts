@@ -158,7 +158,7 @@ describe("mongoose schemas", () => {
     expect(notificationJobSchema.path("destinationType")).toBeDefined();
     expect(notificationJobSchema.path("destinationId")).toBeDefined();
     expect((notificationJobSchema.path("status") as unknown as { options: { enum: string[] } }).options.enum).toEqual([
-      "scheduled", "processing", "sent", "failed", "cancelled"
+      "scheduled", "processing", "sent", "failed", "dead", "cancelled"
     ]);
     expect(notificationJobSchema.path("processingClaimId")).toBeDefined();
     expect(notificationJobSchema.path("processingLeaseUntil")).toBeDefined();

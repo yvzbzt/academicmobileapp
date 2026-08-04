@@ -12,7 +12,12 @@ export interface MobileContentRecordInput {
   title: string;
   link: string;
   canonicalUrl?: string;
+  canonicalUrlAliases?: string[];
+  contentFingerprint?: string;
+  sourceRelationships?: MobileContentSourceRelationship[];
   officialSourceUrl?: string;
+  publicationKind?: "date" | "timestamp";
+  publishedDate?: string;
   publishedAt?: string;
   sourceUpdatedAt?: string;
   discoveredAt?: string;
@@ -20,6 +25,15 @@ export interface MobileContentRecordInput {
   summary?: string;
   freshness?: ContentFreshness;
   trustStatus?: ContentTrustStatus;
+}
+
+export interface MobileContentSourceRelationship {
+  sourceId: string;
+  sourceName: string;
+  officialSourceUrl: string;
+  scopeType: "university" | "faculty" | "department";
+  scopeId: string;
+  canonicalUrl: string;
 }
 
 export interface TrustedMobileContentRecord extends MobileContentRecordInput {
@@ -235,7 +249,9 @@ export function normalizeTrustedContentCollection(
       continue;
     }
 
-    const canonicalKey = canonicalContentKey(normalized.canonicalUrl);
+    const canonicalKey = normalized.contentFingerprint
+      ? `${normalized.scopeType}\u0000${normalized.scopeId}\u0000${normalized.contentFingerprint}`
+      : `${normalized.scopeType}\u0000${normalized.scopeId}\u0000${canonicalContentKey(normalized.canonicalUrl)}`;
     const existing = unique.get(canonicalKey);
     if (!existing) {
       unique.set(canonicalKey, normalized);
@@ -243,7 +259,17 @@ export function normalizeTrustedContentCollection(
     }
 
     duplicateCount += 1;
-    if (preferContentRecord(normalized, existing)) unique.set(canonicalKey, normalized);
+    const preferred = preferContentRecord(normalized, existing) ? normalized : existing;
+    unique.set(canonicalKey, {
+      ...preferred,
+      canonicalUrlAliases: [...new Set([
+        existing.canonicalUrl,
+        ...(existing.canonicalUrlAliases ?? []),
+        normalized.canonicalUrl,
+        ...(normalized.canonicalUrlAliases ?? [])
+      ])].sort(compareStableText),
+      sourceRelationships: mergeSourceRelationships(existing, normalized)
+    });
   }
 
   const items = [...unique.values()];
@@ -273,9 +299,12 @@ export function normalizeTrustedContentEnvelope(
 }
 
 export function contentTimestampLabel(
-  record: Pick<MobileContentRecordInput, "publishedAt" | "sourceUpdatedAt" | "discoveredAt" | "fetchedAt">
+  record: Pick<MobileContentRecordInput, "publicationKind" | "publishedDate" | "publishedAt" | "sourceUpdatedAt" | "discoveredAt" | "fetchedAt">
 ): string {
-  const publishedAt = validDate(record.publishedAt);
+  const publishedDate = record.publicationKind === "date" ? validDateOnly(record.publishedDate) : undefined;
+  if (publishedDate) return `Yayınlandı ${formatContentDate(publishedDate)}`;
+
+  const publishedAt = record.publicationKind === "date" ? null : validDate(record.publishedAt);
   if (publishedAt) return `Yayınlandı ${formatContentTimestamp(publishedAt)}`;
 
   const sourceUpdatedAt = validDate(record.sourceUpdatedAt);
@@ -303,21 +332,43 @@ function normalizeTrustedContentRecord(record: MobileContentRecordInput): Truste
 
   const sourceName = normalizeDisplayText(record.sourceName) || "Resmî kaynak";
   const summary = normalizeDisplayText(record.summary);
-  const publishedAt = validIsoTimestamp(record.publishedAt);
+  const publishedDate = record.publicationKind === "date" ? validDateOnly(record.publishedDate) : undefined;
+  const publishedAt = record.publicationKind === "date" ? undefined : validIsoTimestamp(record.publishedAt);
+  const publicationKind = publishedDate ? "date" as const : publishedAt ? "timestamp" as const : undefined;
   const sourceUpdatedAt = validIsoTimestamp(record.sourceUpdatedAt);
   const discoveredAt = validIsoTimestamp(record.discoveredAt);
   const fetchedAt = validIsoTimestamp(record.fetchedAt);
   const {
     canonicalUrl: _canonicalUrl,
+    canonicalUrlAliases: _canonicalUrlAliases,
+    contentFingerprint: _contentFingerprint,
     discoveredAt: _discoveredAt,
     fetchedAt: _fetchedAt,
     officialSourceUrl: _officialSourceUrl,
+    publicationKind: _publicationKind,
+    publishedDate: _publishedDate,
     publishedAt: _publishedAt,
+    sourceRelationships: _sourceRelationships,
     sourceUpdatedAt: _sourceUpdatedAt,
     summary: _summary,
     trustStatus: _trustStatus,
     ...baseRecord
   } = record;
+  const contentFingerprint = typeof record.contentFingerprint === "string" && /^[a-f\d]{64}$/u.test(record.contentFingerprint)
+    ? record.contentFingerprint
+    : undefined;
+  const canonicalUrlAliases = normalizeCanonicalAliases(record.canonicalUrlAliases, canonicalUrl, candidateOfficialDomain);
+  const sourceRelationships = normalizeSourceRelationships([
+    ...(record.sourceRelationships ?? []),
+    ...(officialSourceUrl ? [{
+      sourceId: record.sourceId,
+      sourceName,
+      officialSourceUrl,
+      scopeType: record.scopeType,
+      scopeId: record.scopeId,
+      canonicalUrl
+    }] : [])
+  ]);
 
   return {
     ...baseRecord,
@@ -325,10 +376,14 @@ function normalizeTrustedContentRecord(record: MobileContentRecordInput): Truste
     title,
     link: canonicalUrl,
     canonicalUrl,
+    canonicalUrlAliases,
     trustStatus: "trusted",
+    ...(contentFingerprint ? { contentFingerprint } : {}),
+    ...(sourceRelationships.length > 0 ? { sourceRelationships } : {}),
     ...(officialSourceUrl ? { officialSourceUrl } : {}),
     ...(summary ? { summary } : {}),
-    ...(publishedAt ? { publishedAt } : {}),
+    ...(publicationKind === "date" && publishedDate ? { publicationKind, publishedDate } : {}),
+    ...(publicationKind === "timestamp" && publishedAt ? { publicationKind, publishedAt } : {}),
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
     ...(discoveredAt ? { discoveredAt } : {}),
     ...(fetchedAt ? { fetchedAt } : {})
@@ -357,6 +412,17 @@ function foldForTrust(value: string): string {
 
 function hasUsableDisplayTitle(value: string): boolean {
   return (value.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 3;
+}
+
+function validDateOnly(value: string | undefined): string | undefined {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  if (!match?.[1] || !match[2] || !match[3]) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month)
+    ? value
+    : undefined;
 }
 
 function validDate(value: string | undefined): Date | null {
@@ -405,6 +471,61 @@ function formatContentTimestamp(date: Date): string {
   }).format(date);
 }
 
+function formatContentDate(value: string): string {
+  const [year = "", month = "", day = ""] = value.split("-");
+  const monthLabel = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"][Number(month) - 1];
+  return `${day} ${monthLabel ?? month} ${year}`;
+}
+
+function normalizeCanonicalAliases(
+  aliases: readonly string[] | undefined,
+  canonicalUrl: string,
+  officialDomain: string
+): string[] {
+  return [...new Set([canonicalUrl, ...(aliases ?? [])].flatMap((value) => {
+    const normalized = canonicalizeOfficialAcademicUrl(value);
+    return normalized && officialDomainForUrl(normalized) === officialDomain ? [normalized] : [];
+  }))].sort(compareStableText);
+}
+
+function normalizeSourceRelationships(
+  relationships: readonly MobileContentSourceRelationship[] | undefined
+): MobileContentSourceRelationship[] {
+  const normalized = (relationships ?? []).flatMap((relationship): MobileContentSourceRelationship[] => {
+    const sourceName = normalizeDisplayText(relationship.sourceName);
+    const officialSourceUrl = canonicalizeOfficialAcademicUrl(relationship.officialSourceUrl);
+    const canonicalUrl = canonicalizeOfficialAcademicUrl(relationship.canonicalUrl);
+    if (
+      !relationship.sourceId?.trim()
+      || !relationship.scopeId?.trim()
+      || !sourceName
+      || !officialSourceUrl
+      || !canonicalUrl
+      || !["university", "faculty", "department"].includes(relationship.scopeType)
+      || officialDomainForUrl(officialSourceUrl) !== officialDomainForUrl(canonicalUrl)
+    ) return [];
+    return [{ ...relationship, sourceName, officialSourceUrl, canonicalUrl }];
+  });
+  return [...new Map(normalized.map((relationship) => [
+    [relationship.scopeType, relationship.scopeId, relationship.sourceId, relationship.canonicalUrl].join("\u0000"),
+    relationship
+  ])).values()].sort((left, right) => compareStableText(
+    [left.scopeType, left.scopeId, left.sourceId, left.canonicalUrl].join("\u0000"),
+    [right.scopeType, right.scopeId, right.sourceId, right.canonicalUrl].join("\u0000")
+  ));
+}
+
+function mergeSourceRelationships(
+  left: TrustedMobileContentRecord,
+  right: TrustedMobileContentRecord
+): MobileContentSourceRelationship[] {
+  return normalizeSourceRelationships([...(left.sourceRelationships ?? []), ...(right.sourceRelationships ?? [])]);
+}
+
+function compareStableText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function preferContentRecord(next: TrustedMobileContentRecord, existing: TrustedMobileContentRecord): boolean {
   if (next.freshness === "fresh" && existing.freshness === "stale") return true;
   if (next.freshness === "stale" && existing.freshness === "fresh") return false;
@@ -421,6 +542,7 @@ function preferContentRecord(next: TrustedMobileContentRecord, existing: Trusted
 function contentSourceTimestamp(record: TrustedMobileContentRecord): number {
   return Math.max(
     validDate(record.publishedAt)?.getTime() ?? 0,
+    record.publishedDate ? Date.parse(`${record.publishedDate}T12:00:00+03:00`) || 0 : 0,
     validDate(record.sourceUpdatedAt)?.getTime() ?? 0
   );
 }

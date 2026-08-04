@@ -168,6 +168,15 @@ import {
   type TrustedMobileContentRecord
 } from "./src/content/content-trust";
 import { HomeDailyBrief } from "./src/home/HomeDailyBrief";
+import { selectExamCountdownItems } from "./src/home/home-model";
+import {
+  compareAcademicTemporalStart,
+  formatAcademicRemainingTime,
+  formatAcademicTemporal,
+  isAcademicTemporalActiveOnDay,
+  isAcademicTemporalCurrentOrFuture,
+  type AcademicTemporalKind
+} from "./src/temporal/academic-temporal";
 import {
   HomeDailyBriefPreview,
   type HomeDailyBriefPreviewScenario
@@ -385,6 +394,9 @@ type EventRecord = {
   category: string;
   startDate: string;
   endDate?: string;
+  temporalKind?: AcademicTemporalKind;
+  endTemporalKind?: AcademicTemporalKind;
+  timezone?: string;
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
@@ -1235,30 +1247,10 @@ function MainApplication() {
     return [...keys];
   }, [calendar.data?.events, preferences.data?.categories]);
   const examCountdownItems = useMemo(() => {
-    const examCategories = new Set(["midterm_exam", "final_exam", "makeup_exam", "single_course_exam"]);
-    const calendarExams = (calendar.data?.events ?? [])
-      .filter((event) => examCategories.has(event.category))
-      .map((event) => ({
-        id: event.id,
-        title: event.title,
-        examDate: event.startDate,
-        source: "calendar" as const
-      }));
-
     const visibleManualExams = session?.user.id === manualExamOwnerId && manualExamsHydrated
       ? manualExams
       : [];
-    const extraExams = visibleManualExams.map((exam) => ({
-      id: exam.id,
-      title: exam.title,
-      examDate: exam.examDate,
-      source: "manual" as const
-    }));
-
-    return [...calendarExams, ...extraExams]
-      .filter((exam) => !Number.isNaN(Date.parse(exam.examDate)))
-      .filter((exam) => Date.parse(exam.examDate) >= Date.now())
-      .sort((left, right) => Date.parse(left.examDate) - Date.parse(right.examDate));
+    return selectExamCountdownItems(calendar.data?.events ?? [], visibleManualExams, new Date());
   }, [calendar.data?.events, manualExams, manualExamOwnerId, manualExamsHydrated, session?.user.id]);
   const announcementFeed = useMemo(
     () => announcements.data?.items ?? [],
@@ -1319,22 +1311,16 @@ function MainApplication() {
   const calendarAvailabilityMessage = contentAvailabilityMessage(undefined, calendar.stale);
   const upcomingAvailabilityMessage = contentAvailabilityMessage(undefined, upcoming.stale);
   const nextUpcomingEvent = useMemo(() => {
+    const now = new Date();
     return (upcoming.data ?? [])
-      .filter((event) => !Number.isNaN(Date.parse(event.startDate)))
-      .filter((event) => Date.parse(event.startDate) >= Date.now())
-      .sort((left, right) => Date.parse(left.startDate) - Date.parse(right.startDate))[0];
+      .filter((event) => isAcademicTemporalCurrentOrFuture(event, now))
+      .sort(compareAcademicTemporalStart)[0];
   }, [upcoming.data]);
   const todayEventCount = useMemo(() => {
     const today = new Date();
-    return (calendar.data?.events ?? []).filter((event) => {
-      const eventDate = new Date(event.startDate);
-      return (
-        !Number.isNaN(eventDate.getTime()) &&
-        eventDate.getFullYear() === today.getFullYear() &&
-        eventDate.getMonth() === today.getMonth() &&
-        eventDate.getDate() === today.getDate()
-      );
-    }).length;
+    return (calendar.data?.events ?? [])
+      .filter((event) => isAcademicTemporalActiveOnDay(event, today))
+      .length;
   }, [calendar.data?.events]);
   const nextExam = examCountdownItems[0];
 
@@ -6846,16 +6832,16 @@ function MainApplication() {
                   <View style={styles.focusCard}>
                     <Text style={styles.eventCategory}>Sıradaki sınav</Text>
                     <Text style={styles.eventTitle}>{nextExam.title}</Text>
-                    <Text style={styles.countdownBadge}>{formatRemainingDuration(nextExam.examDate)}</Text>
-                    <Text style={styles.caption}>{formatDateTimeShort(nextExam.examDate)}</Text>
+                    <Text style={styles.countdownBadge}>{formatAcademicRemainingTime(nextExam, new Date())}</Text>
+                    <Text style={styles.caption}>{formatAcademicTemporal(nextExam)}</Text>
                   </View>
                 )}
 
                 {examCountdownItems.slice(nextExam ? 1 : 0, nextExam ? 4 : 3).map((exam) => (
                   <View key={exam.id} style={styles.eventCard}>
                     <Text style={styles.eventTitle}>{exam.title}</Text>
-                    <Text style={styles.countdownBadge}>{formatRemainingDuration(exam.examDate)}</Text>
-                    <Text style={styles.caption}>{formatDateTimeShort(exam.examDate)}</Text>
+                    <Text style={styles.countdownBadge}>{formatAcademicRemainingTime(exam, new Date())}</Text>
+                    <Text style={styles.caption}>{formatAcademicTemporal(exam)}</Text>
                   </View>
                 ))}
 
@@ -6895,7 +6881,7 @@ function MainApplication() {
                 {nextUpcomingEvent && (
                   <View style={styles.eventHighlightRow}>
                     <View style={styles.eventDateBadge}>
-                      <Text style={styles.eventDateBadgeText}>{formatDateShort(nextUpcomingEvent.startDate)}</Text>
+                      <Text style={styles.eventDateBadgeText}>{formatAcademicTemporal(nextUpcomingEvent)}</Text>
                     </View>
                     <View style={styles.flexOne}>
                       <Text style={styles.eventTitle}>{nextUpcomingEvent.title}</Text>
@@ -6907,7 +6893,7 @@ function MainApplication() {
                 {(upcoming.data ?? []).filter((event) => event.id !== nextUpcomingEvent?.id).map((event) => (
                   <View key={event.id} style={styles.eventCard}>
                     <Text style={styles.eventTitle}>{event.title}</Text>
-                    <Text style={styles.caption}>{formatDateShort(event.startDate)}</Text>
+                    <Text style={styles.caption}>{formatAcademicTemporal(event)}</Text>
                   </View>
                 ))}
               </Section>
@@ -7109,7 +7095,7 @@ function MainApplication() {
                   <View key={event.id} style={styles.eventCard}>
                     <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
                     <Text style={styles.eventTitle}>{event.title}</Text>
-                    <Text style={styles.caption}>{formatDateShort(event.startDate)}</Text>
+                    <Text style={styles.caption}>{formatAcademicTemporal(event)}</Text>
                   </View>
                 ))}
                 {calendar.attempted && !calendar.loading && !calendar.error && (calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).length === 0 && (
@@ -7175,7 +7161,7 @@ function MainApplication() {
                       <View key={event.id} style={styles.eventCard}>
                         <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
                         <Text style={styles.eventTitle}>{event.title}</Text>
-                        <Text style={styles.caption}>{formatDateShort(event.startDate)}</Text>
+                        <Text style={styles.caption}>{formatAcademicTemporal(event)}</Text>
                       </View>
                     ))}
 
@@ -7195,7 +7181,7 @@ function MainApplication() {
                         <>
                           <View style={styles.announcementTopRow}>
                             <Text style={styles.announcementSourcePill}>Koşul</Text>
-                            <Text style={styles.announcementDate}>{formatDateShort(item.date)}</Text>
+                            <Text style={styles.announcementDate}>{item.date ? formatAcademicTemporal({ startDate: item.date }) : "-"}</Text>
                           </View>
                           <Text style={styles.announcementTitle}>{item.message}</Text>
                           {!sourceUrl && <Text style={styles.caption}>Resmî bağlantı mevcut değil.</Text>}

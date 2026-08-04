@@ -4,6 +4,7 @@ import { mapAcademicEventCategory } from "../../domain/category-mapper.js";
 import { calculateConfidenceScore } from "../../domain/confidence-score.js";
 import { normalizeAcademicDate } from "../../domain/date-normalizer.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
+import { academicTemporalFields, compatibilityDateForCalendarDay, istanbulTimestamp } from "../calendars/calendar-temporal.js";
 import type { CreatePdfSourceInput, ExtractedEventRecord, ExtractedEventStatus, PdfRepository, PdfSourceRecord } from "./pdf.types.js";
 import { PdfOcrService } from "./pdf-ocr.service.js";
 
@@ -145,9 +146,27 @@ export class PdfProcessingService {
 
   async updateExtractedEvent(
     id: string,
-    input: { normalizedTitle?: string; normalizedCategory?: AcademicEventCategory; startDate?: Date; endDate?: Date; adminNote?: string }
+    input: { normalizedTitle?: string; normalizedCategory?: AcademicEventCategory; startDate?: string; endDate?: string; adminNote?: string }
   ): Promise<ExtractedEventRecord> {
-    const updated = await this.pdfRepository.updateExtractedEvent(id, input);
+    const current = await this.pdfRepository.findExtractedEventById(id);
+    if (!current) throw new NotFoundException("Extracted event not found.");
+    const currentStart = current.temporalKind === "date" && current.dateOnlyStart
+      ? current.dateOnlyStart
+      : current.startDate?.toISOString();
+    const currentEnd = current.endTemporalKind === "date" && current.dateOnlyEnd
+      ? current.dateOnlyEnd
+      : current.endDate?.toISOString();
+    const requestedStart = input.startDate ?? currentStart;
+    const requestedEnd = input.endDate ?? currentEnd;
+    const temporal = requestedStart && (input.startDate || input.endDate)
+      ? academicTemporalFields(requestedStart, requestedEnd)
+      : {};
+    const updated = await this.pdfRepository.updateExtractedEvent(id, {
+      ...(input.normalizedTitle ? { normalizedTitle: input.normalizedTitle } : {}),
+      ...(input.normalizedCategory ? { normalizedCategory: input.normalizedCategory } : {}),
+      ...temporal,
+      ...(input.adminNote ? { adminNote: input.adminNote } : {})
+    });
     if (!updated) throw new NotFoundException("Extracted event not found.");
     return updated;
   }
@@ -226,6 +245,7 @@ export class PdfProcessingService {
       duplicateRisk: 0,
       sourcePageClarity: sourcePage > 0 ? 100 : 0
     });
+    const includeEnd = Boolean(endDate && (endDate !== startDate || normalizedDate.endTime));
 
     return {
       pdfSourceId: source.id,
@@ -235,8 +255,20 @@ export class PdfProcessingService {
       originalDateText,
       normalizedTitle: title,
       normalizedCategory: category,
-      ...(startDate ? { startDate: toEventDate(startDate, normalizedDate.startTime) } : {}),
-      ...(endDate && endDate !== startDate ? { endDate: toEventDate(endDate, normalizedDate.endTime, true) } : {}),
+      ...(startDate ? {
+        temporalKind: normalizedDate.startTime ? "timestamp" as const : "date" as const,
+        ...(normalizedDate.startTime ? {} : { dateOnlyStart: startDate }),
+        startDate: normalizedDate.startTime
+          ? istanbulTimestamp(startDate, normalizedDate.startTime)
+          : compatibilityDateForCalendarDay(startDate)
+      } : {}),
+      ...(includeEnd && endDate ? {
+        endTemporalKind: normalizedDate.endTime ? "timestamp" as const : "date" as const,
+        ...(normalizedDate.endTime ? {} : { dateOnlyEnd: endDate }),
+        endDate: normalizedDate.endTime
+          ? istanbulTimestamp(endDate, normalizedDate.endTime)
+          : compatibilityDateForCalendarDay(endDate, true)
+      } : {}),
       ...(normalizedDate.startTime ? { startTime: normalizedDate.startTime } : {}),
       ...(normalizedDate.endTime ? { endTime: normalizedDate.endTime } : {}),
       ...(normalizedDate.hasExplicitTime ? { hasExplicitTime: true } : {}),
@@ -686,24 +718,6 @@ function areDuplicateTitles(left: string, right: string): boolean {
 
 function dateKey(value?: Date): string {
   return value ? value.toISOString().slice(0, 10) : "";
-}
-
-function toEventDate(isoDate: string, time?: string, endOfDay = false): Date {
-  if (!time) return new Date(`${isoDate}T${endOfDay ? "23:59:59.000" : "00:00:00.000"}Z`);
-  const dateMatch = isoDate.match(/^(20\d{2})-(\d{2})-(\d{2})$/u);
-  const timeMatch = time.match(/^([01]\d|2[0-3]):([0-5]\d)$/u);
-  if (!dateMatch?.[1] || !dateMatch[2] || !dateMatch[3] || !timeMatch?.[1] || !timeMatch[2]) return new Date(`${isoDate}T00:00:00.000Z`);
-
-  const turkeyUtcOffsetHours = 3;
-  return new Date(Date.UTC(
-    Number(dateMatch[1]),
-    Number(dateMatch[2]) - 1,
-    Number(dateMatch[3]),
-    Number(timeMatch[1]) - turkeyUtcOffsetHours,
-    Number(timeMatch[2]),
-    0,
-    0
-  ));
 }
 
 function foldEventText(value: string): string {

@@ -137,6 +137,10 @@ describe("MongoNotificationRepository device ownership", () => {
       new Date("2027-01-01T00:20:00.000Z")
     );
     expect(recovered).toEqual(expect.objectContaining({ processingClaimId: "mongo-claim-recovered" }));
+    await expect(repository.renewClaimedJob(job.id, winner!.processingClaimId!, winner!.revision, new Date("2027-01-01T00:30:00.000Z"))).resolves.toBeNull();
+    await expect(repository.renewClaimedJob(job.id, "mongo-claim-recovered", recovered!.revision, new Date("2027-01-01T00:30:00.000Z"))).resolves.toEqual(
+      expect.objectContaining({ processingLeaseUntil: new Date("2027-01-01T00:30:00.000Z") })
+    );
     await expect(repository.completeClaimedJob(job.id, winner!.processingClaimId!, "sent")).resolves.toBeNull();
     await expect(repository.completeClaimedJob(job.id, "mongo-claim-recovered", "sent")).resolves.toEqual(
       expect.objectContaining({ status: "sent" })
@@ -144,5 +148,94 @@ describe("MongoNotificationRepository device ownership", () => {
     const [completed] = await repository.listJobsByCalendar("mongo-claim-calendar");
     expect(completed).not.toHaveProperty("processingClaimId");
     expect(completed).not.toHaveProperty("processingLeaseUntil");
+  }, 30_000);
+
+  it("does not list or claim a legacy scheduled job whose persisted retry budget is exhausted", async () => {
+    const now = new Date("2027-02-01T00:00:00.000Z");
+    const [job] = await repository.createNotificationJobs([{
+      calendarId: "mongo-exhausted-calendar",
+      eventId: "mongo-exhausted-event",
+      destinationType: "calendar_event",
+      destinationId: "mongo-exhausted-event",
+      universityId: "mongo-university",
+      title: "Mongo exhausted event",
+      category: "final_exam",
+      offsetDays: 1,
+      trigger: "before",
+      scheduledAt: now,
+      status: "scheduled",
+      maxAttempts: 2
+    }]);
+    if (!job) throw new Error("Expected a Mongo exhausted-job fixture.");
+    const connection = mongo.getConnection();
+    if (!connection) throw new Error("Expected Mongo connection.");
+    await getModel(connection, "NotificationJob", notificationJobSchema).updateOne(
+      { _id: job.id },
+      { $set: { attemptCount: 2 }, $unset: { exhaustedAt: 1 } }
+    );
+
+    await expect(repository.listDueJobs(now, 10)).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: job.id })])
+    );
+    await expect(repository.claimDueJob(job.id, now, "exhausted-claim", new Date(now.getTime() + 60_000))).resolves.toBeNull();
+
+    await getModel(connection, "NotificationJob", notificationJobSchema).updateOne(
+      { _id: job.id },
+      { $unset: { attemptCount: 1, maxAttempts: 1 } }
+    );
+    await expect(repository.claimDueJob(job.id, now, "legacy-default-claim", new Date(now.getTime() + 60_000))).resolves.toEqual(
+      expect.objectContaining({ attemptCount: 0, maxAttempts: 5 })
+    );
+  }, 30_000);
+
+  it("keeps concurrent multi-producer attach and retirement relationships with CAS retries", async () => {
+    const now = new Date("2027-03-01T00:00:00.000Z");
+    const fingerprint = "mongo-shared-announcement-fingerprint";
+    const producerA = "announcement-source:mongo-a";
+    const producerB = "announcement-source:mongo-b";
+    const producerC = "announcement-source:mongo-c";
+    const producedJob = (producerKey: string, destinationId: string) => ({
+      calendarId: producerKey,
+      eventId: destinationId,
+      destinationType: "announcement" as const,
+      destinationId,
+      destinationScopeType: "university" as const,
+      destinationScopeId: "mongo-shared-university",
+      destinationFingerprint: fingerprint,
+      universityId: "mongo-shared-university",
+      title: `Shared ${destinationId}`,
+      category: "announcement" as const,
+      offsetDays: 0,
+      trigger: "at_time" as const,
+      scheduledAt: now,
+      status: "scheduled" as const
+    });
+
+    await Promise.all([
+      repository.syncProducedJobs({ producerKey: producerA, jobs: [producedJob(producerA, "real-id-a")] }),
+      repository.syncProducedJobs({ producerKey: producerB, jobs: [producedJob(producerB, "real-id-b")] })
+    ]);
+    let sharedJobs = (await repository.listJobsForDestinationValidation(1_000, 0))
+      .filter((job) => job.destinationFingerprint === fingerprint);
+    expect(sharedJobs).toHaveLength(1);
+    expect(sharedJobs[0]?.producerKeys).toEqual(expect.arrayContaining([producerA, producerB]));
+
+    await Promise.all([
+      repository.retireProducedJobs(producerA),
+      repository.syncProducedJobs({ producerKey: producerC, jobs: [producedJob(producerC, "real-id-c")] })
+    ]);
+    sharedJobs = (await repository.listJobsForDestinationValidation(1_000, 0))
+      .filter((job) => job.destinationFingerprint === fingerprint);
+    expect(sharedJobs).toHaveLength(1);
+    expect(sharedJobs[0]).toEqual(expect.objectContaining({
+      producerKeys: expect.arrayContaining([producerB, producerC]),
+      destinationId: expect.stringMatching(/^real-id-[bc]$/u)
+    }));
+    expect(sharedJobs[0]?.producerKeys).not.toContain(producerA);
+
+    await repository.retireProducedJobs(producerB);
+    sharedJobs = (await repository.listJobsForDestinationValidation(1_000, 0))
+      .filter((job) => job.destinationFingerprint === fingerprint);
+    expect(sharedJobs).toEqual([expect.objectContaining({ producerKeys: [producerC], destinationId: "real-id-c" })]);
   }, 30_000);
 });

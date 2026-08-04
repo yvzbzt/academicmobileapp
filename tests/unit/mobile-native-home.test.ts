@@ -9,6 +9,7 @@ import {
   resolveActionableIntegration,
   resolveHomeLayout,
   resolveHomePrimaryState,
+  selectExamCountdownItems,
   selectNearestImportantItem,
   selectRecentAnnouncements,
   selectTodayItems,
@@ -66,6 +67,43 @@ describe("Phase 7 Home daily-brief contracts", () => {
     ], [], now);
     expect(selected).toMatchObject({ id: "nearest", kind: "deadline" });
     expect(formatRemainingTime(selected!.date, now)).toBe("2 saat kaldı");
+  });
+
+  it("keeps date-only calendar exams visible without stripping their temporal metadata", () => {
+    const selected = selectExamCountdownItems([
+      {
+        id: "date-only-exam",
+        title: "Günlük sınav",
+        category: "midterm_exam",
+        temporalKind: "date",
+        endTemporalKind: "date",
+        startDate: "2026-08-04",
+        endDate: "2026-08-04"
+      },
+      {
+        id: "old-date-only-exam",
+        title: "Eski sınav",
+        category: "final_exam",
+        temporalKind: "date",
+        startDate: "2026-08-03"
+      },
+      {
+        id: "future-timed-exam",
+        title: "Saatli sınav",
+        category: "final_exam",
+        temporalKind: "timestamp",
+        startDate: "2026-08-05T06:30:00.000Z"
+      }
+    ], [], new Date("2026-08-04T18:00:00.000Z"));
+
+    expect(selected.map((item) => item.id)).toEqual(["date-only-exam", "future-timed-exam"]);
+    expect(selected[0]).toMatchObject({
+      startDate: "2026-08-04",
+      endDate: "2026-08-04",
+      temporalKind: "date",
+      endTemporalKind: "date",
+      source: "calendar"
+    });
   });
 
   it("orders announcements by publication/update time and caps recent items", () => {
