@@ -1,7 +1,34 @@
 # Phase 01 — Authentication, Session, Storage, and Academic-Profile Integrity
 
-Status date: 30 July 2026\
-Status: Complete through R1C1. Required Phase 1 Android evidence, A1 generation safety, the seven R1A Mongo bindings, and R1B Mongo user data remain intact. Firestore database persistence source is removed; in-memory relocation remains R1C2, and Mongo reconnect/live persistence smoke remains R1D.
+Status date: 2026-08-04\
+Status: Reconciled current through the Phase 1 security repair and the accepted Phase 2–3 descendants. The runtime remains MongoDB-only; the original Phase 1 milestone and evidence ledger are preserved below as historical provenance.
+
+## Reconciled current state — 2026-08-04
+
+The accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` was repaired by `641d7bee8a1cd539179769069a22b5c3220e8a6d` (`fix(auth): close phase-one security gaps`). The later Phase 2 and Phase 3 repair commits are linear descendants and do not reopen these security decisions.
+
+- Missing legacy credential generations still normalize to `0`. Access tokens, refresh records, and password-recovery records carry the current generation; protected access, refresh rotation, and recovery confirmation all reject a stale generation.
+- Password reset now uses a standalone-Mongo-compatible compare-and-set on the user document. The accepted token hash, expected generation, new password hash, completion operation key, and one-step generation advance form the durable security boundary. Hash failure performs no write; concurrent records cannot both commit; a response-loss retry with the same operation is deterministic; a different proposed password is not reported as a success. Generation advancement immediately invalidates older credentials even if best-effort physical cleanup later fails.
+- `POST /auth/recent-authentication` verifies the account's actual password or a fresh Google ID token and issues a five-minute proof bound to the owner and current credential generation. `DELETE /me/data` and `DELETE /me` require that server-verified proof. The native destructive flows collect the supported proof instead of treating a client confirmation dialog as authentication.
+- Password-recovery request responses now have the same production status and public fields for known, unknown, and cooldown cases. Each path performs comparable token, hash, lookup, and timing work; production applies a 350 ms public response floor. Eligible email delivery is scheduled asynchronously without being awaited by the public response, is wrapped by a 12-second delivery timeout, and uses bounded SMTP connection/greeting/socket timeouts.
+- Client IP resolution trusts only explicit `TRUSTED_PROXY_CIDRS`. The checked-in Hetzner/Caddy topology declares one trusted proxy network, uses only the right-most forwarded client value from that trusted peer, and ignores spoofed forwarding headers received directly or from an untrusted peer. Invalid CIDR configuration fails environment validation.
+- The legacy mobile-web Firebase `AIza...` fallback is removed. Firebase web configuration is environment-only and fails clearly without printing the key.
+- Firestore persistence remains removed from runtime composition. No Redis, BullMQ, Mongo replica-set requirement, production migration, deployment, or production-data access was introduced by the repair.
+
+### Current provenance
+
+| Scope | Commit | Reconciled meaning |
+|---|---|---|
+| Historical final Phase 1 checkpoint | `18a93d4ecca5ef810ccd4f6f208cdb2774638afb` | Original Phase 1/R1C1 milestone retained below |
+| Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Starting point for the bounded remediation |
+| Phase 1 security repair | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Generation enforcement, reset CAS/idempotency, recent authentication, recovery parity, trusted-proxy policy, and Firebase fallback removal |
+| Phase 2 repair descendant | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Preserves the repaired authentication boundary |
+| Phase 3 repair descendant | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Preserves the repaired authentication boundary through the mobile reconciliation |
+
+## Historical Phase 1 milestone record
+
+**Historical snapshot boundary.** The remainder of this report records the original 30 July 2026 Phase 1/R1A–R1C1 closure and its then-current limitations. Statements below that say a later task was unstarted, or that recent authentication, proxy trust, recovery timing, or reset atomicity remained open, are historical snapshot claims superseded by the 4 August reconciliation above. Original milestone SHAs, command results, and evidence boundaries are intentionally retained.
+
 Scope gate: Phase 1 only. Phase 2 has not started.
 
 ## Outcome
@@ -566,7 +593,7 @@ TalkBack order/announcements and disabled/busy-state runtime acceptance are BLOC
 - No dependency, Expo, React Native, or UI-framework version changed.
 - Native PASS claims are limited to the exact registered flows/captures. Fixture-conditional and hardware-handler boundaries are stated explicitly rather than mislabeled as direct device observations.
 
-## Known limitations and open risks
+## Historical limitations and open risks at the original closure
 
 1. **Recent authentication:** `DELETE /me` and `DELETE /me/data` have no backend reauthentication challenge/proof. This cannot be made trustworthy only in the client (MN-026).
 2. **Server cleanup uncertainty:** an offline logout can safely clear the device after durable tombstoning, but server refresh-token revocation may remain unconfirmed and is shown as such.
@@ -595,7 +622,7 @@ TalkBack order/announcements and disabled/busy-state runtime acceptance are BLOC
 - Pending verification state contains no secret and can be safely ignored/deleted by a rollback.
 - Rollback must be a targeted code change reviewed against these storage/API boundaries. Do not restore stale academic descendants or owner-unknown local content, and do not reset the user's existing working tree.
 
-## Phase 2 handoff — do not start automatically
+## Historical Phase 2 handoff — do not start automatically
 
 Phase 2 may begin only after the user explicitly requests it. Its first task is the separate content-trust contract: HTML entity/sanitization, publication-versus-crawl timestamps, URL scheme/official-source validation, selector error/no-results visibility, Summer refresh correctness, and URL-less card behavior.
 

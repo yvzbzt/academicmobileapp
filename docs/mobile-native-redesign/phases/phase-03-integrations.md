@@ -1,6 +1,31 @@
 # Phase 03 — Integrations
 
-Status: Implementation and final combined validation complete. The report is ready for the required single local Phase 3 commit. Phases 1–2 remain accepted. Phase 4 has not started.
+Status date: 2026-08-04
+Status: Reconciled current. The original Phase 3 provider/device contract remains accepted, and the missing autonomous notification-production/dispatch lifecycle is closed by the Phase 2 repair descendant.
+
+## Reconciled current state — 2026-08-04
+
+The original Phase 3 milestone remains `b74bdcc8da7657c2886cf35f6a9b4f2dedbe29d8`. Starting from the accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`, commit `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` completed the automatic notification path without adding Redis, BullMQ, or another queue service.
+
+- New or materially changed trusted announcements and published calendar records reconcile their eligible notification jobs automatically. Rejected, quarantined, untrusted, unsafe, source-less, removed, or superseded content creates no active delivery job; producer relationships retire/cancel stale work deterministically.
+- The Mongo-backed worker starts from the application lifecycle, scans and retires stale jobs, claims due jobs with UUID fencing, revision checks, and renewable leases, and applies bounded retry/exhaustion state. Provider failures cannot let a stale claimant finalize a newer revision.
+- Before fan-out begins, the worker re-reads the exact destination and its current trust/scope state; for each device it re-reads owner, preference, quiet-hour, and active-registration state. Destination fingerprints and exact repository reads prevent capped-list fallbacks or delivery to content that changed after scheduling.
+- Worker health exposes lifecycle state, consecutive failures, timestamps, and due/retrying/processing/dead backlog counts. Controlled shutdown stops new cycles, clears timers, and drains the active cycle before completing.
+- The original Phase 3 permission, installation ownership, token rotation/detach, strict notification destination, Google Calendar preflight/mapping/removal/revoke, owner-safe cleanup, generic provider-visible copy, and secret-free logging contracts remain intact. No real FCM/APNs send or Google-account mutation is newly claimed; those provider evidence limits remain current.
+
+### Current provenance
+
+| Scope | Commit | Reconciled meaning |
+|---|---|---|
+| Historical Phase 3 milestone | `b74bdcc8da7657c2886cf35f6a9b4f2dedbe29d8` | Original deterministic integration contract retained below |
+| Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Starting point for the bounded remediation |
+| Phase 1 repair ancestor | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Preserved authentication/owner boundary |
+| Phase 2 repair | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Automatic job production/retirement, due-job dispatch, fencing, retry, destination revalidation, health, and shutdown |
+| Phase 3 mobile repair descendant | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Preserves the repaired integration runtime through the mobile reconciliation |
+
+## Historical Phase 3 milestone record
+
+**Historical snapshot boundary.** The remainder of this report records the original Phase 3 completion snapshot. Its statements that Phase 4 had not started or that the report was still awaiting its commit are historical; original implementation evidence and provider limitations remain preserved.
 
 ## Objective
 

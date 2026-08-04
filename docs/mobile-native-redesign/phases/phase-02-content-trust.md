@@ -1,6 +1,31 @@
 # Phase 02 — Content Correctness and Trust
 
-Status: Complete — senior re-audit closed 31 July 2026
+Status date: 2026-08-04
+Status: Reconciled current through the trusted-date, outbound-network, parser-invariant, and content-identity repair. The original Phase 2 completion report remains below as historical provenance.
+
+## Reconciled current state — 2026-08-04
+
+The Phase 2 contract was revalidated from the accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` and repaired in `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` (`fix(api): complete trusted dates and notification delivery`).
+
+- Academic dates now have an explicit date-only/timestamp temporal kind and preserve an optional inclusive range end through parser/PDF ingestion, Mongo persistence, shared API DTOs, Home/feed/detail rendering, Google Calendar transfer, and native-calendar mapping. A date-only value does not invent a clock time; timestamped records retain their real instant. The API-to-native regression exercises `Europe/Istanbul` so local academic dates do not shift across UTC day boundaries.
+- All covered HTTP/PDF/OCR/source-discovery fetches use the shared safe outbound request boundary. Every initial and redirect hop revalidates scheme, hostname, DNS answers, and the actual connected remote address. Loopback, private, link-local, multicast, documentation, unspecified, and other forbidden destinations fail closed; mixed public/private DNS answers are rejected; DNS-selected addresses are pinned for the connection while TLS still uses the original hostname. Invalid TLS is rejected outside the explicit development-only policy.
+- Source-specific YÖK and Ankara HTML adapters require their expected listing root and repeated valid row structure. One plausible link or card cannot make a changed/broken page layout healthy.
+- Trusted content identity now includes a normalized content fingerprint within academic scope. Persistence merges canonical URL aliases and retains source relationships, so URL churn does not duplicate the same normalized item or discard its canonical/source/scope provenance.
+- No production reconciliation, migration, provider call, or production-data access was run. The stored-content reconciliation command remains an operator-controlled runbook rather than evidence of a production mutation.
+
+### Current provenance
+
+| Scope | Commit | Reconciled meaning |
+|---|---|---|
+| Historical Phase 2 milestone | `d722f9092c1d500e0145214b2b57a08d1a8191d9` | Original senior re-audit milestone retained below |
+| Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Starting point for the bounded remediation |
+| Phase 1 repair ancestor | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Preserved security boundary |
+| Phase 2 repair | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Date/range correctness, safe outbound networking, parser invariants, fingerprint identity, and notification lifecycle repair |
+| Phase 3 repair descendant | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Preserves the repaired Phase 2 contract through the mobile reconciliation |
+
+## Historical Phase 2 milestone record
+
+**Historical snapshot boundary.** The remainder of this report is the original 31 July 2026 Phase 2 completion snapshot. Its original commit descriptions, commands, evidence limits, and handoff wording are retained; statements that Phase 3 was merely future work do not describe the reconciled 4 August repository.
 
 ## Summary
 
@@ -129,7 +154,7 @@ Representative authenticated content loading, empty, no-results, partial, stale,
 - URL-less Summer records are no longer silent pressables.
 - No TalkBack/content-screen or rendered component acceptance is claimed under the authenticated-fixture blocker. Existing MN-019 and MN-032 remain open evidence boundaries.
 
-## Known limitations
+## Historical limitations recorded at the Phase 2 milestone
 
 - Reconciliation was not executed against local, staging, or production data. Operational apply remains backup-first, optimistic, conflict-aware, and non-transactional.
 - The new API tests exercise controller/service presentation with test repositories rather than a live deployed Nest/Mongo endpoint.
@@ -146,7 +171,7 @@ Agenda/Announcements, YÖK, Summer School, calendar source reads, source discove
 
 Only the Phase 2 files enumerated in this report belong to the local scoped commit. Pre-existing unrelated untracked logo assets, source-coverage exports/reports, redesign documents for other phases, and prompts remain preserved and uncommitted. No push, deploy, publish, or production-data operation occurred.
 
-## Next-phase handoff
+## Historical next-phase handoff
 
 Phase 3 may consume the trusted content contract and the explicit MN-032 visual-evidence rerun requirement. It must not weaken source/timestamp/URL trust or reinterpret fetch time as publication time.
 

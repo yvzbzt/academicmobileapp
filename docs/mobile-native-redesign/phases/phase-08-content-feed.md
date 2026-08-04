@@ -1,11 +1,25 @@
 # Phase 08 — Unified trusted Announcements feed
 
-Status: Implementation, validation, and Android native evidence complete; one scoped local commit pending at documentation time.
+Status: Complete as reconciled on 4 August 2026; the original debug/Metro evidence below is historical presentation evidence, not release-performance acceptance.
 Date: 2 August 2026
 Branch: `agent/google-play-readiness-20260724`
-Starting HEAD: `d96dff5a3b1e6ac87ae095061946347285c0f44d`
-Final pre-commit HEAD: `d96dff5a3b1e6ac87ae095061946347285c0f44d`
-Created commit: This scoped commit; its SHA is reported in the final handoff because a commit cannot embed its own hash.
+Original starting and pre-commit HEAD: `d96dff5a3b1e6ac87ae095061946347285c0f44d`
+Original implementation commit: `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`
+Cross-phase trusted-date/API repair commit: `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`
+Completed-phase mobile/performance reconciliation commit: `2e3664546f628a19c6fa929b9ee9469e5322f9a8`
+Reconciled: 4 August 2026
+
+## Authoritative reconciliation — 4 August 2026
+
+The unified trusted feed delivered by `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` remains current. Commit `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` preserves date-only publication meaning through the trusted API and native feed/detail—no clock or UTC day shift is invented—while true timestamped content retains its real time. Commit `2e3664546f628a19c6fa929b9ee9469e5322f9a8` adds the repository-owned release-performance harness and evidence without changing the shipped Phase 8 product design.
+
+The accepted run used `npm.cmd run measure:mobile-native:feed-release`, `NODE_ENV=production`, a freshly assembled non-debuggable x86_64 release APK, the isolated `index.feed-performance.ts` entry, and the existing deterministic 100-record fixture. After a 15-second post-build settling interval, it performed one unmeasured warm-up and five measured warm-scroll trials. Android `framestats` rows with `Flags=0` were measured as `FrameCompleted - IntendedVsync`; aggregate percentiles use nearest rank. Acceptance requires at least 100 frames per trial, aggregate p90 ≤ 32 ms, aggregate p95 ≤ 50 ms, and zero frames ≥ 700 ms.
+
+On the API 24 `AcademicPhase1Low` emulator at 720×1280, 320 dpi, font scale 1.0, and the host Intel renderer, the accepted five trials produced 600 valid frames: p90 `24.928167 ms`, p95 `35.777763 ms`, and zero frozen frames. The non-debuggable x86_64 APK SHA-256 is `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`; the runtime marker proved 100 embedded records and startup required no Metro.
+
+The renderer controls are intentionally disclosed. The initial SwiftShader baseline failed with 592 frames, p90 `70.649202 ms`, p95 `77.171868 ms`, and zero frozen frames; it measured the software renderer rather than a proven feed-code bottleneck. A subsequent experiment using `initialNumToRender=4`, `maxToRenderPerBatch=3`, `windowSize=3`, `updateCellsBatchingPeriod=75`, and clipping worsened the SwiftShader result to p90 `73.497194 ms` and p95 `82.665697 ms`. That experiment and its assertions were **fully reverted**. Those values are not shipped tuning, and the accepted host-rendered run uses the original production `FlatList` settings.
+
+The authoritative method and machine-readable record are [`apps/mobile-native/performance/README.md`](../../../apps/mobile-native/performance/README.md) and [`release-evidence.json`](../../../apps/mobile-native/performance/release-evidence.json). The dated debug APK + Metro `gfxinfo` section below remains historical UI/runtime evidence only and must not be cited as release acceptance. Phase 9 was not started.
 
 ## Scope implemented
 
@@ -125,9 +139,9 @@ No endpoint, DTO, schema, repository, database, storage key/envelope, authentica
 
 Rollback is code-only. Removing the Phase 8 feed/detail/model/preview and restoring the prior screen mapping leaves all Phase 1–7 persisted data, route identifiers, API contracts, and integration state compatible.
 
-## Validation ledger
+## Historical Phase 8 implementation validation ledger
 
-All final commands ran against the reconciled pre-commit worktree at `d96dff5a3b1e6ac87ae095061946347285c0f44d`.
+These commands ran against the historical reconciled pre-commit worktree at `d96dff5a3b1e6ac87ae095061946347285c0f44d`.
 
 | Exact command/check | Final result |
 |---|---|
@@ -147,7 +161,7 @@ All final commands ran against the reconciled pre-commit worktree at `d96dff5a3b
 | Forbidden modifier, snapshot, vacuous-test, search log/persistence, credential/production literal, unsafe preview URL, raw diagnostic search, credential diagnostic, and fatal runtime scans | PASS, no prohibited match |
 | Mobile-native lint | `MOBILE_NATIVE_LINT: NOT AVAILABLE`; no lint script/config/dependency exists |
 
-## Native evidence and remaining blockers
+## Historical debug/native evidence and remaining blockers
 
 The Android evidence manifest is [`evidence/phase-08-native/README.md`](../evidence/phase-08-native/README.md). Native review passed on `emulator-5554` / `AcademicPhase1Low`, Android 7.0 / API 24 / x86_64, at 720×1280 physical pixels. Normal density 320 produced 360 dp at font scale 1.0; the exact compact case used density 360 for 320 dp at font scale 2.0.
 
@@ -157,6 +171,6 @@ The live-Metro log scan passed. Two expected `Cannot connect to Metro` warnings 
 
 Persistent platform limitations are exact: `accessibility_enabled=0` and TalkBack was unavailable on the authorized image; UIAutomator is not screen-reader acceptance. Windows has no iOS build/simulator/Xcode, VoiceOver, or native iOS material/share acceptance. API 24 cannot provide API 33+ predictive-Back evidence. The synthetic harness does not prove live API/session/provider behavior. Phase 8 changes no provider behavior and requires no provider fixture.
 
-## Handoff
+## Current handoff
 
-Implementation, automated validation, Android native review, artifact hashing, runtime-log disclosure, and environment restoration are complete. This report names the created commit as the scoped commit itself; the final handoff reports its SHA after commit creation. Phase 9 was not started: Calendar/manual-exam design, event detail, CRUD, date interaction, and integration redesign remain Phase 9 scope.
+Implementation commit `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`, cross-phase repair `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and mobile/performance reconciliation `2e3664546f628a19c6fa929b9ee9469e5322f9a8` are complete. The historical Android debug presentation review remains valid within its stated boundary; release performance acceptance is the separate 4 August harness record above. Phase 9 was not started: Calendar/manual-exam design, event detail, CRUD, native date interaction, and integration redesign remain Phase 9 scope.

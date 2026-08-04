@@ -1,12 +1,25 @@
 # Phase 8 Android native evidence
 
-Status: Complete and reviewed.
+Status: Historical Phase 8 debug/Metro presentation evidence, complete and reviewed. Release-performance acceptance is the separate 4 August 2026 record below.
+
+Original Phase 8 implementation commit: `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`
+Completed-phase mobile/performance reconciliation commit: `2e3664546f628a19c6fa929b9ee9469e5322f9a8`
+
+## Authoritative release-performance reconciliation — 4 August 2026
+
+The current release acceptance is repository-owned and is not derived from the debug APK + Metro captures in this directory. `npm.cmd run measure:mobile-native:feed-release` builds a fresh non-debuggable x86_64 release APK with `NODE_ENV=production` and `ENTRY_FILE=index.feed-performance.ts`, renders the deterministic 100-record fixture without Metro, waits 15 seconds after the build, performs one unmeasured warm-up, and measures five warm-scroll trials from Android `framestats`. Valid frames require `Flags=0` and a positive `FrameCompleted - IntendedVsync`; aggregate percentiles use nearest rank. Thresholds are at least 100 frames per trial, p90 ≤ 32 ms, p95 ≤ 50 ms, and zero frames ≥ 700 ms.
+
+The accepted API 24 run used 720×1280, 320 dpi, font scale 1.0, and the host Intel renderer. It produced 600 valid frames, p90 `24.928167 ms`, p95 `35.777763 ms`, and zero frozen frames. The non-debuggable x86_64 APK SHA-256 is `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`; the 100-record runtime marker was observed and no Metro connection error occurred.
+
+The initial SwiftShader control failed with 592 frames, p90 `70.649202 ms`, p95 `77.171868 ms`, and zero frozen frames. A `4/3/windowSize 3/75 ms` batching experiment with clipping worsened that software-renderer result to p90 `73.497194 ms` and p95 `82.665697 ms`; every experimental production change and its assertions was **fully reverted** before the accepted run. It is rejected evidence, not shipped tuning.
+
+The exact contract and machine-readable evidence are [`apps/mobile-native/performance/README.md`](../../../../apps/mobile-native/performance/README.md) and [`release-evidence.json`](../../../../apps/mobile-native/performance/release-evidence.json). The debug matrix below remains useful for Phase 8 presentation, Back/retention, compact/large-text, runtime-log, and restoration evidence only. Phase 9 was not started.
 
 Target: `emulator-5554` / `AcademicPhase1Low`, Android 7.0 / API 24 / x86_64, 720×1280 physical pixels. The normal profile was density 320 (360 dp wide) at font scale 1.0. The exact compact large-text profile was override density 360 (320 dp wide) at font scale 2.0. Capture cleanup restored physical 720×1280, density 320, and font scale 1.0.
 
 All content is local synthetic `__DEV__` preview data under `preview.edu.tr` and official YÖK HTTPS URLs. The preview imports no API, persistence, provider, account, credential, or production-data module. This evidence proves native Phase 8 presentation and the listed interactions only; it is not authenticated backend, external-provider, or production E2E.
 
-## Reviewed matrix
+## Historical reviewed debug matrix
 
 Every named item below has one original-resolution PNG under `screenshots/` and a same-basename UIAutomator XML under `hierarchies/`. All 20 PNGs are 720×1280, all 20 XML files pair by basename, and both audits passed.
 
@@ -29,7 +42,7 @@ Every named item below has one original-resolution PNG under `screenshots/` and 
 
 The search-detail Back proof retained process ID `21552` before/after. The contained handoff retained process ID `24235` and `com.anssoft.akademiktakvim/.MainActivity` as the resumed activity. These values are run-specific evidence, not stable product identifiers.
 
-## Exact native command ledger
+## Historical debug native command ledger
 
 Android assembly ran from `apps/mobile-native/android`:
 
@@ -84,15 +97,15 @@ adb -s emulator-5554 shell am force-stop com.anssoft.akademiktakvim
 
 Scenario changes used a deliberate scoped Metro restart/rebundle. They were not assumed to alter an already bundled fixture. Per-scenario Metro stdout/stderr is retained under `raw/`.
 
-## Runtime, performance, and integrity
+## Historical debug runtime, observational performance, and integrity
 
 - The scoped live-Metro filtered log contains Fabric startup and no fatal, `TypeError`, React/native runtime-error, raw-search, credential, or production-endpoint match. It is stored at [`raw/phase8-filtered-logcat.txt`](./raw/phase8-filtered-logcat.txt).
 - Two `Cannot connect to Metro` warnings were emitted only after intentionally tearing down development servers between captures. They are transparently retained in `raw/phase8-dev-server-teardown-logcat.txt` and classified in [`raw/runtime-log-scope-note.txt`](./raw/runtime-log-scope-note.txt). The teardown log has no fatal-exception match and is not relabelled as live-server output.
-- Debug APK + Metro + API 24 emulator `gfxinfo` is observational only: 547 total frames, 528 janky (96.53%), p50 26 ms, p90 42 ms, p95 46 ms, p99 61 ms. No release threshold, production-runtime, or performance-acceptance claim is made. Raw summary/frame data is in `raw/long-feed-gfxinfo-summary.txt` and `raw/long-feed-gfxinfo-framestats.txt`.
+- Debug APK + Metro + API 24 emulator `gfxinfo` is historical and observational only: 547 total frames, 528 janky (96.53%), p50 26 ms, p90 42 ms, p95 46 ms, p99 61 ms. It is superseded for performance acceptance by the release record above and makes no release-threshold or production-runtime claim. Raw summary/frame data is in `raw/long-feed-gfxinfo-summary.txt` and `raw/long-feed-gfxinfo-framestats.txt`.
 - The artifact audit passed 20 PNGs, 20 XML files, basename pairing, and 720×1280 dimensions. Full SHA-256 values for every accepted PNG/XML are in [`raw/integrity-index.txt`](./raw/integrity-index.txt); placeholder or reconstructed hashes are not used.
 - Repository hygiene passed `git diff --check` plus the forbidden-modifier, snapshot, vacuous-test, search log/persistence, credential/production literal, unsafe-preview-URL, raw-diagnostic-search, credential-diagnostic, live-fatal, and teardown-fatal scans. `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact. The captured ledger is [`raw/repository-hygiene.txt`](./raw/repository-hygiene.txt).
 
-## Restoration and exact non-claims
+## Historical restoration and exact non-claims
 
 Restoration passed: physical 720×1280, density 320, font scale 1.0, no ADB reverse, no port-8081 listener, and no app PID. The emulator was deliberately retained. See [`raw/restoration-proof.txt`](./raw/restoration-proof.txt).
 

@@ -1,7 +1,23 @@
 # Mobile Native Design System Contract
 
-Status: Phase 8 Announcements presentation implemented; full screen migration remains phased.
-Last updated: 2 August 2026
+Status: Phases 1-8 implemented and reconciled; later-phase work remains deferred.
+Last updated: 4 August 2026
+
+## Current reconciliation
+
+The accepted Phase 8 baseline is `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`.
+The bounded remediation commits are Package 1
+`641d7bee8a1cd539179769069a22b5c3220e8a6d`, Package 2
+`5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and Package 3
+`2e3664546f628a19c6fa929b9ee9469e5322f9a8`. Sections that describe the
+scope of an earlier phase remain historical scope statements; this section and
+the later phase-specific contracts describe current behavior.
+
+Current native acceptance is bounded to the committed component/contract tests
+and an Android API 24 x86_64 AVD. Native iOS, VoiceOver, TalkBack, modern
+Android/predictive Back, live provider flows, tablet/rail, and installed E2E
+remain evidence limitations. Mobile-native lint is not claimed because the
+repository has no native lint command or configuration.
 
 ## Principles
 
@@ -114,7 +130,8 @@ Order is stable across Home and Announcements:
 3. concise title with decoded/sanitized text,
 4. optional summary or useful media,
 5. academic metadata such as category/date when relevant,
-6. compact actions that actually work: Save, Share, Add to Calendar, Open Official Source.
+6. compact actions that actually work under the committed capability contract;
+   Phase 8 detail currently supports Share and Open Official Source.
 
 Rules:
 
@@ -170,7 +187,7 @@ The executable foundation lives under `apps/mobile-native/src/design-system`:
 - `src/components/Section.tsx` is the first transitional component boundary for unchanged Phase 1–3 screen content. It consumes semantic roles; it does not establish a Phase 5 visual redesign.
 - `DesignSystemPreview.tsx` is a deterministic primitive-state inventory reachable only when both `__DEV__` and `EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW=1` are true; production builds cannot select it.
 
-`app.json` now permits automatic system appearance through `expo-system-ui`, and the routed application is wrapped once in `ThemeProvider`. New route chrome and shared primitives contain no raw screen-meaning colors outside `tokens.ts`. The legacy screen body in `App.tsx` still contains its pre-Phase-4 hard-coded styles; migrating that body wholesale belongs to Phases 5–10 and is not represented as complete here.
+`app.json` now permits automatic system appearance through `expo-system-ui`, and the routed application is wrapped once in `ThemeProvider`. New route chrome and shared primitives contain no raw screen-meaning colors outside `tokens.ts`. The legacy screen body in `App.tsx` still contains pre-Phase-4 hard-coded styles outside the bodies migrated by completed Phases 5-8. A wholesale `App.tsx` rewrite is neither complete nor required by the Phase 1-8 contract.
 
 ### Tested state inventory
 
@@ -182,14 +199,14 @@ This phase introduces no persistent design preference, database migration, backe
 
 ## Phase 5 app-shell presentation contract
 
-Phase 5 adds the authenticated shell presentation around the Phase 4 route tree. It does not represent the Home, Announcements, Calendar, Profile, auth, or onboarding screen-body redesigns as complete.
+At its original milestone, Phase 5 added the authenticated shell presentation around the Phase 4 route tree without claiming later screen bodies. Phase 6 now owns auth/onboarding, Phase 7 owns Home, and Phase 8 owns Announcements/detail; Calendar and Profile remain later-phase presentation work.
 
 ### Primary navigation ownership
 
 - `src/navigation/app-shell.ts` is the single presentation source for the four primary destinations and their selected/unselected icons: `Ana Sayfa` → `Home`, `Duyurular` → `Announcements`, `Takvim` → `Calendar`, and `Profil` → `Profile`.
 - `AppNavigator` builds the tab screens, visible labels, and full accessibility labels from that same ordered definition. Do not copy or independently rename the four tabs in screen code.
 - Summer School and YÖK remain reachable inside the Announcements stack; they are not additional primary tabs.
-- Each tab retains its own native-stack history. Reselecting a selected nested tab returns that stack to its root; reselecting a selected root scrolls its routed `ScrollView` to the top without pushing another route.
+- Each tab retains its own native-stack history. Reselecting a selected nested tab returns that stack to its root; reselecting a selected root scrolls the registered root scroll owner (`ScrollView` or the current production `FlatList`) to the top without pushing another route. Package 3 verifies this against the real Home list while preserving its offset across tab switches.
 
 ### Shared shell components and semantic styling
 
@@ -213,6 +230,10 @@ Phase 5 adds the authenticated shell presentation around the Phase 4 route tree.
 
 ## Phase 6 authentication and onboarding form contract
 
+- Academic onboarding exposes all three visible progress markers, including
+  `1 / 3 · Hesap`, while preserving `2 / 3` and `3 / 3`. Login validation
+  focuses the actual first invalid native input, including Email before
+  Password; Package 3 tests assert the input ref focus rather than text order.
 - `src/auth/AuthScreens.tsx` is the shared presentation boundary for Login, Registration, Verification, the three password-recovery screens, and Academic Onboarding. It composes Phase 4 `TextField`, `PasswordField`, `SearchField`, `SelectField`, `Button`, `Banner`, and opaque `Card` primitives; it defines no local palette and does not own API, session, storage, provider, or persistence behavior. Migrated interactive primitives now floor their rendered target at 48×48 logical units on both platforms while retaining platform feedback and geometry.
 - Auth identity is compact. A screen has one title and one supporting paragraph; the oversized welcome hero and combined “Giriş ve Kayıt” heading are not rendered. Login completion transitions directly to the first meaningful authenticated destination without a large success banner.
 - Every editable value has a persistent label. Local errors are linked through `aria-invalid` and `aria-errormessage`, rendered as alert text, and never rely on color alone. Native input refs support first-invalid focus and IME Next/Done movement without transferring form ownership into the primitive.
@@ -225,15 +246,18 @@ Phase 5 adds the authenticated shell presentation around the Phase 4 route tree.
 ## Phase 7 Home daily-brief contract
 
 - `src/home/HomeDailyBrief.tsx` is the Home presentation boundary and `home-model.ts` owns deterministic selection/state policy. Home uses a single virtualized vertical list; it is not nested in the routed `ScrollView`.
-- The fixed hierarchy is greeting/context, incomplete-profile action when applicable, Today, next important date, one important trusted announcement, at most three other recent trusted announcements, and at most one compact actionable integration banner.
+- The fixed hierarchy is greeting/context, incomplete-profile action when applicable, Today, next important date, at most one explicitly qualifying important trusted announcement, at most three independently selected recent trusted announcements, and at most one compact actionable integration banner. Crawler priority and mere recency never manufacture importance.
 - Dashboard counts and shortcut cards for the four primary tabs are not rendered. Personal exam creation remains reachable on Calendar through the existing owner-scoped manual-exam behavior.
 - Reading surfaces are opaque semantic cards on both platforms. Eligible iOS Liquid Glass remains navigation/control chrome only. Android receives semantic tonal surfaces, ripple feedback through shared primitives, 48 dp targets, and edge-to-edge inset ownership through the shell.
-- Loading, incomplete profile, populated, genuine empty, and recoverable error are mutually exclusive primary states. Background refresh keeps useful data visible. Partial, stale, offline, and refreshing status is explicit text plus semantics, never color alone.
+- Loading, incomplete profile, populated, genuine empty, recoverable error, offline-with-no-data, and partial-source-with-no-data are mutually exclusive primary states. Background refresh keeps useful data visible. Integration-only content remains actionable rather than collapsing into empty. Partial, stale, offline, and refreshing status is explicit text plus semantics, never color alone.
 - Dates use the device local calendar day and local-time formatting. Remaining-time text is recomputed every minute while mounted. Announcement ordering uses only valid publication or source-update timestamps; discovery/fetch timestamps are never presented as publication.
 - Titles wrap without line caps. Headings, row labels, busy state, source/title/date/action order, 320 dp single-column gutters, 720 dp readable width, and 200% text growth are deterministic component contracts.
 
 ## Phase 8 trusted academic content-feed contract
 
+- Date-only academic dates and inclusive ranges retain the Package 2 temporal
+  contract through the trusted DTO and native rendering; they are not coerced
+  through UTC instants that can move a civil day.
 - `src/announcements/feed-model.ts` is the deterministic presentation boundary for the unified feed. It accepts only explicit Phase 2 trusted records with non-empty record, source, and scope identity; normalized source/title/summary text; credential-free official HTTP/HTTPS URLs; and matching item/source institutional authority. A source-less fallback, unsafe or mismatched URL, absent explicit trust, or rejected/quarantined record fails closed before a row is rendered.
 - The Announcements hierarchy is screen title and academic context, labelled search, **İçerik türü**, **Akademik kapsam ve kaynak**, a selected-filter/result summary, nested YÖK/Yaz Okulu destinations, availability status, then trusted rows. The exact content-type choices are **Tümü**, **Duyurular**, **Haberler**, and **Etkinlikler**. The exact source choices are **Tüm kaynaklar**, **Üniversitem**, **Fakültem**, **Bölümüm**, **YÖK**, and **Yaz Okulu**.
 - `AnnouncementsFeed` owns one vertical `FlatList`; the Announcements route is full-bleed so it is not nested in the transitional routed `ScrollView`. Rows use canonical official URL identity, deterministic deduplication, publication/source-update ordering, pull-to-refresh, and controlled server-limit expansion from 20 through 100. Pagination failure retains the already verified rows and offers an explicit retry.
@@ -245,3 +269,21 @@ Phase 5 adds the authenticated shell presentation around the Phase 4 route tree.
 - Feed rows, detail cards, text, banners, and long reading surfaces remain opaque on both platforms. Eligible iOS material remains restricted to Phase 5 navigation/control chrome. Android uses semantic tonal surfaces, native ripple through shared primitives, existing edge-to-edge ownership, and 48 dp targets.
 - The feed stays one column with a 720-unit readable maximum, 16-unit gutters below 375 logical units, wrapped rather than horizontally scrolling filter groups, and no horizontal-clipping contract at 320 dp/200% text scale. Titles and institution names wrap; selected filters expose accessibility state as well as color, and source/time/title/summary/action follow logical reading order.
 - `ContentFeedPreview` is synthetic evidence tooling only. It is gated by both `__DEV__` and `EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW=1`, uses reserved `preview.edu.tr`/YÖK fixtures, imports no API/storage/provider integration, and cannot be selected in a production bundle. Native evidence results remain separately indexed in `evidence/phase-08-native` and must not be inferred from component tests.
+
+### Phase 8 release-performance acceptance
+
+Package 3 adds a separate production bundle entry that renders the existing
+deterministic 100-record fixture and a repository-owned Android `framestats`
+runner. The final fresh x86_64, nondebuggable, `NODE_ENV=production` run on the
+API 24 host-rendered AVD collected 600 valid frames: aggregate p90
+24.928167 ms, p95 35.777763 ms, and zero frames at or above 700 ms. This passes
+the declared limits of p90 <= 32 ms, p95 <= 50 ms, at least 100 frames in each
+of five trials, and zero frozen frames. The APK SHA-256 was
+`ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`.
+
+A SwiftShader control failed, and an experimental smaller-batch FlatList
+configuration made that software-renderer result worse. The experiment was
+fully reverted. No unproven virtualization change is part of the current design
+contract; the hardware-rendered unchanged feed passed. Exact method, rejected
+controls, final trials, renderer, and cleanup proof live in
+`apps/mobile-native/performance/`.

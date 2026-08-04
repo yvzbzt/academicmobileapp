@@ -1,8 +1,10 @@
 # Redesign Decisions
 
-Last updated: 2 August 2026
+Last updated: 4 August 2026
 
 ## Accepted decisions
+
+Decisions are append-only historical records. D-042 through D-046 record the current Phase 1–8 remediation boundary and supersede the earlier open/deferred wording in D-017, D-022, D-024, D-027, D-028, D-030, D-031, D-032, D-038, D-040, and D-041 where they conflict. The earlier text remains evidence of what was true at its checkpoint, not a description of the current source tree.
 
 ### D-001 — Incremental redesign in the existing native app
 
@@ -316,3 +318,41 @@ Collection limits are not deletion evidence. After live Google verification, eve
 **Platform, accessibility, and evidence boundary:** Reading surfaces remain opaque on both platforms. Eligible iOS material remains navigation/control chrome only; Android uses semantic tonal surfaces, ripple, 48 dp targets, existing edge-to-edge inset ownership, and ordinary stack Back. The feed stays one column, uses a 16-unit gutter below 375, caps readable width at 720, and exposes headings, busy state, selected filters, wrapping Turkish text, and source/time/title/summary/action reading order. `ContentFeedPreview` is dual-gated by `__DEV__` plus `EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW=1`, uses synthetic `preview.edu.tr`/YÖK records, and imports no API, persistence, or provider module. Renderer tests and the preview do not establish native iOS, VoiceOver, provider, production-data, or final Android acceptance; those results must be recorded separately.
 
 **Compatibility and rollback:** No endpoint, DTO, database schema, repository, storage key, authentication/session rule, notification lifecycle, Google Calendar lifecycle, permission, or production data changes. Rollback is code-only and leaves Phase 1–7 records and route identifiers compatible. Calendar redesign remains Phase 9 and is not part of this decision.
+
+### D-042 — Credential reset is one generation-advancing Mongo security commit
+
+**Decision:** Package 1 (`641d7bee8a1cd539179769069a22b5c3220e8a6d`) completes the generation work that D-024 deferred. Missing legacy generations still normalize to `0`. Access JWTs, refresh-token rows, password-recovery rows, and recent-authentication proofs carry the current generation. Protected API authentication re-reads the current user and rejects an access token with a stale generation; refresh and recovery likewise reject stale material before rotation or reset.
+
+**Reset commit:** Mongo password recovery uses one user-document compare-and-set keyed by owner, accepted recovery token, and expected generation. That write replaces the password hash, increments the generation exactly once, records a password-bound completion operation key, and consumes/supersedes the accepted attempt. Hash failure occurs before persistence. Concurrent confirmations and two-record races cannot both commit. An identical response-loss retry returns the deterministic completed result; proposing a different replacement password does not. Cleanup of physically older refresh/recovery rows is best effort after the security commit because their old generation is already logically invalid. This design remains standalone-Mongo compatible and requires no transaction, replica set, Redis, or BullMQ.
+
+**Recent authentication:** `POST /auth/recent-authentication` verifies the current owner's real password or Google identity method and issues a five-minute, owner- and generation-bound proof. `DELETE /me/data` and `DELETE /me` require that server proof through `x-recent-authentication`; absent, malformed, expired, wrong-owner, or stale-generation proofs fail closed. The native confirmation panel collects the applicable credential but does not manufacture authority locally. D-017's missing-recent-auth statement and D-024/D-027's unstarted-enforcement statements are therefore historical.
+
+**Enumeration and client identity:** Recovery requests retain one fixed public status/shape, perform comparable lookup/hash/recovery-repository work for known, unknown, and cooldown paths, schedule any real delivery outside the public request path, enforce a public response-time floor, and bound provider delivery. The checked-in reverse-proxy policy trusts only configured CIDRs and, for the deployed single Caddy hop, uses only the right-most forwarded address; direct or untrusted peers cannot spoof `X-Forwarded-For`. The legacy web client also fails clearly when required Firebase environment configuration is absent and contains no hard-coded `AIza...` fallback. These decisions supersede the open MN-026, MN-027, MN-030, and MN-031 boundaries.
+
+### D-043 — Trusted content preserves calendar dates and binds outbound requests to approved addresses
+
+**Decision:** Package 2 (`5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`) represents a source calendar date as a date, not an accidental UTC instant. `publicationKind`/`publishedDate` and calendar `dateOnlyStart`/`dateOnlyEnd` preserve date-only and inclusive-range meaning through parser/PDF ingestion, Mongo persistence, trusted API DTOs, Home, feed/detail, ICS/Google compatibility, and native presentation. Timestamped events retain real instants. Europe/Istanbul regressions prove that a local calendar day does not shift across the API-to-native boundary and that inclusive end dates are not discarded. This supersedes D-032's timestamp-only synchronization wording and adds to D-041's time contract.
+
+**Outbound network boundary:** Every source fetch and redirect hop validates scheme, port, hostname, and all resolved addresses. Private, loopback, link-local, mapped, and otherwise forbidden destinations fail closed. The request uses a validated address through a request-scoped lookup, so the connected destination cannot silently differ through DNS rebinding. Redirect targets repeat the entire decision; invalid TLS is not a production escape hatch.
+
+**Layout and identity:** Adapter-specific structural invariants require the expected listing shape rather than accepting one plausible row as proof of a healthy parser. Normalized content receives a deterministic fingerprint independent of crawler URL noise. Deduplication preserves canonical URL and every verified academic/source relationship instead of discarding legitimate scope provenance. D-028 and D-030 remain historical foundations but are incomplete without these rules.
+
+### D-044 — Trusted ingestion automatically owns durable notification jobs
+
+**Decision:** Package 2 completes the production path beneath D-031. New or materially changed trusted announcement/calendar content creates or updates an idempotent Mongo notification job through a producer key and content fingerprint. Rejected, quarantined, unsafe, source-less, removed, superseded, or no-longer-matching content creates no deliverable job and retires any obsolete producer relationship.
+
+**Dispatch:** The application-owned worker starts automatically, claims due work with the existing UUID fence/lease, preserves quiet hours/preferences/owned-device checks, retries controlled failures, exposes health, periodically retires stale work, and stops its timers during application shutdown. Immediately before each provider call it resolves the exact trusted destination again and requires the expected fingerprint/date identity. Restart, response-loss retry, duplicate production, stale-job retirement, and destination-change behavior are deterministic tests. No super-admin request is required for ordinary dispatch, and no new queue infrastructure is introduced.
+
+### D-045 — Completed mobile phases use explicit actions, priority, focus, and no-data states
+
+**Decision:** Package 3 (`2e3664546f628a19c6fa929b9ee9469e5322f9a8`) adds regression coverage around the existing four-tab shell rather than changing its information architecture. Selected-root reselect reaches the current virtualized root, switching away/back retains scroll state, keyboard/bottom inset ownership remains explicit, and a root top-bar action exists only where an already-implemented destination supplies a real action. No badge or placeholder action is invented. This completes the missing integrated evidence beneath D-038; it is not native iOS, tablet, or installed E2E acceptance.
+
+**Auth and Home:** Academic onboarding visibly begins with `1 / 3 · Hesap` and retains steps 2/3 and 3/3. Login focuses the actual first invalid field, including Email, rather than proving only message order. Home labels an announcement important only when a deterministic priority rule qualifies it; the newest item is not important by default. Recent announcements are selected independently, and an actionable integration remains visible when it is the only useful content. `offline_no_data` and `partial_no_data` remain distinct from genuine empty and recoverable error. These rules supersede D-040's newest-as-important wording and preserve D-043 date/range semantics.
+
+### D-046 — Feed performance acceptance uses a non-debuggable release harness without speculative tuning
+
+**Decision:** Phase 8 release acceptance uses the repository-owned alternate entry and deterministic 100-record fixture with `NODE_ENV=production`, an x86_64 non-debuggable release APK, no Metro dependency, one warm-up, and five measured warm-scroll trials. Each trial must contain at least 100 valid `gfxinfo framestats` rows; aggregate nearest-rank p90 must be at most 32 ms, p95 at most 50 ms, and no frame may reach 700 ms.
+
+**Accepted result:** On the API 24 720×1280/320 dpi emulator using the host Intel renderer, the final run recorded 600 valid frames, p90 `24.928167 ms`, p95 `35.777763 ms`, zero frozen frames, and APK SHA-256 `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`. An earlier SwiftShader run failed. The experimental `initialNumToRender=4`, `maxToRenderPerBatch=3`, `windowSize=3`, `updateCellsBatchingPeriod=75`, and Android clipping settings worsened that environment and were fully reverted. The original Phase 8 FlatList settings remain the shipped decision; no unproven product bottleneck change is claimed.
+
+**Evidence boundary:** This is repeatable local release-mode evidence, not production-device telemetry or broad device acceptance. Hardware/renderer choice materially affects the emulator result. iOS, modern Android hardware, tablet/rail, TalkBack/VoiceOver, live providers, and installed authenticated E2E remain separate evidence gates. MN-021 remains open for approved shipped performance/crash analytics.

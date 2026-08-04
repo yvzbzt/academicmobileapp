@@ -1,5 +1,13 @@
 # Native Screen and State Inventory
 
+Current reconciliation: 4 August 2026. The accepted Phase 8 baseline is
+`7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`; remediation Packages 1-3 are
+`641d7bee8a1cd539179769069a22b5c3220e8a6d`,
+`5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and
+`2e3664546f628a19c6fa929b9ee9469e5322f9a8`. The baseline and Phase 3 sections
+below are retained as explicitly historical inventory; Phases 4-8 and this
+reconciliation describe the current reachable product.
+
 Baseline: 29 July 2026, `apps/mobile-native/App.tsx` at HEAD `cbd0067b03c3cf7286270df25164a556c55b55b9`.
 
 Phase 3 reconciliation: 31 July 2026 validated implementation based on `d722f9092c1d500e0145214b2b57a08d1a8191d9`. Final command and native evidence is recorded in `TEST_MATRIX.md`, the Phase 3 report, and [`evidence/phase-03-native`](./evidence/phase-03-native/README.md).
@@ -10,7 +18,7 @@ At the Phase 3 snapshot there was no navigation library or route tree. One mount
 
 ## Ten Phase 3 logical views and Phase 4 ownership
 
-| # | Current logical view | Current entry/state | Current primary task | Target replacement/owner |
+| # | Phase 3 snapshot view | Historical entry/state | Historical primary task | Current replacement/owner |
 |---:|---|---|---|---|
 | 1 | Login | `!session`, `authStage=auth`, `authMode=login` | Email/password or Google sign-in; enter password recovery | Auth stack: focused Login with the implemented request/confirm recovery path |
 | 2 | Registration | `!session`, `authStage=auth`, `authMode=register` | Create account identity | Auth stack: Registration with API-aligned validation |
@@ -104,16 +112,16 @@ Pure and native-renderer tests cover the exact four-item map, Turkish labels, se
 | Area | Loading state | Empty state | Error state | Connected/special state | Current evidence/gap |
 |---|---|---|---|---|---|
 | App hydration | Dedicated loading root until device ID, refresh, owner storage, and bootstrap settle | N/A | Labelled recoverable hydration boundary | Ready resolves to Login or authenticated shell only after restoration | Phase 1 guard prevents Login/Home flashes and startup manual-exam writes before owner hydration |
-| Login/Register | Button-level busy/disabled | Blank form | Controlled global auth errors plus recovery-local feedback | Google configuration notice; reachable forgot-password request/confirm states | Broader inline feedback and form visual redesign remain Phase 6 |
+| Login/Register | Button-level busy/disabled | Blank form | Controlled global auth errors plus recovery-local feedback | Google configuration notice; reachable forgot-password request/confirm states | Phase 6 presentation is implemented; Package 3 verifies visible onboarding progress and actual first-invalid Login input focus |
 | Verification | Busy/disabled resend and confirmation | Blank code | Controlled invalid/expired/session outcomes | Restorable email/expiry/cooldown without password/code persistence | Resend uses the dedicated endpoint; verification success is separate from later Login |
-| Home | Upcoming spinner | Zero/count cards and empty sections | Upcoming inline error; global manual-exam errors | Manual exams merged locally | Page counts can initially show zero; countdown lacks periodic refresh |
+| Home | One labelled initial loading state | Genuine empty, offline-no-data, and partial-source-no-data are distinct | Recoverable error; retained stale/partial/offline status when data exists | Explicitly qualifying important item, independent recents, next date, and integration-only action | Phase 7 `FlatList` is current; countdown refreshes while mounted and manual-exam creation remains on Calendar |
 | Calendar | Calendar spinner; Google checking/authorizing/syncing progress | No dates / no source-authored transferable records | Calendar inline error; Google expired/error/partial outcomes | Disconnected, checking, connected, expired, syncing, partial, error; verified mapping summary | Live verification, preflight, safe partial deletion, account change, disconnect, remove-managed, and revoke actions now exist; rendered provider-account evidence remains blocked |
 | Summer School | Payload spinner | Guidance/no requirements/no announcements/no options | Payload and source-health error/partial/stale states | University/faculty/department-scoped variants | Refresh reloads Summer and visible calendar ownership; URL-less records are non-pressable |
 | YÖK | First-entry/manual spinner | No YÖK announcements | Visible load error | External-source handoff | No page-view/open telemetry |
 | Announcements | One labelled initial busy surface; retained background refresh; pagination progress footer | Genuine empty after all sources attempt; distinct filtered no-results state | Recoverable first-load error; retained stale/partial/offline/pagination-failure feedback with retry | Debounced search; content-type and academic-source groups; YÖK/Yaz Okulu destinations; full-row in-app detail | One full-bleed `FlatList`, canonical stable keys, source-authored ordering, 20→100 controlled loading, and fail-closed Phase 2 presentation gate |
 | Profile school picker | University/faculty/department loading | Explicit no-result states | University, faculty, and department errors rendered | Selected/saving/expanded states | Complete replacement contract clears omitted descendants; broader selector visual work remains Phase 10 |
 | Notification settings | Permission inspection and device registration have checking/registering states | Preference defaults disabled | Denied, permanently denied, unavailable, token/registration/detach error | Master/mode/category drafts plus explicit delivery-active state and system-settings handoff | OS permission, FCM token rotation, backend registration/detach, and app-resume reconciliation are wired; API 33+/provider visual evidence remains blocked |
-| Logout/deletion | Global busy; destructive alerts | N/A | Controlled cleanup card lists only failed targets | Logout retains Google remote events/grant; data-delete keeps account but attempts managed-event removal/revoke; account-delete returns to Login | Session, device registration, pending notification, Google remote/local, and server cleanup are observable and retryable; recent-auth backend gap remains |
+| Logout/deletion | Global busy; destructive alerts | N/A | Controlled cleanup card lists only failed targets | Logout retains Google remote events/grant; data-delete keeps account but attempts managed-event removal/revoke; account-delete returns to Login | Session, device registration, pending notification, Google remote/local, and server cleanup are observable and retryable; Package 1 now enforces the recent-auth backend contract |
 
 ## Phase 3 integration state additions
 
@@ -163,9 +171,11 @@ For exhaustive tap/API/storage effects, use [the in-app activity report](../20-m
 - The strict notification destination handoff uses the declared `academicpulse` scheme with version, owner, exact-ID, and trusted-content revalidation. Phase 4 also implements an exact static tab/announcement/settings allowlist and safe unknown fallback; arbitrary path/query routing remains rejected.
 - Tablet layouts preserve destination ownership even when navigation adapts to rail/sidebar.
 
-## Required visual-state capture set for later phases
+## Remaining visual-state capture set
 
-At minimum, capture on a real native renderer:
+The committed component and Android evidence covers bounded Phase 4-8 states.
+The following broader cross-platform capture remains where an environment and
+phase authorize it:
 
 - Login default, keyboard visible, validation error, loading.
 - Registration at 320 dp and large font scale.
@@ -188,7 +198,7 @@ Phase 5 native shell acceptance and its exact commands, hashes, semantic asserti
 
 | Surface | Final hierarchy | Primary states | Destinations |
 |---|---|---|---|
-| Home | Greeting + academic context → Today → next important item → important trusted announcement → up to 3 recent trusted announcements → optional actionable integration | Incomplete profile; initial loading; populated; genuine empty; recoverable error; retained refreshing/stale/partial/offline status | Academic Profile settings; trusted Announcement detail; Announcements tab; Calendar; notification/Google Calendar settings |
+| Home | Greeting + academic context → Today → next important item → explicitly qualifying important trusted announcement → up to 3 independently selected recent trusted announcements → optional actionable integration | Incomplete profile; initial loading; populated; integration-only; genuine empty; offline-no-data; partial-source-no-data; recoverable error; retained refreshing/stale/partial/offline status | Academic Profile settings; trusted Announcement detail; Announcements tab; Calendar; notification/Google Calendar settings |
 
 Removed from the reachable Home surface: untimed `Bugün / Sınav / Duyuru` counts, four duplicate destination shortcut cards, nested exam/event dashboard cards, large hero treatment, and the inline manual-exam form. The manual-exam form remains reachable on Calendar without changing its storage or API contract.
 
@@ -219,6 +229,25 @@ AnnouncementsTab
 
 Search is debounced by 300 ms and is held only in component memory. It is not logged, persisted, put in navigation params, or transmitted by the feed. Selecting a row pushes the in-app detail route; ordinary Android Back and iOS stack navigation return to the still-mounted feed, preserving its search/filter state. Selecting the dedicated YÖK or Yaz Okulu action enters the existing nested screen rather than reintroducing a bottom tab.
 
-The Phase 2 DTO currently supplies identity, source/scope/type, normalized title, optional safe summary, canonical and official URLs, source publication/update times, and freshness. It does not supply a complete body, attachments, event/deadline period, durable Save/read state, or a feed-owned calendar mutation. Phase 8 therefore renders no invented sections or disabled actions for those capabilities. Home, Calendar, Profile, auth, onboarding, provider, and persistence ownership are unchanged; Phase 9 is not started.
+The Phase 2 DTO currently supplies identity, source/scope/type, normalized
+title, optional safe summary, canonical and official URLs, source
+publication/update times, freshness, and the date-only/inclusive-range contract
+where academic dates apply. It does not supply a complete body, attachments,
+durable Save/read state, or a feed-owned calendar mutation. Phase 8 therefore
+renders no invented sections or disabled actions for those capabilities. Home,
+Calendar, Profile, auth, onboarding, provider, and persistence ownership are
+unchanged; Phase 9 is not started.
 
-The development-only `ContentFeedPreview` scenarios are `populated`, `search-results`, `no-results`, `active-filters`, `partial`, `stale`, `offline`, `error`, `pagination-error`, `detail`, `yok`, `summer-school`, `official-source-handoff`, `long-title`, and `long-feed`. They use synthetic trusted records only. Native Android review is indexed separately in [`evidence/phase-08-native`](./evidence/phase-08-native/README.md); until that manifest records results, no screenshot or interaction acceptance is claimed. iOS runtime and VoiceOver remain unavailable on Windows.
+The development-only `ContentFeedPreview` scenarios are `populated`,
+`search-results`, `no-results`, `active-filters`, `partial`, `stale`, `offline`,
+`error`, `pagination-error`, `detail`, `yok`, `summer-school`,
+`official-source-handoff`, `long-title`, and `long-feed`. They use synthetic
+trusted records only. Native Android debug review is indexed separately in
+[`evidence/phase-08-native`](./evidence/phase-08-native/README.md). Package 3
+adds independent release evidence for the 100-record fixture: a fresh
+`NODE_ENV=production`, x86_64, nondebuggable APK produced 600 valid frames on
+the API 24 host-rendered AVD with aggregate p90 24.928167 ms, p95 35.777763 ms,
+and zero frozen frames. Its unsuccessful SwiftShader tuning experiment was
+fully reverted. iOS runtime, VoiceOver, TalkBack, modern Android, provider,
+installed E2E, native tablet/rail, and mobile-native lint evidence remain
+unavailable. Phase 9 was not started.

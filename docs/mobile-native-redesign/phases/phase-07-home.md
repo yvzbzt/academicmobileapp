@@ -1,9 +1,27 @@
 # Phase 07 — Student daily-brief Home
 
-Status: Complete.
+Status: Complete as reconciled on 4 August 2026; the earlier validation and debug-evidence sections are historical records of their dated runs.
 Date: 1 August 2026
 Branch: `agent/google-play-readiness-20260724`
-Starting HEAD: `00e03ace0a05d9ee3dcdbfe8903cc5d6d34ebccb`
+Original starting HEAD: `00e03ace0a05d9ee3dcdbfe8903cc5d6d34ebccb`
+Original implementation commit: `f346d8556e19b95277b27f7ecfda3f162a8ad57f`
+Accepted Phase 7 reconciliation commit: `d96dff5a3b1e6ac87ae095061946347285c0f44d`
+Cross-phase date-semantics repair commit: `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`
+Completed-phase mobile reconciliation commit: `2e3664546f628a19c6fa929b9ee9469e5322f9a8`
+Reconciled: 4 August 2026
+
+## Authoritative reconciliation — 4 August 2026
+
+Phase 7 was implemented in `f346d8556e19b95277b27f7ecfda3f162a8ad57f`, accepted after the focused repair in `d96dff5a3b1e6ac87ae095061946347285c0f44d`, and then received date correctness from `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` plus the bounded Home behavior repair in `2e3664546f628a19c6fa929b9ee9469e5322f9a8`.
+
+- **Important is explicit, not synonymous with newest.** Home normalizes the trusted announcement title and qualifies only deterministic academic-urgency signals: urgent/mandatory or cancellation/postponement wording, application deadlines, course-registration/add-drop dates, exam dates, and payment/fee deadlines. It selects the newest qualifying item. A generic newest item, crawler rank, or an unowned numeric priority cannot create an **Önemli duyuru** section.
+- **Recent announcements remain independent.** Home orders trusted content by publication/source-update chronology, removes an item from the recent list only when that same item actually qualified as important, and otherwise retains the generic newest item among up to three recent announcements.
+- **The integration prompt is not lost when it is the only actionable module.** A profile-backed Google Calendar or notification action remains visible alongside an otherwise empty/offline/partial/error Home; it is suppressed only for incomplete-profile and initial-loading states.
+- **No-data states are mutually exclusive.** With no retained useful data, precedence is incomplete profile, initial loading, offline, partial-source, recoverable error, then genuine empty. With retained data, Home remains populated and communicates refresh/stale/partial/offline availability without replacing the content.
+- **Calendar dates keep their meaning.** The `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` temporal contract carries `temporalKind`, inclusive `endDate`, and `endTemporalKind` into Today/nearest/countdown selection. A date-only Istanbul calendar value remains a local calendar date without an invented clock or UTC day shift; inclusive ranges remain active through their end date, while true timestamped events retain their real time.
+- The completed Phase 5 integration test in `2e3664546f628a19c6fa929b9ee9469e5322f9a8` mounts this real Home `FlatList`, proves scroll retention across tab switches, and proves selected-root reselect scroll-to-top. It remains component-level integration evidence rather than installed-device shell acceptance.
+
+The ledgers below retain the original and 2 August results as historical provenance. Their test counts and “Phase 8 not started” handoff describe those earlier checkpoints, not the current completed Phase 1–8 repository.
 
 ## Scope completed
 
@@ -57,7 +75,7 @@ The reachable Home no longer includes the `Bugün / Sınav / Duyuru` statistic s
 
 No endpoint, DTO, schema, repository, storage key/envelope, authentication/session gate, content-trust rule, notification lifecycle, Google Calendar lifecycle, provider configuration, or platform permission changed. No production data/account/provider was accessed. Rollback is code-only; existing Phase 1–6 records remain compatible.
 
-## Validation ledger
+## Historical Phase 7 validation ledger
 
 | Exact command/check | Final result |
 |---|---|
@@ -77,14 +95,14 @@ No endpoint, DTO, schema, repository, storage key/envelope, authentication/sessi
 | Targeted source/evidence credential scans | PASS; no credential/log pattern found |
 | Mobile-native lint | `MOBILE_NATIVE_LINT: NOT AVAILABLE`; no lint script/config/dependency exists |
 
-## Native evidence and blockers
+## Historical native evidence and blockers
 
-The preview contains synthetic records under `preview.edu.tr` and performs no API/storage/provider operation. Android evidence passed on the existing `AcademicPhase1Low` API 24/x86_64 target and is indexed in [`phase-07-native`](../evidence/phase-07-native/README.md). Native Home-tab re-selection remains blocked because the synthetic preview deliberately has no authenticated four-tab shell and no authorized authenticated fixture was supplied; deterministic navigator/root-tap and Home `useScrollToTop` registration tests cover the contract without relabelling it native acceptance. TalkBack, iOS, and predictive Back remain unavailable as documented in the evidence README.
+The preview contains synthetic records under `preview.edu.tr` and performs no API/storage/provider operation. Android evidence passed on the existing `AcademicPhase1Low` API 24/x86_64 target and is indexed in [`phase-07-native`](../evidence/phase-07-native/README.md). At that historical checkpoint, installed native Home-tab re-selection was blocked because the synthetic preview deliberately had no authenticated four-tab shell and no authorized authenticated fixture was supplied. The 4 August real-Home renderer integration now closes the component-level wiring gap without relabelling it installed-device acceptance. TalkBack, iOS, and predictive Back remain unavailable as documented in the evidence README.
 
-## Handoff
+## Historical handoff
 
 Phase 8 was not started. The Announcements feed, Calendar design, and Profile screens remain their existing phased scope. Remaining release-wide issues continue under MN-019, MN-020, MN-024, MN-026–MN-034 as applicable.
 
-## Acceptance reconciliation — 2 August 2026
+## Historical acceptance reconciliation — 2 August 2026
 
 The acceptance audit started from `ffde279964dfd67689eef469cbd3c7c1c755a00e` with the Phase 6 and candidate commits reachable and tracked/index state clean. It found and repaired three narrow Phase 7 gaps: explicit trust is now required again at the Home renderer boundary; date-only and multi-day academic periods are selected by the device local calendar day; and the initial-loading skeletons are truly decorative beneath one accessible busy region. The synthetic preview gained the missing loading fixture and reviewed Android PNG/XML evidence. No endpoint, DTO, schema, repository, persistence, authentication, integration lifecycle, production data, or Phase 8 feed file changed.

@@ -1,6 +1,31 @@
 # Phase 04 — Routed Adaptive Design Foundation
 
-Status: Implementation complete; validation and local commit recorded in the terminal handoff.
+Status date: 2026-08-04
+Status: Reconciled current as evidence-only. The Phase 4 routed/adaptive foundation remains implemented and unchanged by the bounded Phase 1–3 repairs; its original milestone record is preserved below.
+
+## Reconciled current state — 2026-08-04
+
+No Phase 4 production repair was required by the retrospective remediation. The typed route tree, hydration/auth/onboarding guards, strict safe-link and pending-intent handling, semantic design tokens, shared primitives, adaptive platform surfaces, and development-only preview boundaries from `abbf1b721fc632f75e6ce5cad91b20434f6af2bf` remain in force through the current descendant `2e3664546f628a19c6fa929b9ee9469e5322f9a8`.
+
+- The Phase 1 security repair and Phase 2 date/content/notification repair use the existing Phase 4 ownership boundaries; neither redefines navigation state, route parameters, token roles, persistence, or platform adaptation.
+- Later shell/auth/Home/feed work is regression evidence for the foundation, not a retroactive Phase 4 implementation claim.
+- The original evidence limits remain explicit: Windows supplies no iOS runtime/VoiceOver/Dynamic Type acceptance; API 24 cannot prove predictive Back or modern notification permission/channels; TalkBack, a native E2E/screenshot-regression runner, and authorized live provider fixtures remain outside Phase 4 acceptance.
+- No migration, provider mutation, deployment, publication, or production access is part of this reconciliation.
+
+### Current provenance
+
+| Scope | Commit | Reconciled meaning |
+|---|---|---|
+| Historical Phase 4 milestone | `abbf1b721fc632f75e6ce5cad91b20434f6af2bf` | Original routed/adaptive foundation retained below |
+| Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Accepted descendant before remediation |
+| Phase 1 repair | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Uses but does not alter the Phase 4 foundation contract |
+| Phase 2 repair | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Uses but does not alter the Phase 4 foundation contract |
+| Phase 3 mobile repair | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Current reconciled descendant; Phase 4 remains evidence-only unchanged |
+
+## Historical Phase 4 milestone record
+
+**Historical snapshot boundary.** The remainder of this report is the original Phase 4 completion snapshot. Statements that Phase 5 had not started, dependency versions were current, or the commit was still pending are historical provenance rather than 4 August current-state claims.
+
 Date: 31 July 2026
 Branch: `agent/google-play-readiness-20260724`
 Required starting SHA: `b74bdcc8da7657c2886cf35f6a9b4f2dedbe29d8`
@@ -231,7 +256,7 @@ Component tests prove rendered semantics/interactions in Jest, not OS visual acc
 
 Unrelated pre-existing logos, content-link audit CSV/report files, redesign planning files outside the seven required documents, and prompt artifacts were preserved and excluded from the Phase 4 commit.
 
-## Remaining blockers and follow-up gates
+## Historical blockers and follow-up gates at the Phase 4 milestone
 
 - MN-009: the legacy top-of-scroll 3.5-second global-message presentation remains until its owning screen migrations.
 - MN-010: `App.tsx` remains large; later screen phases must continue component/feature extraction.
@@ -245,7 +270,7 @@ Unrelated pre-existing logos, content-link audit CSV/report files, redesign plan
 
 Phase 5 was not started. There is no LinkedIn-inspired feed, wholesale visual shell redesign, complete screen redesign, backend refactor, Firestore restoration, deployment, publish, push, or production-data access.
 
-## Next-phase handoff
+## Historical Phase 5 handoff
 
 If separately authorized, Phase 5 can consume the four-tab route tree, semantic tokens, adaptive navigation surfaces, and shared primitives to redesign shell presentation. It must not reopen Phase 1–3 owner-generation, content-trust, notification, or Google lifecycle rules, and it must retain the predictive-Back and native-evidence boundaries recorded here. Phase 5 has not been started by this commit.
 

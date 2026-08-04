@@ -1,13 +1,16 @@
 # Mobile Native Redesign Program
 
-Status date: 2 August 2026
+Status date: 4 August 2026
 
 Product target: `apps/mobile-native`
 
 Package manager: npm
 
-Phase 1 closure-start baseline: branch `agent/google-play-readiness-20260724`, HEAD `cbd0067b03c3cf7286270df25164a556c55b55b9`; final checkpoint SHA is reported outside the self-containing commit
-Current reconciliation HEAD: `f346d8556e19b95277b27f7ecfda3f162a8ad57f`; Phase 1–6 reconciliation is recorded in [`phase-01-06-reconciliation.md`](./phases/phase-01-06-reconciliation.md)
+Historical Phase 1 closure-start baseline: branch `agent/google-play-readiness-20260724`, HEAD `cbd0067b03c3cf7286270df25164a556c55b55b9`.
+
+Accepted Phase 8 baseline: `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`. The bounded Phase 1–8 remediation commits are Package 1 `641d7bee8a1cd539179769069a22b5c3220e8a6d`, Package 2 `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and Package 3 `2e3664546f628a19c6fa929b9ee9469e5322f9a8`. The documentation-only Package 4 commit is reported in the terminal handoff because a commit cannot contain its own SHA.
+
+The earlier Phase 1–6 reconciliation at `f346d8556e19b95277b27f7ecfda3f162a8ad57f` remains historical evidence in [`phase-01-06-reconciliation.md`](./phases/phase-01-06-reconciliation.md); it is not the current implementation boundary.
 
 ## Purpose
 
@@ -17,7 +20,7 @@ The desired product is Turkish-first, content-first, and student-focused. Its fe
 
 ## Binding delivery rules
 
-- Run phases in numerical order and complete only one phase per request.
+- Run phases in numerical order and complete only one phase per request unless the user explicitly authorizes a bounded cross-phase reconciliation such as the recorded Phase 1–8 remediation.
 - Do not reset or discard the user's working tree.
 - Do not push, deploy, publish, or modify production infrastructure.
 - Do not silently remove Summer School, YÖK, Agenda, Google Calendar, notification preferences, account deletion, or any other existing capability.
@@ -43,18 +46,18 @@ Authentication, registration, verification, and onboarding live outside the auth
 | Phase | Scope | Status | Report |
 |---:|---|---|---|
 | 00 | Baseline, checkpoint, design contract, test inventory | Complete — 2026-07-29 | [phase-00-baseline.md](./phases/phase-00-baseline.md) |
-| 01 | Authentication and session integrity | Complete — five-checkpoint chain ending at `18a93d4`; open backend/evidence limitations remain explicit | [phase-01-auth-session-integrity.md](./phases/phase-01-auth-session-integrity.md) |
-| 02 | Content correctness and trust | Complete at `d722f90`; authenticated content-screen native QA remains blocked by the documented fixture boundary | [phase-02-content-trust.md](./phases/phase-02-content-trust.md) |
-| 03 | Google Calendar and notification integrations | Complete at `b74bdcc`; modern Android/iOS and live non-production provider acceptance remain open | [phase-03-integrations.md](./phases/phase-03-integrations.md) |
+| 01 | Authentication and session integrity | Complete — original checkpoint chain ended at `18a93d4`; verified security closure is `641d7bee` | [phase-01-auth-session-integrity.md](./phases/phase-01-auth-session-integrity.md) |
+| 02 | Content correctness and trust | Complete at `d722f90`; date/range, outbound-fetch, layout, and identity hardening completed at `5a6ac1a4` | [phase-02-content-trust.md](./phases/phase-02-content-trust.md) |
+| 03 | Google Calendar and notification integrations | Complete at `b74bdcc`; automatic notification production/dispatch and temporal correctness completed at `5a6ac1a4` | [phase-03-integrations.md](./phases/phase-03-integrations.md) |
 | 04 | Design tokens, components, theming, test foundation | Complete at `abbf1b7`; platform evidence limitations remain explicit | [phase-04-foundation.md](./phases/phase-04-foundation.md) |
-| 05 | Four-destination native app shell | Complete at `abdf0cc`; iOS, predictive Back, TalkBack, and broader large-text acceptance remain open | [phase-05-app-shell.md](./phases/phase-05-app-shell.md) |
-| 06 | Authentication and onboarding UI | Complete at `00e03ac`; installed live-account E2E and unavailable platform/provider checks remain unclaimed | [phase-06-auth-onboarding-ui.md](./phases/phase-06-auth-onboarding-ui.md) |
-| 07 | Home | Present in pre-reconciliation history at `f346d85`; outside the Phase 1–6 reconciliation scope and not modified by it | [phase-07-home.md](./phases/phase-07-home.md) |
-| 08 | Unified content feed | Not started | [phase-08-content-feed.md](./phases/phase-08-content-feed.md) |
-| 09 | Calendar and planning | Not started | [phase-09-calendar.md](./phases/phase-09-calendar.md) |
-| 10 | Profile and settings | Not started | [phase-10-profile-settings.md](./phases/phase-10-profile-settings.md) |
-| 11 | Cross-platform quality and native visual QA | Not started | [phase-11-cross-platform-quality.md](./phases/phase-11-cross-platform-quality.md) |
-| 12 | Final reconciliation and release evidence | Not started | [phase-12-final-reconciliation.md](./phases/phase-12-final-reconciliation.md) |
+| 05 | Four-destination native app shell | Complete at `abdf0cc`; integrated reselect/retention/inset coverage completed at `2e366454` | [phase-05-app-shell.md](./phases/phase-05-app-shell.md) |
+| 06 | Authentication and onboarding UI | Complete at `00e03ac`; first-step marker and real first-invalid Login focus completed at `2e366454` | [phase-06-auth-onboarding-ui.md](./phases/phase-06-auth-onboarding-ui.md) |
+| 07 | Home | Complete at `f346d85`, accepted reconciliation `d96dff5`; temporal and state/priority repairs completed at `5a6ac1a4` and `2e366454` | [phase-07-home.md](./phases/phase-07-home.md) |
+| 08 | Unified content feed | Implemented at `7b64c9c`; temporal corrections and accepted release-performance evidence completed at `5a6ac1a4` and `2e366454` | [phase-08-content-feed.md](./phases/phase-08-content-feed.md) |
+| 09 | Calendar and planning | Not started | Planning file intentionally remains untracked |
+| 10 | Profile and settings | Not started | Planning file intentionally remains untracked |
+| 11 | Cross-platform quality and native visual QA | Not started | Planning file intentionally remains untracked |
+| 12 | Final reconciliation and release evidence | Not started | Planning file intentionally remains untracked |
 
 ## Permanent documents
 
@@ -72,10 +75,19 @@ Authentication, registration, verification, and onboarding live outside the auth
 
 Those reports are source-derived. Native visual acceptance still requires emulator/device or simulator/device screenshots.
 
-## Phase 1 delivery boundary
+## Current Phase 1–8 remediation boundary
 
-Phase 1 repairs authentication, cold-start hydration, session ownership, user-scoped local storage, destructive cleanup, and academic hierarchy integrity. It adds only the UI states needed to explain those repaired flows. The broad visual redesign and content-trust work have not started, no analytics SDK was added, and Phase 2 remains a separate approval gate.
+Packages 1–3 close the verified implementation gaps without recreating completed phases. Package 1 enforces credential generations across access, refresh, and recovery material; commits password reset through a standalone-Mongo compare-and-set boundary; adds owner-bound expiring recent-authentication proof; makes recovery request work practically comparable; defines bounded proxy trust; and removes the legacy Firebase web-key fallback. MongoDB remains the only runtime database. Firestore database persistence is historical evidence only and was not restored.
 
-The [test matrix](./TEST_MATRIX.md) separates the earlier integrity snapshot from the final password-recovery closure. Recovery implementation-stage checks passed 24/24 focused API/schema tests, 9/9 password-recovery tests, 2 native files/42 tests, and workspace/native TypeScript. Official Android Studio Stable, Emulator 36.6.11, WHPX, one API 24 Google APIs x86_64 image, and exactly one `AcademicPhase1Low` AVD now exist. Current x86_64 debug assembly/install, expected package/MainActivity startup, no-immediate-crash smoke, a visible 4.5-second Quick Boot, and signed-out no-Home-flash check passed.
+Package 2 preserves date-only and inclusive date-range meaning through ingestion, Mongo, trusted DTOs, Home, feed/detail, and future Calendar compatibility. It validates the actual outbound destination at every redirect, retains strict TLS, strengthens parser layout and content identity, and automatically creates, dispatches, revalidates, retries, and retires Mongo-backed notification jobs. Package 3 adds bounded shell/auth/Home regression repairs and a repository-owned Android release feed measurement. The attempted `4/3/window 3/75 ms` plus clipping experiment worsened the SwiftShader run and was fully reverted; the original FlatList settings remain shipped.
 
-Installed-app hydration, verification recovery/resend/error separation, verification-success→later-Login-failure, password recovery/visibility/Back/Cancel, reset/old-new Login, two-session revocation, two-account isolation, hierarchy replacement, logout staleness, 360/320 dp, and the full required six-surface 200%-font set passed. Home navigation labels visibly wrap/truncate and recovery placeholders truncate at 2.0. TalkBack is unavailable on the selected minimal Google APIs image; the exact package/service blocker is documented, so no screen-reader acceptance is claimed. Final TypeScript, focused and full regression tests, both web builds, Android/Hermes exports, sensitive-log scan, whitespace check, and resource cleanup passed. The scoped local checkpoint SHA is reported in the handoff because a commit cannot contain its own hash. Phase 2 remains prohibited.
+The accepted performance run used `NODE_ENV=production`, a non-debuggable x86_64 release build, the deterministic 100-record fixture, and the API 24 emulator at 720×1280/320 dpi with the host Intel renderer. Five trials produced 600 valid frames, aggregate p90 `24.928167 ms`, p95 `35.777763 ms`, and zero frames at or above 700 ms; APK SHA-256 is `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`. This is bounded local release evidence, not production-device, modern-Android, or iOS performance acceptance.
+
+Audit classification is explicit:
+
+- **Fixed now:** the Package 1 security gaps, Package 2 content/date/notification gaps, Package 3 shell/auth/Home/performance gaps, and current-state documentation drift.
+- **Intentionally deferred:** manual-exam edit/delete and native date picking remain Phase 9; predictive Back, complete iOS/TalkBack/tablet acceptance, native lint, installed native E2E, and broad `App.tsx` decomposition remain later work.
+- **Evidence-only:** unavailable iOS/VoiceOver, modern Android notification/predictive-Back, live provider, authenticated-content fixture, TalkBack, and physical tablet/rail results are not relabelled as implementation failures or acceptance.
+- **Unsupported by committed contracts:** raw article bodies, numeric parser scores, production reconciliation/migration, Firestore restoration, Redis/BullMQ/replica-set requirements, invented actions/badges/social mechanics, wholesale redesign, and a new native E2E framework were not implemented.
+
+Phase 9 was not started. The untracked Phase 9–12 planning documents are not implementation and are excluded from the Phase 1–8 commits.

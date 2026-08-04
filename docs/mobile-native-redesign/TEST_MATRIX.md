@@ -1,7 +1,9 @@
 # Mobile Native Test and Evidence Matrix
 
-Baseline date: 29 July 2026
-Baseline branch/HEAD: `agent/google-play-readiness-20260724` / `cbd0067b03c3cf7286270df25164a556c55b55b9`
+Historical baseline date: 29 July 2026
+Historical baseline branch/HEAD: `agent/google-play-readiness-20260724` / `cbd0067b03c3cf7286270df25164a556c55b55b9`
+
+The dated Phase 0–8 ledgers below are preserved historical evidence. Their counts and statements such as “next phase not started” apply only to the named checkpoint. The **Current Phase 1–8 remediation ledger — 4 August 2026** at the end is authoritative for the current suite and supersedes conflicting current-state wording without rewriting the old results.
 
 ## Evidence classes
 
@@ -14,6 +16,7 @@ Baseline branch/HEAD: `agent/google-play-readiness-20260724` / `cbd0067b03c3cf72
 | Vite admin/mobile web build | Current repository CI web clients bundle | Native UI or native runtime behavior |
 | Android/iOS native launch | App installs/starts on the target runtime | Complete visual/accessibility acceptance without state matrix |
 | Native screenshots | A named build/state rendered on a native platform | Functional correctness outside the captured state |
+| Android release feed harness | A non-debuggable, Metro-independent release APK rendered the deterministic 100-record fixture within the recorded `framestats` threshold on the named device/renderer | Production-device distributions, iOS, modern Android hardware, shipped telemetry, or unrelated screens |
 | Expo Web screenshot | Responsive web appearance only | **Never accepted as native visual evidence** |
 
 ## Baseline environment
@@ -673,3 +676,87 @@ The 20 visually reviewed original-resolution PNG/XML pairs cover populated light
 The live-Metro runtime scan passed with no fatal/TypeError/runtime-error pattern. Two expected `Cannot connect to Metro` warnings emitted only after intentional development-server teardown are transparently preserved and classified separately; the teardown fatal-exception scan also passed. Debug-emulator `gfxinfo` is observational only: 547 total frames, 528 janky (96.53%), p50 26 ms, p90 42 ms, p95 46 ms, p99 61 ms. No release/performance threshold or production-runtime claim is made from that result.
 
 Restoration passed at 720×1280, density 320, font scale 1.0, with no ADB reverse, no port-8081 listener, and no app PID; the emulator was deliberately retained. `accessibility_enabled=0` and no TalkBack service was available, so UIAutomator is not screen-reader acceptance. Synthetic UI evidence does not prove live API/session/provider behavior or production data. Windows cannot supply iOS build/runtime, Dynamic Type, VoiceOver, native Share, or Liquid Glass acceptance; API 24 cannot prove predictive Back. Phase 9 was not started.
+
+## Current Phase 1–8 remediation ledger — 4 August 2026
+
+### Provenance and historical boundary
+
+- Accepted Phase 8 baseline: `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`.
+- Package 1: `641d7bee8a1cd539179769069a22b5c3220e8a6d` (`fix(auth): close phase-one security gaps`).
+- Package 2: `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` (`fix(api): complete trusted dates and notification delivery`).
+- Package 3: `2e3664546f628a19c6fa929b9ee9469e5322f9a8` (`fix(mobile-native): reconcile completed phase behavior`).
+- Package 4 is documentation-only; its SHA is recorded after commit in the terminal handoff.
+
+Firestore database persistence and the visible six-tab phone shell appear above only in dated historical ledgers. The current API runtime is Mongo-only and the authenticated phone shell has exactly Home, Announcements, Calendar, and Profile.
+
+### Current focused coverage
+
+| Package | Exact focused command or current file set | Current count and covered contract |
+|---|---|---|
+| 1 — API security | `npx.cmd vitest run apps/api/tests/password-recovery-generation-security.test.ts apps/api/tests/recent-authentication.test.ts apps/api/tests/trusted-proxy-rate-limit.test.ts apps/api/tests/password-recovery.test.ts apps/api/tests/users-and-guards.test.ts --configLoader runner` | 5 files / 38 tests: generation commit/enforcement, concurrency/idempotency/failure boundaries, recent-auth proof, practical recovery parity, trusted proxy, stale access/refresh/recovery rejection |
+| 1 — clients | `npx.cmd vitest run tests/unit/mobile-firebase-config.test.ts tests/unit/mobile-native-recent-authentication.test.ts --configLoader runner` and `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/auth/RecentAuthenticationPanel.test.tsx` | Root 2 files / 7 tests plus native 1 suite / 3 tests: fail-closed Firebase config and real native credential/proof submission |
+| 2 — trusted delivery | `npx.cmd vitest run apps/api/tests/safe-outbound-request.test.ts apps/api/tests/announcement-content-identity.test.ts apps/api/tests/notification-announcement-production.test.ts apps/api/tests/notification-calendar-reconciliation.test.ts apps/api/tests/notification-job-durability.test.ts apps/api/tests/notification-worker-lifecycle.test.ts apps/api/tests/mongo-notification.repository.test.ts --configLoader runner` | 7 files / 34 tests: actual resolved destination/redirect validation, fingerprint relationships, ingestion→job, retirement/revalidation, duplicate/restart/retry/fencing/shutdown |
+| 2 — temporal/native | `npx.cmd vitest run tests/unit/announcement-date-only-api-native.test.ts tests/unit/academic-temporal-contract.test.ts tests/unit/calendar-ingestion.test.ts tests/unit/google-calendar-sync.test.ts tests/unit/mobile-native-content-trust.test.ts --configLoader runner` | 5 files / 71 tests: date-only/inclusive-range ingestion, Istanbul API-to-native presentation, timestamp compatibility, trusted content identity |
+| 3 — native behavior | `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/navigation/AppNavigator.test.tsx tests/auth/AuthScreens.test.tsx tests/home/HomeDailyBrief.test.tsx tests/announcements/ContentFeedPreview.test.tsx` | 4 suites / 60 tests: selected-root virtualized-list reselect, switch retention, insets, real actions, step marker, actual focus, priority/recent/integration/no-data states, 100-record harness |
+| 3 — pure behavior/performance | `npx.cmd vitest run tests/unit/mobile-native-home.test.ts tests/unit/mobile-native-feed-performance.test.ts --configLoader runner` | 2 files / 21 tests: qualified important selection, independent recent items, no-data resolver, `framestats` parser/nearest-rank/threshold evaluation |
+
+### Current complete suite counts
+
+These fresh runs were executed from Package 3 HEAD while Package 4 changed documentation only:
+
+| Exact command | Current result |
+|---|---|
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 42 files / 387 tests |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — 17 suites / 158 tests / 0 snapshots |
+| `npm.cmd test -- --configLoader runner` | PASS — 65 files / 735 tests |
+
+The current non-counted build/type gates remain:
+
+```powershell
+npm.cmd run typecheck
+npm.cmd --prefix apps/mobile-native run typecheck
+npm.cmd run build:admin
+npm.cmd run build:mobile
+Set-Location apps/mobile-native/android
+.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon
+```
+
+Package-level gates passed before their commits. The terminal remediation handoff is authoritative for the final post-documentation rerun of these commands; TypeScript/build success is not converted into a test count or called lint.
+
+### Release-mode Phase 8 feed performance
+
+The repository-owned command is:
+
+```powershell
+npm.cmd run measure:mobile-native:feed-release
+```
+
+It sets `NODE_ENV=production`, builds `assembleRelease` from `index.feed-performance.ts` for x86_64 only, verifies that the APK is non-debuggable and Metro-independent, verifies the embedded 100-record marker, performs one warm scroll, and captures five measured `adb shell dumpsys gfxinfo com.anssoft.akademiktakvim framestats` trials. Acceptance requires every trial to contain at least 100 valid frames, aggregate nearest-rank p90 ≤32 ms, aggregate p95 ≤50 ms, and zero frames at or above 700 ms.
+
+| Run | Renderer/environment | Frames | Aggregate | Disposition |
+|---|---|---:|---|---|
+| Initial control | API 24 x86_64 AVD explicitly using SwiftShader | 592 (`120/112/120/120/120`) | p90 `70.649202 ms`; p95 `77.171868 ms`; zero frozen | FAIL; renderer-bound evidence, not a proven feed bottleneck |
+| Rejected experiment | Same SwiftShader environment; temporary `4/3/window 3/75 ms` plus Android clipping | 598 (`120/120/118/120/120`) | p90 `73.497194 ms`; p95 `82.665697 ms`; zero frozen | FAIL and worse; every experimental FlatList setting was reverted |
+| Accepted final | API 24 / `AcademicPhase1Low`, 720×1280, 320 dpi, font scale 1.0, host Intel OpenGL renderer | 600 (`120` in each trial) | p90 `24.928167 ms`; p95 `35.777763 ms`; zero frozen | PASS with the original Phase 8 FlatList settings |
+
+The accepted fresh release APK was 29,407,480 bytes, x86_64-only, non-debuggable, required no Metro server, and had SHA-256 `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`. The runner executed 391 Gradle tasks, observed the harness marker, uninstalled the benchmark package, removed the alternate-entry APK and temporary hierarchy, restored the pre-existing release artifact, and did not change display settings or add ADB reverse. The committed evidence is `apps/mobile-native/performance/release-evidence.json`.
+
+This proves only the named local release environment. It does not close iOS, modern physical Android, tablet/rail, TalkBack/VoiceOver, provider, installed authenticated E2E, or shipped performance-telemetry evidence.
+
+### Complete remediation hygiene gates
+
+The final gate uses the following current commands/checks after the documentation commit:
+
+| Gate | Exact command/check | Acceptance |
+|---|---|---|
+| Whitespace | `git diff --check 7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9..HEAD` | No whitespace error |
+| Sensitive logs | `git grep -n -E "(console|logger)\.(log|warn|error|debug).*(password|accessToken|refreshToken|verificationCode|recoveryCode|deviceToken|contentBody)" -- apps/api/src apps/mobile-native apps/mobile/src` | No uncontrolled secret/content diagnostic |
+| Credential literals | `git grep -n -E "AIza[0-9A-Za-z_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY" -- . ":!package-lock.json" ":!apps/mobile-native/package-lock.json"` | No committed credential literal; required Firebase values come from environment |
+| Firestore persistence | `git grep -n -i -E "FirestoreRepository|FirestoreDatabase|firebase-admin/firestore|from .*firestore" -- apps/api/src` | No API database-persistence path; retained Firebase Authentication/FCM is not Firestore |
+| Focus modifiers | `git grep -n -E "\.(skip|only)\s*\(" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | No committed `.skip` or `.only` |
+| Snapshots | `git grep -n -E "toMatch(Snapshot|InlineSnapshot)" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | No snapshot acceptance |
+| Empty/vacuous tests | Review test callbacks plus `git grep -n -E "expect\((true|false)\)\.toBe\((true|false)\)" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | No empty assertion or constant-truth acceptance; named focused suites contain behavioral assertions |
+| Fake social vocabulary | `git grep -n -i -E "\b(likes?|comments?|reposts?|connections?)\b" -- apps/mobile-native/src` | No fake social action/counter introduced |
+| Phase 9 implementation | `git diff --name-only 7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9..HEAD -- apps/api apps/mobile-native apps/mobile tests scripts` plus scoped diff review | No Phase 9 manual-exam edit/delete or native date-picker implementation |
+
+`MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact. The untracked Phase 9–12 planning reports and raw prompts are not test evidence, are not staged automatically, and do not constitute implementation. Phase 9 was not started.

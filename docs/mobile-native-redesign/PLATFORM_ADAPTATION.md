@@ -1,6 +1,12 @@
 # Platform Adaptation Contract
 
-Last updated: 2 August 2026
+Last updated: 4 August 2026
+
+Current provenance: accepted Phase 8 baseline
+`7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`; remediation Packages 1-3
+`641d7bee8a1cd539179769069a22b5c3220e8a6d`,
+`5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and
+`2e3664546f628a19c6fa929b9ee9469e5322f9a8`.
 
 ## Shared product semantics
 
@@ -84,7 +90,11 @@ Phase 5 presents the existing route mechanics through one centralized four-desti
 - `AdaptiveTopBar` is the reusable native-stack header. Titles and optional supporting text scale and wrap; leading/trailing actions expose full accessible names and minimum 48×48 logical-unit targets.
 - Below 375 logical units the header uses compact density, the compact title role, a 16-unit gutter, and a wrapping action layout. At 375 and above it uses the regular contract.
 - Tab items are at least 48 logical units high. Visible navigation labels remain one line at 11 pt on iOS or 12 sp on Android. Their ordinary multiplier cap is 1.35; below 375 logical units, a requested scale above 1.35 selects a 1.20 compact cap while the tab control continues to expose the exact full accessible name and selected state.
-- Each tab owns an independent nested history. A selected nested-tab reselect pops to its root; a selected root reselect scrolls its internal `ScrollView` to `{ y: 0, animated: true }` and does not create Back history.
+- Each tab owns an independent nested history. A selected nested-tab reselect
+  pops to its root; a selected root reselect scrolls its registered root owner
+  (`ScrollView` or production `FlatList`) to the top and does not create Back
+  history. Package 3 mounts the real Home `FlatList` to verify that offset 276
+  survives a switch away/back and that only root reselect scrolls to offset 0.
 
 ### Safe-area and navigation ownership
 
@@ -100,7 +110,7 @@ Phase 5 presents the existing route mechanics through one centralized four-desti
 
 ### Android presentation
 
-- The phone shell uses Material 3 tonal navigation chrome, native ripple feedback, and a fixed 64×30 selected-icon pill colored from the semantic selected-state role. It reserves 80 dp for navigation content plus the bottom system inset so icon and bounded large-text label geometry cannot enter system navigation. Unselected icons use their outline variants; selected icons use their filled variants. Android top-bar actions and navigation items retain the 48 dp minimum target.
+- The phone shell uses Material 3 tonal navigation chrome, native ripple feedback, and a fixed 64×30 selected-icon pill colored from the semantic selected-state role. It reserves 80 dp for navigation content plus the bottom system inset so icon and bounded large-text label geometry cannot enter system navigation; Package 3 verifies a 34 dp inset produces a 114 dp bar. The tab bar becomes non-interactive while the keyboard is shown and returns when it hides. Unselected icons use their outline variants; selected icons use their filled variants. Android top-bar actions and navigation items retain the 48 dp minimum target.
 - The same four destinations move to the existing Material navigation rail policy at the documented large-width breakpoint without changing route ownership or accessibility names.
 - Phase 5 renderer and pure-contract tests cover exact tabs and selected states, independent nested histories, tab reselect behavior, internal destinations, simulated ordinary hardware Back dispatch, and protected-request gating. They do not demonstrate predictive Back or API 33 behavior.
 
@@ -123,7 +133,9 @@ Authentication and onboarding share routes, validation, hierarchy, and accessibi
 
 - iOS build/runtime and Liquid Glass screenshots remain unavailable on this Windows host; deterministic fallback selection is not native iOS visual acceptance.
 - The authorized Android AVD is API 24, so it can verify ordinary system Back but not predictive-back callbacks/animations.
-- Phase 4 supplies consistent pressed/ripple/focus behavior for shared primitives. The unchanged legacy screen body still has pre-foundation controls that later visual phases must migrate.
+- Phase 4 supplies consistent pressed/ripple/focus behavior for shared
+  primitives. Phases 6-8 migrated auth/onboarding, Home, and Announcements;
+  remaining legacy Calendar/Profile presentation stays later-phase work.
 - The Phase 4 Android primitive matrix covers the development-only preview at a temporary 320 dp viewport; authenticated screens, tablet/rail, screen reader, full dark-theme screens, and iOS/Dynamic Type acceptance remain later gates.
 - Phase 0's missing-native-environment statement is historical; `AcademicPhase1Low` now supplies the bounded Android launch target.
 
@@ -135,6 +147,8 @@ Each visual phase must capture equivalent iOS and Android states where the envir
 - iOS Home content is always opaque. Liquid Glass eligibility remains confined to the Phase 5 top/bottom navigation chrome, with Reduce Transparency selecting the existing opaque fallback.
 - Android uses the shared Material-compatible tonal hierarchy, native ripple on actionable cards/buttons, 48 dp targets, and deliberate edge-to-edge safe-area ownership. It does not imitate iOS glass.
 - Tab re-selection continues to use React Navigation's root scroll-to-top registration on the Home virtualized list. Ordinary Android Back and independent tab stacks are unchanged.
+- Package 3 integration coverage uses that real list rather than a synthetic
+  scroll stand-in and proves tab-retained offset plus root reselect behavior.
 - Windows renderer tests prove adaptation selection and semantics, not iOS runtime, Dynamic Type, VoiceOver, or Liquid Glass visual acceptance.
 
 ## Phase 8 Announcements and detail adaptation
@@ -146,3 +160,16 @@ Each visual phase must capture equivalent iOS and Android states where the envir
 - Below 375 logical units the feed uses a 16-unit gutter and stacked/wrapped filter controls; at 200% font scale it retains one column and permits vertical growth. Filter choices never use a horizontally scrolling strip. Source names and Turkish titles wrap without a title line cap; the concise feed summary may be line-bounded while the detail summary remains fully readable.
 - Availability is textual and semantic on both platforms: one exclusive initial busy surface; retained background-refresh, stale, partial, and offline banners; independent no-results/empty/error surfaces; and a retained-row pagination footer. Decorative skeletons are hidden from accessibility.
 - `ContentFeedPreview` provides deterministic synthetic Android evidence scenarios behind the dual development gate. Its fixtures do not contact an API, persistence layer, provider, production account, or production data. The reviewed native result and any unresolved Android limitations belong in `evidence/phase-08-native`; no iOS result may be inferred on this Windows host.
+- Release acceptance uses the separate 100-record production entry, not the
+  debug preview. On the API 24 x86_64 AVD with the Intel host renderer, the
+  final `NODE_ENV=production` run collected 600 frames with aggregate p90
+  24.928167 ms, p95 35.777763 ms, and zero frozen frames. SwiftShader controls
+  are retained as rejected environment evidence. The attempted smaller-batch
+  FlatList tuning worsened that control and was fully reverted, so no unproven
+  platform-specific virtualization behavior is shipped.
+
+Native iOS/VoiceOver, TalkBack, modern Android/predictive Back, live provider
+flows, installed E2E, and native tablet/rail acceptance remain unavailable.
+The repository also has no mobile-native lint command/configuration. These are
+evidence or later-phase limitations, not claims that Phase 1-8 code ran in
+those environments.

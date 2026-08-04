@@ -1,14 +1,39 @@
 # Phases 1–6 Backward Reconciliation
 
-Status: Complete
+Status: Reconciled current through the bounded Phase 1–3 repair commits
 
-Date: 2 August 2026
+Current status date: 2026-08-04
 
 Branch: `agent/google-play-readiness-20260724`
 
-Audited HEAD: `f346d8556e19b95277b27f7ecfda3f162a8ad57f`
+Reconciled implementation HEAD: `2e3664546f628a19c6fa929b9ee9469e5322f9a8`
 
-Scope: Git history, implementation, tests, evidence, and documentation for Phases 1–6. The pre-existing Phase 7 commit at current HEAD was inspected only for regressions and was not changed. Phase 7 was not started or extended by this reconciliation.
+## Reconciled current state — 2026-08-04
+
+The 2 August backward-reconciliation snapshot remains preserved below. A new bounded remediation started from accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` and added three linear repair commits without rewriting the original Phase 1–6 milestone chain.
+
+| Current scope | Commit | Reconciled result |
+|---|---|---|
+| Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Starting point; original Phase 1–8 history remains ancestral |
+| Phase 1 security repair | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Credential-generation enforcement, Mongo user-document reset CAS/idempotency, recent-auth proofs for destructive endpoints, recovery work/timing parity, explicit trusted-proxy handling, and Firebase fallback removal |
+| Phase 2 API repair | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Date-only/inclusive-range integrity, every-hop DNS/connected-address enforcement, adapter layout invariants, normalized fingerprint/source relationships, and autonomous notification production/dispatch lifecycle |
+| Phase 3 mobile repair | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Bounded Phase 5–8 mobile regression repair that preserves Phase 1–4 runtime ownership |
+
+Current classification of the earlier reconciliation findings:
+
+- The former Phase 1 recent-authentication, trusted-proxy, password-recovery timing, and reset multi-write risks are resolved by `641d7bee8a1cd539179769069a22b5c3220e8a6d`; their old open wording below is historical only.
+- Phase 2 now carries date-only/range semantics end to end, pins every safe outbound connection to validated DNS results on every hop, enforces source-adapter layout structure, and preserves fingerprint/canonical/source relationships.
+- Phase 3 now automatically reconciles eligible notification jobs, dispatches due work with fencing/retry/revalidation, exposes health, and drains on shutdown. Live FCM/APNs and Google-provider acceptance remain evidence limitations, not implementation substitutes.
+- Phase 4 required no production change. Its iOS, TalkBack, predictive-Back, modern-Android, provider, and native-E2E evidence boundaries remain unchanged and unclaimed.
+- The original milestone SHAs below remain authoritative historical provenance. No reset, rebase, amend, push, deployment, migration, publication, or production access occurred in this documentation reconciliation.
+
+## Historical 2 August 2026 reconciliation snapshot
+
+**Historical snapshot boundary.** The remainder of this document retains the original snapshot exactly as a historical ancestry, validation, and evidence ledger. References to “current HEAD,” unstarted later phases, or open Phase 1 defects describe that 2 August snapshot and are superseded by the current-state section above.
+
+Original audited HEAD: `f346d8556e19b95277b27f7ecfda3f162a8ad57f`
+
+Original scope: Git history, implementation, tests, evidence, and documentation for Phases 1–6. The pre-existing Phase 7 commit at that HEAD was inspected only for regressions and was not changed. Phase 7 was not started or extended by that reconciliation.
 
 ## Repository state captured before reconciliation
 
@@ -73,7 +98,7 @@ The Phase 2 reflog records an amended predecessor, `d2e8473fcde2f0cc0e58d9c5c1f3
 
 - Verification recovery/resend, endpoint-aware auth failures, password parity/recovery, hydration, owner-scoped exams, generation/cancellation, durable invalidation, hierarchy replacement, Mongo-only runtime wiring, and Mongo user-data persistence remain covered by current tests.
 - The later Phase 1 checkpoints are direct descendants of the initial closure commit and intentionally complete persistence hardening; they are not unrelated intervening work.
-- Open recent-authentication, reverse-proxy rate-limit, password-recovery timing, multi-write atomicity, provider, iOS, TalkBack, and live-persistence smoke boundaries remain documented and unclaimed.
+- At that snapshot, recent-authentication, reverse-proxy rate-limit, password-recovery timing, multi-write atomicity, provider, iOS, TalkBack, and live-persistence smoke boundaries remained documented and unclaimed. The first four implementation gaps were later closed by `641d7bee8a1cd539179769069a22b5c3220e8a6d`; the evidence-only boundaries remain as stated in the current reconciliation above.
 
 ## Verification results
 
@@ -111,7 +136,7 @@ The required program README and Phase 0 baseline existed in the working tree but
 
 No implementation or test repair was justified by the evidence, so no product source or test was changed. No Phase 7 file was changed. No production data, provider, deployment, publish, push, rebase, reset, or existing-commit amendment occurred.
 
-## Remaining limitations
+## Historical remaining limitations recorded on 2 August 2026
 
 - iOS build/runtime/VoiceOver/Dynamic Type/swipe-back evidence is unavailable on Windows.
 - The API 24 AVD cannot prove modern notification permission/channels or predictive Back.

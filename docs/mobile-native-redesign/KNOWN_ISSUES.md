@@ -1,6 +1,8 @@
 # Mobile Native Known Issues
 
-Baseline date: 29 July 2026. Severity reflects user trust, privacy, data integrity, accessibility, and release risk—not implementation effort.
+Historical baseline date: 29 July 2026. Severity reflects user trust, privacy, data integrity, accessibility, and release risk—not implementation effort.
+
+The baseline tables and dated Phase 1–8 dispositions below are checkpoint evidence. Their present-tense issue wording describes the named historical snapshot and must not be read as the current source state. The **Current Phase 1–8 remediation disposition — 4 August 2026** section at the end is authoritative when an older entry conflicts with it. In particular, Firestore database persistence and the six-tab phone shell are historical only: MongoDB is the sole runtime database and the authenticated phone shell has four destinations.
 
 ## P0 — trust, account ownership, or destructive-integrity risk
 
@@ -216,7 +218,7 @@ Final Phase 6 deterministic validation passes focused pure contracts at 4 files 
 - Android native tooling is available and hardware accelerated. Phase 5 supersedes the former bottom-navigation wrapping limitation with the corrected 320 dp/font-2 native recapture. TalkBack and full-screen large-text acceptance remain open under MN-029, including the API 24 system-clock clipping and preserved legacy screen-body/placeholder limitations.
 - The selected image's effective 384 MB heap and approximately 5.8 GB data partition exceed the requested approximate 256 MB/maximum 4 GB budget. The prelaunch data request was 2,047 MB, but post-boot `config.ini` normalized it to 6,442,450,944 bytes (MN-028).
 
-## Phase 7 status
+## Phase 7 status — historical accepted snapshot
 
 | Issue | Phase 7 result |
 |---|---|
@@ -232,7 +234,7 @@ Final Phase 6 deterministic validation passes focused pure contracts at 4 files 
 
 The development preview is dual-gated by `__DEV__` and `EXPO_PUBLIC_PHASE7_HOME_PREVIEW=1`. Its `incomplete`, `populated`, `empty`, `stale`, `error`, and `long-title` scenarios import no API, persistence, provider, or production-data module.
 
-## Phase 8 status
+## Phase 8 status — historical 2 August snapshot
 
 | Issue | Phase 8 result / remaining boundary |
 |---|---|
@@ -252,3 +254,55 @@ The development preview is dual-gated by `__DEV__` and `EXPO_PUBLIC_PHASE7_HOME_
 | MN-033 | Android Phase 8 presentation and ordinary Back passed on API 24/x86_64. Windows still cannot build/run iOS or VoiceOver, and API 24 cannot prove predictive Back or modern notification behavior; those platform limitations remain open. |
 
 Phase 8 changes no backend contract, persistence, authentication, notification, Google Calendar lifecycle, provider configuration, or production data. The preview is selected only when both `__DEV__` and `EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW=1` are true and contains only synthetic `preview.edu.tr`/YÖK records. Final validation passed focused root 3 files / 95 tests, focused native 3 / 51 / 0, complete native 16 / 147 / 0, API 30 / 310, and full root 47 / 621 (+1 file / +32 tests over Phase 7), plus both TypeScript checks, admin/mobile builds, Android x86_64 assembly/install, whitespace, and all targeted hygiene scans. The 20 reviewed Android artifact pairs, hashes, runtime-log disclosure, `gfxinfo` observation, and restoration proof are indexed in [`evidence/phase-08-native`](./evidence/phase-08-native/README.md). `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact. Phase 9 was not started.
+
+## Current Phase 1–8 remediation disposition — 4 August 2026
+
+This section supersedes conflicting open/current wording above. The accepted Phase 8 baseline is `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`; remediation is Package 1 `641d7bee8a1cd539179769069a22b5c3220e8a6d`, Package 2 `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and Package 3 `2e3664546f628a19c6fa929b9ee9469e5322f9a8`.
+
+### Fixed current defects
+
+| Issue/finding | Current disposition | Evidence boundary |
+|---|---|---|
+| MN-026 | Resolved in Package 1 | Both destructive endpoints require a five-minute owner- and credential-generation-bound server proof created from the account's real password or Google method. A client dialog alone is never authority. |
+| MN-027 | Resolved for checked-in topology and code | Only configured trusted-proxy CIDRs may supply forwarding data, and the single-Caddy-hop policy uses the right-most forwarded address. Direct, trusted, multi-hop, and spoofed-header tests pass. A future deployment-topology change requires revalidation. |
+| MN-030 | Resolved for the committed practical-work-parity contract | Known, unknown, and cooldown requests retain identical public fields, comparable lookup/hash/repository work, no path-specific synchronous SMTP, a response floor, and bounded asynchronous provider work. This is deterministic application evidence, not an internet-wide statistical timing proof. |
+| MN-031 | Resolved | Password replacement, one generation increment, accepted-attempt completion, and password-bound idempotency are one standalone-Mongo user-document compare-and-set. Older access/refresh/recovery material becomes logically invalid at that commit; physical cleanup cannot restore it. |
+| MN-014 / MN-015 | Resolved and strengthened in Package 2 | Every outbound hop validates and connects through approved DNS results with strict TLS; parser layout invariants, normalized fingerprints, canonical URLs, source relationships, and native handoff checks fail closed. |
+| MN-012 | Resolved for completed Home and primary Announcements surfaces | Both primary content experiences use non-nested virtualized lists with integrated root reselect behavior. Later Calendar/Profile presentation work is not folded into this issue. |
+| MN-019 component-test portion | Resolved since Phase 4 and expanded through Package 3 | Jest Expo + React Native Testing Library and pure Vitest contracts cover components, navigation, focus, state restoration, and performance evaluation without snapshots. Installed native E2E and automated screenshot regression remain open separately. |
+| Date-only/range correctness (no original MN ID) | Resolved in Package 2 | Date-only and inclusive-range fields survive parser/PDF ingestion, Mongo, trusted DTOs, Home, feed/detail, ICS/Google compatibility, and a Europe/Istanbul API-to-native regression without inventing a time or shifting a day. |
+| Automatic notification production (no original MN ID) | Resolved in Package 2 | Eligible trusted ingestion creates/updates durable Mongo jobs; autonomous fenced dispatch, restart/retry, exact pre-send destination validation, stale retirement, health, and controlled shutdown are covered. |
+| Phase 5–7 bounded mobile regressions (no original MN ID) | Resolved in Package 3 | Integrated root-list reselect/retention/insets, visible onboarding step 1, actual invalid-email focus, qualified importance, independent recent content, integration-only Home, and offline/partial no-data states are covered. |
+| Phase 8 release-performance acceptance | Resolved within the recorded local environment | A production-mode non-debuggable x86_64 release run on API 24 at 720×1280/320 dpi with the host Intel renderer produced 600 frames, p90 `24.928167 ms`, p95 `35.777763 ms`, and zero frames ≥700 ms; APK SHA-256 is `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`. |
+
+The attempted `initialNumToRender=4`, `maxToRenderPerBatch=3`, `windowSize=3`, `updateCellsBatchingPeriod=75`, and Android clipping experiment worsened the SwiftShader measurement and was fully reverted. The original Phase 8 FlatList settings remain current. The failed environment is retained as evidence and is not presented as a shipped optimization or proven product bottleneck.
+
+### Intentionally deferred implementation/tooling work
+
+| Issue | Current boundary |
+|---|---|
+| MN-010 | `App.tsx` remains a substantial orchestrator. Only small repair-related extractions were authorized; broad decomposition is later architecture work. |
+| MN-013 | Completed Phase 4–8 surfaces use semantic themes, but whole-app dark-mode and accessibility acceptance remains later cross-platform quality work. |
+| MN-017 | Owner-safe manual-exam creation is retained. Edit/delete and native date-picker interaction remain Phase 9 and were not started. |
+| MN-020 | `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact. TypeScript, tests, builds, and scans are not relabelled as lint. |
+| MN-021 | The repository has a release measurement harness but no approved shipped analytics/crash/performance telemetry or consent model. |
+| MN-024 | Predictive Back remains disabled under the selected navigator compatibility policy. Ordinary Back coverage is not predictive-Back acceptance. |
+
+### Evidence and environment limitations
+
+| Issue | Current boundary |
+|---|---|
+| MN-019 remaining portion | No Maestro, Detox, or Appium installed authenticated E2E runner and no automated native screenshot-regression workflow. Semantic renderer tests and manually reviewed evidence do not close this. |
+| MN-028 | The authorized API 24 AVD's effective heap/data values still exceed the originally requested approximation; the disclosed environment record remains accurate. |
+| MN-029 | TalkBack is unavailable on the authorized image. UIAutomator is not screen-reader traversal evidence, and complete all-screen large-text acceptance remains open. |
+| MN-032 | Synthetic trusted fixtures cover Phase 7–8 presentation, but no authorized live authenticated backend/content fixture acceptance is claimed. |
+| MN-033 | Windows supplies no Xcode/iOS runtime, VoiceOver, or native iOS material/share result. API 24 cannot prove modern notification permission/channels or predictive Back. |
+| MN-034 | No authorized non-production Google Calendar/FCM/APNs provider account supplied live chooser, mutation, revoke, or delivery acceptance. |
+| Tablet/rail | Deterministic width/rail contracts exist, but no physical or emulator tablet/foldable native acceptance was completed. |
+| Release performance | The accepted result is local API 24 emulator evidence using the host Intel renderer. It does not prove iOS, modern physical Android, production-device distributions, or shipped telemetry. |
+
+### Unsupported findings
+
+Raw article bodies, numeric parser-quality scores, a production content reconciliation/migration, Firestore restoration, a new Redis/BullMQ/replica-set requirement, invented Home/feed actions or badges, fake social mechanics, wholesale screen recreation, and a new native E2E framework are not supported by the committed Phase 1–8 contracts and were not implemented.
+
+Phase 9 was not started. Untracked Phase 9–12 planning documents do not constitute implementation.

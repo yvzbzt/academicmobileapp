@@ -1,11 +1,23 @@
 # Phase 06 — Authentication and Academic Onboarding UI
 
-Status: Implementation and deterministic validation complete; Android synthetic-preview evidence is recorded separately, while installed live-account E2E, iOS runtime, TalkBack, and predictive-Back acceptance remain explicitly unclaimed.
+Status: Complete as reconciled on 4 August 2026; installed live-account E2E, iOS runtime, TalkBack, and predictive-Back acceptance remain explicitly unclaimed.
 Date: 1 August 2026
 Branch: `agent/google-play-readiness-20260724`
 Phase 6 starting HEAD: `abdf0cc427039ddd324ef5964902c12839927d6b`
+Original implementation commit: `00e03ace0a05d9ee3dcdbfe8903cc5d6d34ebccb`
+Completed-phase reconciliation commit: `2e3664546f628a19c6fa929b9ee9469e5322f9a8`
+Reconciled: 4 August 2026
 
-Phase 6 replaces the legacy auth/onboarding presentation with focused, routed, accessible native forms built from the Phase 4 design system. It preserves the Phase 1 authentication, verification, recovery, session, cleanup, and persistence contracts and the Phase 4–5 route/shell boundaries. It does not change API business behavior, provider configuration, storage schemas, or authenticated content screens. Phase 7 is not started.
+## Authoritative reconciliation — 4 August 2026
+
+The routed auth/onboarding implementation from `00e03ace0a05d9ee3dcdbfe8903cc5d6d34ebccb` remains current. Commit `2e3664546f628a19c6fa929b9ee9469e5322f9a8` makes two bounded, visible corrections while preserving the Phase 1 security and Phase 6 route/payload contracts.
+
+- Registration now visibly begins the established onboarding sequence with `1 / 3 · Hesap`; the existing `2 / 3` verification and `3 / 3` academic-profile markers remain intact.
+- Login submission now owns refs for both fields and calls the real first-invalid input's `focus()` method: invalid email focuses **E-posta adresi**, while a valid email with a missing password focuses **Şifre**. The renderer tests spy on the actual input focus calls, rather than inferring focus from error-text order.
+
+The validation and Android synthetic-preview records below are historical evidence for the original Phase 6 run. Statements there that Phase 7 or Home work had not started are time-bound handoff statements, not current repository status.
+
+Phase 6 replaces the legacy auth/onboarding presentation with focused, routed, accessible native forms built from the Phase 4 design system. It preserves the Phase 1 authentication, verification, recovery, session, cleanup, and persistence contracts and the Phase 4–5 route/shell boundaries. It does not change API business behavior, provider configuration, storage schemas, or authenticated content screens. At this original 1 August checkpoint, Phase 7 had not started.
 
 ## Scope completed
 
@@ -113,11 +125,11 @@ The Android screenshots in [`phase-06-native`](../evidence/phase-06-native/READM
 
 - Pure Vitest coverage exercises login/registration validation, exact code lengths, email masking, academic cascade clearing, payload construction, dirty-state detection, class-level derivation, and 320 dp/font-scale-2 responsive policy together with the retained recovery, session-integrity, and route-foundation contracts.
 - `AuthScreens.test.tsx` contributes 24 semantic renderer tests across all seven screens: validation order and IME focus, busy state, Google cancellation, password visibility, route actions, resend/expiry, recovery, academic selector states/cascades/review/save, dirty Back confirmation, accessibility state, and 320 dp/font-scale-2 structure.
-- `AuthOnboardingPreview.test.tsx` contributes 3 tests proving the import/network/storage boundary, all 12 synthetic scenarios, and stable named-scenario boot.
+- `AuthOnboardingPreview.test.tsx` contributes 3 tests proving the import/network/storage boundary, all 13 synthetic scenarios, and stable named-scenario boot.
 - The full native Jest/RNTL result is 11 suites / 79 tests / 0 snapshots. Vitest remains the pure/API runner.
 - No `.skip`, `.only`, blind snapshot update, Maestro, Detox, Appium, or native screenshot-regression harness was added.
 
-## Validation ledger
+## Historical Phase 6 validation ledger
 
 | Check | Result | Evidence boundary |
 |---|---|---|
@@ -174,11 +186,11 @@ Set-Location apps/mobile-native/android
 
 No Phase 6 package, dependency, lockfile, API, database, provider configuration, platform permission, deployment, publish, or production-data change was made.
 
-## Remaining blockers and handoff
+## Remaining blockers and historical handoff
 
 - Run installed-app native E2E with authorized disposable email delivery and Google provider/account fixtures before claiming the four required live flows.
 - Rerun the visual/accessibility matrix on macOS/Xcode iOS and on an authorized Android image/device with TalkBack and modern predictive Back support.
 - Keep MN-024, MN-029, MN-033, and MN-034 open until those platform/provider gates are satisfied. Keep MN-019 open for native E2E/screenshot automation and MN-020 open for the absent lint toolchain.
 - Broader whole-app dark mode, complete large-text/screen-reader quality, and content-screen redesign remain later authorized phases.
 
-This phase stops at auth and academic onboarding. Home and all Phase 7 work remain untouched by this Phase 6 implementation and evidence report.
+At the original Phase 6 handoff, this phase stopped at auth and academic onboarding and had not touched Home. Phase 7 was subsequently implemented and reconciled in its own scoped commits; that later work does not change Phase 6 ownership.

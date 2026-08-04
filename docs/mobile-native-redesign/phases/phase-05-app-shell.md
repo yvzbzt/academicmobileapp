@@ -1,11 +1,24 @@
 # Phase 05 — Adaptive Native App Shell
 
-Status: Implementation, native evidence, and final validation complete; the local scoped commit is recorded in the terminal handoff.
+Status: Complete as reconciled on 4 August 2026; the dated implementation and debug-evidence ledgers below are historical evidence for their original runs.
 Date: 31 July 2026
 Branch: `agent/google-play-readiness-20260724`
 Required starting SHA: `abbf1b721fc632f75e6ce5cad91b20434f6af2bf`
+Original implementation commit: `abdf0cc427039ddd324ef5964902c12839927d6b`
+Completed-phase reconciliation commit: `2e3664546f628a19c6fa929b9ee9469e5322f9a8`
+Reconciled: 4 August 2026
 
-Phase 5 turns the routed Phase 4 foundation into the authenticated native app-shell presentation. It keeps the existing React Navigation route graph, guards, one-shot requests, safe identifiers, and feature ownership while presenting exactly four primary destinations with adaptive native chrome. It does not redesign the Home, Announcements, Calendar, Profile, auth, onboarding, Summer School, or YÖK screen bodies. Phase 6 is not started.
+## Authoritative reconciliation — 4 August 2026
+
+The four-tab shell delivered by `abdf0cc427039ddd324ef5964902c12839927d6b` remains the current product structure. Commit `2e3664546f628a19c6fa929b9ee9469e5322f9a8` closes the remaining Phase 5 verification gaps without changing that structure or inventing an action, badge, destination, or persistence rule.
+
+- The integrated renderer now mounts the real production `HomeDailyBrief` `FlatList` inside `AppNavigator`. Switching from Home to Announcements and back preserves the same list instance and its `276`-unit test offset; reselecting the already-selected Home root calls `scrollToOffset({ offset: 0, animated: true })` exactly once.
+- The Android shell test supplies a 34-unit bottom safe-area inset and verifies the resulting 114-unit tab-bar height: the established 80-unit navigation content height plus the inset. Keyboard-show hides and disables the tab bar, and keyboard-hide restores it and its pointer handling.
+- These are integrated Jest Expo/React Native Testing Library checks against the real Home list and shell, not installed-device, keyboard, TalkBack, predictive-Back, tablet/rail, or iOS acceptance.
+
+The original validation, native-capture, next-phase, and pre-commit statements below remain useful historical evidence. Any statement in those dated sections that a later phase was “not started,” or that a commit was still pending, describes the state of that original run and is not current status.
+
+Phase 5 turns the routed Phase 4 foundation into the authenticated native app-shell presentation. It keeps the existing React Navigation route graph, guards, one-shot requests, safe identifiers, and feature ownership while presenting exactly four primary destinations with adaptive native chrome. It did not redesign the Home, Announcements, Calendar, Profile, auth, onboarding, Summer School, or YÖK screen bodies. At this original 31 July checkpoint, Phase 6 had not started.
 
 ## Scope completed
 
@@ -136,7 +149,7 @@ During implementation, `AdaptiveTopBar` was temporarily exported through `src/na
 
 The first focused native run after adding locked-header coverage had one failing semantic query because the new test opened a detail route as the initial nested state, for which the Jest native-stack adapter exposed no Back action. The test setup was corrected to render the Announcements root before requesting its detail; production code did not change between that setup failure and the final 18/18 focused pass.
 
-## Validation ledger
+## Historical Phase 5 validation ledger
 
 | Check | Result |
 |---|---|
@@ -214,13 +227,13 @@ No Phase 5 package/dependency, Expo/native configuration, API, database, or prod
 - Legacy screen bodies still own hard-coded styling, large component orchestration, non-virtualized feeds, and later-phase UI. Home/feed, auth/onboarding, Calendar, Profile/settings, and complete dark/large-text/tablet quality remain in Phases 6–11.
 - No native E2E or automated screenshot-regression harness was introduced, and native lint tooling remains unavailable.
 
-Phase 6 was not started. There is no LinkedIn-inspired feed, complete auth/onboarding redesign, full Home/Announcements/Calendar/Profile redesign, backend refactor, Firestore restoration, deployment, publish, push, store submission, or production-data access in this phase.
+At the original 31 July checkpoint, Phase 6 had not started. There was no LinkedIn-inspired feed, complete auth/onboarding redesign, full Home/Announcements/Calendar/Profile redesign, backend refactor, Firestore restoration, deployment, publish, push, store submission, or production-data access in this phase.
 
-## Next-phase handoff
+## Historical next-phase handoff
 
 After the single scoped Phase 5 commit is recorded, a separately authorized Phase 6 may redesign auth/onboarding UI on top of this shell/design foundation. It must not reopen Phase 1–4 account-generation, recovery, content-trust, notification, Google lifecycle, safe-route, or persistence rules. Phase 6 remains unstarted by this work.
 
-## Git handoff
+## Historical Git handoff
 
 At the pre-commit gate, branch `agent/google-play-readiness-20260724` still had HEAD `abbf1b721fc632f75e6ce5cad91b20434f6af2bf`, exactly the required start. The index contained exactly 44 reviewed Phase 5 paths, no intended path was unstaged, cached-diff/scan checks passed, and unrelated untracked files remained outside the index. No push is authorized or performed.
 
