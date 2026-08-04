@@ -189,8 +189,16 @@ describe("mongoose schemas", () => {
     ]);
     expect(notificationJobSchema.path("processingClaimId")).toBeDefined();
     expect(notificationJobSchema.path("processingLeaseUntil")).toBeDefined();
+    expect(notificationJobSchema.path("deliveryAttemptEpoch").options).toEqual(expect.objectContaining({ required: true, default: 0, min: 0 }));
     expect(notificationDeliverySchema.path("token")).toBeUndefined();
+    expect(notificationDeliverySchema.path("title")).toBeUndefined();
+    expect(notificationDeliverySchema.path("body")).toBeUndefined();
+    expect((notificationDeliverySchema.path("status") as unknown as { options: { enum: string[] } }).options.enum).toEqual([
+      "sending", "sent", "failed", "invalid_device", "ambiguous", "deferred", "skipped"
+    ]);
     expect(notificationDeliverySchema.indexes()).toEqual(expect.arrayContaining([
+      [{ attemptIdentity: 1 }, expect.objectContaining({ unique: true, sparse: true, name: "notification_deliveries_attempt_identity_unique" })],
+      [{ status: 1, sendingLeaseUntil: 1 }, expect.objectContaining({ name: "notification_deliveries_attempt_recovery" })],
       [{ jobId: 1, status: 1, deviceTokenId: 1 }, expect.objectContaining({ name: "notification_deliveries_job_status_device" })]
     ]));
     expect((notificationDeliverySchema.path("failureReason") as unknown as { options: { enum: string[] } }).options.enum).toEqual([
@@ -201,7 +209,8 @@ describe("mongoose schemas", () => {
       "preference_disabled",
       "quiet_hours",
       "destination_unavailable",
-      "device_registration_stale"
+      "device_registration_stale",
+      "provider_outcome_unknown"
     ]);
     expect(notificationJobSchema.indexes()).toEqual(
       expect.arrayContaining([[{ status: 1, scheduledAt: 1 }, expect.objectContaining({ name: "notification_jobs_due" })]])

@@ -4,7 +4,7 @@ import { deviceTokenSchema, notificationDeliverySchema, notificationJobSchema, n
 import { getModel, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
 import { DeviceRegistrationConflictError } from "./notification.types.js";
-import type { DeviceTokenRecord, DeviceTokenRegistrationInput, NotificationDeliveryRecord, NotificationJobCreateInput, NotificationJobFailureReason, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationProducerDestinationRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
+import type { DeviceTokenRecord, DeviceTokenRegistrationInput, NotificationDeliveryAttemptClaimInput, NotificationDeliveryAttemptFence, NotificationDeliveryAttemptFinalizeInput, NotificationDeliveryAttemptRecord, NotificationDeliveryRecord, NotificationJobCreateInput, NotificationJobFailureReason, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationProducerDestinationRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
 
 @Injectable()
 export class MongoNotificationRepository implements NotificationRepository {
@@ -100,6 +100,7 @@ export class MongoNotificationRepository implements NotificationRepository {
         const document = await model.create({
           ...job,
           revision: 1,
+          deliveryAttemptEpoch: 0,
           attemptCount: 0,
           maxAttempts: job.maxAttempts ?? DEFAULT_NOTIFICATION_MAX_ATTEMPTS
         });
@@ -275,7 +276,7 @@ export class MongoNotificationRepository implements NotificationRepository {
         try {
           document = await model.findOneAndUpdate(
             identityFilter,
-            { $setOnInsert: { ...desired, producerKeys: [input.producerKey], producerDestinations: [producerDestinationFor(raw, input.producerKey)], revision: 1, attemptCount: 0, maxAttempts: desired.maxAttempts ?? DEFAULT_NOTIFICATION_MAX_ATTEMPTS } },
+            { $setOnInsert: { ...desired, producerKeys: [input.producerKey], producerDestinations: [producerDestinationFor(raw, input.producerKey)], revision: 1, deliveryAttemptEpoch: 0, attemptCount: 0, maxAttempts: desired.maxAttempts ?? DEFAULT_NOTIFICATION_MAX_ATTEMPTS } },
             { returnDocument: "after", upsert: true }
           );
         } catch (error) {
@@ -413,6 +414,108 @@ export class MongoNotificationRepository implements NotificationRepository {
     return ids.filter((id): id is string => typeof id === "string");
   }
 
+  async claimDeliveryAttempt(input: NotificationDeliveryAttemptClaimInput): Promise<{ claimed: boolean; attempt: NotificationDeliveryAttemptRecord }> {
+    const model = await this.model("NotificationDelivery", notificationDeliverySchema);
+    let document;
+    try {
+      document = await model.findOneAndUpdate(
+        { attemptIdentity: input.attemptIdentity },
+        {
+          $setOnInsert: {
+            jobId: input.jobId,
+            jobRevision: input.jobRevision,
+            attemptIdentity: input.attemptIdentity,
+            attemptVersion: input.attemptVersion,
+            deviceInstallationHash: input.deviceInstallationHash,
+            userId: input.userId,
+            deviceTokenId: input.deviceTokenId,
+            status: "sending",
+            sendingClaimId: input.sendingClaimId,
+            sendingStartedAt: input.sendingStartedAt,
+            sendingLeaseUntil: input.sendingLeaseUntil
+          }
+        },
+        { returnDocument: "after", upsert: true }
+      );
+    } catch (error) {
+      if (!isDuplicateKeyError(error)) throw error;
+      document = await model.findOne({ attemptIdentity: input.attemptIdentity });
+    }
+    if (!document) throw new Error("NOTIFICATION_DELIVERY_ATTEMPT_CLAIM_FAILED");
+    const attempt = toNotificationDeliveryAttemptRecord(document);
+    return {
+      claimed: attempt.status === "sending" && attempt.sendingClaimId === input.sendingClaimId,
+      attempt
+    };
+  }
+
+  async finalizeDeliveryAttempt(input: NotificationDeliveryAttemptFinalizeInput): Promise<NotificationDeliveryAttemptRecord | null> {
+    const model = await this.model("NotificationDelivery", notificationDeliverySchema);
+    const document = await model.findOneAndUpdate(
+      {
+        attemptIdentity: input.attemptIdentity,
+        status: "sending",
+        sendingClaimId: input.sendingClaimId
+      },
+      {
+        $set: {
+          status: input.status,
+          finalizedAt: input.finalizedAt,
+          ...(input.providerMessageId ? { providerMessageId: input.providerMessageId } : {}),
+          ...(input.failureReason ? { failureReason: input.failureReason } : {}),
+          ...(input.deliveredAt ? { deliveredAt: input.deliveredAt } : {})
+        },
+        $unset: { sendingClaimId: 1, sendingLeaseUntil: 1 }
+      },
+      { returnDocument: "after" }
+    );
+    if (document) return toNotificationDeliveryAttemptRecord(document);
+    const existing = await model.findOne({ attemptIdentity: input.attemptIdentity });
+    return existing ? toNotificationDeliveryAttemptRecord(existing) : null;
+  }
+
+  async recoverExpiredDeliveryAttempts(now: Date): Promise<number> {
+    const result = await (await this.model("NotificationDelivery", notificationDeliverySchema)).updateMany(
+      {
+        attemptIdentity: { $type: "string", $ne: "" },
+        status: "sending",
+        $or: [{ sendingLeaseUntil: { $lte: now } }, { sendingLeaseUntil: { $exists: false } }]
+      },
+      {
+        $set: { status: "ambiguous", failureReason: "provider_outcome_unknown", finalizedAt: now },
+        $unset: { sendingClaimId: 1, sendingLeaseUntil: 1 }
+      }
+    );
+    return result.modifiedCount;
+  }
+
+  async getDeliveryAttemptBacklog(now: Date): Promise<{ sending: number; expiredSending: number; ambiguous: number }> {
+    const model = await this.model("NotificationDelivery", notificationDeliverySchema);
+    const attempts = { attemptIdentity: { $type: "string", $ne: "" } };
+    const [sending, expiredSending, ambiguous] = await Promise.all([
+      model.countDocuments({ ...attempts, status: "sending" }),
+      model.countDocuments({
+        ...attempts,
+        status: "sending",
+        $or: [{ sendingLeaseUntil: { $lte: now } }, { sendingLeaseUntil: { $exists: false } }]
+      }),
+      model.countDocuments({ ...attempts, status: "ambiguous" })
+    ]);
+    return { sending, expiredSending, ambiguous };
+  }
+
+  async listDeliveryAttemptFencesForJob(jobId: string, revision = 1): Promise<NotificationDeliveryAttemptFence[]> {
+    const documents = await (await this.model("NotificationDelivery", notificationDeliverySchema)).find({
+      jobId,
+      status: { $in: ["sending", "sent", "invalid_device", "ambiguous"] },
+      ...(revision === 1 ? { $or: [{ jobRevision: 1 }, { jobRevision: { $exists: false } }] } : { jobRevision: revision })
+    });
+    return documents.map((document) => {
+      const delivery = toDomainRecord<NotificationDeliveryRecord>(document);
+      return { deviceTokenId: delivery.deviceTokenId, status: delivery.status as NotificationDeliveryAttemptFence["status"] };
+    });
+  }
+
   async recordDelivery(input: Omit<NotificationDeliveryRecord, "id" | "createdAt" | "updatedAt">): Promise<NotificationDeliveryRecord> {
     const document = await (await this.model("NotificationDelivery", notificationDeliverySchema)).create(input);
     return toDomainRecord<NotificationDeliveryRecord>(document);
@@ -436,6 +539,7 @@ export class MongoNotificationRepository implements NotificationRepository {
       { _id: jobId, status: { $in: ["failed", "dead"] } },
       {
         $set: { status: "scheduled", scheduledAt, attemptCount: 0 },
+        $inc: { deliveryAttemptEpoch: 1 },
         $unset: { lastAttemptAt: 1, lastFailureReason: 1, exhaustedAt: 1, processingClaimId: 1, processingLeaseUntil: 1 }
       },
       { returnDocument: "after" }
@@ -586,9 +690,16 @@ function toNotificationJobRecord(document: Parameters<typeof toDomainRecord<Noti
     ...(record.producerKey || record.producerDestinations?.length ? { producerDestinations: notificationJobProducerDestinations(record) } : {}),
     producerRelationRevision: nonNegativeIntegerOr(record.producerRelationRevision, 0),
     revision: positiveIntegerOr(record.revision, 1),
+    deliveryAttemptEpoch: nonNegativeIntegerOr(record.deliveryAttemptEpoch, 0),
     attemptCount: nonNegativeIntegerOr(record.attemptCount, 0),
     maxAttempts: positiveIntegerOr(record.maxAttempts, DEFAULT_NOTIFICATION_MAX_ATTEMPTS)
   };
+}
+
+function toNotificationDeliveryAttemptRecord(
+  document: Parameters<typeof toDomainRecord<NotificationDeliveryAttemptRecord>>[0]
+): NotificationDeliveryAttemptRecord {
+  return toDomainRecord<NotificationDeliveryAttemptRecord>(document);
 }
 
 function producerRelationshipCasFilter(job: NotificationJobRecord): Record<string, unknown> {

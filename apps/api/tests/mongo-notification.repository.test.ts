@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MongoConnectionService } from "../src/database/mongo-connection.service.js";
-import { deviceTokenSchema, notificationJobSchema } from "../src/database/mongoose-schemas.js";
+import { deviceTokenSchema, notificationDeliverySchema, notificationJobSchema } from "../src/database/mongoose-schemas.js";
 import { getModel } from "../src/database/mongoose-utils.js";
+import { createNotificationDeliveryAttemptIdentity, notificationDeliveryAttemptVersion } from "../src/modules/notifications/notification-delivery-attempt.js";
 import { DeviceRegistrationConflictError } from "../src/modules/notifications/notification.types.js";
 import { MongoNotificationRepository } from "../src/modules/notifications/mongo-notification.repository.js";
 
@@ -21,6 +22,7 @@ describe("MongoNotificationRepository device ownership", () => {
     await connection.dropDatabase();
     await getModel(connection, "DeviceToken", deviceTokenSchema).init();
     await getModel(connection, "NotificationJob", notificationJobSchema).init();
+    await getModel(connection, "NotificationDelivery", notificationDeliverySchema).init();
   }, 30_000);
 
   afterAll(async () => {
@@ -148,6 +150,62 @@ describe("MongoNotificationRepository device ownership", () => {
     const [completed] = await repository.listJobsByCalendar("mongo-claim-calendar");
     expect(completed).not.toHaveProperty("processingClaimId");
     expect(completed).not.toHaveProperty("processingLeaseUntil");
+  }, 30_000);
+
+  it("atomically creates one deterministic delivery attempt and recovers an expired sending fence as ambiguous", async () => {
+    const now = new Date("2027-01-15T00:00:00.000Z");
+    const [job] = await repository.createNotificationJobs([{
+      calendarId: "mongo-attempt-calendar",
+      eventId: "mongo-attempt-event",
+      destinationType: "calendar_event",
+      destinationId: "mongo-attempt-event",
+      universityId: "mongo-university",
+      title: "Mongo attempt event",
+      category: "final_exam",
+      offsetDays: 1,
+      trigger: "before",
+      scheduledAt: now,
+      status: "scheduled"
+    }]);
+    if (!job) throw new Error("Expected a Mongo attempt job.");
+    const attemptVersion = notificationDeliveryAttemptVersion(job);
+    const deviceInstallationHash = "mongo-attempt-installation-hash";
+    const attemptIdentity = createNotificationDeliveryAttemptIdentity({
+      jobId: job.id,
+      deviceInstallationHash,
+      attemptVersion
+    });
+    const leaseUntil = new Date(now.getTime() + 60_000);
+    const base = {
+      attemptIdentity,
+      attemptVersion,
+      jobId: job.id,
+      jobRevision: job.revision,
+      userId: "mongo-attempt-owner",
+      deviceTokenId: "mongo-attempt-device",
+      deviceInstallationHash,
+      sendingStartedAt: now,
+      sendingLeaseUntil: leaseUntil
+    };
+
+    const claims = await Promise.all([
+      repository.claimDeliveryAttempt({ ...base, sendingClaimId: "mongo-attempt-claim-a" }),
+      repository.claimDeliveryAttempt({ ...base, sendingClaimId: "mongo-attempt-claim-b" })
+    ]);
+
+    expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(new Set(claims.map((claim) => claim.attempt.id))).toHaveProperty("size", 1);
+    expect(claims[0]?.attempt.attemptIdentity).toBe(attemptIdentity);
+    await expect(repository.recoverExpiredDeliveryAttempts(new Date(leaseUntil.getTime() - 1))).resolves.toBe(0);
+    await expect(repository.recoverExpiredDeliveryAttempts(leaseUntil)).resolves.toBe(1);
+    await expect(repository.getDeliveryAttemptBacklog(leaseUntil)).resolves.toEqual({
+      sending: 0,
+      expiredSending: 0,
+      ambiguous: 1
+    });
+    await expect(repository.listDeliveryAttemptFencesForJob(job.id, job.revision)).resolves.toEqual([
+      { deviceTokenId: "mongo-attempt-device", status: "ambiguous" }
+    ]);
   }, 30_000);
 
   it("does not list or claim a legacy scheduled job whose persisted retry budget is exhausted", async () => {

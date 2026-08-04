@@ -141,7 +141,9 @@ export interface NotificationDeliveryDto {
   jobId: string;
   userId: string;
   deviceTokenId: string;
-  status: "sent" | "failed" | "deferred" | "skipped";
+  status: "sending" | "sent" | "failed" | "invalid_device" | "ambiguous" | "deferred" | "skipped";
+  attemptIdentity?: string;
+  attemptVersion?: string;
   providerMessageId?: string;
   failureReason?:
     | "invalid_token"
@@ -151,8 +153,12 @@ export interface NotificationDeliveryDto {
     | "preference_disabled"
     | "quiet_hours"
     | "destination_unavailable"
-    | "device_registration_stale";
+    | "device_registration_stale"
+    | "provider_outcome_unknown";
+  sendingStartedAt?: string;
+  sendingLeaseUntil?: string;
   deliveredAt?: string;
+  finalizedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

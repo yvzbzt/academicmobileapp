@@ -254,10 +254,10 @@ describe("operation services", () => {
 
     expect(result.failed).toBe(1);
     expect(disabled?.status).toBe("disabled");
-    expect(deliveries[0]).toEqual(expect.objectContaining({ status: "failed", failureReason: "invalid_token", userId: "user-1" }));
+    expect(deliveries[0]).toEqual(expect.objectContaining({ status: "invalid_device", failureReason: "invalid_token", userId: "user-1" }));
   });
 
-  it("records failed deliveries when the push provider is not configured", async () => {
+  it("fences a thrown push-sender outcome as ambiguous", async () => {
     const notificationRepository = new InMemoryNotificationRepository();
     const device = await notificationRepository.upsertDeviceToken({ userId: "user-1", platform: "android", token: "device-token-1", installationHash: "installation-1" });
     const job = await createScheduledNotificationJob(notificationRepository);
@@ -267,9 +267,9 @@ describe("operation services", () => {
     const deliveries = await notificationRepository.listDeliveriesByJob(job.id, 10, 0);
     const failedJobs = await notificationRepository.listFailedJobs(10, 0);
 
-    expect(result.failed).toBe(1);
+    expect(result).toEqual(expect.objectContaining({ failed: 0, ambiguous: 1 }));
     expect(failedJobs[0]?.id).toBe(job.id);
-    expect(deliveries[0]).toEqual(expect.objectContaining({ status: "failed", failureReason: "provider_unavailable", userId: "user-1" }));
+    expect(deliveries[0]).toEqual(expect.objectContaining({ status: "ambiguous", failureReason: "provider_outcome_unknown", userId: "user-1" }));
   });
 
   it("fans out due notification jobs to eligible active devices", async () => {
@@ -560,6 +560,47 @@ describe("operation services", () => {
     expect(readiness.dependencies).toContainEqual({ name: "mongodb", status: "down", detail: "MONGO_UNAVAILABLE" });
     expect(connect).toHaveBeenCalledTimes(1);
     expect(readiness.dependencies.some((dependency) => dependency.name === "mongodb" && dependency.status === "skipped")).toBe(false);
+  });
+
+  it("reports terminal ambiguous deliveries without permanently degrading readiness", async () => {
+    vi.stubEnv("QUEUE_MODE", "memory");
+    vi.stubEnv("RATE_LIMIT_STORE", "memory");
+    const ping = vi.fn().mockResolvedValue(undefined);
+    const mongo = {
+      getConnection: vi.fn(() => ({ db: { admin: () => ({ ping }) } })),
+      connect: vi.fn()
+    } as unknown as MongoConnectionService;
+    const health = vi.fn(() => ({
+      enabled: true,
+      state: "running" as const,
+      backlog: { due: 0, retrying: 0, processing: 0, dead: 0 },
+      deliveryAttempts: { sending: 0, expiredSending: 0, ambiguous: 2 }
+    }));
+    const worker = { health } as unknown as NotificationWorkerService;
+    const service = new InfrastructureHealthService(mongo, undefined, worker);
+
+    const readiness = await service.readiness();
+
+    expect(readiness.status).toBe("ok");
+    expect(readiness.dependencies).toContainEqual({
+      name: "notification-worker",
+      status: "ok",
+      detail: expect.stringContaining("delivery_ambiguous=2")
+    });
+
+    health.mockReturnValue({
+      enabled: true,
+      state: "running",
+      backlog: { due: 0, retrying: 0, processing: 0, dead: 0 },
+      deliveryAttempts: { sending: 1, expiredSending: 1, ambiguous: 2 }
+    });
+    const expiredReadiness = await service.readiness();
+    expect(expiredReadiness.status).toBe("degraded");
+    expect(expiredReadiness.dependencies).toContainEqual(expect.objectContaining({
+      name: "notification-worker",
+      status: "down",
+      detail: expect.stringContaining("delivery_expired=1")
+    }));
   });
 
   it("seeds only the bootstrap admin user when explicitly invoked", async () => {

@@ -5,7 +5,8 @@ export { NOTIFICATION_DELIVERY_CONSENT_VERSION } from "../../../../../packages/s
 export type DevicePlatform = "ios" | "android" | "web";
 export type DeviceTokenStatus = "active" | "disabled";
 export type NotificationJobStatus = "scheduled" | "processing" | "sent" | "failed" | "dead" | "cancelled";
-export type NotificationDeliveryStatus = "sent" | "failed" | "deferred" | "skipped";
+export type NotificationDeliveryAttemptState = "sending" | "sent" | "failed" | "invalid_device" | "ambiguous";
+export type NotificationDeliveryStatus = NotificationDeliveryAttemptState | "deferred" | "skipped";
 export type NotificationDestinationType = "calendar_event" | "announcement";
 export type NotificationDestinationScopeType = "global" | "university" | "faculty" | "department";
 export type NotificationJobFailureReason =
@@ -22,7 +23,8 @@ export type NotificationDeliveryFailureReason =
   | "preference_disabled"
   | "quiet_hours"
   | "destination_unavailable"
-  | "device_registration_stale";
+  | "device_registration_stale"
+  | "provider_outcome_unknown";
 export type StudentAlarmEventType = "exam" | "calendar_event" | "announcement" | "course";
 export type StudentAlarmTrigger = "at_time" | "before";
 export type StudentAlarmStatus = "scheduled" | "cancelled";
@@ -120,6 +122,8 @@ export interface NotificationJobRecord {
   scheduledAt: Date;
   status: NotificationJobStatus;
   revision: number;
+  /** Increments when an operator starts a fresh retry budget without changing trusted content. */
+  deliveryAttemptEpoch: number;
   attemptCount: number;
   maxAttempts: number;
   lastAttemptAt?: Date;
@@ -156,14 +160,59 @@ export interface NotificationDeliveryRecord {
   id: string;
   jobId: string;
   jobRevision?: number;
+  /** Present only for provider-facing attempts; legacy audit rows do not have an attempt identity. */
+  attemptIdentity?: string;
+  attemptVersion?: string;
+  /** Domain-separated digest of the app installation identifier, never the raw device ID. */
+  deviceInstallationHash?: string;
   userId: string;
   deviceTokenId: string;
   status: NotificationDeliveryStatus;
+  sendingClaimId?: string;
+  sendingStartedAt?: Date;
+  sendingLeaseUntil?: Date;
   providerMessageId?: string;
   failureReason?: NotificationDeliveryFailureReason;
   deliveredAt?: Date;
+  finalizedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type NotificationDeliveryAttemptRecord = NotificationDeliveryRecord & {
+  attemptIdentity: string;
+  attemptVersion: string;
+  deviceInstallationHash: string;
+  status: NotificationDeliveryAttemptState;
+  sendingStartedAt: Date;
+};
+
+export interface NotificationDeliveryAttemptClaimInput {
+  attemptIdentity: string;
+  attemptVersion: string;
+  jobId: string;
+  jobRevision: number;
+  userId: string;
+  deviceTokenId: string;
+  deviceInstallationHash: string;
+  sendingClaimId: string;
+  sendingStartedAt: Date;
+  sendingLeaseUntil: Date;
+}
+
+export interface NotificationDeliveryAttemptFinalizeInput {
+  attemptIdentity: string;
+  sendingClaimId: string;
+  status: Exclude<NotificationDeliveryAttemptState, "sending">;
+  finalizedAt: Date;
+  providerMessageId?: string;
+  failureReason?: NotificationDeliveryFailureReason;
+  deliveredAt?: Date;
+}
+
+export interface NotificationDeliveryAttemptFence {
+  deviceTokenId: string;
+  status: "sending" | "sent" | "invalid_device" | "ambiguous";
 }
 
 export type NotificationJobCreateInput = Omit<
@@ -172,6 +221,7 @@ export type NotificationJobCreateInput = Omit<
   | "createdAt"
   | "updatedAt"
   | "revision"
+  | "deliveryAttemptEpoch"
   | "attemptCount"
   | "maxAttempts"
   | "lastAttemptAt"
@@ -233,6 +283,11 @@ export interface NotificationRepository {
   listFailedJobs(limit: number, offset: number): Promise<NotificationJobRecord[]>;
   listActiveDeviceTokens(limit: number, offset: number): Promise<DeviceTokenRecord[]>;
   listSentDeviceTokenIdsForJob(jobId: string, revision?: number): Promise<string[]>;
+  claimDeliveryAttempt(input: NotificationDeliveryAttemptClaimInput): Promise<{ claimed: boolean; attempt: NotificationDeliveryAttemptRecord }>;
+  finalizeDeliveryAttempt(input: NotificationDeliveryAttemptFinalizeInput): Promise<NotificationDeliveryAttemptRecord | null>;
+  recoverExpiredDeliveryAttempts(now: Date): Promise<number>;
+  getDeliveryAttemptBacklog(now: Date): Promise<{ sending: number; expiredSending: number; ambiguous: number }>;
+  listDeliveryAttemptFencesForJob(jobId: string, revision?: number): Promise<NotificationDeliveryAttemptFence[]>;
   recordDelivery(input: Omit<NotificationDeliveryRecord, "id" | "createdAt" | "updatedAt">): Promise<NotificationDeliveryRecord>;
   listDeliveriesByJob(jobId: string, limit: number, offset: number): Promise<NotificationDeliveryRecord[]>;
   updateJobStatus(jobId: string, status: NotificationJobStatus): Promise<NotificationJobRecord | null>;

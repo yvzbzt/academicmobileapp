@@ -534,6 +534,7 @@ export const notificationJobSchema = new Schema(
     scheduledAt: { type: Date, required: true, index: true },
     status: { type: String, required: true, enum: ["scheduled", "processing", "sent", "failed", "dead", "cancelled"], default: "scheduled", index: true },
     revision: { type: Number, required: true, min: 1, default: 1 },
+    deliveryAttemptEpoch: { type: Number, required: true, min: 0, default: 0 },
     attemptCount: { type: Number, required: true, min: 0, default: 0 },
     maxAttempts: { type: Number, required: true, min: 1, max: 20, default: 5 },
     lastAttemptAt: { type: Date, required: false },
@@ -588,20 +589,29 @@ export const notificationDeliverySchema = new Schema(
   {
     jobId: { type: String, required: true, index: true },
     jobRevision: { type: Number, required: false, min: 1, default: 1, index: true },
+    attemptIdentity: { type: String, required: false, trim: true },
+    attemptVersion: { type: String, required: false, trim: true },
+    deviceInstallationHash: { type: String, required: false, trim: true },
     userId: { type: String, required: true, index: true },
     deviceTokenId: { type: String, required: true, index: true },
-    status: { type: String, required: true, enum: ["sent", "failed", "deferred", "skipped"], index: true },
-    providerMessageId: { type: String, required: false },
+    status: { type: String, required: true, enum: ["sending", "sent", "failed", "invalid_device", "ambiguous", "deferred", "skipped"], index: true },
+    sendingClaimId: { type: String, required: false },
+    sendingStartedAt: { type: Date, required: false },
+    sendingLeaseUntil: { type: Date, required: false },
+    providerMessageId: { type: String, required: false, maxlength: 512 },
     failureReason: {
       type: String,
       required: false,
-      enum: ["invalid_token", "provider_unavailable", "provider_rejected", "scope_mismatch", "preference_disabled", "quiet_hours", "destination_unavailable", "device_registration_stale"]
+      enum: ["invalid_token", "provider_unavailable", "provider_rejected", "scope_mismatch", "preference_disabled", "quiet_hours", "destination_unavailable", "device_registration_stale", "provider_outcome_unknown"]
     },
-    deliveredAt: { type: Date, required: false }
+    deliveredAt: { type: Date, required: false },
+    finalizedAt: { type: Date, required: false }
   },
   { collection: "notification_deliveries", timestamps: true }
 );
 
+notificationDeliverySchema.index({ attemptIdentity: 1 }, { unique: true, sparse: true, name: "notification_deliveries_attempt_identity_unique" });
+notificationDeliverySchema.index({ status: 1, sendingLeaseUntil: 1 }, { name: "notification_deliveries_attempt_recovery" });
 notificationDeliverySchema.index({ jobId: 1, userId: 1, deviceTokenId: 1 }, { name: "notification_deliveries_job_user_device" });
 notificationDeliverySchema.index({ jobId: 1, status: 1, deviceTokenId: 1 }, { name: "notification_deliveries_job_status_device" });
 notificationDeliverySchema.index({ status: 1, createdAt: -1 }, { name: "notification_deliveries_status_time" });

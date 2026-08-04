@@ -61,8 +61,12 @@ export class InfrastructureHealthService implements OnApplicationShutdown {
   private notificationWorkerHealth(): DependencyHealthRecord {
     const health = this.notificationWorker!.health();
     if (!health.enabled && health.state === "disabled") return { name: "notification-worker", status: "skipped", detail: "disabled" };
-    const detail = `${health.state}; due=${health.backlog.due}; retrying=${health.backlog.retrying}; processing=${health.backlog.processing}; dead=${health.backlog.dead}`;
-    if (health.state === "degraded" || health.state === "draining") {
+    const detail = `${health.state}; due=${health.backlog.due}; retrying=${health.backlog.retrying}; processing=${health.backlog.processing}; dead=${health.backlog.dead}; delivery_sending=${health.deliveryAttempts.sending}; delivery_expired=${health.deliveryAttempts.expiredSending}; delivery_ambiguous=${health.deliveryAttempts.ambiguous}`;
+    if (
+      health.state === "degraded"
+      || health.state === "draining"
+      || health.deliveryAttempts.expiredSending > 0
+    ) {
       return { name: "notification-worker", status: "down", detail };
     }
     return { name: "notification-worker", status: "ok", detail };

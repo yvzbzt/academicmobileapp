@@ -56,6 +56,23 @@ describe("mongoIndexDefinitions", () => {
     }));
   });
 
+  it("contains unique attempt-identity and bounded sending-recovery indexes", () => {
+    expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collection: "notification_deliveries",
+        keys: { attemptIdentity: 1 },
+        unique: true,
+        sparse: true,
+        name: "notification_deliveries_attempt_identity_unique"
+      }),
+      expect.objectContaining({
+        collection: "notification_deliveries",
+        keys: { status: 1, sendingLeaseUntil: 1 },
+        name: "notification_deliveries_attempt_recovery"
+      })
+    ]));
+  });
+
   it("contains digest lookup and TTL indexes for password recovery", () => {
     expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
       expect.objectContaining({

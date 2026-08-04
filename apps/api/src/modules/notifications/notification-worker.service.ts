@@ -5,9 +5,10 @@ import type { QueueService } from "../../queue/queue.types.js";
 import type { AuthRepository, AuthUserRecord } from "../auth/auth.types.js";
 import type { AnnouncementRepository } from "../announcements/announcements.types.js";
 import type { CalendarRepository } from "../calendars/calendar.types.js";
+import { createNotificationDeliveryAttemptIdentity, notificationDeliveryAttemptVersion, safeProviderMessageId } from "./notification-delivery-attempt.js";
 import { announcementDestinationFingerprint, calendarDestinationFingerprint } from "./notification-destination.js";
 import { NOTIFICATION_DELIVERY_CONSENT_VERSION } from "./notification.types.js";
-import type { DeviceTokenRecord, NotificationDeliveryFailureReason, NotificationJobRecord, NotificationPreferenceRecord, NotificationRepository } from "./notification.types.js";
+import type { DeviceTokenRecord, NotificationDeliveryAttemptRecord, NotificationDeliveryFailureReason, NotificationJobRecord, NotificationPreferenceRecord, NotificationRepository } from "./notification.types.js";
 import type { PushSender } from "./push-sender.service.js";
 
 export const ACADEMIC_REMINDERS_ANDROID_CHANNEL_ID = "academic-reminders";
@@ -16,6 +17,7 @@ export const NOTIFICATION_DESTINATION_SCHEMA_VERSION = "1";
 export const GENERIC_PUSH_NOTIFICATION_TITLE = "Yeni bildirim";
 export const GENERIC_PUSH_NOTIFICATION_BODY = "Ayrıntıları görmek için uygulamayı açın.";
 export const NOTIFICATION_JOB_CLAIM_LEASE_MS = 10 * 60 * 1000;
+export const NOTIFICATION_DELIVERY_ATTEMPT_LEASE_MS = 10 * 60 * 1000;
 
 export interface NotificationSendResult {
   queued: number;
@@ -23,6 +25,8 @@ export interface NotificationSendResult {
   failed: number;
   deferred?: number;
   skipped?: number;
+  ambiguous?: number;
+  fenced?: number;
   retryableFailureReason?: "provider_unavailable" | "provider_rejected";
 }
 
@@ -45,6 +49,8 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
   private lastErrorCode?: "NOTIFICATION_WORKER_CYCLE_FAILED";
   private backlog = { due: 0, retrying: 0, processing: 0, dead: 0 };
   private backlogObservedAt?: Date;
+  private deliveryAttemptBacklog = { sending: 0, expiredSending: 0, ambiguous: 0 };
+  private deliveryAttemptBacklogObservedAt?: Date;
 
   constructor(
     @Inject("NotificationRepository") private readonly notificationRepository: NotificationRepository,
@@ -93,6 +99,7 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
     lastErrorAt?: string;
     lastErrorCode?: "NOTIFICATION_WORKER_CYCLE_FAILED";
     backlog: { due: number; retrying: number; processing: number; dead: number; observedAt?: string };
+    deliveryAttempts: { sending: number; expiredSending: number; ambiguous: number; observedAt?: string };
   } {
     return {
       enabled: this.acceptingCycles || this.lifecycleState !== "disabled",
@@ -108,6 +115,10 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
       backlog: {
         ...this.backlog,
         ...(this.backlogObservedAt ? { observedAt: this.backlogObservedAt.toISOString() } : {})
+      },
+      deliveryAttempts: {
+        ...this.deliveryAttemptBacklog,
+        ...(this.deliveryAttemptBacklogObservedAt ? { observedAt: this.deliveryAttemptBacklogObservedAt.toISOString() } : {})
       }
     };
   }
@@ -121,8 +132,19 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
   }
 
   async processDueJobs(now = new Date(), limit = 100): Promise<NotificationWorkerProcessResult> {
+    const cycleWallClockStartedAt = Date.now();
+    await this.notificationRepository.recoverExpiredDeliveryAttempts(now);
     const dueJobs = await this.notificationRepository.listDueJobs(now, limit);
-    const result: NotificationWorkerProcessResult = { processedJobs: 0, queued: 0, sent: 0, failed: 0, deferred: 0, skipped: 0 };
+    const result: NotificationWorkerProcessResult = {
+      processedJobs: 0,
+      queued: 0,
+      sent: 0,
+      failed: 0,
+      deferred: 0,
+      skipped: 0,
+      ambiguous: 0,
+      fenced: 0
+    };
     for (const candidate of dueJobs) {
       const claimId = randomUUID();
       const job = await this.notificationRepository.claimDueJob(
@@ -134,12 +156,14 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
       if (!job) continue;
       result.processedJobs += 1;
       try {
-        const jobResult = await this.fanOutJob(job, now, claimId);
+        const jobResult = await this.fanOutJob(job, now, claimId, cycleWallClockStartedAt);
         result.queued += jobResult.queued;
         result.sent += jobResult.sent;
         result.failed += jobResult.failed;
         result.deferred = (result.deferred ?? 0) + (jobResult.deferred ?? 0);
         result.skipped = (result.skipped ?? 0) + (jobResult.skipped ?? 0);
+        result.ambiguous = (result.ambiguous ?? 0) + (jobResult.ambiguous ?? 0);
+        result.fenced = (result.fenced ?? 0) + (jobResult.fenced ?? 0);
       } catch {
         result.failed += 1;
         try {
@@ -156,6 +180,7 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
         }
       }
     }
+    await this.refreshDeliveryAttemptBacklog(now).catch(() => undefined);
     return result;
   }
 
@@ -171,9 +196,14 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
       userId: delivery.userId,
       deviceTokenId: delivery.deviceTokenId,
       status: delivery.status,
+      ...(delivery.attemptIdentity ? { attemptIdentity: delivery.attemptIdentity } : {}),
+      ...(delivery.attemptVersion ? { attemptVersion: delivery.attemptVersion } : {}),
       ...(delivery.providerMessageId ? { providerMessageId: delivery.providerMessageId } : {}),
       ...(delivery.failureReason ? { failureReason: delivery.failureReason } : {}),
+      ...(delivery.sendingStartedAt ? { sendingStartedAt: delivery.sendingStartedAt.toISOString() } : {}),
+      ...(delivery.sendingLeaseUntil ? { sendingLeaseUntil: delivery.sendingLeaseUntil.toISOString() } : {}),
       ...(delivery.deliveredAt ? { deliveredAt: delivery.deliveredAt.toISOString() } : {}),
+      ...(delivery.finalizedAt ? { finalizedAt: delivery.finalizedAt.toISOString() } : {}),
       createdAt: delivery.createdAt.toISOString(),
       updatedAt: delivery.updatedAt.toISOString()
     }));
@@ -188,9 +218,11 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
   }
 
   async sendToDevice(input: { job: NotificationJobRecord; token: string; device: DeviceTokenRecord }): Promise<NotificationSendResult> {
-    const result = await this.attemptDeviceDelivery(input);
+    const result = await this.attemptDeviceDelivery({ ...input, attemptedAt: new Date() });
     if (result.sent > 0) {
       await this.notificationRepository.updateJobStatus(input.job.id, "sent");
+    } else if ((result.ambiguous ?? 0) > 0) {
+      await this.notificationRepository.updateJobStatus(input.job.id, "failed");
     } else if (result.failed > 0) {
       await this.notificationRepository.updateJobStatus(input.job.id, "failed");
     } else if ((result.skipped ?? 0) > 0) {
@@ -222,7 +254,14 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
     return retired;
   }
 
-  private async attemptDeviceDelivery(input: { job: NotificationJobRecord; token: string; device: DeviceTokenRecord; claimId?: string }): Promise<NotificationSendResult> {
+  private async attemptDeviceDelivery(input: {
+    job: NotificationJobRecord;
+    token: string;
+    device: DeviceTokenRecord;
+    claimId?: string;
+    attemptedAt: Date;
+  }): Promise<NotificationSendResult> {
+    const attemptWallClockStartedAt = Date.now();
     const destination = notificationDestination(input.job);
     if (!destination) {
       await this.recordDelivery(input.job, input.device, "skipped", undefined, "destination_unavailable");
@@ -237,65 +276,166 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
       await this.recordDelivery(input.job, input.device, "skipped", undefined, "destination_unavailable");
       return { queued: 0, sent: 0, failed: 0, skipped: 1 };
     }
+    const sendingWallClockStartedAt = Date.now();
+    const sendingStartedAt = dateAfterElapsed(
+      input.attemptedAt,
+      attemptWallClockStartedAt,
+      sendingWallClockStartedAt
+    );
     if (input.claimId && !await this.notificationRepository.renewClaimedJob(
       input.job.id,
       input.claimId,
       input.job.revision,
-      new Date(Date.now() + NOTIFICATION_JOB_CLAIM_LEASE_MS)
+      new Date(sendingStartedAt.getTime() + NOTIFICATION_JOB_CLAIM_LEASE_MS)
     )) {
       return { queued: 0, sent: 0, failed: 0, skipped: 1 };
     }
-    const result = await this.pushSender.send({
-      token: currentDevice.token,
-      title: GENERIC_PUSH_NOTIFICATION_TITLE,
-      body: GENERIC_PUSH_NOTIFICATION_BODY,
-      androidChannelId: destination.type === "announcement"
-        ? ACADEMIC_UPDATES_ANDROID_CHANNEL_ID
-        : ACADEMIC_REMINDERS_ANDROID_CHANNEL_ID,
-      data: {
-        schemaVersion: NOTIFICATION_DESTINATION_SCHEMA_VERSION,
-        destinationType: destination.type,
-        destinationId: destination.id,
-        recipientOwnerId: currentDevice.userId
-      }
-    }).catch(async () => {
-      await this.recordDelivery(input.job, input.device, "failed", undefined, "provider_unavailable");
-      return null;
+    const deviceInstallationHash = currentDevice.installationHash;
+    if (!deviceInstallationHash) return { queued: 0, sent: 0, failed: 0, skipped: 1 };
+    const attemptVersion = notificationDeliveryAttemptVersion(input.job);
+    const attemptIdentity = createNotificationDeliveryAttemptIdentity({
+      jobId: input.job.id,
+      deviceInstallationHash,
+      attemptVersion
     });
-    if (!result) return { queued: 0, sent: 0, failed: 1, retryableFailureReason: "provider_unavailable" };
+    const sendingClaimId = randomUUID();
+    const claim = await this.notificationRepository.claimDeliveryAttempt({
+      attemptIdentity,
+      attemptVersion,
+      jobId: input.job.id,
+      jobRevision: input.job.revision,
+      userId: currentDevice.userId,
+      deviceTokenId: currentDevice.id,
+      deviceInstallationHash,
+      sendingClaimId,
+      sendingStartedAt,
+      sendingLeaseUntil: new Date(sendingStartedAt.getTime() + NOTIFICATION_DELIVERY_ATTEMPT_LEASE_MS)
+    });
+    if (!claim.claimed) return deliveryAttemptResult(claim.attempt, true);
+
+    let result;
+    try {
+      result = await this.pushSender.send({
+        token: currentDevice.token,
+        title: GENERIC_PUSH_NOTIFICATION_TITLE,
+        body: GENERIC_PUSH_NOTIFICATION_BODY,
+        androidChannelId: destination.type === "announcement"
+          ? ACADEMIC_UPDATES_ANDROID_CHANNEL_ID
+          : ACADEMIC_REMINDERS_ANDROID_CHANNEL_ID,
+        data: {
+          schemaVersion: NOTIFICATION_DESTINATION_SCHEMA_VERSION,
+          destinationType: destination.type,
+          destinationId: destination.id,
+          recipientOwnerId: currentDevice.userId
+        }
+      });
+    } catch {
+      return this.finalizeAmbiguousDeliveryAttempt(
+        claim.attempt,
+        dateAfterElapsed(sendingStartedAt, sendingWallClockStartedAt)
+      );
+    }
+    const finalizedAt = dateAfterElapsed(sendingStartedAt, sendingWallClockStartedAt);
     if (result.status === "invalid_token") {
+      const deliveryResult = await this.finalizeDeliveryAttempt(claim.attempt, "invalid_device", finalizedAt, undefined, "invalid_token");
       await this.notificationRepository.disableDeviceToken(input.token);
-      await this.recordDelivery(input.job, input.device, "failed", undefined, "invalid_token");
-      return { queued: 0, sent: 0, failed: 1 };
+      return deliveryResult;
     }
     if (result.status === "failed") {
-      await this.recordDelivery(input.job, input.device, "failed", undefined, result.reason);
-      return { queued: 0, sent: 0, failed: 1, retryableFailureReason: result.reason };
+      return this.finalizeDeliveryAttempt(claim.attempt, "failed", finalizedAt, undefined, result.reason);
     }
-    await this.recordDelivery(input.job, input.device, "sent", result.providerMessageId);
-    return { queued: 0, sent: 1, failed: 0 };
+    if (result.status === "ambiguous") {
+      return this.finalizeAmbiguousDeliveryAttempt(claim.attempt, finalizedAt, result.providerMessageId);
+    }
+    const providerMessageId = safeProviderMessageId(result.providerMessageId);
+    try {
+      const finalized = await this.notificationRepository.finalizeDeliveryAttempt({
+        attemptIdentity: claim.attempt.attemptIdentity,
+        sendingClaimId,
+        status: "sent",
+        finalizedAt,
+        ...(providerMessageId ? { providerMessageId } : {}),
+        deliveredAt: finalizedAt
+      });
+      return deliveryAttemptResult(finalized);
+    } catch {
+      return this.finalizeAmbiguousDeliveryAttempt(claim.attempt, finalizedAt, providerMessageId);
+    }
   }
 
-  private async fanOutJob(job: NotificationJobRecord, now: Date, claimId: string): Promise<NotificationSendResult> {
+  private async finalizeDeliveryAttempt(
+    attempt: NotificationDeliveryAttemptRecord,
+    status: "failed" | "invalid_device",
+    finalizedAt: Date,
+    providerMessageId?: string,
+    failureReason?: NotificationDeliveryFailureReason
+  ): Promise<NotificationSendResult> {
+    const safeMessageId = safeProviderMessageId(providerMessageId);
+    try {
+      const finalized = await this.notificationRepository.finalizeDeliveryAttempt({
+        attemptIdentity: attempt.attemptIdentity,
+        sendingClaimId: attempt.sendingClaimId ?? "",
+        status,
+        finalizedAt,
+        ...(safeMessageId ? { providerMessageId: safeMessageId } : {}),
+        ...(failureReason ? { failureReason } : {})
+      });
+      return deliveryAttemptResult(finalized);
+    } catch {
+      return this.finalizeAmbiguousDeliveryAttempt(attempt, finalizedAt, providerMessageId);
+    }
+  }
+
+  private async finalizeAmbiguousDeliveryAttempt(
+    attempt: NotificationDeliveryAttemptRecord,
+    finalizedAt: Date,
+    providerMessageId?: string
+  ): Promise<NotificationSendResult> {
+    const safeMessageId = safeProviderMessageId(providerMessageId);
+    try {
+      const finalized = await this.notificationRepository.finalizeDeliveryAttempt({
+        attemptIdentity: attempt.attemptIdentity,
+        sendingClaimId: attempt.sendingClaimId ?? "",
+        status: "ambiguous",
+        finalizedAt,
+        ...(safeMessageId ? { providerMessageId: safeMessageId } : {}),
+        failureReason: "provider_outcome_unknown"
+      });
+      return deliveryAttemptResult(finalized);
+    } catch {
+      // The durable `sending` row remains a no-resend fence and lease recovery will mark it ambiguous.
+      return { queued: 0, sent: 0, failed: 0, ambiguous: 1, fenced: 1 };
+    }
+  }
+
+  private async fanOutJob(
+    job: NotificationJobRecord,
+    now: Date,
+    claimId: string,
+    cycleWallClockStartedAt: number
+  ): Promise<NotificationSendResult> {
     if (!await this.isCurrentTrustedDestination(job)) {
       await this.notificationRepository.completeClaimedJob(job.id, claimId, "cancelled");
       return { queued: 0, sent: 0, failed: 0, skipped: 1 };
     }
-    const [devices, sentDeviceTokenIds] = await Promise.all([
+    const [devices, deliveryFences] = await Promise.all([
       this.listAllActiveDeviceTokens(),
-      this.notificationRepository.listSentDeviceTokenIdsForJob(job.id, job.revision)
+      this.notificationRepository.listDeliveryAttemptFencesForJob(job.id, job.revision)
     ]);
-    const alreadySent = new Set(sentDeviceTokenIds);
+    const alreadyFenced = new Set(deliveryFences.map((fence) => fence.deviceTokenId));
+    const previouslySent = deliveryFences.filter((fence) => fence.status === "sent").length;
     let eligible = 0;
     let deferred = 0;
     let skipped = 0;
     let sent = 0;
     let failed = 0;
+    let ambiguous = deliveryFences.filter((fence) => fence.status === "sending" || fence.status === "ambiguous").length;
+    let fenced = deliveryFences.length;
     let retryableFailureReason: NotificationSendResult["retryableFailureReason"];
     let quietRescheduleAt: Date | undefined;
 
     for (const device of devices) {
-      if (alreadySent.has(device.id)) continue;
+      if (alreadyFenced.has(device.id)) continue;
       const user = await this.findDeviceUser(device);
       if (!isUserInJobScope(user, job)) {
         await this.recordDelivery(job, device, "skipped", undefined, "scope_mismatch");
@@ -315,10 +455,18 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
         deferred += 1;
         continue;
       }
-      const sendResult = await this.attemptDeviceDelivery({ job, token: device.token, device, claimId });
+      const sendResult = await this.attemptDeviceDelivery({
+        job,
+        token: device.token,
+        device,
+        claimId,
+        attemptedAt: dateAfterElapsed(now, cycleWallClockStartedAt)
+      });
       sent += sendResult.sent;
       failed += sendResult.failed;
       skipped += sendResult.skipped ?? 0;
+      ambiguous += sendResult.ambiguous ?? 0;
+      fenced += sendResult.fenced ?? 0;
       retryableFailureReason ??= sendResult.retryableFailureReason;
     }
 
@@ -331,7 +479,7 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
         retryAt: notificationRetryAt(job, now),
         reason: retryableFailureReason
       });
-      return { queued: 0, sent, failed, deferred, skipped, retryableFailureReason };
+      return { queued: 0, sent, failed, deferred, skipped, ambiguous, fenced, retryableFailureReason };
     }
     if (deferred > 0) {
       await this.notificationRepository.rescheduleClaimedJob(
@@ -339,18 +487,22 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
         claimId,
         quietRescheduleAt ?? nextQuietHourEnd(preferenceFallbackTime(now), now)
       );
-      return { queued: 0, sent, failed: 0, deferred, skipped };
+      return { queued: 0, sent, failed: 0, deferred, skipped, ambiguous, fenced };
     }
-    if (sent > 0 || alreadySent.size > 0) {
+    if (ambiguous > 0) {
+      await this.notificationRepository.completeClaimedJob(job.id, claimId, "failed");
+      return { queued: 0, sent, failed, deferred: 0, skipped, ambiguous, fenced };
+    }
+    if (sent > 0 || previouslySent > 0) {
       await this.notificationRepository.completeClaimedJob(job.id, claimId, "sent");
-      return { queued: 0, sent, failed: 0, deferred: 0, skipped };
+      return { queued: 0, sent, failed: 0, deferred: 0, skipped, ambiguous: 0, fenced };
     }
     if (eligible === 0 || skipped > 0 || failed > 0) {
       await this.notificationRepository.completeClaimedJob(job.id, claimId, "cancelled");
-      return { queued: 0, sent: 0, failed: 0, deferred, skipped };
+      return { queued: 0, sent: 0, failed: 0, deferred, skipped, ambiguous: 0, fenced };
     }
     await this.notificationRepository.completeClaimedJob(job.id, claimId, "failed");
-    return { queued: 0, sent: 0, failed: 1, deferred, skipped };
+    return { queued: 0, sent: 0, failed: 1, deferred, skipped, ambiguous: 0, fenced };
   }
 
   private async listAllActiveDeviceTokens(): Promise<DeviceTokenRecord[]> {
@@ -363,6 +515,11 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
       if (page.length < ACTIVE_DEVICE_PAGE_SIZE) break;
     }
     return [...devicesById.values()];
+  }
+
+  private async refreshDeliveryAttemptBacklog(now: Date): Promise<void> {
+    this.deliveryAttemptBacklog = await this.notificationRepository.getDeliveryAttemptBacklog(now);
+    this.deliveryAttemptBacklogObservedAt = new Date();
   }
 
   private async isCurrentTrustedDestination(job: NotificationJobRecord): Promise<boolean> {
@@ -444,6 +601,32 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
   private findDeviceUser(device: DeviceTokenRecord): Promise<AuthUserRecord | null> {
     return this.authRepository?.findUserById(device.userId) ?? Promise.resolve(null);
   }
+}
+
+function deliveryAttemptResult(attempt: NotificationDeliveryAttemptRecord | null, fenced = false): NotificationSendResult {
+  if (!attempt || attempt.status === "sending" || attempt.status === "ambiguous") {
+    return { queued: 0, sent: 0, failed: 0, ambiguous: 1, fenced: 1 };
+  }
+  if (attempt.status === "sent") {
+    return { queued: 0, sent: 1, failed: 0, ...(fenced ? { fenced: 1 } : {}) };
+  }
+  if (attempt.status === "invalid_device") {
+    return { queued: 0, sent: 0, failed: 1, ...(fenced ? { fenced: 1 } : {}) };
+  }
+  const retryableFailureReason = attempt.failureReason === "provider_unavailable" || attempt.failureReason === "provider_rejected"
+    ? attempt.failureReason
+    : undefined;
+  return {
+    queued: 0,
+    sent: 0,
+    failed: 1,
+    ...(fenced ? { fenced: 1 } : {}),
+    ...(retryableFailureReason ? { retryableFailureReason } : {})
+  };
+}
+
+function dateAfterElapsed(base: Date, wallClockStartedAt: number, wallClockObservedAt = Date.now()): Date {
+  return new Date(base.getTime() + Math.max(0, wallClockObservedAt - wallClockStartedAt));
 }
 
 function isUserInJobScope(user: AuthUserRecord | null, job: NotificationJobRecord): boolean {

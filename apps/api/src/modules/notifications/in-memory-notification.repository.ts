@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import { DeviceRegistrationConflictError } from "./notification.types.js";
-import type { DeviceTokenRecord, DeviceTokenRegistrationInput, NotificationDeliveryRecord, NotificationJobCreateInput, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationProducerDestinationRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
+import type { DeviceTokenRecord, DeviceTokenRegistrationInput, NotificationDeliveryAttemptClaimInput, NotificationDeliveryAttemptFence, NotificationDeliveryAttemptFinalizeInput, NotificationDeliveryAttemptRecord, NotificationDeliveryRecord, NotificationJobCreateInput, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationProducerDestinationRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
 
 @Injectable()
 export class InMemoryNotificationRepository implements NotificationRepository {
@@ -378,6 +378,86 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     )];
   }
 
+  async claimDeliveryAttempt(input: NotificationDeliveryAttemptClaimInput): Promise<{ claimed: boolean; attempt: NotificationDeliveryAttemptRecord }> {
+    const existing = [...this.deliveries.values()].find((delivery) => delivery.attemptIdentity === input.attemptIdentity);
+    if (existing) return { claimed: false, attempt: existing as NotificationDeliveryAttemptRecord };
+    const now = new Date(input.sendingStartedAt);
+    const attempt: NotificationDeliveryAttemptRecord = {
+      id: randomUUID(),
+      jobId: input.jobId,
+      jobRevision: input.jobRevision,
+      attemptIdentity: input.attemptIdentity,
+      attemptVersion: input.attemptVersion,
+      deviceInstallationHash: input.deviceInstallationHash,
+      userId: input.userId,
+      deviceTokenId: input.deviceTokenId,
+      status: "sending",
+      sendingClaimId: input.sendingClaimId,
+      sendingStartedAt: now,
+      sendingLeaseUntil: new Date(input.sendingLeaseUntil),
+      createdAt: now,
+      updatedAt: now
+    };
+    this.deliveries.set(attempt.id, attempt);
+    return { claimed: true, attempt };
+  }
+
+  async finalizeDeliveryAttempt(input: NotificationDeliveryAttemptFinalizeInput): Promise<NotificationDeliveryAttemptRecord | null> {
+    const existing = [...this.deliveries.values()].find((delivery) => delivery.attemptIdentity === input.attemptIdentity) as NotificationDeliveryAttemptRecord | undefined;
+    if (!existing) return null;
+    if (existing.status !== "sending" || existing.sendingClaimId !== input.sendingClaimId) return existing;
+    const finalized: NotificationDeliveryAttemptRecord = {
+      ...existing,
+      status: input.status,
+      ...(input.providerMessageId ? { providerMessageId: input.providerMessageId } : {}),
+      ...(input.failureReason ? { failureReason: input.failureReason } : {}),
+      ...(input.deliveredAt ? { deliveredAt: new Date(input.deliveredAt) } : {}),
+      finalizedAt: new Date(input.finalizedAt),
+      updatedAt: new Date(input.finalizedAt)
+    };
+    delete finalized.sendingClaimId;
+    delete finalized.sendingLeaseUntil;
+    this.deliveries.set(finalized.id, finalized);
+    return finalized;
+  }
+
+  async recoverExpiredDeliveryAttempts(now: Date): Promise<number> {
+    let recovered = 0;
+    for (const [id, delivery] of this.deliveries.entries()) {
+      if (!delivery.attemptIdentity || delivery.status !== "sending" || (delivery.sendingLeaseUntil && delivery.sendingLeaseUntil > now)) continue;
+      const ambiguous: NotificationDeliveryRecord = {
+        ...delivery,
+        status: "ambiguous",
+        failureReason: "provider_outcome_unknown",
+        finalizedAt: new Date(now),
+        updatedAt: new Date(now)
+      };
+      delete ambiguous.sendingClaimId;
+      delete ambiguous.sendingLeaseUntil;
+      this.deliveries.set(id, ambiguous);
+      recovered += 1;
+    }
+    return recovered;
+  }
+
+  async getDeliveryAttemptBacklog(now: Date): Promise<{ sending: number; expiredSending: number; ambiguous: number }> {
+    const attempts = [...this.deliveries.values()].filter((delivery) => Boolean(delivery.attemptIdentity));
+    return {
+      sending: attempts.filter((attempt) => attempt.status === "sending").length,
+      expiredSending: attempts.filter((attempt) => attempt.status === "sending" && (!attempt.sendingLeaseUntil || attempt.sendingLeaseUntil <= now)).length,
+      ambiguous: attempts.filter((attempt) => attempt.status === "ambiguous").length
+    };
+  }
+
+  async listDeliveryAttemptFencesForJob(jobId: string, revision = 1): Promise<NotificationDeliveryAttemptFence[]> {
+    return [...this.deliveries.values()]
+      .filter((delivery): delivery is NotificationDeliveryRecord & { status: NotificationDeliveryAttemptFence["status"] } =>
+        delivery.jobId === jobId
+        && (delivery.jobRevision ?? 1) === revision
+        && (delivery.status === "sending" || delivery.status === "sent" || delivery.status === "invalid_device" || delivery.status === "ambiguous"))
+      .map((delivery) => ({ deviceTokenId: delivery.deviceTokenId, status: delivery.status }));
+  }
+
   async recordDelivery(input: Omit<NotificationDeliveryRecord, "id" | "createdAt" | "updatedAt">): Promise<NotificationDeliveryRecord> {
     const now = new Date();
     const delivery: NotificationDeliveryRecord = { ...input, id: randomUUID(), createdAt: now, updatedAt: now };
@@ -404,7 +484,14 @@ export class InMemoryNotificationRepository implements NotificationRepository {
   async rescheduleJob(jobId: string, scheduledAt: Date): Promise<NotificationJobRecord | null> {
     const job = this.jobs.get(jobId);
     if (!job || (job.status !== "failed" && job.status !== "dead")) return null;
-    const updated = clearJobClaim({ ...job, status: "scheduled", scheduledAt, attemptCount: 0, updatedAt: new Date() });
+    const updated = clearJobClaim({
+      ...job,
+      status: "scheduled",
+      scheduledAt,
+      deliveryAttemptEpoch: job.deliveryAttemptEpoch + 1,
+      attemptCount: 0,
+      updatedAt: new Date()
+    });
     delete updated.lastAttemptAt;
     delete updated.lastFailureReason;
     delete updated.exhaustedAt;
@@ -556,6 +643,7 @@ function withNewJobLifecycle(input: NotificationJobCreateInput, id: string, now:
     ...(input.producerKey ? { producerKeys: notificationJobProducerKeys(input) } : {}),
     id,
     revision: 1,
+    deliveryAttemptEpoch: 0,
     attemptCount: 0,
     maxAttempts: input.maxAttempts ?? 5,
     createdAt: now,
