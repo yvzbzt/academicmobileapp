@@ -58,7 +58,15 @@ export class EmailVerificationSenderService {
       return;
     }
 
-    const transport = nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
+    const transport = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
+      connectionTimeout: 5_000,
+      greetingTimeout: 5_000,
+      socketTimeout: 10_000
+    });
     const expiresText = input.expiresAt.toISOString();
 
     await transport.sendMail({
@@ -86,7 +94,15 @@ export class EmailVerificationSenderService {
       return;
     }
 
-    const transport = nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
+    const transport = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
+      connectionTimeout: 5_000,
+      greetingTimeout: 5_000,
+      socketTimeout: 10_000
+    });
     const expiresText = input.expiresAt.toISOString();
 
     await transport.sendMail({

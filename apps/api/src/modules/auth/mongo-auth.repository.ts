@@ -5,6 +5,7 @@ import { MongoConnectionService } from "../../database/mongo-connection.service.
 import type {
   AuthRepository,
   AuthUserRecord,
+  CompletePasswordRecoveryInput,
   CreateAuthUserInput,
   CreatePasswordRecoveryTokenInput,
   CreateRefreshTokenInput,
@@ -139,6 +140,46 @@ export class MongoAuthRepository implements AuthRepository {
     });
   }
 
+  async completePasswordRecovery(input: CompletePasswordRecoveryInput): Promise<"completed" | "already_completed" | "conflict"> {
+    const model = await this.model("User", userSchema);
+    const nextCredentialGeneration = input.expectedCredentialGeneration + 1;
+    const document = await model.findOneAndUpdate(
+      {
+        _id: input.userId,
+        deletedAt: { $exists: false },
+        "passwordRecoveryAttempt.tokenHash": input.tokenHash,
+        "passwordRecoveryAttempt.credentialGeneration": input.expectedCredentialGeneration,
+        "passwordRecoveryAttempt.expiresAt": { $gt: input.completedAt },
+        $or: [
+          { credentialGeneration: input.expectedCredentialGeneration },
+          ...(input.expectedCredentialGeneration === 0 ? [{ credentialGeneration: { $exists: false } }] : [])
+        ]
+      },
+      {
+        $set: {
+          passwordHash: input.passwordHash,
+          authProvider: input.authProvider,
+          passwordRecoveryCompletion: {
+            operationKey: input.operationKey,
+            completedAt: input.completedAt,
+            credentialGeneration: nextCredentialGeneration
+          }
+        },
+        $unset: { passwordRecoveryAttempt: "" },
+        $inc: { credentialGeneration: 1 }
+      },
+      { new: true }
+    );
+    if (document) return "completed";
+
+    const current = await model.findOne({ _id: input.userId, deletedAt: { $exists: false } });
+    if (!current) return "conflict";
+    const user = normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(current));
+    return user.passwordRecoveryCompletion?.operationKey === input.operationKey
+      ? "already_completed"
+      : "conflict";
+  }
+
   async updateUserAcademicSelection(id: string, input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
     const fieldsToSet = omitUndefined({
@@ -215,6 +256,26 @@ export class MongoAuthRepository implements AuthRepository {
   async createPasswordRecoveryToken(input: CreatePasswordRecoveryTokenInput): Promise<PasswordRecoveryTokenRecord> {
     const model = await this.model("PasswordRecoveryToken", passwordRecoveryTokenSchema);
     const document = await model.create(input);
+    const userModel = await this.model("User", userSchema);
+    await userModel.updateOne(
+      {
+        _id: input.userId,
+        deletedAt: { $exists: false },
+        $or: [
+          { credentialGeneration: input.credentialGeneration },
+          ...(input.credentialGeneration === 0 ? [{ credentialGeneration: { $exists: false } }] : [])
+        ]
+      },
+      {
+        $set: {
+          passwordRecoveryAttempt: {
+            tokenHash: input.tokenHash,
+            credentialGeneration: input.credentialGeneration,
+            expiresAt: input.expiresAt
+          }
+        }
+      }
+    );
     return normalizePasswordRecoveryTokenRecord(toDomainRecord<PasswordRecoveryTokenRecord>(document));
   }
 
@@ -231,6 +292,11 @@ export class MongoAuthRepository implements AuthRepository {
   }
 
   async invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void> {
+    const userModel = await this.model("User", userSchema);
+    await userModel.updateOne(
+      { _id: userId, deletedAt: { $exists: false } },
+      { $unset: { passwordRecoveryAttempt: "" }, $set: { updatedAt: invalidatedAt } }
+    );
     const model = await this.model("PasswordRecoveryToken", passwordRecoveryTokenSchema);
     await model.updateMany(
       { userId, consumedAt: { $exists: false }, invalidatedAt: { $exists: false } },
@@ -254,6 +320,11 @@ export class MongoAuthRepository implements AuthRepository {
   }
 
   async deletePasswordRecoveryTokensByUserId(userId: string): Promise<void> {
+    const userModel = await this.model("User", userSchema);
+    await userModel.updateOne(
+      { _id: userId, deletedAt: { $exists: false } },
+      { $unset: { passwordRecoveryAttempt: "" }, $set: { updatedAt: new Date() } }
+    );
     const model = await this.model("PasswordRecoveryToken", passwordRecoveryTokenSchema);
     await model.deleteMany({ userId });
   }

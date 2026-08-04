@@ -1,7 +1,8 @@
 import { BadRequestException, ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { JwtAuthGuard } from "../src/common/guards/jwt-auth.guard.js";
+import { RecentAuthGuard } from "../src/common/guards/recent-auth.guard.js";
 import { RolesGuard } from "../src/common/guards/roles.guard.js";
 import { AuthApplicationService } from "../src/modules/auth/auth-application.service.js";
 import { EmailVerificationSenderService, type SendVerificationEmailInput } from "../src/modules/auth/email-verification-sender.service.js";
@@ -30,6 +31,10 @@ function createExecutionContext(request: Record<string, unknown>, requiredRoles?
   } as unknown as ExecutionContext;
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("JwtAuthGuard", () => {
   it("attaches authenticated user from bearer token", async () => {
     const authRepository = new InMemoryAuthRepository();
@@ -45,15 +50,15 @@ describe("JwtAuthGuard", () => {
     const session = await authService.login({ email: registerResult.email, password: "StrongPass123!", deviceId: "device-1" });
     const request: Record<string, unknown> = { headers: { authorization: `Bearer ${session.accessToken}` } };
 
-    const canActivate = new JwtAuthGuard(tokenService).canActivate(createExecutionContext(request));
+    const canActivate = await new JwtAuthGuard(tokenService, authRepository).canActivate(createExecutionContext(request));
 
     expect(canActivate).toBe(true);
     expect(request.user).toEqual(expect.objectContaining({ id: session.user.id, role: "student" }));
   });
 
-  it("rejects missing bearer token", () => {
-    const guard = new JwtAuthGuard(new TokenService());
-    expect(() => guard.canActivate(createExecutionContext({ headers: {} }))).toThrow(UnauthorizedException);
+  it("rejects missing bearer token", async () => {
+    const guard = new JwtAuthGuard(new TokenService(), new InMemoryAuthRepository());
+    await expect(guard.canActivate(createExecutionContext({ headers: {} }))).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
 
@@ -287,5 +292,56 @@ describe("UsersService", () => {
       role: "student",
       status: "active"
     })).resolves.toEqual(expect.objectContaining({ email: "deleting.student@example.com" }));
+  });
+
+  it("rejects an access token after the account credential generation advances", async () => {
+    const authRepository = new InMemoryAuthRepository();
+    const user = await authRepository.createUser({
+      fullName: "Stale Access Student",
+      email: "stale-access@example.com",
+      passwordHash: "hash",
+      role: "student",
+      status: "active"
+    });
+    const tokenService = new TokenService();
+    const accessToken = tokenService.signAccessToken(user);
+    const users = (authRepository as unknown as { users: Map<string, typeof user> }).users;
+    users.set(user.id, { ...user, credentialGeneration: 1 });
+
+    const guard = new JwtAuthGuard(tokenService, authRepository);
+    await expect(guard.canActivate(createExecutionContext({
+      headers: { authorization: `Bearer ${accessToken}` }
+    }))).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe("RecentAuthGuard", () => {
+  it("accepts only an unexpired proof owned by the current account generation", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-04T08:00:00.000Z"));
+    const tokenService = new TokenService();
+    const proof = tokenService.signRecentAuthenticationProof({ id: "owner-1", credentialGeneration: 4 }, "password");
+    const guard = new RecentAuthGuard(tokenService);
+    const validRequest = {
+      headers: { "x-recent-authentication": proof },
+      user: { id: "owner-1", credentialGeneration: 4 }
+    };
+
+    expect(guard.canActivate(createExecutionContext(validRequest))).toBe(true);
+    expect(() => guard.canActivate(createExecutionContext({
+      ...validRequest,
+      user: { id: "owner-2", credentialGeneration: 4 }
+    }))).toThrow(UnauthorizedException);
+    expect(() => guard.canActivate(createExecutionContext({
+      ...validRequest,
+      user: { id: "owner-1", credentialGeneration: 5 }
+    }))).toThrow(UnauthorizedException);
+    expect(() => guard.canActivate(createExecutionContext({
+      headers: { "x-recent-authentication": "malformed" },
+      user: { id: "owner-1", credentialGeneration: 4 }
+    }))).toThrow(UnauthorizedException);
+
+    vi.advanceTimersByTime(tokenService.getRecentAuthenticationTtlSeconds() * 1_000 + 1_000);
+    expect(() => guard.canActivate(createExecutionContext(validRequest))).toThrow(UnauthorizedException);
   });
 });

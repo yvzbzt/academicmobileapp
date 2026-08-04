@@ -124,16 +124,58 @@ describe("password recovery", () => {
     process.env.PASSWORD_RECOVERY_TOKEN_PEPPER = "test-password-recovery-pepper-with-at-least-32-characters";
     const fixture = createRecoveryFixture();
     await createActivePasswordUser(fixture);
+    const verifySpy = vi.spyOn(fixture.passwordHasher, "verify");
+    const latestSpy = vi.spyOn(fixture.repository, "findLatestPasswordRecoveryTokenByUserId");
 
-    const known = await fixture.service.requestPasswordRecovery(" RECOVERY.STUDENT@example.com ");
-    const knownDuringCooldown = await fixture.service.requestPasswordRecovery("recovery.student@example.com");
-    const unknown = await fixture.service.requestPasswordRecovery("unknown.student@example.com");
+    const durations: number[] = [];
+    const timedRequest = async (email: string) => {
+      const startedAt = Date.now();
+      const result = await fixture.service.requestPasswordRecovery(email);
+      durations.push(Date.now() - startedAt);
+      return result;
+    };
+
+    const known = await timedRequest(" RECOVERY.STUDENT@example.com ");
+    const knownDuringCooldown = await timedRequest("recovery.student@example.com");
+    const unknown = await timedRequest("unknown.student@example.com");
 
     expect(known).toEqual(unknown);
     expect(knownDuringCooldown).toEqual(known);
     expect(known).not.toHaveProperty("previewRecoveryCode");
     expect(fixture.sender.recoverySent).toHaveLength(1);
     expect(fixture.sender.recoverySent[0]?.email).toBe("recovery.student@example.com");
+    expect(verifySpy).toHaveBeenCalledTimes(3);
+    expect(latestSpy).toHaveBeenCalledTimes(3);
+    expect(Math.min(...durations)).toBeGreaterThanOrEqual(300);
+    expect(Math.max(...durations) - Math.min(...durations)).toBeLessThan(150);
+  });
+
+  it("returns before bounded password-recovery delivery completes", async () => {
+    class BlockingSender extends CapturingPasswordRecoverySender {
+      started = false;
+      override async sendPasswordRecoveryEmail(input: SendPasswordRecoveryEmailInput): Promise<void> {
+        this.started = true;
+        this.recoverySent.push(input);
+        await new Promise<void>(() => undefined);
+      }
+    }
+    const repository = new InMemoryAuthRepository();
+    const passwordHasher = new FastTestPasswordHasher();
+    const sender = new BlockingSender();
+    const service = new AuthApplicationService(repository, passwordHasher, new TokenService(), sender);
+    await repository.createUser({
+      fullName: "Deferred Delivery Student",
+      email: "deferred.delivery@example.com",
+      emailVerifiedAt: new Date(),
+      passwordHash: await passwordHasher.hash("OldPassword123!"),
+      authProvider: "password",
+      role: "student",
+      status: "active"
+    });
+
+    await expect(service.requestPasswordRecovery("deferred.delivery@example.com"))
+      .resolves.toEqual(expect.objectContaining({ status: "recovery_requested" }));
+    expect(sender.started).toBe(true);
   });
 
   it("stores only an HMAC digest and supports account-cleanup deletion", async () => {
@@ -245,7 +287,7 @@ describe("password recovery", () => {
     })).resolves.toEqual({ status: "password_reset" });
   });
 
-  it("changes the password, preserves the current generation without pre-A2 mismatch enforcement, and revokes sessions", async () => {
+  it("rejects recovery material from an older credential generation", async () => {
     const fixture = createRecoveryFixture();
     const user = await createActivePasswordUser(fixture);
     setStoredCredentialGeneration(fixture.repository, user.id, 5);
@@ -257,6 +299,35 @@ describe("password recovery", () => {
     await fixture.service.requestPasswordRecovery(user.email);
     const code = fixture.sender.recoverySent[0]!.code;
     setStoredCredentialGeneration(fixture.repository, user.id, 6);
+
+    const mismatch = await captureHttpException(() => fixture.service.confirmPasswordRecovery({
+      email: user.email,
+      code,
+      newPassword: "NewPassword123!",
+      passwordConfirmation: "NewPassword123!"
+    }));
+    expectControlledError(mismatch, HttpStatus.UNAUTHORIZED, AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID);
+    await expect(fixture.repository.findUserById(user.id)).resolves.toEqual(
+      expect.objectContaining({ credentialGeneration: 6 })
+    );
+
+    await expect(fixture.service.refresh({
+      refreshToken: existingSession.refreshToken,
+      deviceId: "existing-device"
+    })).rejects.toBeInstanceOf(HttpException);
+  });
+
+  it("changes the password, increments generation once, and logically invalidates old credentials", async () => {
+    const fixture = createRecoveryFixture();
+    const user = await createActivePasswordUser(fixture);
+    setStoredCredentialGeneration(fixture.repository, user.id, 5);
+    const existingSession = await fixture.service.login({
+      email: user.email,
+      password: "OldPassword123!",
+      deviceId: "existing-device"
+    });
+    await fixture.service.requestPasswordRecovery(user.email);
+    const code = fixture.sender.recoverySent[0]!.code;
 
     await expect(fixture.service.confirmPasswordRecovery({
       email: user.email,
@@ -286,13 +357,29 @@ describe("password recovery", () => {
     }));
     expectControlledError(refreshError, HttpStatus.UNAUTHORIZED, AUTH_ERROR_CODES.SESSION_INVALID);
 
-    const reusedCodeError = await captureHttpException(() => fixture.service.confirmPasswordRecovery({
+    await expect(fixture.service.confirmPasswordRecovery({
+      email: user.email,
+      code,
+      newPassword: "NewPassword123!",
+      passwordConfirmation: "NewPassword123!"
+    })).resolves.toEqual({ status: "password_reset" });
+
+    await expect(fixture.repository.findUserById(user.id)).resolves.toEqual(
+      expect.objectContaining({ credentialGeneration: 6 })
+    );
+    const differentRetry = await captureHttpException(() => fixture.service.confirmPasswordRecovery({
       email: user.email,
       code,
       newPassword: "ThirdPassword123!",
       passwordConfirmation: "ThirdPassword123!"
     }));
-    expectControlledError(reusedCodeError, HttpStatus.UNAUTHORIZED, AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID);
+    expectControlledError(differentRetry, HttpStatus.UNAUTHORIZED, AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID);
+    const thirdPasswordError = await captureHttpException(() => fixture.service.login({
+      email: user.email,
+      password: "ThirdPassword123!",
+      deviceId: "third-password-device"
+    }));
+    expectControlledError(thirdPasswordError, HttpStatus.UNAUTHORIZED, AUTH_ERROR_CODES.INVALID_CREDENTIALS);
   });
 
   it("does not write recovery secrets, credentials, tokens, or personal values to logs", async () => {

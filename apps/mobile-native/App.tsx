@@ -117,6 +117,16 @@ import {
   VerificationScreen,
   type AuthFeedback
 } from "./src/auth/AuthScreens";
+import { RecentAuthenticationPanel } from "./src/auth/RecentAuthenticationPanel";
+import {
+  normalizeAccountAuthProvider,
+  readRecentAuthenticationResponse,
+  recentAuthenticationHeader,
+  recentAuthenticationMethods,
+  type AccountAuthProvider,
+  type DestructiveAccountAction,
+  type RecentAuthenticationMethod
+} from "./src/auth/recent-authentication";
 import {
   EMPTY_ACADEMIC_ONBOARDING_DRAFT,
   buildAcademicSelectionPayload,
@@ -303,6 +313,7 @@ type SessionPayload = {
     fullName: string;
     email: string;
     role: string;
+    authProvider?: AccountAuthProvider;
   };
 };
 
@@ -332,6 +343,7 @@ type UserProfile = {
   email: string;
   role: string;
   status: "active" | "inactive" | "locked";
+  authProvider?: AccountAuthProvider;
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
@@ -1136,6 +1148,11 @@ function MainApplication() {
   const [busy, setBusy] = useState(false);
   const [academicSelectionPending, setAcademicSelectionPending] = useState<AcademicSelectionLevel | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [accountAuthProvider, setAccountAuthProvider] = useState<AccountAuthProvider | undefined>();
+  const [recentAuthAction, setRecentAuthAction] = useState<DestructiveAccountAction | null>(null);
+  const [recentAuthPassword, setRecentAuthPassword] = useState("");
+  const [recentAuthBusy, setRecentAuthBusy] = useState(false);
+  const [recentAuthError, setRecentAuthError] = useState<string | undefined>();
   const [message, setMessage] = useState<{ text: string; tone: "info" | "success" | "error" } | null>(null);
   const [googleCalendarBusy, setGoogleCalendarBusy] = useState(false);
   const [googleCalendarIntegration, setGoogleCalendarIntegration] = useState<GoogleCalendarConnectionRecordV3 | null>(null);
@@ -1206,6 +1223,10 @@ function MainApplication() {
   const hydrationInProgressRef = useRef(false);
 
   const accessToken = session?.accessToken;
+  const availableRecentAuthMethods = recentAuthenticationMethods(
+    accountAuthProvider ?? normalizeAccountAuthProvider(session?.user.authProvider),
+    GOOGLE_AUTH_CONFIGURED
+  );
   const googleCalendarService = useMemo(() => new GoogleCalendarService(), []);
   const availableCategories = useMemo(() => {
     const keys = new Set<string>(DEFAULT_CATEGORY_OPTIONS);
@@ -2304,6 +2325,7 @@ function MainApplication() {
     }
     sessionRef.current = parsed;
     notificationCoordinatorOwnerTokenRef.current = parsed;
+    setAccountAuthProvider(normalizeAccountAuthProvider(parsed.user.authProvider));
     setSession(parsed);
     return parsed;
   }
@@ -2695,6 +2717,7 @@ function MainApplication() {
     }
     sessionRef.current = nextSession;
     notificationCoordinatorOwnerTokenRef.current = nextSession;
+    setAccountAuthProvider(normalizeAccountAuthProvider(nextSession.user.authProvider));
     setSession(nextSession);
     setActiveTab("home");
     setActiveRoute("Home");
@@ -2808,6 +2831,7 @@ function MainApplication() {
         if (!accountGuardRef.current.isCurrent(snapshot)) return null;
         sessionRef.current = nextSession;
         notificationCoordinatorOwnerTokenRef.current = nextSession;
+        setAccountAuthProvider(normalizeAccountAuthProvider(nextSession.user.authProvider));
         setSession(nextSession);
         return nextSession;
       } catch (error) {
@@ -3008,6 +3032,7 @@ function MainApplication() {
     const profileUniversityId = profile.universityId ?? "";
     setFullName(profile.fullName);
     setEmail(profile.email);
+    setAccountAuthProvider(normalizeAccountAuthProvider(profile.authProvider ?? sessionRef.current?.user.authProvider));
     setSelectedUniversityId(profileUniversityId);
     setRegisterUniversityId(profileUniversityId);
     setRegisterFacultyId(profile.facultyId ?? "");
@@ -3913,6 +3938,11 @@ function MainApplication() {
   function clearAuthenticatedMemory(): void {
     sessionRef.current = null;
     notificationCoordinatorOwnerTokenRef.current = null;
+    setAccountAuthProvider(undefined);
+    setRecentAuthAction(null);
+    setRecentAuthPassword("");
+    setRecentAuthBusy(false);
+    setRecentAuthError(undefined);
     setSession(null);
     setAuthenticatedContextPending(false);
     setAuthMode("login");
@@ -3955,8 +3985,7 @@ function MainApplication() {
       && sessionRef.current
       && (!issue.ownerId || sessionRef.current.user.id === issue.ownerId)
     ) {
-      setCleanupIssue(null);
-      await deleteAccount();
+      beginRecentAuthentication("account");
       return;
     }
     const currentSnapshot = accountGuardRef.current.capture();
@@ -4072,8 +4101,93 @@ function MainApplication() {
     }
   }
 
+  function dismissRecentAuthentication(): void {
+    if (recentAuthBusy) return;
+    setRecentAuthAction(null);
+    setRecentAuthPassword("");
+    setRecentAuthError(undefined);
+  }
+
+  function beginRecentAuthentication(action: DestructiveAccountAction): void {
+    if (!sessionRef.current || accountCleanupInProgressRef.current || recentAuthBusy) return;
+    setRecentAuthPassword("");
+    setRecentAuthError(undefined);
+    setRecentAuthAction(action);
+  }
+
+  async function freshGoogleIdTokenForRecentAuthentication(): Promise<string> {
+    if (!GOOGLE_AUTH_CONFIGURED) throw new Error(GOOGLE_AUTH_CONFIGURATION_MESSAGE);
+    return enqueueGoogleSdkOperation(async () => {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      await clearGoogleAccountSelection();
+      const result = await GoogleSignin.signIn();
+      if (isCancelledResponse(result)) throw new Error("Google doğrulaması tamamlanmadan kapatıldı.");
+
+      let idToken = result.data.idToken;
+      if (!idToken) {
+        try {
+          idToken = (await GoogleSignin.getTokens()).idToken;
+        } catch {
+          idToken = null;
+        }
+      }
+      if (!idToken) throw new Error(GOOGLE_ID_TOKEN_CONFIGURATION_MESSAGE);
+      return idToken;
+    });
+  }
+
+  async function requestRecentAuthenticationProof(
+    method: RecentAuthenticationMethod,
+    currentSession: SessionPayload,
+    ownerSnapshot: AccountGenerationSnapshot,
+    passwordCredential?: string
+  ): Promise<string> {
+    const body = method === "password"
+      ? { method, password: passwordCredential ?? "" }
+      : { method, idToken: await freshGoogleIdTokenForRecentAuthentication() };
+    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+    const response = await apiRequest<unknown>(
+      "/auth/recent-authentication",
+      { method: "POST", body: JSON.stringify(body) },
+      currentSession.accessToken,
+      { ownerSnapshot }
+    );
+    return readRecentAuthenticationResponse(response).proof;
+  }
+
+  async function submitRecentAuthentication(method: RecentAuthenticationMethod): Promise<void> {
+    const action = recentAuthAction;
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!action || !currentSession || !ownerSnapshot || recentAuthBusy) return;
+    if (method === "password" && !recentAuthPassword) {
+      setRecentAuthError("Hesap şifreni gir.");
+      return;
+    }
+
+    setRecentAuthBusy(true);
+    setRecentAuthError(undefined);
+    const passwordCredential = method === "password" ? recentAuthPassword : undefined;
+    setRecentAuthPassword("");
+    try {
+      const proof = await requestRecentAuthenticationProof(method, currentSession, ownerSnapshot, passwordCredential);
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      setRecentAuthAction(null);
+      setRecentAuthPassword("");
+      if (action === "data") await deleteMyData(proof);
+      else await deleteAccount(proof);
+    } catch (error) {
+      if (!(error instanceof StaleAccountRequestError)) {
+        setRecentAuthError(userMessageFromError(error, "Kimliğin doğrulanamadı. Tekrar deneyebilirsin."));
+      }
+    } finally {
+      setRecentAuthPassword("");
+      setRecentAuthBusy(false);
+    }
+  }
+
   function confirmDeleteMyData(): void {
-    if (!session) return;
+    if (!session || recentAuthAction) return;
     Alert.alert(
       "Verilerimi sil",
       "Okul seçimin, bildirim tercihlerin, cihaz bildirim kaydın, kişisel alarm ve sınav verilerin silinir. Şu anda bağlı Google hesabındaki uygulama kayıtları kaldırılır ve erişim geri alınır; daha önce hesap değiştirirken özellikle bıraktığın kayıtlar için ilgili hesabı yeniden bağlamalısın. Kişisel etkinliklerin korunur. Hesabın açık kalır.",
@@ -4082,13 +4196,13 @@ function MainApplication() {
         {
           text: "Verileri Sil",
           style: "destructive",
-          onPress: () => void deleteMyData()
+          onPress: () => beginRecentAuthentication("data")
         }
       ]
     );
   }
 
-  async function deleteMyData(): Promise<void> {
+  async function deleteMyData(recentAuthenticationProof: string): Promise<void> {
     if (!session || accountCleanupInProgressRef.current) return;
     const currentSession = session;
     accountCleanupInProgressRef.current = true;
@@ -4102,7 +4216,7 @@ function MainApplication() {
       await waitForAuthenticatedMutations();
       await apiRequest<{ status: "deleted" }>(
         "/me/data",
-        { method: "DELETE" },
+        { method: "DELETE", headers: recentAuthenticationHeader(recentAuthenticationProof) },
         currentSession.accessToken,
         { skipAuthRefresh: true, detached: true }
       );
@@ -4187,7 +4301,7 @@ function MainApplication() {
   }
 
   function confirmDeleteAccount(): void {
-    if (!session) return;
+    if (!session || recentAuthAction) return;
     Alert.alert(
       "Hesabımı sil",
       "Hesabın kapatılır; cihaz bildirim kaydı, şu anda bağlı Google hesabındaki uygulama kayıtları ve Google erişimi temizlenmeye çalışılır. Hesap değiştirirken özellikle bıraktığın eski hesaptaki kayıtlar bu işlemde kaldırılamaz. Kişisel Google Takvim etkinliklerine dokunulmaz. Bu işlem geri alınamaz.",
@@ -4196,13 +4310,13 @@ function MainApplication() {
         {
           text: "Hesabımı Sil",
           style: "destructive",
-          onPress: () => void deleteAccount()
+          onPress: () => beginRecentAuthentication("account")
         }
       ]
     );
   }
 
-  async function deleteAccount(): Promise<void> {
+  async function deleteAccount(recentAuthenticationProof: string): Promise<void> {
     if (!session || accountCleanupInProgressRef.current) return;
     const closingSession = session;
     const ownerId = closingSession.user.id;
@@ -4285,7 +4399,11 @@ function MainApplication() {
         timeoutMs: 8_000,
         run: () => apiRequest<{ status: "deleted" }>(
           "/me",
-          { method: "DELETE", body: JSON.stringify({ deleteData: true }) },
+          {
+            method: "DELETE",
+            body: JSON.stringify({ deleteData: true }),
+            headers: recentAuthenticationHeader(recentAuthenticationProof)
+          },
           closingSession.accessToken,
           { skipAuthRefresh: true, authOperation: "delete_account", detached: true, timeoutMs: 8_000 }
         ).then(() => undefined)
@@ -7235,19 +7353,36 @@ function MainApplication() {
                   </View>
                 </View>
 
+                {recentAuthAction && (
+                  <RecentAuthenticationPanel
+                    action={recentAuthAction}
+                    busy={recentAuthBusy}
+                    error={recentAuthError}
+                    methods={availableRecentAuthMethods}
+                    onCancel={dismissRecentAuthentication}
+                    onPasswordChange={(value) => {
+                      setRecentAuthPassword(value);
+                      setRecentAuthError(undefined);
+                    }}
+                    onSubmitGoogle={() => void submitRecentAuthentication("google")}
+                    onSubmitPassword={() => void submitRecentAuthentication("password")}
+                    password={recentAuthPassword}
+                  />
+                )}
+
                 <Pressable
-                  style={[styles.button, styles.secondaryButton, busy && styles.buttonDisabled]}
+                  style={[styles.button, styles.secondaryButton, (busy || Boolean(recentAuthAction)) && styles.buttonDisabled]}
                   onPress={confirmDeleteMyData}
-                  disabled={busy}
+                  disabled={busy || Boolean(recentAuthAction)}
                 >
                   <Ionicons name="trash-bin-outline" size={18} color="#1e293b" />
                   <Text style={styles.secondaryButtonText}>Verilerimi Sil</Text>
                 </Pressable>
 
                 <Pressable
-                  style={[styles.button, styles.dangerButton, busy && styles.buttonDisabled]}
+                  style={[styles.button, styles.dangerButton, (busy || Boolean(recentAuthAction)) && styles.buttonDisabled]}
                   onPress={confirmDeleteAccount}
-                  disabled={busy}
+                  disabled={busy || Boolean(recentAuthAction)}
                 >
                   <Ionicons name="person-remove-outline" size={18} color="#ffffff" />
                   <Text style={styles.dangerButtonText}>Hesabımı Sil</Text>

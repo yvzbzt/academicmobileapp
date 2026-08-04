@@ -16,6 +16,7 @@ export interface UserProfileResponse {
   fullName: string;
   email: string;
   role: AuthUserRecord["role"];
+  authProvider?: AuthUserRecord["authProvider"];
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
@@ -346,6 +347,7 @@ export class UsersService {
       fullName: user.fullName,
       email: user.email,
       role: user.role,
+      ...(user.authProvider ? { authProvider: user.authProvider } : {}),
       ...(user.universityId ? { universityId: user.universityId } : {}),
       ...(user.facultyId ? { facultyId: user.facultyId } : {}),
       ...(user.departmentId ? { departmentId: user.departmentId } : {}),

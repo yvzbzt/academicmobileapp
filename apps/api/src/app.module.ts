@@ -14,6 +14,7 @@ import { PasswordHasher } from "./modules/auth/password-hasher.js";
 import { TokenService } from "./modules/auth/token.service.js";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard.js";
 import { RateLimitGuard } from "./common/guards/rate-limit.guard.js";
+import { RecentAuthGuard } from "./common/guards/recent-auth.guard.js";
 import { InMemoryRateLimitStore, RedisRateLimitStore } from "./common/guards/rate-limit-store.js";
 import { RolesGuard } from "./common/guards/roles.guard.js";
 import { readRuntimeConfig } from "./config/runtime-config.js";
@@ -92,6 +93,7 @@ const MONGO_REPOSITORY_PROVIDERS = [
     PasswordHasher,
     TokenService,
     JwtAuthGuard,
+    RecentAuthGuard,
     RolesGuard,
     RateLimitGuard,
     {

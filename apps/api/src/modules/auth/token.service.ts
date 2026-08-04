@@ -8,6 +8,13 @@ export interface AccessTokenPayload {
   sub: string;
   email: string;
   role: AuthUserRecord["role"];
+  credentialGeneration: number;
+}
+
+export interface RecentAuthenticationPayload {
+  sub: string;
+  credentialGeneration: number;
+  method: "password" | "google";
 }
 
 export interface RefreshTokenIssueResult {
@@ -30,32 +37,75 @@ export class TokenService {
   private readonly accessTokenTtlSeconds = 900;
   private readonly refreshTokenTtlDays = 30;
   private readonly emailVerificationTtlMinutes = 10;
+  private readonly recentAuthenticationTtlSeconds = 5 * 60;
 
-  signAccessToken(user: Pick<AuthUserRecord, "id" | "email" | "role">): string {
-    const secret = process.env.JWT_ACCESS_SECRET ?? "development-access-secret-change-me-32-chars";
+  signAccessToken(user: Pick<AuthUserRecord, "id" | "email" | "role" | "credentialGeneration">): string {
     return jwt.sign(
       {
         sub: user.id,
         email: user.email,
-        role: user.role
+        role: user.role,
+        kind: "access",
+        credentialGeneration: user.credentialGeneration
       },
-      secret,
+      this.accessTokenSecret(),
       { expiresIn: this.accessTokenTtlSeconds }
     );
   }
 
   verifyAccessToken(token: string): AccessTokenPayload {
-    const secret = process.env.JWT_ACCESS_SECRET ?? "development-access-secret-change-me-32-chars";
-    const payload = jwt.verify(token, secret);
+    const payload = jwt.verify(token, this.accessTokenSecret());
     if (!payload || typeof payload !== "object") throw new Error("INVALID_ACCESS_TOKEN");
     const candidate = payload as Record<string, unknown>;
-    if (typeof candidate.sub !== "string" || typeof candidate.email !== "string" || typeof candidate.role !== "string") {
+    if (
+      typeof candidate.sub !== "string"
+      || typeof candidate.email !== "string"
+      || typeof candidate.role !== "string"
+      || (candidate.kind !== undefined && candidate.kind !== "access")
+    ) {
       throw new Error("INVALID_ACCESS_TOKEN_PAYLOAD");
     }
     return {
       sub: candidate.sub,
       email: candidate.email,
-      role: candidate.role as AuthUserRecord["role"]
+      role: candidate.role as AuthUserRecord["role"],
+      credentialGeneration: normalizeCredentialGeneration(candidate.credentialGeneration)
+    };
+  }
+
+  signRecentAuthenticationProof(
+    user: Pick<AuthUserRecord, "id" | "credentialGeneration">,
+    method: RecentAuthenticationPayload["method"]
+  ): string {
+    return jwt.sign(
+      {
+        sub: user.id,
+        kind: "recent_authentication",
+        credentialGeneration: user.credentialGeneration,
+        method
+      },
+      this.accessTokenSecret(),
+      { expiresIn: this.recentAuthenticationTtlSeconds }
+    );
+  }
+
+  verifyRecentAuthenticationProof(token: string): RecentAuthenticationPayload {
+    const payload = jwt.verify(token, this.accessTokenSecret());
+    if (!payload || typeof payload !== "object") throw new Error("INVALID_RECENT_AUTHENTICATION_PROOF");
+    const candidate = payload as Record<string, unknown>;
+    if (
+      candidate.kind !== "recent_authentication"
+      || typeof candidate.sub !== "string"
+      || (candidate.method !== "password" && candidate.method !== "google")
+      || !Number.isSafeInteger(candidate.credentialGeneration)
+      || (candidate.credentialGeneration as number) < 0
+    ) {
+      throw new Error("INVALID_RECENT_AUTHENTICATION_PROOF");
+    }
+    return {
+      sub: candidate.sub,
+      credentialGeneration: candidate.credentialGeneration as number,
+      method: candidate.method
     };
   }
 
@@ -90,13 +140,16 @@ export class TokenService {
   }
 
   hashPasswordRecoveryToken(email: string, rawToken: string): string {
-    const configuredSecret = process.env.PASSWORD_RECOVERY_TOKEN_PEPPER ?? process.env.JWT_ACCESS_SECRET;
-    if (process.env.NODE_ENV === "production" && (!configuredSecret || configuredSecret.length < 32)) {
-      throw new Error("PASSWORD_RECOVERY_TOKEN_PEPPER_NOT_CONFIGURED");
-    }
-    const secret = configuredSecret ?? "development-password-recovery-pepper-change-me";
     const normalizedEmail = email.trim().toLowerCase();
-    return createHmac("sha256", secret).update(`password-recovery:${normalizedEmail}:${rawToken.trim()}`).digest("hex");
+    return createHmac("sha256", this.passwordRecoverySecret())
+      .update(`password-recovery:${normalizedEmail}:${rawToken.trim()}`)
+      .digest("hex");
+  }
+
+  hashPasswordRecoveryOperation(tokenHash: string, credentialGeneration: number, password: string): string {
+    return createHmac("sha256", this.passwordRecoverySecret())
+      .update(`password-recovery-operation:${tokenHash}:${credentialGeneration}:${password}`)
+      .digest("hex");
   }
 
   hashOpaqueToken(rawToken: string): string {
@@ -110,4 +163,24 @@ export class TokenService {
   getAccessTokenTtlSeconds(): number {
     return this.accessTokenTtlSeconds;
   }
+
+  getRecentAuthenticationTtlSeconds(): number {
+    return this.recentAuthenticationTtlSeconds;
+  }
+
+  private accessTokenSecret(): string {
+    return process.env.JWT_ACCESS_SECRET ?? "development-access-secret-change-me-32-chars";
+  }
+
+  private passwordRecoverySecret(): string {
+    const configuredSecret = process.env.PASSWORD_RECOVERY_TOKEN_PEPPER ?? process.env.JWT_ACCESS_SECRET;
+    if (process.env.NODE_ENV === "production" && (!configuredSecret || configuredSecret.length < 32)) {
+      throw new Error("PASSWORD_RECOVERY_TOKEN_PEPPER_NOT_CONFIGURED");
+    }
+    return configuredSecret ?? "development-password-recovery-pepper-change-me";
+  }
+}
+
+function normalizeCredentialGeneration(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }

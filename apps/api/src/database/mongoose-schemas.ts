@@ -5,6 +5,18 @@ export const userSchema = new Schema(
     fullName: { type: String, required: true, trim: true },
     email: { type: String, required: true, lowercase: true, trim: true, unique: true },
     credentialGeneration: { type: Number, required: true, default: 0, min: 0 },
+    passwordRecoveryAttempt: {
+      tokenHash: { type: String, required: false },
+      credentialGeneration: { type: Number, required: false, min: 0 },
+      expiresAt: { type: Date, required: false },
+      _id: false
+    },
+    passwordRecoveryCompletion: {
+      operationKey: { type: String, required: false },
+      completedAt: { type: Date, required: false },
+      credentialGeneration: { type: Number, required: false, min: 1 },
+      _id: false
+    },
     emailVerifiedAt: { type: Date, required: false },
     passwordHash: { type: String, required: true, select: true },
     authProvider: { type: String, required: false, enum: ["password", "google", "password_google"], default: "password" },

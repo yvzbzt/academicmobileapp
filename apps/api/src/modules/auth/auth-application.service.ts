@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, HttpException, HttpStatus, Inje
 import { randomUUID } from "node:crypto";
 import { AUTH_ERROR_CODES, AUTH_PASSWORD_MIN_LENGTH, PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_RESEND_SECONDS, PASSWORD_RECOVERY_TTL_SECONDS, type AuthErrorCode } from "./auth.constants.js";
 import { EmailVerificationSenderService } from "./email-verification-sender.service.js";
-import type { AuthRepository, AuthSessionResult, GoogleLoginInput, LoginInput, PasswordRecoveryConfirmInput, PasswordRecoveryRequestResult, RefreshInput, RefreshTokenRecord, RegisterInput, RegisterResult, VerifyEmailByLinkInput, VerifyEmailInput } from "./auth.types.js";
+import type { AuthRepository, AuthSessionResult, GoogleLoginInput, LoginInput, PasswordRecoveryConfirmInput, PasswordRecoveryRequestResult, RecentAuthenticationInput, RecentAuthenticationResult, RefreshInput, RefreshTokenRecord, RegisterInput, RegisterResult, VerifyEmailByLinkInput, VerifyEmailInput } from "./auth.types.js";
 import { FirebaseAdminService } from "../../database/firebase-admin.service.js";
 import { FirebaseGoogleIdentityVerifier, type GoogleIdentityVerifier, type VerifiedGoogleIdentity } from "./firebase-google-identity.verifier.js";
 import { PasswordHasher } from "./password-hasher.js";
@@ -12,6 +12,10 @@ import { assertClassLevelAllowed } from "../catalog/academic-levels.js";
 import { hashNotificationDeviceId } from "../notifications/notifications.service.js";
 import { DeviceRegistrationConflictError } from "../notifications/notification.types.js";
 import type { NotificationRepository } from "../notifications/notification.types.js";
+
+const PASSWORD_RECOVERY_PARITY_HASH = "$2b$12$6TNw/I640i6eaS9wJrV0MO.xrhvXMsPeISUni3r5ycT8k2VkF0eq2";
+const PASSWORD_RECOVERY_PUBLIC_FLOOR_MS = 350;
+const PASSWORD_RECOVERY_DELIVERY_TIMEOUT_MS = 12_000;
 
 @Injectable()
 export class AuthApplicationService {
@@ -146,37 +150,38 @@ export class AuthApplicationService {
   }
 
   async requestPasswordRecovery(email: string): Promise<PasswordRecoveryRequestResult> {
+    const requestStartedAt = Date.now();
     const normalizedEmail = email.trim().toLowerCase();
     const recoveryToken = this.tokenService.issuePasswordRecoveryToken(normalizedEmail);
-    const user = await this.authRepository.findUserByEmail(normalizedEmail);
-    if (!user) return passwordRecoveryRequestResult(recoveryToken.rawToken);
+    const [user] = await Promise.all([
+      this.authRepository.findUserByEmail(normalizedEmail),
+      this.passwordHasher.verify(recoveryToken.rawToken, PASSWORD_RECOVERY_PARITY_HASH).catch(() => false)
+    ]);
+    const latest = await this.authRepository.findLatestPasswordRecoveryTokenByUserId(
+      user?.id ?? `recovery-decoy:${recoveryToken.tokenHash}`
+    );
+    let delivery: Parameters<EmailVerificationSenderService["sendPasswordRecoveryEmail"]>[0] | undefined;
 
-    const latest = await this.authRepository.findLatestPasswordRecoveryTokenByUserId(user.id);
-    if (latest && latest.resendAvailableAt.getTime() > Date.now()) {
-      return passwordRecoveryRequestResult(recoveryToken.rawToken);
-    }
-
-    const now = new Date();
-    await this.authRepository.invalidatePasswordRecoveryTokensByUserId(user.id, now);
-    await this.authRepository.createPasswordRecoveryToken({
-      userId: user.id,
-      credentialGeneration: user.credentialGeneration,
-      tokenHash: recoveryToken.tokenHash,
-      expiresAt: recoveryToken.expiresAt,
-      resendAvailableAt: new Date(now.getTime() + PASSWORD_RECOVERY_RESEND_SECONDS * 1000)
-    });
-
-    try {
-      await this.emailVerificationSender.sendPasswordRecoveryEmail({
+    if (user && (!latest || latest.resendAvailableAt.getTime() <= Date.now())) {
+      const now = new Date();
+      await this.authRepository.invalidatePasswordRecoveryTokensByUserId(user.id, now);
+      await this.authRepository.createPasswordRecoveryToken({
+        userId: user.id,
+        credentialGeneration: user.credentialGeneration,
+        tokenHash: recoveryToken.tokenHash,
+        expiresAt: recoveryToken.expiresAt,
+        resendAvailableAt: new Date(now.getTime() + PASSWORD_RECOVERY_RESEND_SECONDS * 1000)
+      });
+      delivery = {
         email: user.email,
         fullName: user.fullName,
         code: recoveryToken.rawToken,
         expiresAt: recoveryToken.expiresAt
-      });
-    } catch {
-      // The public response must not disclose account existence or SMTP state.
+      };
     }
 
+    this.schedulePasswordRecoveryDelivery(delivery);
+    await enforcePasswordRecoveryPublicFloor(requestStartedAt);
     return passwordRecoveryRequestResult(recoveryToken.rawToken);
   }
 
@@ -202,26 +207,65 @@ export class AuthApplicationService {
       this.authRepository.findUserByEmail(normalizedEmail),
       this.authRepository.findPasswordRecoveryTokenByHash(tokenHash)
     ]);
-    if (!user || !record || record.userId !== user.id || record.consumedAt || record.invalidatedAt) {
+    if (!user) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
+    }
+    const recordIsCurrent = Boolean(
+      record
+      && record.userId === user.id
+      && record.credentialGeneration === user.credentialGeneration
+      && !record.consumedAt
+      && !record.invalidatedAt
+    );
+    if (!recordIsCurrent && user.passwordRecoveryCompletion) {
+      const completedSourceGeneration = user.passwordRecoveryCompletion.credentialGeneration - 1;
+      const retryOperationKey = this.tokenService.hashPasswordRecoveryOperation(
+        tokenHash,
+        completedSourceGeneration,
+        input.newPassword
+      );
+      if (user.passwordRecoveryCompletion.operationKey === retryOperationKey) {
+        return { status: "password_reset" };
+      }
+    }
+    if (
+      !record ||
+      record.userId !== user.id ||
+      record.credentialGeneration !== user.credentialGeneration ||
+      record.consumedAt ||
+      record.invalidatedAt
+    ) {
       throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
     }
     if (record.expiresAt.getTime() <= Date.now()) {
       throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_EXPIRED, "Password recovery code has expired.");
     }
 
+    const operationKey = this.tokenService.hashPasswordRecoveryOperation(
+      tokenHash,
+      record.credentialGeneration,
+      input.newPassword
+    );
     const passwordHash = await this.passwordHasher.hash(input.newPassword);
-    const consumedAt = new Date();
-    const consumed = await this.authRepository.consumePasswordRecoveryToken(record.id, consumedAt);
-    if (!consumed) {
+    const completedAt = new Date();
+    const completion = await this.authRepository.completePasswordRecovery({
+      userId: user.id,
+      expectedCredentialGeneration: user.credentialGeneration,
+      tokenHash,
+      operationKey,
+      passwordHash,
+      completedAt,
+      authProvider: user.authProvider === "google" ? "password_google" : user.authProvider ?? "password"
+    });
+    if (completion === "conflict") {
       throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
     }
-
-    const updatedUser = await this.authRepository.updateUserPassword(user.id, passwordHash);
-    if (!updatedUser) {
-      throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
+    if (completion === "completed") {
+      await Promise.allSettled([
+        this.authRepository.revokeRefreshTokensByUserId(user.id, completedAt),
+        this.authRepository.invalidatePasswordRecoveryTokensByUserId(user.id, completedAt)
+      ]);
     }
-    await this.authRepository.revokeRefreshTokensByUserId(user.id, consumedAt);
-    await this.authRepository.invalidatePasswordRecoveryTokensByUserId(user.id, consumedAt);
     return { status: "password_reset" };
   }
 
@@ -243,6 +287,9 @@ export class AuthApplicationService {
 
     const user = await this.authRepository.findUserById(existingToken.userId);
     if (!user) throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_INVALID, "Session is no longer valid.");
+    if (existingToken.credentialGeneration !== user.credentialGeneration) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_INVALID, "Session is no longer valid.");
+    }
     if (user.status !== "active") throw unauthorizedAuthError(AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
 
     await this.authRepository.revokeRefreshToken(existingToken.id, new Date());
@@ -268,6 +315,38 @@ export class AuthApplicationService {
         if (!(error instanceof DeviceRegistrationConflictError)) throw error;
       }
     }
+  }
+
+  async createRecentAuthenticationProof(
+    userId: string,
+    input: RecentAuthenticationInput
+  ): Promise<RecentAuthenticationResult> {
+    const user = await this.authRepository.findUserById(userId);
+    if (!user || user.status !== "active") {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_INVALID, "Session is no longer valid.");
+    }
+
+    if (input.method === "password") {
+      if (user.authProvider === "google" || !(await this.passwordHasher.verify(input.password, user.passwordHash))) {
+        throw unauthorizedAuthError(AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Recent authentication failed.");
+      }
+    } else {
+      const identity = await this.verifyGoogleIdentity(input.idToken);
+      const identityEmail = identity.email?.trim().toLowerCase();
+      const uidMatches = Boolean(user.firebaseAuthUid) && identity.uid === user.firebaseAuthUid;
+      if (
+        identity.signInProvider !== "google.com"
+        || !identity.emailVerified
+        || (!uidMatches && identityEmail !== user.email)
+      ) {
+        throw unauthorizedAuthError(AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Recent authentication failed.");
+      }
+    }
+
+    return {
+      proof: this.tokenService.signRecentAuthenticationProof(user, input.method),
+      expiresInSeconds: this.tokenService.getRecentAuthenticationTtlSeconds()
+    };
   }
 
   private async consumeVerificationToken(rawToken: string) {
@@ -385,6 +464,7 @@ export class AuthApplicationService {
       fullName: string;
       email: string;
       role: "student" | "content_editor" | "university_admin" | "super_admin";
+      authProvider?: "password" | "google" | "password_google";
     },
     deviceId: string,
     ipAddress?: string,
@@ -410,12 +490,25 @@ export class AuthApplicationService {
         id: user.id,
         fullName: user.fullName,
         email: user.email,
-        role: user.role
+        role: user.role,
+        ...(user.authProvider ? { authProvider: user.authProvider } : {})
       },
       accessToken: this.tokenService.signAccessToken(user),
       refreshToken: refreshToken.rawToken,
       expiresInSeconds: this.tokenService.getAccessTokenTtlSeconds()
     };
+  }
+
+  private schedulePasswordRecoveryDelivery(
+    input: Parameters<EmailVerificationSenderService["sendPasswordRecoveryEmail"]>[0] | undefined
+  ): void {
+    queueMicrotask(() => {
+      if (!input) return;
+      void withTimeout(
+        this.emailVerificationSender.sendPasswordRecoveryEmail(input),
+        PASSWORD_RECOVERY_DELIVERY_TIMEOUT_MS
+      ).catch(() => undefined);
+    });
   }
 }
 
@@ -462,4 +555,25 @@ function badRequestAuthError(errorCode: AuthErrorCode, message: string): BadRequ
     errorCode,
     message
   });
+}
+
+async function enforcePasswordRecoveryPublicFloor(startedAt: number): Promise<void> {
+  if (process.env.NODE_ENV !== "production") return;
+  const remaining = PASSWORD_RECOVERY_PUBLIC_FLOOR_MS - (Date.now() - startedAt);
+  if (remaining > 0) await new Promise<void>((resolve) => setTimeout(resolve, remaining));
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error("PASSWORD_RECOVERY_DELIVERY_TIMEOUT")), timeoutMs);
+        timeout.unref?.();
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }

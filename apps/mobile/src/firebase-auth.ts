@@ -1,30 +1,31 @@
-import { getApps, initializeApp, type FirebaseOptions } from "firebase/app";
+import { getApps, initializeApp } from "firebase/app";
 import {
   getAuth,
   GoogleAuthProvider,
   useDeviceLanguage,
   type Auth
 } from "firebase/auth";
+import { readFirebaseWebConfiguration } from "./firebase-config.js";
 
-const firebaseConfig: FirebaseOptions = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "AIzaSyCtlK38zMVpz04lMdHcLzJQKzMMDjjBvO4",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? "academic-mobile-app-7629.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? "academic-mobile-app-7629",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ?? "academic-mobile-app-7629.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? "315186329318",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID ?? "1:315186329318:web:f44c4e262896d87679ad27"
-};
+const firebaseConfiguration = readFirebaseWebConfiguration({
+  VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
+  VITE_FIREBASE_AUTH_DOMAIN: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  VITE_FIREBASE_STORAGE_BUCKET: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  VITE_FIREBASE_MESSAGING_SENDER_ID: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  VITE_FIREBASE_APP_ID: import.meta.env.VITE_FIREBASE_APP_ID
+});
 
 let authClient: Auth | null | undefined;
 
 export function getGoogleAuthClient(): Auth | null {
   if (authClient !== undefined) return authClient;
-  if (!firebaseConfig.apiKey || !firebaseConfig.authDomain || !firebaseConfig.projectId || !firebaseConfig.appId) {
+  if (!firebaseConfiguration.configured) {
     authClient = null;
     return authClient;
   }
 
-  const app = getApps()[0] ?? initializeApp(firebaseConfig);
+  const app = getApps()[0] ?? initializeApp(firebaseConfiguration.options);
   authClient = getAuth(app);
   useDeviceLanguage(authClient);
   return authClient;

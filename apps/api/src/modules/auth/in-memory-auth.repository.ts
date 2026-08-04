@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   AuthRepository,
   AuthUserRecord,
+  CompletePasswordRecoveryInput,
   CreateAuthUserInput,
   CreatePasswordRecoveryTokenInput,
   CreateRefreshTokenInput,
@@ -170,6 +171,33 @@ export class InMemoryAuthRepository implements AuthRepository {
     });
   }
 
+  async completePasswordRecovery(input: CompletePasswordRecoveryInput): Promise<"completed" | "already_completed" | "conflict"> {
+    const user = this.getActiveUser(input.userId);
+    if (!user) return "conflict";
+    if (user.passwordRecoveryCompletion?.operationKey === input.operationKey) return "already_completed";
+    if (
+      user.credentialGeneration !== input.expectedCredentialGeneration
+      || user.passwordRecoveryAttempt?.tokenHash !== input.tokenHash
+      || user.passwordRecoveryAttempt.credentialGeneration !== input.expectedCredentialGeneration
+      || user.passwordRecoveryAttempt.expiresAt.getTime() <= input.completedAt.getTime()
+    ) return "conflict";
+
+    const credentialGeneration = input.expectedCredentialGeneration + 1;
+    this.storeUser({
+      ...withoutPasswordRecoveryAttempt(user),
+      passwordHash: input.passwordHash,
+      authProvider: input.authProvider,
+      credentialGeneration,
+      passwordRecoveryCompletion: {
+        operationKey: input.operationKey,
+        completedAt: input.completedAt,
+        credentialGeneration
+      },
+      updatedAt: input.completedAt
+    });
+    return "completed";
+  }
+
   async updateUserAcademicSelection(
     id: string,
     input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }
@@ -252,6 +280,18 @@ export class InMemoryAuthRepository implements AuthRepository {
       createdAt: new Date()
     });
     this.passwordRecoveryTokens.set(token.id, { ...token });
+    const user = this.getActiveUser(input.userId);
+    if (user && user.credentialGeneration === input.credentialGeneration) {
+      this.storeUser({
+        ...user,
+        passwordRecoveryAttempt: {
+          tokenHash: input.tokenHash,
+          credentialGeneration: input.credentialGeneration,
+          expiresAt: input.expiresAt
+        },
+        updatedAt: new Date()
+      });
+    }
     return { ...token };
   }
 
@@ -268,6 +308,10 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   async invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void> {
+    const user = this.getActiveUser(userId);
+    if (user?.passwordRecoveryAttempt) {
+      this.storeUser({ ...withoutPasswordRecoveryAttempt(user), updatedAt: invalidatedAt });
+    }
     for (const [id, token] of this.passwordRecoveryTokens.entries()) {
       if (token.userId === userId && !token.consumedAt && !token.invalidatedAt) {
         this.passwordRecoveryTokens.set(id, normalizePasswordRecoveryTokenRecord({ ...token, invalidatedAt }));
@@ -283,6 +327,10 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   async deletePasswordRecoveryTokensByUserId(userId: string): Promise<void> {
+    const user = this.getActiveUser(userId);
+    if (user?.passwordRecoveryAttempt) {
+      this.storeUser({ ...withoutPasswordRecoveryAttempt(user), updatedAt: new Date() });
+    }
     for (const [id, token] of this.passwordRecoveryTokens.entries()) {
       if (token.userId === userId) this.passwordRecoveryTokens.delete(id);
     }
@@ -312,4 +360,10 @@ export class InMemoryAuthRepository implements AuthRepository {
     this.users.set(normalized.id, { ...normalized });
     return { ...normalized };
   }
+}
+
+function withoutPasswordRecoveryAttempt(user: AuthUserRecord): AuthUserRecord {
+  const { passwordRecoveryAttempt: _passwordRecoveryAttempt, ...remaining } = user;
+  void _passwordRecoveryAttempt;
+  return remaining;
 }

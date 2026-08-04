@@ -26,6 +26,12 @@ describe("mongoose schemas", () => {
     );
   });
 
+  it("stores a durable password-recovery completion marker on the user", () => {
+    expect(userSchema.path("passwordRecoveryCompletion.operationKey").instance).toBe("String");
+    expect(userSchema.path("passwordRecoveryCompletion.completedAt").instance).toBe("Date");
+    expect(userSchema.path("passwordRecoveryCompletion.credentialGeneration").instance).toBe("Number");
+  });
+
   it("defines password recovery digest, user lookup, and TTL indexes", () => {
     expect(passwordRecoveryTokenSchema.get("collection")).toBe("password_recovery_tokens");
     expect(passwordRecoveryTokenSchema.indexes()).toEqual(expect.arrayContaining([

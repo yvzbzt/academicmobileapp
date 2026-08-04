@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { JwtAuthGuard } from "../src/common/guards/jwt-auth.guard.js";
+import { RecentAuthGuard } from "../src/common/guards/recent-auth.guard.js";
 import { RolesGuard } from "../src/common/guards/roles.guard.js";
 import { AuthApplicationService } from "../src/modules/auth/auth-application.service.js";
 import { AUTH_ERROR_CODES } from "../src/modules/auth/auth.constants.js";
@@ -82,7 +83,9 @@ describe("auth and academic-profile HTTP contracts", () => {
         { provide: AuthApplicationService, useValue: authService },
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
+        { provide: "AuthRepository", useValue: authRepository },
         JwtAuthGuard,
+        RecentAuthGuard,
         RolesGuard,
         Reflector
       ]
@@ -336,6 +339,12 @@ describe("auth and academic-profile HTTP contracts", () => {
     });
     expect(newPasswordAfterReset.status).toBe(201);
 
+    const staleAccessAfterReset = await request("/me", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${rotated.body.accessToken as string}` }
+    });
+    expect(staleAccessAfterReset.status).toBe(401);
+
     const revokedSession = await request("/auth/refresh-token", {
       method: "POST",
       body: JSON.stringify({ refreshToken: rotated.body.refreshToken, deviceId: "http-device" })
@@ -344,5 +353,40 @@ describe("auth and academic-profile HTTP contracts", () => {
       status: 401,
       body: expect.objectContaining({ errorCode: AUTH_ERROR_CODES.SESSION_INVALID })
     });
+
+    const missingRecentAuthentication = await request("/me/data", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}` }
+    });
+    expect(missingRecentAuthentication.status).toBe(401);
+
+    const recentAuthentication = await request("/auth/recent-authentication", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}` },
+      body: JSON.stringify({ method: "password", password: "HTTP New Password 123!" })
+    });
+    expect(recentAuthentication).toEqual({
+      status: 201,
+      body: { proof: expect.any(String), expiresInSeconds: 300 }
+    });
+
+    const deletedData = await request("/me/data", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}`,
+        "x-recent-authentication": recentAuthentication.body.proof as string
+      }
+    });
+    expect(deletedData).toEqual({ status: 200, body: { status: "deleted" } });
+
+    const deletedAccount = await request("/me", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${newPasswordAfterReset.body.accessToken as string}`,
+        "x-recent-authentication": recentAuthentication.body.proof as string
+      },
+      body: JSON.stringify({ deleteData: true })
+    });
+    expect(deletedAccount).toEqual({ status: 200, body: { status: "deleted" } });
   }, 30_000);
 });

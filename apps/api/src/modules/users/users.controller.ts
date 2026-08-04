@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, UseGu
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
+import { RecentAuthGuard } from "../../common/guards/recent-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { AdminUpdateUserDto, DeleteMyAccountDto, FollowAcademicScopeDto, ListUsersQueryDto, SuggestAcademicUnitDto, UpdateMeDto, UpdateMyUniversityDto } from "./users.dto.js";
@@ -18,6 +19,7 @@ export class UsersController {
   }
 
   @Delete()
+  @UseGuards(RecentAuthGuard)
   deleteMe(@CurrentUser() user: AuthenticatedUser, @Body() body: DeleteMyAccountDto) {
     return this.usersService.deleteMe(user.id, body);
   }
@@ -28,6 +30,7 @@ export class UsersController {
   }
 
   @Delete("data")
+  @UseGuards(RecentAuthGuard)
   deleteMyData(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.deleteMyData(user.id);
   }

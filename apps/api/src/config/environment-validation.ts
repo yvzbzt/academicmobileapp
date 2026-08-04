@@ -1,4 +1,5 @@
 import { readRuntimeConfig, type RuntimeConfig } from "./runtime-config.js";
+import { invalidTrustedProxyCidrs } from "../common/network/client-ip.js";
 
 export interface EnvironmentValidationResult {
   valid: boolean;
@@ -13,6 +14,8 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Envir
   const warnings: string[] = [];
 
   if (!env.MONGODB_URI?.trim()) errors.push("MONGODB_URI is required.");
+  const invalidProxyCidrs = invalidTrustedProxyCidrs(env.TRUSTED_PROXY_CIDRS);
+  if (invalidProxyCidrs.length > 0) errors.push("TRUSTED_PROXY_CIDRS must contain only valid explicit CIDR ranges.");
   if (config.queueMode === "bullmq" && !env.REDIS_URL) errors.push("REDIS_URL is required when QUEUE_MODE=bullmq.");
   if (config.rateLimitStoreMode === "redis" && !env.REDIS_URL) errors.push("REDIS_URL is required when RATE_LIMIT_STORE=redis.");
   if (!env.JWT_ACCESS_SECRET || env.JWT_ACCESS_SECRET.length < 32) warnings.push("JWT_ACCESS_SECRET should be set to a 32+ character secret.");

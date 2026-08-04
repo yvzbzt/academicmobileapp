@@ -433,7 +433,7 @@ describe("AuthApplicationService", () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it("stamps the current generation on issued and rotated refresh records without enforcing it yet", async () => {
+  it("stamps refresh records and rejects a generation mismatch without rotating it", async () => {
     const { service: authService, sender, authRepository } = createAuthService();
     const registerResult = await authService.register({
       email: "generation-session@campus.edu.tr",
@@ -460,13 +460,15 @@ describe("AuthApplicationService", () => {
     )).resolves.toEqual(expect.objectContaining({ credentialGeneration: 7 }));
 
     setStoredCredentialGeneration(authRepository, user!.id, 9);
-    const secondSession = await authService.refresh({
+    await expect(authService.refresh({
       refreshToken: firstSession.refreshToken,
       deviceId: "generation-device"
-    });
-    await expect(authRepository.findRefreshTokenByHash(
-      tokenService.hashRefreshToken(secondSession.refreshToken)
-    )).resolves.toEqual(expect.objectContaining({ credentialGeneration: 9 }));
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+    const unrotated = await authRepository.findRefreshTokenByHash(
+      tokenService.hashRefreshToken(firstSession.refreshToken)
+    );
+    expect(unrotated).toEqual(expect.objectContaining({ credentialGeneration: 7 }));
+    expect(unrotated).not.toHaveProperty("revokedAt");
   });
 
   it("revokes the refresh token and detaches its hashed device installation on logout", async () => {

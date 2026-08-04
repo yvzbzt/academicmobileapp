@@ -3,6 +3,16 @@ import type { UserRole } from "../../../../../packages/shared/src/contracts.js";
 export interface AuthUserRecord {
   id: string;
   credentialGeneration: number;
+  passwordRecoveryAttempt?: {
+    tokenHash: string;
+    credentialGeneration: number;
+    expiresAt: Date;
+  };
+  passwordRecoveryCompletion?: {
+    operationKey: string;
+    completedAt: Date;
+    credentialGeneration: number;
+  };
   fullName: string;
   email: string;
   emailVerifiedAt?: Date;
@@ -25,6 +35,7 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   role: UserRole;
+  credentialGeneration?: number;
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
@@ -46,7 +57,7 @@ export interface RefreshTokenRecord {
 }
 
 export interface AuthSessionResult {
-  user: Pick<AuthUserRecord, "id" | "fullName" | "email" | "role">;
+  user: Pick<AuthUserRecord, "id" | "fullName" | "email" | "role" | "authProvider">;
   accessToken: string;
   refreshToken: string;
   expiresInSeconds: number;
@@ -87,6 +98,27 @@ export interface PasswordRecoveryConfirmInput {
   code: string;
   newPassword: string;
   passwordConfirmation: string;
+}
+
+export type RecentAuthenticationInput =
+  | { method: "password"; password: string }
+  | { method: "google"; idToken: string };
+
+export interface RecentAuthenticationResult {
+  proof: string;
+  expiresInSeconds: number;
+}
+
+export type PasswordRecoveryCompletionResult = "completed" | "already_completed" | "conflict";
+
+export interface CompletePasswordRecoveryInput {
+  userId: string;
+  expectedCredentialGeneration: number;
+  tokenHash: string;
+  operationKey: string;
+  passwordHash: string;
+  completedAt: Date;
+  authProvider: NonNullable<AuthUserRecord["authProvider"]>;
 }
 
 export interface RegisterResult {
@@ -177,6 +209,7 @@ export interface AuthRepository {
   ): Promise<void>;
   updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null>;
   updateUserPassword(id: string, passwordHash: string): Promise<AuthUserRecord | null>;
+  completePasswordRecovery(input: CompletePasswordRecoveryInput): Promise<PasswordRecoveryCompletionResult>;
   updateUserAcademicSelection(
     id: string,
     input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }
