@@ -2,6 +2,8 @@
 
 This document follows OWASP ASVS, OWASP API Security Top 10 and OWASP Mobile guidance at a pragmatic MVP level.
 
+> **Current Phase 1–8 security status — 4 August 2026.** MongoDB is the only API runtime database. Credential generations are enforced across access, refresh, and recovery material. Password reset commits the password hash, generation advance, accepted-attempt completion, and password-bound idempotency in one standalone-Mongo compare-and-set; stale records are invalid at that commit. Recovery requests use comparable work, a 350 ms production response floor, bounded asynchronous SMTP delivery, and identical public fields for known, unknown, and cooldown cases. Destructive endpoints require single-use, purpose-specific recent-authentication proofs that are atomically consumed before controller execution; a consumed proof is not restored when the later deletion action fails. The explicitly labelled Task A1 text below is retained only as historical design evidence.
+
 ## 1. Authentication Findings
 
 ### Weak Password Or Brute Force
@@ -95,7 +97,9 @@ When resend is still cooling down, the `429` response preserves the original top
 
 Registration passwords are strings with a minimum length of 10 JavaScript UTF-16 code units; the input string is not trimmed. `passwordConfirmation` is required and must match. The shared backend value is exported as `AUTH_PASSWORD_MIN_LENGTH`. No additional password-complexity rule is currently enforced by the API.
 
-### Credential-Generation Persistence Substrate (Phase 1 Task A1)
+### Historical Credential-Generation Persistence Substrate (Phase 1 Task A1)
+
+> **Historical checkpoint, superseded:** this subsection records the additive Task A1 substrate before generation enforcement, reset compare-and-set completion, recovery timing work, and recent authentication were implemented. It is not current release behavior.
 
 The auth persistence contract contains a non-negative integer `credentialGeneration` on user, refresh-token, and password-recovery records. Repository reads interpret a missing legacy value as `0`; new users initialize the field to `0`. When the service creates a refresh-token or password-recovery record, it stamps the current user's generation onto that record.
 
@@ -108,7 +112,7 @@ The protected writer set includes verification, Google identity, administrative 
 
 R1C1 removed the API's Firestore database service and repository adapters. Historical A1 evidence for that retired adapter remains in the dated Phase 1 records, but Mongo is now the only production implementation of this persistence contract. Firebase Authentication, Google identity verification, FCM, and Hosting remain separate supported services.
 
-This substrate is not yet a revocation boundary. Task A1 does not increment `credentialGeneration`, reject a refresh/recovery record on a mismatch, change the current password-reset ordering, or alter existing access JWT contents/validation. Task A2 owns generation advancement, mismatch enforcement, and atomic password-reset completion. The timing-safe recovery-request design remains separate Task B work, and Phase 2 is untouched. Consequently the known request-latency channel and reset partial-state risk below remain open.
+At this historical checkpoint the substrate was not yet a revocation boundary: Task A1 did not increment `credentialGeneration`, reject a refresh/recovery record on a mismatch, change password-reset ordering, or alter access-token validation. Those limitations were later closed by the current controls summarized above; they are not open release defects.
 
 ### Password-Recovery API And Storage Contract
 
@@ -127,7 +131,7 @@ The request body contains one syntactically valid `email` field. In production, 
 }
 ```
 
-This status/body contract must not disclose whether an account exists, whether it is eligible, whether a cooldown record exists, or whether SMTP delivery succeeded. It prevents direct response-body enumeration, but **request latency is not equalized**: unknown addresses return after fewer repository operations, while an eligible known account can await persistence and SMTP. Timing-based account inference therefore remains an open security risk and must not be described as prevented. A malformed email can still receive the standard DTO-validation `400`; that is input validation, not an account-existence result.
+This status/body contract must not disclose whether an account exists, whether it is eligible, whether a cooldown record exists, or whether SMTP delivery succeeded. Current known, unknown, and cooldown paths perform comparable token/hash/lookup/repository work, use a 350 ms production response floor, and do not await SMTP in the public request. Delivery runs asynchronously with a 12-second bound and bounded SMTP connection, greeting, and socket timeouts. This closes the previously documented application-level timing gap without claiming an internet-wide statistical indistinguishability proof. A malformed email can still receive the standard DTO-validation `400`; that is input validation, not an account-existence result.
 
 In non-production only, the response also contains a random six-digit `previewRecoveryCode` for isolated development/test flows. Known and unknown responses therefore have the same non-production shape but different random preview values. A preview is confirmable only when a known eligible account outside cooldown caused its digest record to be persisted; unknown/cooldown previews are deliberate unusable decoys. `previewRecoveryCode` is guarded solely by `NODE_ENV !== "production"`; no flag can enable it in production. It must never be logged, copied into documentation evidence, analytics, screenshots with real identities, or a production response.
 
@@ -158,11 +162,15 @@ The request contains `email`, the six-digit `code`, `newPassword`, and `password
 | `AUTH_PASSWORD_INVALID` | 400 | The new password is shorter than the shared minimum of ten JavaScript UTF-16 code units. The input string is not trimmed. |
 | `AUTH_RATE_LIMITED` | 429 | The strict per-client/route request budget is exceeded. |
 
-Single use is enforced by a conditional consume operation before password replacement: Mongo performs a `findOneAndUpdate` constrained to unconsumed, non-invalidated, unexpired material, and the runtime-unreachable in-memory test adapter applies the equivalent guarded update. A second confirmation therefore receives the generic invalid-code result.
+Password reset is committed by one Mongo user-document compare-and-set constrained by owner, accepted recovery token, and expected credential generation. That security write replaces the password hash, increments the generation once, and records the password-bound completion operation while consuming/superseding the accepted attempt. Concurrent records cannot both commit; an identical response-loss retry is deterministic, while a different proposed password is not reported as success. Older access, refresh, and recovery material is logically invalid as soon as the generation advances. Best-effort physical cleanup after that point is not part of the security boundary and cannot restore stale credentials.
 
-Only that consume operation is atomic. Password-hash replacement, refresh-session revocation, and invalidation of remaining recovery material are separate awaited repository operations, not one cross-record transaction. A later repository failure can therefore leave partial completion—for example, a consumed code before the password update, or an updated password before all sessions are revoked. The HTTP success result is returned only after all steps complete; after a successful result, the old password and all pre-reset refresh sessions must fail. Production hardening should add an adapter-appropriate transaction/saga or an idempotent recovery job with reconciliation before claiming all-or-nothing reset semantics.
+Security tests cover identical known/unknown/cooldown public fields, comparable request work and the response floor, six-digit CSPRNG shape without raw-code persistence, production preview suppression/fail-closed secret configuration, bounded asynchronous SMTP, cooldown and strict rate limits, older-active-material invalidation, invalid/expired/single-use confirmation, password parity/mismatch, compare-and-set concurrency/idempotency, old/new password behavior, generation-based all-session invalidation, and absence of recovery secrets or personal values in logs/results.
 
-Security tests must cover identical known/unknown public status/body fields, six-digit CSPRNG shape without persisting the raw code, production preview suppression/fail-closed secret configuration, cooldown and strict rate limits, older-active-material invalidation, invalid/expired/single-use confirmation, password parity/mismatch, old/new password behavior, all-session revocation, and absence of recovery secrets or personal values in logs/results. Separately measure and mitigate the known/unknown timing channel; body-contract equality is not latency equality.
+### Recent Authentication For Destructive Operations
+
+`POST /auth/recent-authentication` accepts one explicit purpose, `delete_personal_data` or `delete_account`, and verifies the current account's supported password or Google credential. The signed short-lived proof is bound to the owner, current credential generation, purpose, and a cryptographically random `jti`. MongoDB stores only a digest of that `jti` with the binding fields and created, expiry, and consumption timestamps; expired records have a TTL index.
+
+`RecentAuthGuard` atomically consumes the matching unconsumed record before either destructive controller action runs. A proof therefore cannot be reused, crossed between deletion purposes, moved between owners or generations, or accepted by two racing requests. Because consumption precedes controller execution, a later destructive-action failure leaves the proof consumed and the user must reauthenticate before retrying. Proof tokens, `jti` values, credentials, emails, and deletion payloads must never enter logs.
 
 ## 2. Authorization Findings
 

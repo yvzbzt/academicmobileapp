@@ -1,3 +1,6 @@
+> [!WARNING]
+> **HISTORICAL BASELINE — SUPERSEDED.** This entire document is a preserved activity-model report for commit `cbd0067`; it does **not** describe the current application. Phases 2–8 are implemented. The current authenticated phone shell has four primary tabs: **Ana Sayfa**, **Duyurular**, **Takvim**, and **Profil**. Use the [current redesign README](./mobile-native-redesign/README.md) and the current Phase 1–8 reports: [Phase 1](./mobile-native-redesign/phases/phase-01-auth-session-integrity.md), [Phase 2](./mobile-native-redesign/phases/phase-02-content-trust.md), [Phase 3](./mobile-native-redesign/phases/phase-03-integrations.md), [Phase 4](./mobile-native-redesign/phases/phase-04-foundation.md), [Phase 5](./mobile-native-redesign/phases/phase-05-app-shell.md), [Phase 6](./mobile-native-redesign/phases/phase-06-auth-onboarding-ui.md), [Phase 7](./mobile-native-redesign/phases/phase-07-home.md), and [Phase 8](./mobile-native-redesign/phases/phase-08-content-feed.md).
+
 # Mobile Native In-App User Activity Report
 
 Original report date: 27 July 2026\

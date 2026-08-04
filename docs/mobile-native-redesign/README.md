@@ -8,7 +8,7 @@ Package manager: npm
 
 Historical Phase 1 closure-start baseline: branch `agent/google-play-readiness-20260724`, HEAD `cbd0067b03c3cf7286270df25164a556c55b55b9`.
 
-Accepted Phase 8 baseline: `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`. The bounded Phase 1–8 remediation commits are Package 1 `641d7bee8a1cd539179769069a22b5c3220e8a6d`, Package 2 `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and Package 3 `2e3664546f628a19c6fa929b9ee9469e5322f9a8`. The documentation-only Package 4 commit is reported in the terminal handoff because a commit cannot contain its own SHA.
+Accepted Phase 8 baseline: `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`. The bounded Phase 1–8 remediation commits are Package 1 `641d7bee8a1cd539179769069a22b5c3220e8a6d`, Package 2 `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, Package 3 `2e3664546f628a19c6fa929b9ee9469e5322f9a8`, and documentation Package 4 `fd54f63669f0ef18230dfe0e9df64281310ac5a7`.
 
 The earlier Phase 1–6 reconciliation at `f346d8556e19b95277b27f7ecfda3f162a8ad57f` remains historical evidence in [`phase-01-06-reconciliation.md`](./phases/phase-01-06-reconciliation.md); it is not the current implementation boundary.
 
@@ -68,18 +68,18 @@ Authentication, registration, verification, and onboarding live outside the auth
 - [TEST_MATRIX.md](./TEST_MATRIX.md) — baseline evidence and required coverage.
 - [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) — prioritized defects with ownership.
 
-## Supporting current-state evidence
+## Historical baseline reports
 
-- [Current native UI/UX audit](../19-mobile-native-current-state-ui-ux-audit.md)
-- [Current in-app activity report](../20-mobile-native-in-app-user-activity-report.md)
+- [Historical pre-redesign native UI/UX audit at `cbd0067`](../19-mobile-native-current-state-ui-ux-audit.md)
+- [Historical pre-redesign in-app activity report at `cbd0067`](../20-mobile-native-in-app-user-activity-report.md)
 
-Those reports are source-derived. Native visual acceptance still requires emulator/device or simulator/device screenshots.
+Those reports preserve the original six-tab, pre-Phase-1 baseline and do not describe the current application. Current architecture and behavior are defined by this README, the Phase 1–8 reports, and the current test matrix. Native visual acceptance still requires emulator/device or simulator/device screenshots.
 
 ## Current Phase 1–8 remediation boundary
 
-Packages 1–3 close the verified implementation gaps without recreating completed phases. Package 1 enforces credential generations across access, refresh, and recovery material; commits password reset through a standalone-Mongo compare-and-set boundary; adds owner-bound expiring recent-authentication proof; makes recovery request work practically comparable; defines bounded proxy trust; and removes the legacy Firebase web-key fallback. MongoDB remains the only runtime database. Firestore database persistence is historical evidence only and was not restored.
+Packages 1–3 close the verified implementation gaps without recreating completed phases. Package 1 enforces credential generations across access, refresh, and recovery material; commits password reset through a standalone-Mongo compare-and-set boundary; makes recovery request work practically comparable; defines bounded proxy trust; and removes the legacy Firebase web-key fallback. The final blocker remediation makes every recent-authentication proof single-use and purpose-specific: it carries a random identifier, persists only its digest, and is atomically consumed for the matching owner and credential generation before one destructive action. A failed action does not restore the proof, so every retry obtains a fresh purpose-specific proof. MongoDB remains the only runtime database. Firestore database persistence is historical evidence only and was not restored.
 
-Package 2 preserves date-only and inclusive date-range meaning through ingestion, Mongo, trusted DTOs, Home, feed/detail, and future Calendar compatibility. It validates the actual outbound destination at every redirect, retains strict TLS, strengthens parser layout and content identity, and automatically creates, dispatches, revalidates, retries, and retires Mongo-backed notification jobs. Package 3 adds bounded shell/auth/Home regression repairs and a repository-owned Android release feed measurement. The attempted `4/3/window 3/75 ms` plus clipping experiment worsened the SwiftShader run and was fully reverted; the original FlatList settings remain shipped.
+Package 2 preserves date-only and inclusive date-range meaning through ingestion, Mongo, trusted DTOs, Home, feed/detail, and future Calendar compatibility. The final blocker remediation routes all remaining API transports through per-caller safe policies, requires valid TLS everywhere, and adds durable deterministic per-device notification attempts so an unconfirmed provider outcome remains fenced across retry and restart. The trusted delivery path still creates, dispatches, revalidates, retries only proven non-acceptance, and retires Mongo-backed notification jobs without external queue infrastructure. Package 3 adds bounded shell/auth/Home regression repairs and a repository-owned Android release feed measurement. The attempted `4/3/window 3/75 ms` plus clipping experiment worsened the SwiftShader run and was fully reverted; the original FlatList settings remain shipped.
 
 The accepted performance run used `NODE_ENV=production`, a non-debuggable x86_64 release build, the deterministic 100-record fixture, and the API 24 emulator at 720×1280/320 dpi with the host Intel renderer. Five trials produced 600 valid frames, aggregate p90 `24.928167 ms`, p95 `35.777763 ms`, and zero frames at or above 700 ms; APK SHA-256 is `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`. This is bounded local release evidence, not production-device, modern-Android, or iOS performance acceptance.
 

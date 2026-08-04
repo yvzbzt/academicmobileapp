@@ -685,7 +685,7 @@ Restoration passed at 720×1280, density 320, font scale 1.0, with no ADB revers
 - Package 1: `641d7bee8a1cd539179769069a22b5c3220e8a6d` (`fix(auth): close phase-one security gaps`).
 - Package 2: `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` (`fix(api): complete trusted dates and notification delivery`).
 - Package 3: `2e3664546f628a19c6fa929b9ee9469e5322f9a8` (`fix(mobile-native): reconcile completed phase behavior`).
-- Package 4 is documentation-only; its SHA is recorded after commit in the terminal handoff.
+- Package 4: `fd54f63669f0ef18230dfe0e9df64281310ac5a7` (`docs(mobile-native): reconcile phases one through eight`).
 
 Firestore database persistence and the visible six-tab phone shell appear above only in dated historical ledgers. The current API runtime is Mongo-only and the authenticated phone shell has exactly Home, Announcements, Calendar, and Profile.
 
@@ -693,22 +693,22 @@ Firestore database persistence and the visible six-tab phone shell appear above 
 
 | Package | Exact focused command or current file set | Current count and covered contract |
 |---|---|---|
-| 1 — API security | `npx.cmd vitest run apps/api/tests/password-recovery-generation-security.test.ts apps/api/tests/recent-authentication.test.ts apps/api/tests/trusted-proxy-rate-limit.test.ts apps/api/tests/password-recovery.test.ts apps/api/tests/users-and-guards.test.ts --configLoader runner` | 5 files / 38 tests: generation commit/enforcement, concurrency/idempotency/failure boundaries, recent-auth proof, practical recovery parity, trusted proxy, stale access/refresh/recovery rejection |
-| 1 — clients | `npx.cmd vitest run tests/unit/mobile-firebase-config.test.ts tests/unit/mobile-native-recent-authentication.test.ts --configLoader runner` and `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/auth/RecentAuthenticationPanel.test.tsx` | Root 2 files / 7 tests plus native 1 suite / 3 tests: fail-closed Firebase config and real native credential/proof submission |
-| 2 — trusted delivery | `npx.cmd vitest run apps/api/tests/safe-outbound-request.test.ts apps/api/tests/announcement-content-identity.test.ts apps/api/tests/notification-announcement-production.test.ts apps/api/tests/notification-calendar-reconciliation.test.ts apps/api/tests/notification-job-durability.test.ts apps/api/tests/notification-worker-lifecycle.test.ts apps/api/tests/mongo-notification.repository.test.ts --configLoader runner` | 7 files / 34 tests: actual resolved destination/redirect validation, fingerprint relationships, ingestion→job, retirement/revalidation, duplicate/restart/retry/fencing/shutdown |
+| 1 — API security | `npx.cmd vitest run apps/api/tests/password-recovery-generation-security.test.ts apps/api/tests/recent-authentication.test.ts apps/api/tests/trusted-proxy-rate-limit.test.ts apps/api/tests/password-recovery.test.ts apps/api/tests/users-and-guards.test.ts --configLoader runner` | 5 files / 47 tests: generation commit/enforcement, concurrency/idempotency/failure boundaries, purpose-specific single-use recent auth, practical recovery parity, trusted proxy, stale access/refresh/recovery rejection |
+| 1 — clients | `npx.cmd vitest run tests/unit/mobile-firebase-config.test.ts tests/unit/mobile-native-recent-authentication.test.ts --configLoader runner` and `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/auth/RecentAuthenticationPanel.test.tsx` | Root 2 files / 8 tests plus native 1 suite / 3 tests / 0 snapshots: fail-closed Firebase config and fresh purpose-specific native credential/proof submission |
+| 2 — trusted delivery | `npx.cmd vitest run apps/api/tests/safe-outbound-request.test.ts apps/api/tests/announcement-content-identity.test.ts apps/api/tests/notification-announcement-production.test.ts apps/api/tests/notification-calendar-reconciliation.test.ts apps/api/tests/notification-job-durability.test.ts apps/api/tests/notification-worker-lifecycle.test.ts apps/api/tests/mongo-notification.repository.test.ts --configLoader runner` | 7 files / 38 tests: actual resolved destination/redirect validation, fingerprint relationships, ingestion→job, retirement/revalidation, duplicate/restart/retry/fencing/shutdown |
 | 2 — temporal/native | `npx.cmd vitest run tests/unit/announcement-date-only-api-native.test.ts tests/unit/academic-temporal-contract.test.ts tests/unit/calendar-ingestion.test.ts tests/unit/google-calendar-sync.test.ts tests/unit/mobile-native-content-trust.test.ts --configLoader runner` | 5 files / 71 tests: date-only/inclusive-range ingestion, Istanbul API-to-native presentation, timestamp compatibility, trusted content identity |
-| 3 — native behavior | `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/navigation/AppNavigator.test.tsx tests/auth/AuthScreens.test.tsx tests/home/HomeDailyBrief.test.tsx tests/announcements/ContentFeedPreview.test.tsx` | 4 suites / 60 tests: selected-root virtualized-list reselect, switch retention, insets, real actions, step marker, actual focus, priority/recent/integration/no-data states, 100-record harness |
+| 3 — native behavior | `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/navigation/AppNavigator.test.tsx tests/auth/AuthScreens.test.tsx tests/home/HomeDailyBrief.test.tsx tests/announcements/ContentFeedPreview.test.tsx` | PASS — 4 suites / 60 static declarations / 74 runtime cases / 0 snapshots, Jest duration 27.167 s: selected-root virtualized-list reselect, switch retention, insets, real actions, step marker, actual focus, priority/recent/integration/no-data states, 100-record harness |
 | 3 — pure behavior/performance | `npx.cmd vitest run tests/unit/mobile-native-home.test.ts tests/unit/mobile-native-feed-performance.test.ts --configLoader runner` | 2 files / 21 tests: qualified important selection, independent recent items, no-data resolver, `framestats` parser/nearest-rank/threshold evaluation |
 
 ### Current complete suite counts
 
-These fresh runs were executed from Package 3 HEAD while Package 4 changed documentation only:
+These final post-review runs include the five final-blocker corrections from accepted baseline `fd54f63669f0ef18230dfe0e9df64281310ac5a7`:
 
 | Exact command | Current result |
 |---|---|
-| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 42 files / 387 tests |
-| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — 17 suites / 158 tests / 0 snapshots |
-| `npm.cmd test -- --configLoader runner` | PASS — 65 files / 735 tests |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 45 files / 445 tests, Vitest duration 36.62 s |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — 17 suites / 158 tests / 0 snapshots, Jest duration 59.532 s |
+| `npm.cmd test -- --configLoader runner` | PASS — 69 files / 801 tests, Vitest duration 38.30 s |
 
 The current non-counted build/type gates remain:
 
@@ -721,7 +721,16 @@ Set-Location apps/mobile-native/android
 .\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon
 ```
 
-Package-level gates passed before their commits. The terminal remediation handoff is authoritative for the final post-documentation rerun of these commands; TypeScript/build success is not converted into a test count or called lint.
+Final non-counted gates passed: workspace TypeScript and mobile-native TypeScript; admin Vite build (1,742 modules, 6.85 s); mobile-web Vite build (1,755 modules, 8.42 s); and Android x86_64 `assembleDebug` (`BUILD SUCCESSFUL` in 2m35s, 245 tasks). The initial sandboxed Vite/Gradle attempts could not see parent paths or the Android SDK; identical approved local reruns passed. TypeScript/build success is not converted into a test count or called lint.
+
+### Final blocker focused evidence
+
+| Blocker | Exact command or scope | Fresh result |
+|---|---|---|
+| Single-use recent authentication | `npx.cmd vitest run apps/api/tests/recent-authentication.test.ts apps/api/tests/users-and-guards.test.ts apps/api/tests/auth-http-contract.integration.test.ts --configLoader runner` plus `npx.cmd vitest run tests/unit/mobile-native-recent-authentication.test.ts --configLoader runner` | PASS — API 3 files / 22 tests in 6.39 s; native unit 1 file / 5 tests in 2.57 s |
+| Safe outbound boundary and named call sites | `npx.cmd vitest run apps/api/tests/safe-outbound-request.test.ts apps/api/tests/outbound-call-sites.test.ts apps/api/tests/server-outbound-inventory.test.ts --configLoader runner` | PASS — 3 files / 42 tests in 2.95 s; affected ingestion/network regression also passed 5 files / 53 tests in 3.34 s |
+| Durable notification attempt fence | Notification delivery-attempt, worker lifecycle/durability/reconciliation/production, Mongo, operations, schema, and index focused set | PASS — 10 files / 114 tests in 9.97 s, including real-Mongo concurrency/recovery and long-fan-out lease timing |
+| Historical/current documentation | `npx.cmd vitest run tests/unit/phase-1-8-documentation-consistency.test.ts --configLoader runner` | PASS — 1 file / 7 tests in 829 ms; authoritative historical banners, four-tab/current architecture, Mongo-only persistence, fixed security, and Package 3 count assertions |
 
 ### Release-mode Phase 8 feed performance
 
@@ -749,14 +758,16 @@ The final gate uses the following current commands/checks after the documentatio
 
 | Gate | Exact command/check | Acceptance |
 |---|---|---|
-| Whitespace | `git diff --check 7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9..HEAD` | No whitespace error |
+| Whitespace | `git diff --check fd54f63669f0ef18230dfe0e9df64281310ac5a7..HEAD` | No whitespace error |
 | Sensitive logs | `git grep -n -E "(console|logger)\.(log|warn|error|debug).*(password|accessToken|refreshToken|verificationCode|recoveryCode|deviceToken|contentBody)" -- apps/api/src apps/mobile-native apps/mobile/src` | No uncontrolled secret/content diagnostic |
 | Credential literals | `git grep -n -E "AIza[0-9A-Za-z_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY" -- . ":!package-lock.json" ":!apps/mobile-native/package-lock.json"` | No committed credential literal; required Firebase values come from environment |
 | Firestore persistence | `git grep -n -i -E "FirestoreRepository|FirestoreDatabase|firebase-admin/firestore|from .*firestore" -- apps/api/src` | No API database-persistence path; retained Firebase Authentication/FCM is not Firestore |
-| Focus modifiers | `git grep -n -E "\.(skip|only)\s*\(" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | No committed `.skip` or `.only` |
-| Snapshots | `git grep -n -E "toMatch(Snapshot|InlineSnapshot)" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | No snapshot acceptance |
+| Direct server fetch | `npx.cmd vitest run apps/api/tests/server-outbound-inventory.test.ts --configLoader runner` | No executable API `fetch` outside the approved safe boundary |
+| Invalid TLS | Source scan plus the server outbound inventory test | No certificate-bypass option, retry, environment switch, or process-wide TLS override |
+| Focus modifiers | `git grep -n -E "\.(skip|only|todo)\s*\(" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | No committed `.skip`, `.only`, or `.todo` |
+| Snapshots | `git grep -n -E "toMatch(Snapshot|InlineSnapshot)" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` plus tracked `.snap` inventory | No snapshot acceptance or tracked snapshot file |
 | Empty/vacuous tests | Review test callbacks plus `git grep -n -E "expect\((true|false)\)\.toBe\((true|false)\)" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | No empty assertion or constant-truth acceptance; named focused suites contain behavioral assertions |
-| Fake social vocabulary | `git grep -n -i -E "\b(likes?|comments?|reposts?|connections?)\b" -- apps/mobile-native/src` | No fake social action/counter introduced |
-| Phase 9 implementation | `git diff --name-only 7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9..HEAD -- apps/api apps/mobile-native apps/mobile tests scripts` plus scoped diff review | No Phase 9 manual-exam edit/delete or native date-picker implementation |
+| Fake social vocabulary | `rg -n -i "\b(likes?|comments?|reposts?|followers?|following|connections)\b" apps/mobile-native/src apps/mobile-native/App.tsx` | No fake social action/counter introduced; Google Calendar's technical singular `connection` records are not social UI |
+| Phase 9 implementation | `git diff --name-only fd54f63669f0ef18230dfe0e9df64281310ac5a7..HEAD -- apps/api apps/mobile-native apps/mobile tests scripts` plus scoped diff review | No Phase 9 manual-exam edit/delete or native date-picker implementation |
 
 `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact. The untracked Phase 9–12 planning reports and raw prompts are not test evidence, are not staged automatically, and do not constitute implementation. Phase 9 was not started.

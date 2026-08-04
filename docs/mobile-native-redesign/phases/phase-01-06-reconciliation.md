@@ -15,13 +15,13 @@ The 2 August backward-reconciliation snapshot remains preserved below. A new bou
 | Current scope | Commit | Reconciled result |
 |---|---|---|
 | Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Starting point; original Phase 1–8 history remains ancestral |
-| Phase 1 security repair | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Credential-generation enforcement, Mongo user-document reset CAS/idempotency, recent-auth proofs for destructive endpoints, recovery work/timing parity, explicit trusted-proxy handling, and Firebase fallback removal |
+| Phase 1 security repair | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Credential-generation enforcement, Mongo user-document reset CAS/idempotency, the initial mandatory recent-auth proof boundary for destructive endpoints, recovery work/timing parity, explicit trusted-proxy handling, and Firebase fallback removal; final blocker remediation later added purpose binding, single use, digest persistence, and atomic consumption |
 | Phase 2 API repair | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Date-only/inclusive-range integrity, every-hop DNS/connected-address enforcement, adapter layout invariants, normalized fingerprint/source relationships, and autonomous notification production/dispatch lifecycle |
 | Phase 3 mobile repair | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Bounded Phase 5–8 mobile regression repair that preserves Phase 1–4 runtime ownership |
 
 Current classification of the earlier reconciliation findings:
 
-- The former Phase 1 recent-authentication, trusted-proxy, password-recovery timing, and reset multi-write risks are resolved by `641d7bee8a1cd539179769069a22b5c3220e8a6d`; their old open wording below is historical only.
+- The former Phase 1 missing-proof, trusted-proxy, password-recovery timing, and reset multi-write risks are resolved by `641d7bee8a1cd539179769069a22b5c3220e8a6d`; final blocker remediation closes recent-authentication replay and cross-purpose reuse with digest-only persistence and atomic single-use consumption. Their old open wording below is historical only.
 - Phase 2 now carries date-only/range semantics end to end, pins every safe outbound connection to validated DNS results on every hop, enforces source-adapter layout structure, and preserves fingerprint/canonical/source relationships.
 - Phase 3 now automatically reconciles eligible notification jobs, dispatches due work with fencing/retry/revalidation, exposes health, and drains on shutdown. Live FCM/APNs and Google-provider acceptance remain evidence limitations, not implementation substitutes.
 - Phase 4 required no production change. Its iOS, TalkBack, predictive-Back, modern-Android, provider, and native-E2E evidence boundaries remain unchanged and unclaimed.
@@ -98,7 +98,7 @@ The Phase 2 reflog records an amended predecessor, `d2e8473fcde2f0cc0e58d9c5c1f3
 
 - Verification recovery/resend, endpoint-aware auth failures, password parity/recovery, hydration, owner-scoped exams, generation/cancellation, durable invalidation, hierarchy replacement, Mongo-only runtime wiring, and Mongo user-data persistence remain covered by current tests.
 - The later Phase 1 checkpoints are direct descendants of the initial closure commit and intentionally complete persistence hardening; they are not unrelated intervening work.
-- At that snapshot, recent-authentication, reverse-proxy rate-limit, password-recovery timing, multi-write atomicity, provider, iOS, TalkBack, and live-persistence smoke boundaries remained documented and unclaimed. The first four implementation gaps were later closed by `641d7bee8a1cd539179769069a22b5c3220e8a6d`; the evidence-only boundaries remain as stated in the current reconciliation above.
+- At that snapshot, recent-authentication, reverse-proxy rate-limit, password-recovery timing, multi-write atomicity, provider, iOS, TalkBack, and live-persistence smoke boundaries remained documented and unclaimed. Package 1 `641d7bee8a1cd539179769069a22b5c3220e8a6d` first made recent authentication mandatory and closed the next three implementation gaps; final blocker remediation then made those proofs purpose-specific, digest-backed, atomically consumed, and replay-safe. The evidence-only boundaries remain as stated in the current reconciliation above.
 
 ## Verification results
 

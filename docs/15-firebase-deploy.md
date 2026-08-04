@@ -5,7 +5,7 @@ This repo is closest to a Firebase Hosting + Cloud Run deployment:
 - `apps/admin`: static Vite admin console, deployed to Firebase Hosting.
 - `apps/mobile`: static Vite student web app, deployed to Firebase Hosting.
 - `apps/api`: NestJS container, deployed to Cloud Run.
-- Database/queue: MongoDB is required in every environment. Redis is recommended for a real environment; only queue and rate-limit storage may use process-local memory for a temporary demo.
+- Database and durable notification delivery: MongoDB is required in every environment and owns notification jobs plus per-device delivery-attempt fences. Redis/BullMQ and a Mongo replica set are not required by the Phase 1–8 release contract. The existing optional queue/rate-limit adapters may be selected separately, but the checked-in deployment uses their process-local modes.
 
 As of Phase 1 R1C1, Firestore database persistence is not supported by the API: no Firestore database service, repository adapter, runtime selector, index configuration, or deployment step remains. Firebase Authentication and Firebase Admin SDK token verification, Firebase Cloud Messaging, Firebase Hosting, Google Sign-In/OAuth, and their existing configuration remain supported. The R1C1 source cleanup did not run a migration, deploy an application, or access production data; `MONGODB_URI` remains the sole API database configuration.
 
@@ -40,7 +40,7 @@ Those `target:apply` commands create `.firebaserc` locally. Commit it only after
 
 ## 3. Deploy API To Cloud Run
 
-The API runtime uses MongoDB exclusively. Configure `MONGODB_URI` for MongoDB Atlas or another supported Mongo deployment, and configure Redis if using BullMQ or Redis-backed rate limiting.
+The API runtime uses MongoDB exclusively. Configure `MONGODB_URI` for MongoDB Atlas or another supported standalone or replicated Mongo deployment. The checked-in notification worker and its ambiguity fence do not require Redis, BullMQ, or replica-set transactions.
 
 ```powershell
 gcloud config set project YOUR_FIREBASE_PROJECT_ID
@@ -97,9 +97,8 @@ firebase deploy --only hosting:admin,hosting:mobile
 ## 5. Production Values To Add Before Real Users
 
 - `MONGODB_URI`
-- `QUEUE_MODE=bullmq`
-- `RATE_LIMIT_STORE=redis`
-- `REDIS_URL`
+- `QUEUE_MODE=memory`
+- `RATE_LIMIT_STORE=memory`
 - `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`
 - `SMTP_PORT`
 - `SMTP_SECURE`
@@ -125,12 +124,16 @@ gcloud run services update academic-calendar-api `
   --update-secrets "SMTP_USER=smtp-user:latest,SMTP_PASS=smtp-pass:latest"
 ```
 
-For local development without SMTP, the API emits a non-sensitive warning without logging the email address or verification code. Whenever `NODE_ENV !== "production"`, the API automatically includes the verification preview token. In production, `AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN` must be absent or `false`; the current implementation can expose the verification preview if production explicitly sets it to `true`, so a production smoke must assert that the field is absent.
+For local development without SMTP, the API emits a non-sensitive warning without logging the email address or verification code. Whenever `NODE_ENV !== "production"`, the API includes the verification preview token. Production email operations fail closed when SMTP is unavailable; deploys must keep `AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN` absent or `false` and assert that preview fields are absent in the production smoke.
 
 Password recovery uses the same SMTP transport but has an independent digest-secret gate. Production startup/request handling requires `PASSWORD_RECOVERY_TOKEN_PEPPER`, or the `JWT_ACCESS_SECRET` fallback, to contain at least 32 characters; use a dedicated random pepper in real deployments. Store it in Secret Manager or the deployment platform's secret facility rather than in source, shell history, or a checked-in environment file.
 
-The public `POST /auth/password-recovery/request` production status/body fields are intentionally identical for known and unknown syntactically valid email addresses. Do not add Cloud Run/API Gateway rules, mail-delivery diagnostics, or client-visible logs that reintroduce a response-field account-existence signal. Current application latency is not equalized—eligible known accounts can await persistence and SMTP—so timing-based inference remains an open risk. Both password-recovery routes use the strict 10-requests-per-60-seconds rate class; verify trusted-proxy/client-IP handling before relying on per-client isolation behind a reverse proxy.
+The public `POST /auth/password-recovery/request` production status/body fields are intentionally identical for known, unknown, and cooldown cases. Do not add Cloud Run/API Gateway rules, mail-delivery diagnostics, or client-visible logs that reintroduce a response-field account-existence signal. Each path performs comparable token/hash/lookup/repository work and observes a 350 ms production response floor; eligible SMTP delivery is scheduled outside the public response, bounded to 12 seconds, and uses bounded transport timeouts. This is the committed application-level timing contract, not a claim of internet-wide statistical indistinguishability. Both password-recovery routes use the strict 10-requests-per-60-seconds rate class; configure `TRUSTED_PROXY_CIDRS` for the exact proxy topology before relying on forwarded client addresses.
 
-`previewRecoveryCode` is strictly non-production and depends only on `NODE_ENV !== "production"`; there is no production override. A production smoke must assert that the field is absent. Never place a recovery code, password, email address, refresh token, or request body in deployment logs. A successful confirmation response means password replacement, refresh-session revocation, and remaining-record invalidation all completed, so post-deploy verification should use isolated synthetic accounts and assert that every pre-reset refresh session is rejected without printing token values.
+`previewRecoveryCode` is strictly non-production and depends only on `NODE_ENV !== "production"`; there is no production override. A production smoke must assert that the field is absent. Never place a recovery code, password, email address, refresh token, or request body in deployment logs. A successful confirmation response means the atomic password replacement and credential-generation advance completed. That commit logically invalidates every older access, refresh, and recovery credential; physical refresh/recovery-record cleanup remains best effort. Post-deploy verification should use isolated synthetic accounts and assert that every pre-reset refresh session is rejected without printing token values.
 
-The confirmation implementation does not wrap that full sequence in one transaction: only conditional recovery-code consumption is atomic, and later password/session/invalidation writes are sequential. Before real-user rollout, add transaction/saga or idempotent reconciliation and operational alerting for failures after code consumption; do not describe the current reset as all-or-nothing.
+Password confirmation commits its security boundary in one standalone-Mongo user-document compare-and-set: owner, accepted recovery token, and expected generation gate the password replacement, one generation advance, accepted-attempt completion, and password-bound idempotency record. Older access, refresh, and recovery material is invalid immediately at that generation advance; later physical cleanup is best effort and cannot make it valid again. No transaction, replica set, Redis, BullMQ, or reconciliation worker is required for that guarantee.
+
+## 7. Recent Authentication And Destructive Requests
+
+The native client requests a fresh proof for exactly one purpose—`delete_personal_data` or `delete_account`—immediately before the matching destructive request. The API persists only a digest of the proof's random identifier and atomically consumes the matching owner/generation/purpose record in `RecentAuthGuard`. A consumed proof is never restored when later deletion work fails, so a retry requires fresh reauthentication. Do not capture the proof header, identifier, password, Google credential, email, or deletion body in Cloud Run request/application logs.
