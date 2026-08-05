@@ -5,6 +5,8 @@ import {
   createNavigationContainerRef,
   type NavigationState,
   type PartialState,
+  useNavigation,
+  usePreventRemove,
   useScrollToTop,
 } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -23,6 +25,7 @@ import {
   type ReactNode
 } from "react";
 import {
+  Alert,
   BackHandler,
   Platform,
   StyleSheet,
@@ -94,6 +97,16 @@ export interface AppNavigatorProps {
   request?: AppNavigationRequest | null;
   onRequestHandled?: (key: string) => void;
   onVisibleRouteChange?: (route: AppVisibleRoute) => void;
+  routeLeaveGuard?: AppRouteLeaveGuard | null;
+}
+
+export interface AppRouteLeaveGuard {
+  route: AppVisibleRoute;
+  enabled: boolean;
+  title: string;
+  message: string;
+  discardLabel: string;
+  onDiscard: () => void;
 }
 
 type RootStackParamList = {
@@ -157,6 +170,7 @@ interface RouteContentValue {
   screens: AppScreenSlots;
   globalFeedback?: ReactNode;
   navigationLocked: boolean;
+  routeLeaveGuard?: AppRouteLeaveGuard | null;
 }
 
 const RouteContentContext = createContext<RouteContentValue | null>(null);
@@ -168,13 +182,52 @@ function useRouteContent(): RouteContentValue {
 }
 
 function RoutedScreen({ route }: { route: AppVisibleRoute }) {
-  const { screens, globalFeedback } = useRouteContent();
+  const { screens, globalFeedback, routeLeaveGuard } = useRouteContent();
   const adaptation = usePlatformAdaptation();
+  const navigation = useNavigation();
   const scrollRef = useRef<ScrollView | null>(null);
+  const leaveAlertVisibleRef = useRef(false);
   useScrollToTop(scrollRef);
+  const guardEnabled = Boolean(
+    routeLeaveGuard?.enabled && routeLeaveGuard.route === route,
+  );
+  usePreventRemove(guardEnabled, ({ data }) => {
+    if (!routeLeaveGuard || leaveAlertVisibleRef.current) return;
+    leaveAlertVisibleRef.current = true;
+    Alert.alert(
+      routeLeaveGuard.title,
+      routeLeaveGuard.message,
+      [
+        {
+          text: "Vazgeç",
+          style: "cancel",
+          onPress: () => {
+            leaveAlertVisibleRef.current = false;
+          },
+        },
+        {
+          text: routeLeaveGuard.discardLabel,
+          style: "destructive",
+          onPress: () => {
+            leaveAlertVisibleRef.current = false;
+            routeLeaveGuard.onDiscard();
+            navigation.dispatch(data.action);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => {
+          leaveAlertVisibleRef.current = false;
+        },
+      },
+    );
+  });
   const isBootstrap = route === "BootstrapLoading" || route === "BootstrapError";
   const hasAuthenticatedShell = isAuthenticatedRoute(route);
-  const hasFormLayout = isAuthOrOnboardingRoute(route);
+  const hasFormLayout = isAuthOrOnboardingRoute(route)
+    || route === "AcademicProfileSettings"
+    || route === "AccountDataSettings";
   const authenticatedEdges = adaptation.navigationLayout === "navigation-rail"
     ? ["right", "bottom"] as const
     : ["left", "right"] as const;
@@ -646,7 +699,8 @@ export function AppNavigator({
   navigationLocked = false,
   request,
   onRequestHandled,
-  onVisibleRouteChange
+  onVisibleRouteChange,
+  routeLeaveGuard,
 }: AppNavigatorProps) {
   const reducedMotion = useReducedMotion();
   const theme = useTheme();
@@ -656,8 +710,9 @@ export function AppNavigator({
   const contextValue = useMemo<RouteContentValue>(() => ({
     screens,
     globalFeedback,
-    navigationLocked
-  }), [globalFeedback, navigationLocked, screens]);
+    navigationLocked,
+    routeLeaveGuard,
+  }), [globalFeedback, navigationLocked, routeLeaveGuard, screens]);
 
   useEffect(() => {
     if (!ready || !navigationRef.isReady()) return;
@@ -673,9 +728,12 @@ export function AppNavigator({
     if (!ready || !request || !navigationRef.isReady()) return;
     if (!requestMatchesRootSurface(request.route, rootSurface)) return;
     if (handledRequestKeyRef.current === request.key) return;
-    if (
+    const visibleRoute = getLeafRouteName(navigationRef.getRootState());
+    if (request.route === "Profile" && isNestedProfileSettingsRoute(visibleRoute)) {
+      navigationRef.goBack();
+    } else if (
       !isControlledBaseRoute(request.route)
-      || getLeafRouteName(navigationRef.getRootState()) !== request.route
+      || visibleRoute !== request.route
     ) {
       navigationRef.dispatch(requestAction(request));
     }
@@ -751,6 +809,13 @@ function isControlledBaseRoute(route: AppVisibleRoute): boolean {
     || route === "YokAnnouncements"
     || route === "Calendar"
     || route === "Profile";
+}
+
+function isNestedProfileSettingsRoute(route: string | undefined): boolean {
+  return route === "AcademicProfileSettings"
+    || route === "NotificationSettings"
+    || route === "GoogleCalendarSettings"
+    || route === "AccountDataSettings";
 }
 
 function requestMatchesRootSurface(route: AppVisibleRoute, surface: AppRootSurface): boolean {

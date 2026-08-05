@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { BackHandler, FlatList, Keyboard, Platform, Text } from "react-native";
+import { Alert, BackHandler, FlatList, Keyboard, KeyboardAvoidingView, Platform, Text } from "react-native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
@@ -697,6 +697,139 @@ describe("AppNavigator", () => {
     });
     await expectVisibleRoute("Calendar");
     expectSelectedTab("Takvim");
+  });
+
+  it("returns from a clean settings destination to Profile with accessible Android Back", async () => {
+    const hardwareBackHandlers = captureHardwareBackHandlers();
+    const onRequestHandled = jest.fn();
+    const onVisibleRouteChange = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Profile",
+      onRequestHandled,
+      onVisibleRouteChange,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Profile");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Profile"
+        onRequestHandled={onRequestHandled}
+        onVisibleRouteChange={onVisibleRouteChange}
+        request={{ key: "open-academic-settings", route: "AcademicProfileSettings" }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("AcademicProfileSettings");
+    expect(screen.getByRole("button", { name: "Geri d\u00f6n" })).toBeEnabled();
+    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset).toBe(0);
+    expectSelectedTab("Profil");
+
+    expect(hardwareBackHandlers).toHaveLength(1);
+    await act(async () => {
+      expect(hardwareBackHandlers[0]!()).toBe(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+
+    await expectVisibleRoute("Profile");
+    expectSelectedTab("Profil");
+    expect(onRequestHandled).toHaveBeenCalledWith("open-academic-settings");
+    expect(onVisibleRouteChange).toHaveBeenCalledWith("AcademicProfileSettings");
+    expect(onVisibleRouteChange).toHaveBeenCalledWith("Profile");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Profile"
+        onRequestHandled={onRequestHandled}
+        onVisibleRouteChange={onVisibleRouteChange}
+        request={{ key: "open-account-data-settings", route: "AccountDataSettings" }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("AccountDataSettings");
+    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset).toBe(0);
+  });
+
+  it("intercepts dirty settings Back, keeps Cancel in place, then discards before leaving", async () => {
+    const hardwareBackHandlers = captureHardwareBackHandlers();
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+    const onDiscard = jest.fn();
+    const guard = {
+      route: "AcademicProfileSettings" as const,
+      enabled: true,
+      title: "Kaydedilmemi\u015f de\u011fi\u015fiklikler",
+      message: "Kaydetmeden ayr\u0131lmak istiyor musunuz?",
+      discardLabel: "De\u011fi\u015fiklikleri sil",
+      onDiscard,
+    };
+    const view = await renderNavigator({
+      activeRoute: "Profile",
+      rootSurface: "authenticated",
+      routeLeaveGuard: guard,
+    });
+    await expectVisibleRoute("Profile");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Profile"
+        request={{ key: "open-dirty-academic-settings", route: "AcademicProfileSettings" }}
+        rootSurface="authenticated"
+        routeLeaveGuard={guard}
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("AcademicProfileSettings");
+    expect(screen.getByRole("button", { name: "Geri d\u00f6n" })).toBeEnabled();
+
+    expect(hardwareBackHandlers).toHaveLength(1);
+    await act(async () => {
+      expect(hardwareBackHandlers[0]!()).toBe(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(alert).toHaveBeenLastCalledWith(
+      guard.title,
+      guard.message,
+      expect.arrayContaining([
+        expect.objectContaining({ style: "cancel" }),
+        expect.objectContaining({ text: guard.discardLabel, style: "destructive" }),
+      ]),
+      expect.objectContaining({ cancelable: true }),
+    );
+    expect(screen.getByRole("header", { name: "SCREEN:AcademicProfileSettings" })).toBeVisible();
+    expect(onDiscard).not.toHaveBeenCalled();
+
+    const cancelButton = alert.mock.calls[0]![2]!.find((button) => button.style === "cancel");
+    act(() => cancelButton?.onPress?.());
+    expect(onDiscard).not.toHaveBeenCalled();
+    expect(screen.getByRole("header", { name: "SCREEN:AcademicProfileSettings" })).toBeVisible();
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Profile"
+        request={{ key: "explicit-cancel-dirty-settings", route: "Profile" }}
+        rootSurface="authenticated"
+        routeLeaveGuard={guard}
+        screens={screens}
+      />,
+    );
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("header", { name: "SCREEN:AcademicProfileSettings" })).toBeVisible();
+
+    const discardButton = alert.mock.calls[1]![2]!.find(
+      (button) => button.style === "destructive",
+    );
+    await act(async () => {
+      discardButton?.onPress?.();
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+
+    expect(onDiscard).toHaveBeenCalledTimes(1);
+    await expectVisibleRoute("Profile");
+    expectSelectedTab("Profil");
   });
 
   it("keeps the top-bar Back action disabled while navigation is locked", async () => {

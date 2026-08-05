@@ -1,11 +1,14 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
   View,
+  findNodeHandle,
+  type GestureResponderEvent,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -66,6 +69,9 @@ export function SelectField<Value extends string = string>({
   const minimumTouchTarget = Math.max(48, adaptation.minimumTouchTarget);
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
+  const triggerRef = useRef<View>(null);
+  const triggerNativeTagRef = useRef<number | null>(null);
+  const restoreFocusAfterDismissRef = useRef(false);
   const generatedId = useId();
   const labelId = `${generatedId}-label`;
   const interactionDisabled = disabled || loading;
@@ -76,18 +82,47 @@ export function SelectField<Value extends string = string>({
   const visibleValue = selectedOption?.label ?? placeholder;
   const helpText = error ?? supportingText;
 
+  useEffect(() => {
+    if (open || !restoreFocusAfterDismissRef.current) {
+      return;
+    }
+
+    const focusTimer = setTimeout(() => {
+      restoreFocusAfterDismissRef.current = false;
+      try {
+        const trigger = triggerRef.current;
+        const reactTag = triggerNativeTagRef.current
+          ?? (trigger ? findNodeHandle(trigger) : null);
+        if (typeof reactTag !== "number") {
+          return;
+        }
+
+        AccessibilityInfo.setAccessibilityFocus(reactTag);
+      } catch {
+        // The opener may have unmounted while the native modal was closing.
+      }
+    }, 0);
+
+    return () => clearTimeout(focusTimer);
+  }, [open]);
+
   function updateOpen(nextOpen: boolean) {
     setOpen(nextOpen);
     onOpenChange?.(nextOpen);
   }
 
-  function openOptions() {
+  function openOptions(event: GestureResponderEvent) {
     if (!interactionDisabled) {
+      const nativeTarget = event.nativeEvent.target;
+      if (typeof nativeTarget === "number") {
+        triggerNativeTagRef.current = nativeTarget;
+      }
       updateOpen(true);
     }
   }
 
   function dismissOptions() {
+    restoreFocusAfterDismissRef.current = true;
     updateOpen(false);
   }
 
@@ -111,6 +146,8 @@ export function SelectField<Value extends string = string>({
         {label}
       </Text>
       <Pressable
+        ref={triggerRef}
+        aria-invalid={error ? true : undefined}
         accessibilityHint={accessibilityHint ?? helpText}
         accessibilityLabel={accessibilityLabel ?? label}
         accessibilityLabelledBy={labelId}

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -29,6 +30,7 @@ export interface BottomSheetProps {
   loadingLabel?: string;
   dismissible?: boolean;
   loading?: boolean;
+  scrollable?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
@@ -50,6 +52,7 @@ export function BottomSheet({
   loadingLabel = "İşlem sürüyor",
   dismissible = true,
   loading = false,
+  scrollable = false,
   style,
   testID = "bottom-sheet",
 }: BottomSheetProps) {
@@ -210,7 +213,20 @@ export function BottomSheet({
                 </Text>
               </View>
             ) : null}
-            <View style={styles.content}>{children}</View>
+            {scrollable ? (
+              <ScrollView
+                contentContainerStyle={styles.scrollContentContainer}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                style={styles.scrollContent}
+                testID={`${testID}-scroll`}
+              >
+                {children}
+              </ScrollView>
+            ) : (
+              <View style={styles.content}>{children}</View>
+            )}
           </View>
         </SafeAreaView>
       </View>
@@ -261,5 +277,12 @@ const styles = StyleSheet.create({
   },
   content: {
     flexShrink: 1,
+  },
+  scrollContent: {
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  scrollContentContainer: {
+    flexGrow: 0,
   },
 });

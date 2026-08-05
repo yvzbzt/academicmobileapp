@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   BackHandler,
@@ -12,13 +12,15 @@ import {
   Button,
   Card,
   PasswordField,
-  SearchField,
-  SelectField,
   TextField,
   useTheme,
   type FeedbackTone,
-  type SelectFieldOption,
 } from "../design-system";
+import {
+  AcademicProfileFields,
+  AcademicProfileReview,
+  type AcademicOption,
+} from "../academic/AcademicProfileFields";
 import {
   AUTH_PASSWORD_MIN_LENGTH,
   PASSWORD_RECOVERY_CODE_LENGTH,
@@ -47,11 +49,7 @@ export interface AuthTiming {
   resendInSeconds: number;
 }
 
-export interface AcademicOption {
-  value: string;
-  label: string;
-  supportingText?: string;
-}
+export type { AcademicOption } from "../academic/AcademicProfileFields";
 
 interface AuthScaffoldProps {
   title: string;
@@ -667,33 +665,11 @@ export interface AcademicOnboardingScreenProps {
 export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
   const theme = useTheme();
   const [attempted, setAttempted] = useState(false);
-  const [universityQuery, setUniversityQuery] = useState("");
-  const [facultyQuery, setFacultyQuery] = useState("");
-  const [departmentQuery, setDepartmentQuery] = useState("");
   const passwordRef = useRef<TextInput>(null);
   const dirty = props.initialDraft.universityId !== props.draft.universityId
     || props.initialDraft.facultyId !== props.draft.facultyId
     || props.initialDraft.departmentId !== props.draft.departmentId
     || props.initialDraft.classLevel !== props.draft.classLevel;
-  const filteredUniversities = useMemo(
-    () => filterAcademicOptions(props.universities, universityQuery),
-    [props.universities, universityQuery],
-  );
-  const filteredFaculties = useMemo(
-    () => filterAcademicOptions(props.faculties, facultyQuery),
-    [props.faculties, facultyQuery],
-  );
-  const filteredDepartments = useMemo(
-    () => filterAcademicOptions(props.departments, departmentQuery),
-    [props.departments, departmentQuery],
-  );
-  const classOptions: SelectFieldOption[] = props.classLevels.map((option) => ({
-    value: String(option.value),
-    label: option.label,
-  }));
-
-  useEffect(() => setFacultyQuery(""), [props.draft.universityId]);
-  useEffect(() => setDepartmentQuery(""), [props.draft.facultyId]);
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       requestBack();
@@ -742,69 +718,29 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{maskEmail(props.email)}</Text>
       </Card>
 
-      <SelectorSearch
-        disabled={props.busy}
-        error={props.universitiesError}
-        label="Üniversite ara"
-        loading={props.universitiesLoading}
-        onQueryChange={setUniversityQuery}
-        onRetry={props.onRetryUniversities}
-        onValueChange={props.onUniversityChange}
-        options={filteredUniversities}
-        placeholder="Üniversiteni seç"
-        query={universityQuery}
-        requiredError={attempted && !props.draft.universityId ? "Üniversite seçimi zorunludur." : undefined}
-        selectorLabel="Üniversite"
-        value={props.draft.universityId || null}
+      <AcademicProfileFields
+        busy={props.busy}
+        classLevels={props.classLevels}
+        departments={props.departments}
+        departmentsError={props.departmentsError}
+        departmentsLoading={props.departmentsLoading}
+        draft={props.draft}
+        faculties={props.faculties}
+        facultiesError={props.facultiesError}
+        facultiesLoading={props.facultiesLoading}
+        onClassLevelChange={props.onClassLevelChange}
+        onDepartmentChange={props.onDepartmentChange}
+        onFacultyChange={props.onFacultyChange}
+        onRetryDepartments={props.onRetryDepartments}
+        onRetryFaculties={props.onRetryFaculties}
+        onRetryUniversities={props.onRetryUniversities}
+        onUniversityChange={props.onUniversityChange}
+        showReview={false}
+        universities={props.universities}
+        universitiesError={props.universitiesError}
+        universitiesLoading={props.universitiesLoading}
+        universityRequiredError={attempted && !props.draft.universityId ? "Üniversite seçimi zorunludur." : undefined}
       />
-
-      <SelectorSearch
-        disabled={props.busy || !props.draft.universityId}
-        error={props.facultiesError}
-        label="Fakülte ara"
-        loading={props.facultiesLoading}
-        onClear={props.draft.facultyId ? () => props.onFacultyChange(null) : undefined}
-        onQueryChange={setFacultyQuery}
-        onRetry={props.onRetryFaculties}
-        onValueChange={props.onFacultyChange}
-        options={filteredFaculties}
-        placeholder="İsteğe bağlı"
-        query={facultyQuery}
-        selectorLabel="Fakülte"
-        value={props.draft.facultyId || null}
-      />
-
-      <SelectorSearch
-        disabled={props.busy || !props.draft.facultyId}
-        error={props.departmentsError}
-        label="Bölüm ara"
-        loading={props.departmentsLoading}
-        onClear={props.draft.departmentId ? () => props.onDepartmentChange(null) : undefined}
-        onQueryChange={setDepartmentQuery}
-        onRetry={props.onRetryDepartments}
-        onValueChange={props.onDepartmentChange}
-        options={filteredDepartments}
-        placeholder="İsteğe bağlı"
-        query={departmentQuery}
-        selectorLabel="Bölüm"
-        value={props.draft.departmentId || null}
-      />
-
-      <View style={{ gap: theme.spacing.xs }}>
-        <SelectField
-          disabled={props.busy || !props.draft.departmentId}
-          emptyLabel="Önce bölüm seç."
-          label="Sınıf"
-          onValueChange={(value) => props.onClassLevelChange(Number(value) as AcademicClassLevel)}
-          options={classOptions}
-          placeholder="İsteğe bağlı"
-          supportingText="Bölümünü seçtiğinde uygun sınıflar gösterilir."
-          value={props.draft.classLevel === null ? null : String(props.draft.classLevel)}
-        />
-        {props.draft.classLevel !== null ? (
-          <Button compact disabled={props.busy} label="Sınıf seçimini temizle" onPress={() => props.onClassLevelChange(null)} variant="ghost" />
-        ) : null}
-      </View>
 
       {props.needsPassword ? (
         <PasswordField
@@ -823,7 +759,7 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         />
       ) : null}
 
-      <AcademicReview
+      <AcademicProfileReview
         classLevels={props.classLevels}
         departments={props.departments}
         draft={props.draft}
@@ -833,78 +769,6 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
       <Button fullWidth label="Kaydet ve devam et" loading={props.busy} onPress={save} />
       <Button compact disabled={props.busy} label="Geri dön" onPress={requestBack} variant="ghost" />
     </AuthScaffold>
-  );
-}
-
-interface SelectorSearchProps {
-  label: string;
-  selectorLabel: string;
-  query: string;
-  options: readonly AcademicOption[];
-  value: string | null;
-  placeholder: string;
-  loading: boolean;
-  error?: string;
-  requiredError?: string;
-  disabled?: boolean;
-  onQueryChange: (value: string) => void;
-  onValueChange: (value: string) => void;
-  onRetry: () => void;
-  onClear?: () => void;
-}
-
-function SelectorSearch(props: SelectorSearchProps) {
-  const theme = useTheme();
-  return (
-    <View style={{ gap: theme.spacing.xs }}>
-      <SearchField
-        disabled={props.disabled || props.loading}
-        label={props.label}
-        onChangeText={props.onQueryChange}
-        placeholder="Ada göre ara"
-        value={props.query}
-      />
-      <SelectField
-        disabled={props.disabled}
-        emptyLabel={props.query ? "Aramana uygun sonuç bulunamadı." : "Kullanılabilir seçenek yok."}
-        error={props.requiredError ?? props.error}
-        label={props.selectorLabel}
-        loading={props.loading}
-        onValueChange={props.onValueChange}
-        options={props.options}
-        placeholder={props.placeholder}
-        value={props.value}
-      />
-      {props.error ? <Button compact disabled={props.disabled} label="Seçenekleri tekrar yükle" onPress={props.onRetry} variant="secondary" /> : null}
-      {props.onClear ? <Button compact disabled={props.disabled} label={`${props.selectorLabel} seçimini temizle`} onPress={props.onClear} variant="ghost" /> : null}
-    </View>
-  );
-}
-
-function AcademicReview(props: {
-  draft: AcademicOnboardingDraft;
-  universities: readonly AcademicOption[];
-  faculties: readonly AcademicOption[];
-  departments: readonly AcademicOption[];
-  classLevels: readonly { value: AcademicClassLevel; label: string }[];
-}) {
-  const theme = useTheme();
-  const rows = [
-    ["Üniversite", optionLabel(props.universities, props.draft.universityId)],
-    ["Fakülte", optionLabel(props.faculties, props.draft.facultyId)],
-    ["Bölüm", optionLabel(props.departments, props.draft.departmentId)],
-    ["Sınıf", props.classLevels.find((item) => item.value === props.draft.classLevel)?.label ?? "Seçilmedi"],
-  ];
-  return (
-    <Card accessibilityLabel="Akademik seçim özeti" style={{ gap: theme.spacing.sm }} variant="tonal">
-      <Text accessibilityRole="header" style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>Seçim özeti</Text>
-      {rows.map(([label, value]) => (
-        <View key={label} style={[styles.reviewRow, { gap: theme.spacing.sm }]}>
-          <Text style={[theme.typography.meta, styles.reviewKey, { color: theme.colors.text.secondary }]}>{label}</Text>
-          <Text style={[theme.typography.bodyStrong, styles.reviewValue, { color: theme.colors.text.primary }]}>{value}</Text>
-        </View>
-      ))}
-    </Card>
   );
 }
 
@@ -934,16 +798,6 @@ function TimingPanel({ timing }: { timing: AuthTiming | null }) {
       </Text>
     </View>
   );
-}
-
-function filterAcademicOptions(options: readonly AcademicOption[], query: string): AcademicOption[] {
-  const normalized = query.trim().toLocaleLowerCase("tr-TR");
-  if (!normalized) return [...options];
-  return options.filter((option) => `${option.label} ${option.supportingText ?? ""}`.toLocaleLowerCase("tr-TR").includes(normalized));
-}
-
-function optionLabel(options: readonly AcademicOption[], value: string): string {
-  return options.find((option) => option.value === value)?.label ?? "Seçilmedi";
 }
 
 export function formatDuration(totalSeconds: number): string {
@@ -989,18 +843,5 @@ const styles = StyleSheet.create({
   },
   timing: {
     borderWidth: 1,
-  },
-  reviewRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-  },
-  reviewKey: {
-    flexBasis: 90,
-    flexShrink: 0,
-  },
-  reviewValue: {
-    flex: 1,
-    minWidth: 0,
-    textAlign: "right",
   },
 });

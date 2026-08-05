@@ -279,3 +279,38 @@ CalendarTab
 | Google status | Compact connection/sync/partial status → sync/manage | Existing connect, sync, switch, disconnect-retain, managed removal, revoke and partial outcomes | Phase 3 lifecycle; app-managed marker plus owner required; personal Google events untouched |
 
 The synthetic preview scenarios are `populated`, `week`, `month`, `loading`, `refreshing`, `empty`, `stale`, `partial`, `offline`, `error`, `google-partial`, `detail-academic`, `detail-personal`, and `long-title`. They are development-only local fixtures and do not prove authentication, SecureStore, API, or provider behavior. Android evidence is indexed in [`evidence/phase-09-native`](./evidence/phase-09-native/README.md). Phase 10 was not started.
+
+## Phase 10 Profile and settings inventory
+
+This section supersedes only the earlier statements that Profile presentation and the final academic selector treatment remained later-phase work. The four-tab map and nested settings routes remain unchanged:
+
+```text
+ProfileTab
+├─ Profile
+│  ├─ real identity summary
+│  ├─ personal information (read-only name and secondary email)
+│  ├─ academic profile → AcademicProfileSettings
+│  ├─ notifications → NotificationSettings
+│  ├─ calendar connections → GoogleCalendarSettings
+│  ├─ truthful app information (version/build)
+│  └─ account management → AccountDataSettings
+├─ AcademicProfileSettings
+├─ NotificationSettings
+├─ GoogleCalendarSettings
+└─ AccountDataSettings
+   └─ collapsed danger area
+      ├─ delete app data
+      └─ delete account
+```
+
+| Surface | Final hierarchy | States and actions | Boundary |
+|---|---|---|---|
+| Profile | Summary → personal information → academic row → notification row → calendar row → app information → account row | Complete/incomplete academic identity; route rows expose current text status | Current `/me` name/institution/email on Profile and the same authoritative email on Account; no invented Account name, image, student ID, social statistics, appearance row, or dead help/legal/support link |
+| Academic profile | Current context → required university → optional faculty → optional department → optional class → one Save/Cancel action area | Search, virtualized results, loading, no results, error/retry, selected, expanded, invalid, dirty, saving, saved, save error, discard confirmation | Parent changes clear descendants in draft; no picker mutation; complete replacement saved once; returned server profile is authoritative; failure stays dirty/retryable; explicit Cancel uses the same leave guard; keyboard-safe route |
+| Notifications | Effective delivery summary → OS permission → installation registration → stored preference → supported mode/categories → Save | Checking, not requested, granted, denied, permanently denied/settings-required, unavailable, registration transitions/errors, clean/dirty/saving/saved/error; duplicate-safe Open Settings busy/rejection | Active only when preference + permission + registration gates pass; stored preference remains explicitly Açık/Kapalı independent of save state; tokens and unsupported reminder/quiet-hours controls absent |
+| Google Calendar | Compact lifecycle summary → connected account/last sync/current mapping count → partial or mapping warning → valid state actions | Disconnected, checking, connected, expired, syncing, partial, error; connect, sync, switch, disconnect-retain, managed removal, revoke; external busy | Existing Phase 3 owner/mapping/late-operation contract; a disconnected retained ledger keeps applicable actions; removal returns focus to a surviving heading when its launcher disappears; personal Google events are never changed |
+| Account management | Authoritative `/me` identity → logout → danger disclosure → expanded consequences/actions → confirmation → recent-authentication proof → operation result | Collapsed/expanded, cancel, purpose-specific reauth, busy, retryable error, success/session transition; keyboard-safe route; one semantic route feedback surface | Logout, local/app-data deletion, and account deletion are distinct; no duplicate request, duplicate banner, or raw backend/provider error |
+
+The Profile route does not duplicate controls owned by its nested routes. Appearance is omitted because system appearance is automatic and no persisted user choice exists. Help, privacy, terms, and support rows are omitted because the application has no real destinations. The only app metadata displayed is truthful configuration-backed version/build information.
+
+The synthetic Phase 10 preview is development-only, dual-gated, and backed by reserved local fixtures. Its allowlisted scenarios are `profile-summary`, `profile-incomplete`, `academic-editor`, `notifications-active`, `notifications-denied`, `notifications-settings-required`, `notifications-registering`, `notifications-error`, `google-disconnected`, `google-connected`, `google-partial`, `google-expired`, `account-management`, `danger-expanded`, `data-confirm`, `data-error`, `account-confirm`, and `account-error`. Focused Phase 10 renderer/navigation/selector/auth validation passes 5 suites / 71 tests / 0 snapshots, including preview gate/URL/synthetic-boundary checks. The reviewed Android inventory in [`evidence/phase-10-native`](./evidence/phase-10-native/README.md) contains 44 original-resolution screenshots and 44 basename-matched hierarchies with 88 integrity-index rows. It covers phone light/dark, exact 320 dp at 200% text, simulated tablet width, reachable actions and 48 dp targets, and ordinary Back from Notifications to Profile in the same process. The dirty academic leave guard is covered by automated production-route tests, not claimed as a native dirty-Back smoke. TalkBack, iOS/VoiceOver/Liquid Glass, live providers, authenticated relaunch/account switching, and SecureStore remain outside this synthetic evidence. Phase 11 was not started.

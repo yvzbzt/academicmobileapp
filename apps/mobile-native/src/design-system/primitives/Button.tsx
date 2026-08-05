@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { forwardRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
   View,
+  type View as NativeView,
   type PressableProps,
   type StyleProp,
   type TextStyle,
@@ -96,7 +97,7 @@ function resolveButtonPalette(
   };
 }
 
-export function Button({
+export const Button = forwardRef<NativeView, ButtonProps>(function Button({
   label,
   variant = "primary",
   status = "idle",
@@ -113,7 +114,7 @@ export function Button({
   onPressIn,
   onPressOut,
   ...pressableProps
-}: ButtonProps) {
+}: ButtonProps, ref) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
   const [focused, setFocused] = useState(false);
@@ -128,6 +129,7 @@ export function Button({
   return (
     <Pressable
       {...pressableProps}
+      ref={ref}
       accessibilityLabel={accessibilityLabel ?? visibleLabel}
       accessibilityRole="button"
       accessibilityState={{ disabled: interactionDisabled, busy: loading }}
@@ -194,7 +196,7 @@ export function Button({
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   button: {

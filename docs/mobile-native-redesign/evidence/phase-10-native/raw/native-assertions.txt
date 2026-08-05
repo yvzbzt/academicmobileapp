@@ -1,0 +1,87 @@
+PHASE_10_ANDROID_NATIVE_ASSERTIONS
+captured_at=2026-08-05T20:31:03+03:00
+device=Android emulator
+avd=AcademicPhase1Low
+android_release=7.0
+sdk=24
+abi=x86_64
+fixture=dual-gated Phase 10 preview; synthetic local records only
+production_access=none
+
+android_debug_assembly=PASS; 1m11s; 268 tasks (7 executed, 261 up-to-date)
+apk_bytes=56804991
+apk_sha256=57DC2F1BDCD7D7C3B02429EF260DF29A3EEEBCC374C55B90D34334793FEFAAFD
+runtime_source=current APK reinstall plus current-source Metro after the final Phase 10 fixes
+
+artifact_screenshots=44
+artifact_hierarchies=44
+artifact_pairs=44 basename-matched PNG/XML pairs
+artifact_current_source_pairs=44
+integrity_index_rows=88
+integrity_index_sha256=D2ACCBE7346A947B53B920497FEED120B8C6CD1EBA63E7657DDAF880D8147E8B
+screenshot_physical_dimensions=720x1280
+tablet_logical_profile=wm 1280x1920; density 240; approximately 853dp wide
+tablet_note=PNG dimensions follow the 720x1280 emulator framebuffer; XML bounds preserve the logical wm coordinates
+
+phone_profile=density 320; 360dp; font scale 1.0
+compact_profile=density 360; exactly 320dp; font scale 2.0
+restored_profile=720x1280; density 320; font scale 1.0
+
+phone_back_bounds=[32,64][128,160]
+phone_back_target=96x96px at density 320 = 48x48dp
+phone_open_settings_bounds=[36,695][684,799]
+phone_open_settings_target=648x104px at density 320; 52dp minimum height
+phone_switch_outer_bounds=[554,730][650,826]
+phone_switch_outer_target=96x96px at density 320 = 48x48dp
+phone_switch_semantics=accessible checked interactive outer node; visual switch is a disabled child
+notification_truth_semantics=stored application preference is exposed as Açık independently from save status
+notification_open_settings_layout=controlled warning banner plus a separate reachable native button
+
+compact_academic_cancel_bounds=[41,739][680,856]
+compact_academic_save_bounds=[41,883][680,1100]
+compact_notification_open_settings_bounds=[41,774][680,991]
+compact_data_cancel_bounds=[36,775][684,892]
+compact_data_confirm_bounds=[36,919][684,1136]
+compact_account_cancel_bounds=[36,775][684,892]
+compact_account_confirm_bounds=[36,919][684,1136]
+compact_google_reconnect_bounds=[41,842][680,1059]
+compact_google_switch_account_bounds=[41,233][680,450] in the companion lower-actions pair
+compact_google_revoke_bounds=[41,883][680,1100]
+compact_reachability=all listed controls have nonzero reachable bounds at exactly 320dp and font scale 2.0
+
+tablet_principal_row_x_bounds=130..1150
+tablet_principal_row_width=1020px at density 240 = 680dp; inside 720dp readable-width cap
+
+phone_light_coverage=profile summary; incomplete profile; academic editor and actions; notifications active, denied, settings-required, registering, controlled error, separate Open Settings control, settings actions, and switch target; Google disconnected, connected, partial, expired, and action states; account management; expanded danger area; data and account confirmations, retained controlled confirmation errors, and semantic route errors
+phone_dark_coverage=profile summary; Google partial state
+compact_coverage=profile summary; academic actions; notification middle, separate Open Settings control, and lower actions; expired Google reconnect and lower actions; data/account confirmation actions
+tablet_coverage=profile summary; Google partial state
+
+ordinary_android_back=warm-stack Notifications -> Profile
+ordinary_android_back_same_process=true
+ordinary_android_back_pid=11098
+predictive_back_claim=false
+managed_removal_smoke=synthetic confirmation action completed and the sheet closed; no provider was contacted
+managed_removal_focus_note=UIAutomator does not export Android accessibility-focus state; heading focus restoration remains covered by the focused renderer contract
+
+runtime_log_lines=772 app-process lines
+runtime_log_bytes=78370
+runtime_log_sha256=DCB99C0BEA48EFA6C4406EE542E6BB43CF0CB39F1B2B59B748E7E610589EC675
+runtime_error_scan=NO_MATCHES
+runtime_error_patterns=fatal exception; AndroidRuntime; React Native TypeError; React Native ReferenceError; invariant; unhandled; unable-to-load
+
+talkback_enabled=false
+accessibility_enabled=0
+enabled_accessibility_services=null
+talkback_traversal_claim=false
+ios_runtime_claim=false
+android_13_permission_claim=false
+live_provider_claim=false
+securestore_relaunch_claim=false
+authenticated_account_switch_claim=false
+retained_disconnected_google_native_claim=false; renderer contract only because the synthetic preview exposes a fresh disconnected fixture
+external_google_busy_native_claim=false; renderer contract only because the synthetic preview has no externally-busy fixture
+notification_failed_save_dirty_native_claim=false; renderer contract only because the preview error fixture does not expose dirty=true with saveState=error
+account_success_feedback_native_claim=false; semantic error feedback captured, success feedback remains renderer-contract evidence
+device_settings_restored=true
+runtime_cleanup=raw/runtime-cleanup.txt; reverse/app/emulator/Metro temporary state cleared and ports 8081/27017 verified clear

@@ -27,6 +27,7 @@ import {
 import {
   AppNavigator,
   type AppRootSurface,
+  type AppRouteLeaveGuard,
   type AppScreenSlots,
   type AppVisibleRoute
 } from "./src/navigation/AppNavigator";
@@ -37,7 +38,7 @@ import {
   type ProtectedAppRoute,
   type UnknownRoute
 } from "./src/navigation";
-import { DesignSystemPreview, ListItem, ThemeProvider } from "./src/design-system";
+import { Banner, DesignSystemPreview, ListItem, ThemeProvider } from "./src/design-system";
 import { Section } from "./src/components/Section";
 import {
   GOOGLE_CALENDAR_EVENTS_SCOPE,
@@ -132,6 +133,7 @@ import {
   EMPTY_ACADEMIC_ONBOARDING_DRAFT,
   buildAcademicSelectionPayload,
   classLevelOptionsForAcademicDepartment,
+  hasAcademicOnboardingChanges,
   isVerificationCodeComplete,
   normalizeNumericCode,
   selectAcademicClassLevel,
@@ -143,6 +145,26 @@ import {
   type AcademicClassLevel,
   type AcademicOnboardingDraft
 } from "./src/auth/auth-ui";
+import {
+  commitAcademicProfileDraft,
+  hasNotificationPreferenceChanges,
+  profileDraftFromServer,
+  resolveAcademicProfileSummary,
+  resolveGoogleCalendarPresentation,
+  resolveNotificationTruth,
+  type NotificationPreferenceSaveState
+} from "./src/profile/profile-model";
+import {
+  AccountDataSettingsScreen,
+  AcademicProfileSettingsScreen,
+  GoogleCalendarSettingsScreen,
+  NotificationSettingsScreen,
+  ProfileOverviewScreen
+} from "./src/profile/ProfileSettings";
+import {
+  ProfileSettingsPreview,
+  type ProfileSettingsPreviewScenario
+} from "./src/profile/ProfileSettingsPreview";
 import {
   AuthOnboardingPreview,
   type AuthOnboardingPreviewScenario
@@ -513,6 +535,9 @@ const PENDING_NOTIFICATION_STORAGE_KEY = "native_pending_notification_destinatio
 const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
 const GOOGLE_CALENDAR_V2_STORAGE_PREFIX = "native_google_calendar_connection_v2";
 const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v3";
+// Sourced from app.json; kept visible here so Profile never reports a package-only placeholder.
+const NATIVE_APP_VERSION = "0.1.1";
+const NATIVE_ANDROID_BUILD_NUMBER = 12;
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -1169,11 +1194,24 @@ function MainApplication() {
   const [alarmEnabled, setAlarmEnabled] = useState(false);
   const [alarmMode, setAlarmMode] = useState<AlarmMode>("all_calendar");
   const [categoryDraft, setCategoryDraft] = useState<Record<string, boolean>>({});
+  const [academicProfileSaveState, setAcademicProfileSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [academicProfileSaveError, setAcademicProfileSaveError] = useState<string | undefined>();
+  const [notificationPreferenceOutcome, setNotificationPreferenceOutcome] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [notificationPreferenceError, setNotificationPreferenceError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [academicSelectionPending, setAcademicSelectionPending] = useState<AcademicSelectionLevel | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [accountAuthProvider, setAccountAuthProvider] = useState<AccountAuthProvider | undefined>();
   const [recentAuthAction, setRecentAuthAction] = useState<DestructiveAccountAction | null>(null);
+  const [recentAuthReturnFocus, setRecentAuthReturnFocus] = useState<{
+    action: DestructiveAccountAction;
+    requestId: number;
+  } | undefined>();
+  const recentAuthReturnFocusRequestRef = useRef(0);
   const [recentAuthPassword, setRecentAuthPassword] = useState("");
   const [recentAuthBusy, setRecentAuthBusy] = useState(false);
   const [recentAuthError, setRecentAuthError] = useState<string | undefined>();
@@ -1417,10 +1455,62 @@ function MainApplication() {
     departmentId: registerDepartmentId,
     classLevel: registerClassLevel
   }), [registerUniversityId, registerFacultyId, registerDepartmentId, registerClassLevel]);
+  const academicProfileDirty = hasAcademicOnboardingChanges(
+    onboardingInitialDraft,
+    academicOnboardingDraft
+  );
   const academicClassLevelOptions = useMemo(
     () => classLevelOptionsForAcademicDepartment(selectedDepartment),
     [selectedDepartment]
   );
+  const academicProfileSummary = resolveAcademicProfileSummary(
+    academicOnboardingDraft,
+    {
+      universityName: selectedUniversity?.name,
+      facultyName: selectedFaculty?.name,
+      departmentName: selectedDepartment?.name
+    }
+  );
+  const initialNotificationPreference = useMemo(() => {
+    const categories: Record<string, boolean> = {};
+    for (const category of availableCategories) {
+      categories[category] = preferences.data?.categories[category] !== false;
+    }
+    return {
+      enabled: preferences.data?.enabled ?? false,
+      mode: availableCategories.every((category) => categories[category] !== false)
+        ? "all_calendar" as const
+        : "selected_fields" as const,
+      categories
+    };
+  }, [availableCategories, preferences.data]);
+  const currentNotificationPreference = useMemo(() => ({
+    enabled: alarmEnabled,
+    mode: alarmMode,
+    categories: categoryDraft
+  }), [alarmEnabled, alarmMode, categoryDraft]);
+  const notificationPreferenceDirty = hasNotificationPreferenceChanges(
+    initialNotificationPreference,
+    currentNotificationPreference
+  );
+  const notificationPreferenceSaveState: NotificationPreferenceSaveState =
+    preferences.loading && !preferences.data
+      ? "loading"
+      : notificationPreferenceOutcome === "saving"
+        ? "saving"
+        : notificationPreferenceOutcome === "error" || Boolean(preferences.error)
+          ? "error"
+          : notificationPreferenceDirty
+            ? "dirty"
+            : "saved";
+  const notificationTruth = resolveNotificationTruth({
+    preferenceEnabled: notificationLifecycle.preferenceEnabled,
+    permission: notificationLifecycle.permission,
+    registration: notificationLifecycle.registration,
+    saveState: notificationPreferenceSaveState,
+    errorMessage: notificationPreferenceError ?? preferences.error
+  });
+  const googleCalendarPresentation = resolveGoogleCalendarPresentation(googleCalendarState);
   const verificationTiming = pendingVerification
     ? getVerificationTiming(pendingVerification, verificationClockMs)
     : null;
@@ -2125,6 +2215,7 @@ function MainApplication() {
     setCategoryDraft(draft);
     setAlarmEnabled(preferences.data.enabled);
     setAlarmMode(allEnabled ? "all_calendar" : "selected_fields");
+    setNotificationPreferenceOutcome((current) => current === "error" ? current : "saved");
   }, [preferences.data, availableCategories]);
 
   useEffect(() => {
@@ -2155,13 +2246,25 @@ function MainApplication() {
 
   useEffect(() => {
     const needsPublicCatalog = (authMode === "register" && authStage === "auth")
-      || authStage === "academic_onboarding";
+      || authStage === "academic_onboarding"
+      || (Boolean(session) && (
+        controlledActiveRoute === "Profile"
+        || controlledActiveRoute === "AcademicProfileSettings"
+      ));
     if (!needsPublicCatalog) return;
 
-    if (!(universities.data?.length) && !universities.loading) {
+    if (!(universities.data?.length) && !universities.loading && !universities.attempted) {
       void loadUniversities();
     }
-  }, [authMode, authStage, universities.data?.length, universities.loading]);
+  }, [
+    authMode,
+    authStage,
+    controlledActiveRoute,
+    session?.user.id,
+    universities.attempted,
+    universities.data?.length,
+    universities.loading
+  ]);
 
   async function hydrateApplication(): Promise<void> {
     if (hydrationInProgressRef.current) return;
@@ -3032,8 +3135,10 @@ function MainApplication() {
     setRegisterFacultyId(profile.facultyId ?? "");
     setRegisterDepartmentId(profile.departmentId ?? "");
     setRegisterClassLevel(profile.classLevel ?? null);
+    setOnboardingInitialDraft(profileDraftFromServer(profile));
+    setAcademicProfileSaveState("idle");
+    setAcademicProfileSaveError(undefined);
     if (!profileUniversityId) {
-      setOnboardingInitialDraft(EMPTY_ACADEMIC_ONBOARDING_DRAFT);
       setAuthStage("academic_onboarding");
     }
     if (profileUniversityId) {
@@ -3914,6 +4019,10 @@ function MainApplication() {
     setAlarmMode("all_calendar");
     setCategoryDraft({});
     setAlarmCategoriesExpanded(false);
+    setAcademicProfileSaveState("idle");
+    setAcademicProfileSaveError(undefined);
+    setNotificationPreferenceOutcome("idle");
+    setNotificationPreferenceError(undefined);
     setGoogleCalendarIntegration(null);
     setGoogleCalendarState("disconnected");
     setGoogleCalendarLastResult(null);
@@ -3931,6 +4040,7 @@ function MainApplication() {
     notificationCoordinatorOwnerTokenRef.current = null;
     setAccountAuthProvider(undefined);
     setRecentAuthAction(null);
+    setRecentAuthReturnFocus(undefined);
     setRecentAuthPassword("");
     setRecentAuthBusy(false);
     setRecentAuthError(undefined);
@@ -4086,13 +4196,22 @@ function MainApplication() {
 
   function dismissRecentAuthentication(): void {
     if (recentAuthBusy) return;
+    const action = recentAuthAction;
     setRecentAuthAction(null);
     setRecentAuthPassword("");
     setRecentAuthError(undefined);
+    if (action) {
+      recentAuthReturnFocusRequestRef.current += 1;
+      setRecentAuthReturnFocus({
+        action,
+        requestId: recentAuthReturnFocusRequestRef.current,
+      });
+    }
   }
 
   function beginRecentAuthentication(action: DestructiveAccountAction): void {
     if (!sessionRef.current || accountCleanupInProgressRef.current || recentAuthBusy) return;
+    setRecentAuthReturnFocus(undefined);
     setRecentAuthPassword("");
     setRecentAuthError(undefined);
     setRecentAuthAction(action);
@@ -5570,15 +5689,34 @@ function MainApplication() {
       ...previous,
       [category]: enabled
     }));
+    setNotificationPreferenceOutcome("idle");
+    setNotificationPreferenceError(undefined);
   }
 
   function updateAlarmMode(mode: AlarmMode): void {
     setAlarmMode(mode);
+    setNotificationPreferenceOutcome("idle");
+    setNotificationPreferenceError(undefined);
     if (mode === "all_calendar") {
       const everythingOn: Record<string, boolean> = {};
       for (const category of availableCategories) everythingOn[category] = true;
       setCategoryDraft(everythingOn);
     }
+  }
+
+  function updateAlarmEnabled(enabled: boolean): void {
+    setAlarmEnabled(enabled);
+    setNotificationPreferenceOutcome("idle");
+    setNotificationPreferenceError(undefined);
+  }
+
+  function discardNotificationPreferenceChanges(): void {
+    setAlarmEnabled(initialNotificationPreference.enabled);
+    setAlarmMode(initialNotificationPreference.mode);
+    setCategoryDraft({ ...initialNotificationPreference.categories });
+    setNotificationPreferenceOutcome("saved");
+    setNotificationPreferenceError(undefined);
+    setMessage(null);
   }
 
   async function saveAlarmSettings(): Promise<void> {
@@ -5601,10 +5739,14 @@ function MainApplication() {
 
     try {
       setBusy(true);
+      setNotificationPreferenceOutcome("saving");
+      setNotificationPreferenceError(undefined);
       const coordinator = notificationCoordinatorRef.current;
       if (alarmEnabled) {
         if (!coordinator) {
           setAlarmEnabled(false);
+          setNotificationPreferenceOutcome("error");
+          setNotificationPreferenceError("Push bildirimleri bu platformda kullanılamıyor; teslimat açılmadı.");
           setMessage({ text: "Push bildirimleri bu platformda kullanılamıyor; teslimat açılmadı.", tone: "error" });
           return;
         }
@@ -5623,6 +5765,8 @@ function MainApplication() {
             ownerSnapshot
           );
           setAlarmEnabled(false);
+          setNotificationPreferenceOutcome("error");
+          setNotificationPreferenceError("Bildirim izni veya cihaz kaydı geçerli olmadığı için teslimat açılmadı.");
           setMessage({
             text: enabledState.permission === "permanently_denied"
               ? "Bildirim izni cihaz ayarlarından kapalı. Teslimat açılmadı."
@@ -5667,6 +5811,8 @@ function MainApplication() {
             ownerId: currentSession.user.id
           });
           setPreferences({ loading: false, data: updated, attempted: true, stale: false });
+          setNotificationPreferenceOutcome("error");
+          setNotificationPreferenceError("Tercih kapatıldı; cihaz kaydının kaldırıldığı doğrulanamadı.");
           setMessage({
             text: "Bildirim tercihi kapatıldı; cihaz kaydının sunucudan kaldırıldığı doğrulanamadı.",
             tone: "error"
@@ -5675,6 +5821,8 @@ function MainApplication() {
         }
       }
       setPreferences({ loading: false, data: updated, attempted: true, stale: false });
+      setNotificationPreferenceOutcome("saved");
+      setNotificationPreferenceError(undefined);
       setMessage({
         text: updated.enabled
           ? "Bildirim izni, cihaz kaydı ve alarm tercihleri doğrulandı."
@@ -5684,12 +5832,34 @@ function MainApplication() {
     } catch (error) {
       if (alarmEnabled) await notificationCoordinatorRef.current?.setPreferenceEnabled(false).catch(() => undefined);
       if (error instanceof StaleAccountRequestError) return;
+      const controlledNotificationError = userMessageFromError(error, "Alarm ayarları kaydedilemedi");
+      setNotificationPreferenceOutcome("error");
+      setNotificationPreferenceError(controlledNotificationError);
       setMessage({
         text: userMessageFromError(error, "Alarm ayarları kaydedilemedi"),
         tone: "error"
       });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function retryNotificationSettings(): Promise<void> {
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot) return;
+    setNotificationPreferenceOutcome("idle");
+    setNotificationPreferenceError(undefined);
+    const loaded = await loadPreferences(currentSession.accessToken, ownerSnapshot);
+    const coordinator = notificationCoordinatorRef.current;
+    if (!loaded || !coordinator || !accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+    try {
+      await reconcileNotificationDelivery(currentSession, coordinator, loaded, ownerSnapshot);
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
+      const controlledError = userMessageFromError(error, "Bildirim durumu doğrulanamadı");
+      setNotificationPreferenceOutcome("error");
+      setNotificationPreferenceError(controlledError);
     }
   }
 
@@ -5931,7 +6101,78 @@ function MainApplication() {
     setRegisterFacultyId(nextDraft.facultyId);
     setRegisterDepartmentId(nextDraft.departmentId);
     setRegisterClassLevel(nextDraft.classLevel);
+    setAcademicProfileSaveState("idle");
+    setAcademicProfileSaveError(undefined);
     setMessage(null);
+  }
+
+  function discardAcademicProfileChanges(): void {
+    setRegisterUniversityId(onboardingInitialDraft.universityId);
+    setRegisterFacultyId(onboardingInitialDraft.facultyId);
+    setRegisterDepartmentId(onboardingInitialDraft.departmentId);
+    setRegisterClassLevel(onboardingInitialDraft.classLevel);
+    setAcademicProfileSaveState("idle");
+    setAcademicProfileSaveError(undefined);
+    setMessage(null);
+  }
+
+  async function saveAcademicProfileSettings(): Promise<void> {
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot || accountCleanupInProgressRef.current) return;
+
+    setAcademicProfileSaveState("saving");
+    setAcademicProfileSaveError(undefined);
+    setMessage(null);
+    try {
+      const result = await commitAcademicProfileDraft(
+        academicOnboardingDraft,
+        (payload) => trackAuthenticatedMutation(() => apiRequest<UserProfile>(
+          "/me/university",
+          { method: "PATCH", body: JSON.stringify(payload) },
+          currentSession.accessToken,
+          { ownerSnapshot }
+        ))
+      );
+      if (!result.ok) {
+        setAcademicProfileSaveState("error");
+        setAcademicProfileSaveError("Üniversite seçimi zorunludur.");
+        return;
+      }
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+
+      const authoritativeDraft = result.draft;
+      setSelectedUniversityId(authoritativeDraft.universityId);
+      setRegisterUniversityId(authoritativeDraft.universityId);
+      setRegisterFacultyId(authoritativeDraft.facultyId);
+      setRegisterDepartmentId(authoritativeDraft.departmentId);
+      setRegisterClassLevel(authoritativeDraft.classLevel);
+      setOnboardingInitialDraft(authoritativeDraft);
+      setFullName(result.profile.fullName);
+      setEmail(result.profile.email);
+      setAccountAuthProvider(normalizeAccountAuthProvider(result.profile.authProvider));
+      setAcademicProfileSaveState("saved");
+      setAcademicProfileSaveError(undefined);
+      setSummerSchool({ loading: false });
+      const resetOwnedAcademicContent = invalidateContentFeedOwnership;
+      resetOwnedAcademicContent();
+      setMessage({ text: "Akademik profil kaydedildi.", tone: "success" });
+      void Promise.allSettled([
+        loadMyCalendar(currentSession.accessToken, ownerSnapshot),
+        loadUpcoming(currentSession.accessToken, ownerSnapshot),
+        loadAnnouncements(currentSession.accessToken, authoritativeDraft.universityId, ownerSnapshot),
+        loadPreferences(currentSession.accessToken, ownerSnapshot)
+      ]);
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
+      const controlledError = userMessageFromError(
+        error,
+        "Akademik profil kaydedilemedi. Bilgilerini kontrol edip tekrar dene."
+      );
+      setAcademicProfileSaveState("error");
+      setAcademicProfileSaveError(controlledError);
+      setMessage({ text: controlledError, tone: "error" });
+    }
   }
 
   function renderAuthOnboardingScreen(route: AppVisibleRoute): ReactNode {
@@ -7721,6 +7962,231 @@ function MainApplication() {
     </Section>
   );
 
+  const profileCleanupCanRetry = Boolean(cleanupIssue?.failedTargets.some(
+    (target) => target !== "server_session"
+      && target !== "server_account"
+      && (target !== "device_registration" || Boolean(session))
+  ));
+  const profileCleanupIssue = cleanupIssue ? (
+    <Banner
+      actionLabel={profileCleanupCanRetry && !busy && !googleBusy ? "Temizliği tekrar dene" : undefined}
+      message={cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
+      onAction={profileCleanupCanRetry && !busy && !googleBusy ? () => void retryFailedCleanup() : undefined}
+      title="Tamamlanamayan güvenli temizlik"
+      tone="warning"
+    />
+  ) : null;
+  const profileRouteFeedback = (
+    <>
+      {controlledActiveRoute === "Profile" && message && !cleanupIssue ? (
+        <Banner
+          message={message.text}
+          title={message.tone === "error"
+            ? "İşlem tamamlanamadı"
+            : message.tone === "success"
+              ? "İşlem tamamlandı"
+              : "Bilgi"}
+          tone={message.tone}
+        />
+      ) : null}
+      {controlledActiveRoute === "Profile" ? profileCleanupIssue : null}
+    </>
+  );
+  const academicScreenSaveState = academicProfileSaveState === "idle" && academicProfileDirty
+    ? "dirty" as const
+    : academicProfileSaveState;
+  const recentAuthenticationPanel = recentAuthAction ? (
+    <RecentAuthenticationPanel
+      action={recentAuthAction}
+      busy={recentAuthBusy}
+      error={recentAuthError}
+      methods={availableRecentAuthMethods}
+      onCancel={dismissRecentAuthentication}
+      onPasswordChange={(value) => {
+        setRecentAuthPassword(value);
+        setRecentAuthError(undefined);
+      }}
+      onSubmitGoogle={() => void submitRecentAuthentication("google")}
+      onSubmitPassword={() => void submitRecentAuthentication("password")}
+      password={recentAuthPassword}
+    />
+  ) : undefined;
+  const profileOverviewScreen = session ? (
+    <>
+      {profileRouteFeedback}
+      <ProfileOverviewScreen
+        academicSummary={academicProfileSummary}
+        appVersion={NATIVE_APP_VERSION}
+        buildNumber={Platform.OS === "android"
+          ? NATIVE_ANDROID_BUILD_NUMBER
+          : Platform.OS === "ios"
+            ? "Belirtilmedi"
+            : `${NATIVE_ANDROID_BUILD_NUMBER} (Android)`}
+        email={email}
+        error={academicProfileSummary.nameResolutionPending ? universities.error : undefined}
+        fullName={fullName}
+        googleAccountEmail={googleCalendarIntegration?.accountEmail}
+        googleCalendar={googleCalendarPresentation}
+        loading={false}
+        notificationTruth={notificationTruth}
+        onOpenAcademicProfile={() => requestAppRoute("AcademicProfileSettings")}
+        onOpenAccountManagement={() => {
+          setMessage(null);
+          requestAppRoute("AccountDataSettings");
+        }}
+        onOpenGoogleCalendar={() => requestAppRoute("GoogleCalendarSettings")}
+        onOpenNotifications={() => requestAppRoute("NotificationSettings")}
+        onRetry={() => void loadUniversities()}
+      />
+    </>
+  ) : null;
+  const academicProfileSettingsScreen = session ? (
+    <>
+      <AcademicProfileSettingsScreen
+        busy={busy}
+        classLevels={academicClassLevelOptions}
+        departments={(departments.data ?? []).map((item) => ({ value: item.id, label: item.name }))}
+        departmentsError={departments.error}
+        departmentsLoading={departments.loading}
+        dirty={academicProfileDirty}
+        draft={academicOnboardingDraft}
+        faculties={(faculties.data ?? []).map((item) => ({ value: item.id, label: item.name }))}
+        facultiesError={faculties.error}
+        facultiesLoading={faculties.loading}
+        onCancel={() => requestAppRoute("Profile")}
+        onClassLevelChange={(value) => updateOnboardingDraft(
+          selectAcademicClassLevel(academicOnboardingDraft, value)
+        )}
+        onDepartmentChange={(value) => updateOnboardingDraft(
+          selectAcademicDepartment(academicOnboardingDraft, value)
+        )}
+        onFacultyChange={(value) => updateOnboardingDraft(
+          selectAcademicFaculty(academicOnboardingDraft, value)
+        )}
+        onRetryDepartments={() => void loadDepartmentsForRegistration(registerFacultyId)}
+        onRetryFaculties={() => void loadFacultiesForRegistration(registerUniversityId)}
+        onRetryUniversities={() => void loadUniversities()}
+        onSave={() => void saveAcademicProfileSettings()}
+        onUniversityChange={(value) => updateOnboardingDraft(
+          selectAcademicUniversity(academicOnboardingDraft, value)
+        )}
+        saveError={academicProfileSaveError}
+        saveState={academicScreenSaveState}
+        universities={(universities.data ?? []).map((item) => ({
+          value: item.id,
+          label: item.name,
+          supportingText: [item.city, UNIVERSITY_TYPE_LABELS[item.type] ?? item.type].filter(Boolean).join(" · ")
+        }))}
+        universitiesError={universities.error}
+        universitiesLoading={universities.loading}
+        universityRequiredError={!academicOnboardingDraft.universityId && academicProfileSaveState === "error"
+          ? "Üniversite seçimi zorunludur."
+          : undefined}
+      />
+    </>
+  ) : null;
+  const notificationSettingsScreen = session ? (
+    <>
+      <NotificationSettingsScreen
+        categories={availableCategories.map((category) => ({
+          key: category,
+          label: toCategoryLabel(category),
+          enabled: categoryDraft[category] !== false
+        }))}
+        dirty={notificationPreferenceDirty}
+        error={notificationPreferenceError ?? preferences.error}
+        mode={alarmMode}
+        onCategoryChange={updateCategory}
+        onModeChange={updateAlarmMode}
+        onOpenSettings={() => openNotificationSettings()}
+        onPreferenceEnabledChange={updateAlarmEnabled}
+        onRetry={() => void retryNotificationSettings()}
+        onSave={() => void saveAlarmSettings()}
+        preferenceEnabled={alarmEnabled}
+        quietHoursSummary={preferences.data?.quietHours
+          ? preferences.data.quietHours.enabled
+            ? `${preferences.data.quietHours.start}–${preferences.data.quietHours.end} · ${preferences.data.quietHours.timezone}`
+            : "Kapalı"
+          : undefined}
+        reminderSummary={preferences.data?.reminderOffsets.length
+          ? preferences.data.reminderOffsets
+            .map((offset) => offset === 0 ? "aynı gün" : `${offset} gün önce`)
+            .join(", ")
+          : undefined}
+        saveState={notificationPreferenceSaveState}
+        truth={notificationTruth}
+      />
+    </>
+  ) : null;
+  const googleCalendarSettingsScreen = session ? (
+    <>
+      <GoogleCalendarSettingsScreen
+        accountEmail={googleCalendarIntegration?.accountEmail}
+        connectionExists={Boolean(googleCalendarIntegration)}
+        error={googleCalendarError ?? undefined}
+        lastSyncedLabel={googleCalendarIntegration?.lastSyncedAt
+          ? formatDateTimeShort(googleCalendarIntegration.lastSyncedAt)
+          : undefined}
+        managedEventCount={googleCalendarIntegration?.mappings.length ?? googleCalendarLastResult?.verified}
+        mappingWarning={googleCalendarIntegration
+          && findDuplicateGoogleCalendarMappings(googleCalendarIntegration.mappings).hasDuplicates
+          ? "Yönetilen kayıt eşlemelerinde yinelenen kimlikler bulundu; silme işlemi doğrulanmadan uygulanmaz."
+          : undefined}
+        onConnect={() => syncGoogleCalendar(true)}
+        onDisconnect={async () => {
+          await disconnectGoogleCalendar({ removeManagedEvents: false, revokeAccess: false });
+        }}
+        onRemoveManagedEvents={async () => {
+          await disconnectGoogleCalendar({ removeManagedEvents: true, revokeAccess: false });
+        }}
+        onRevokeAccess={async () => {
+          await disconnectGoogleCalendar({ removeManagedEvents: false, revokeAccess: true });
+        }}
+        onSwitchAccount={promptGoogleCalendarAccountSwitch}
+        onSync={() => syncGoogleCalendar(false)}
+        operationBusy={googleCalendarBusy}
+        presentation={googleCalendarPresentation}
+        warnings={googleCalendarWarnings}
+      />
+    </>
+  ) : null;
+  const accountDataSettingsScreen = session ? (
+    <>
+      {controlledActiveRoute === "AccountDataSettings" ? profileCleanupIssue : null}
+      <AccountDataSettingsScreen
+        busy={busy || recentAuthBusy}
+        email={email}
+        feedback={controlledActiveRoute === "AccountDataSettings" ? message ?? undefined : undefined}
+        onDeleteAccount={() => beginRecentAuthentication("account")}
+        onDeleteData={() => beginRecentAuthentication("data")}
+        onLogout={() => handleLogout()}
+        recentAuthentication={recentAuthenticationPanel}
+        recentAuthenticationReturnFocus={recentAuthReturnFocus}
+      />
+    </>
+  ) : null;
+
+  const routeLeaveGuard: AppRouteLeaveGuard | null =
+    academicProfileDirty
+      ? {
+          route: "AcademicProfileSettings",
+          enabled: academicProfileSaveState !== "saving",
+          title: "Kaydedilmemiş akademik bilgiler",
+          message: "Değişikliklerin kaydedilmedi. Bu sayfadan ayrılırsan değişiklikler silinir.",
+          discardLabel: "Değişiklikleri Sil",
+          onDiscard: discardAcademicProfileChanges
+        }
+      : notificationPreferenceDirty
+        ? {
+            route: "NotificationSettings",
+            enabled: notificationPreferenceOutcome !== "saving",
+            title: "Kaydedilmemiş bildirim tercihleri",
+            message: "Bildirim değişikliklerin kaydedilmedi. Bu sayfadan ayrılmak istiyor musun?",
+            discardLabel: "Değişiklikleri Sil",
+            onDiscard: discardNotificationPreferenceChanges
+          }
+        : null;
+
   const screens: AppScreenSlots = {
     BootstrapLoading: bootstrapLoading,
     BootstrapError: bootstrapError,
@@ -7738,11 +8204,11 @@ function MainApplication() {
     AnnouncementDetail: announcementDetail,
     Calendar: calendarExperience,
     CalendarEventDetail: calendarTrustedDetail,
-    Profile: renderRoutedScreen("Profile"),
-    AcademicProfileSettings: renderRoutedScreen("AcademicProfileSettings"),
-    NotificationSettings: renderRoutedScreen("NotificationSettings"),
-    GoogleCalendarSettings: renderRoutedScreen("GoogleCalendarSettings"),
-    AccountDataSettings: renderRoutedScreen("AccountDataSettings"),
+    Profile: profileOverviewScreen,
+    AcademicProfileSettings: academicProfileSettingsScreen,
+    NotificationSettings: notificationSettingsScreen,
+    GoogleCalendarSettings: googleCalendarSettingsScreen,
+    AccountDataSettings: accountDataSettingsScreen,
     UnknownRoute: unknownRoute
   };
 
@@ -7754,7 +8220,13 @@ function MainApplication() {
           rootSurface={navigatorRootSurface}
           activeRoute={controlledActiveRoute}
           screens={screens}
-          navigationLocked={busy || googleBusy || googleCalendarBusy}
+          navigationLocked={
+            busy
+            || googleBusy
+            || googleCalendarBusy
+            || academicProfileSaveState === "saving"
+          }
+          routeLeaveGuard={routeLeaveGuard}
           request={navigationRequest}
           onRequestHandled={handleNavigationRequestHandled}
           onVisibleRouteChange={handleVisibleRouteChange}
@@ -7765,6 +8237,8 @@ function MainApplication() {
 }
 
 export default function App() {
+  const showPhase10ProfilePreview = __DEV__
+    && process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW === "1";
   const showPhase9CalendarPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE9_CALENDAR_PREVIEW === "1";
   const showPhase8ContentFeedPreview = __DEV__
@@ -7777,6 +8251,18 @@ export default function App() {
     && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
+
+  if (showPhase10ProfilePreview) {
+    const previewTheme = process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW_THEME === "dark"
+      ? "dark"
+      : "light";
+    return (
+      <ProfileSettingsPreview
+        preference={previewTheme}
+        scenario={process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW_SCENARIO as ProfileSettingsPreviewScenario | undefined}
+      />
+    );
+  }
 
   if (showPhase9CalendarPreview) {
     const previewTheme = process.env.EXPO_PUBLIC_PHASE9_CALENDAR_PREVIEW_THEME === "dark"

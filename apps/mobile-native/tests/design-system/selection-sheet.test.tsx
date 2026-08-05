@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  act,
   fireEvent,
   screen,
   userEvent,
@@ -9,7 +10,7 @@ import {
   SelectField,
   type SelectFieldOption,
 } from "../../src/design-system/primitives/SelectField";
-import { Text } from "react-native";
+import { AccessibilityInfo, Text } from "react-native";
 import { renderWithTheme } from "./test-utils";
 
 const options = [
@@ -63,6 +64,33 @@ describe("accessible SelectField", () => {
       "accessibilityValue",
       { text: "Ege Üniversitesi" },
     );
+  });
+
+  it("returns accessibility focus to the selector trigger after its sheet is dismissed", async () => {
+    const focus = jest
+      .spyOn(AccessibilityInfo, "setAccessibilityFocus")
+      .mockImplementation(() => undefined);
+    await renderWithTheme(<SelectHarness onValueChange={jest.fn()} />);
+    jest.useFakeTimers();
+
+    try {
+      const field = screen.getByRole("combobox", { name: "Üniversite" });
+      fireEvent.press(field, { nativeEvent: { target: 73 } });
+      expect(field).toBeExpanded();
+
+      fireEvent.press(
+        screen.getByRole("button", { name: "Üniversite seçeneklerini kapat" }),
+      );
+      await act(async () => {
+        jest.runOnlyPendingTimers();
+      });
+
+      expect(field).not.toBeExpanded();
+      expect(focus).toHaveBeenCalledTimes(1);
+      expect(focus).toHaveBeenCalledWith(73);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("keeps disabled and loading selectors closed with explicit accessible state", async () => {
@@ -128,9 +156,34 @@ describe("accessible SelectField", () => {
 
     expect(screen.getByRole("summary", { name: "Henüz kurum yok." })).toBeVisible();
   });
+  it("exposes an invalid selector state with controlled error copy", async () => {
+    await renderWithTheme(
+      <SelectField
+        error="Üniversite seçimi zorunludur."
+        label="Üniversite"
+        onValueChange={jest.fn()}
+        options={options}
+        value={null}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Üniversite" })).toHaveProp("aria-invalid", true);
+    expect(screen.getByRole("alert")).toHaveTextContent("Üniversite seçimi zorunludur.");
+  });
 });
 
 describe("accessible BottomSheet", () => {
+  it("provides an opt-in scroll region for long confirmation content", async () => {
+    await renderWithTheme(
+      <BottomSheet onDismiss={jest.fn()} scrollable title="Uzun onay" visible>
+        <Text>Long confirmation content</Text>
+      </BottomSheet>,
+    );
+
+    expect(screen.getByTestId("bottom-sheet-scroll")).toBeVisible();
+    expect(screen.getByText("Long confirmation content")).toBeVisible();
+  });
+
   it("supports explicit, backdrop, and accessibility-escape dismissal", async () => {
     const onDismiss = jest.fn();
     const view = await renderWithTheme(

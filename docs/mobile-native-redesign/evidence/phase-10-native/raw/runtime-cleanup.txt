@@ -1,0 +1,29 @@
+PHASE_10_NATIVE_RUNTIME_CLEANUP
+date=2026-08-05 Europe/Istanbul
+
+device_before_shutdown=AcademicPhase1Low; Android 7/API 24/x86_64
+restored_wm_size=Physical size: 720x1280
+restored_wm_density=Physical density: 320
+restored_font_scale=1.0
+restored_accessibility_enabled=0
+restored_accessibility_services=null
+app_process_before_shutdown=PID 11098; force-stopped
+adb_reverse_tcp_8081=removed
+emulator_process_after_shutdown=none
+adb_devices_after_shutdown=none
+
+metro_listener_process=node.exe PID 7328; repository-local Expo CLI start --localhost --clear
+metro_parent_processes=cmd.exe PID 15324; npm node.exe PID 11960; cmd.exe PID 11092
+metro_processes_after_shutdown=none
+tcp_8081_after_shutdown=clear
+temporary_phase10_refresh_logs_and_capture_files=removed from validated exact C:\tmp paths
+
+mongo_process=none; no Mongo process was started for the native refresh
+tcp_27017=clear
+temporary_mongo_data_path=C:\tmp\academicmobileapp-phase10-final-mongo; absent
+temporary_mongo_log_path=C:\tmp\academicmobileapp-phase10-final-mongod.log; absent
+
+final_verification=Metro 0; emulator/qemu 0; adb devices 0; ports 8081/27017 clear; Phase 10 refresh temp files 0
+production_access=none
+push_deploy_publish_migrate=none
+cleanup_verified_at=2026-08-05T20:34:50+03:00

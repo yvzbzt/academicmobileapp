@@ -1,4 +1,13 @@
-import { StyleSheet, Text, View } from "react-native";
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  View,
+  findNodeHandle,
+  type Text as NativeText,
+} from "react-native";
+import { useEffect, useRef } from "react";
 import { Banner, Button, PasswordField, useTheme } from "../design-system";
 import type {
   DestructiveAccountAction,
@@ -19,9 +28,18 @@ export interface RecentAuthenticationPanelProps {
 
 export function RecentAuthenticationPanel(props: RecentAuthenticationPanelProps) {
   const theme = useTheme();
+  const headingRef = useRef<NativeText | null>(null);
   const actionLabel = props.action === "account" ? "hesabını silmek" : "verilerini silmek";
   const passwordAvailable = props.methods.includes("password");
   const googleAvailable = props.methods.includes("google");
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      const target = findNodeHandle(headingRef.current);
+      if (target) AccessibilityInfo.setAccessibilityFocus(target);
+    }, 100);
+    return () => clearTimeout(timeout);
+  }, []);
 
   return (
     <View
@@ -37,10 +55,33 @@ export function RecentAuthenticationPanel(props: RecentAuthenticationPanelProps)
         }
       ]}
     >
-      <Text style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>Kimliğini yeniden doğrula</Text>
+      <Text
+        accessibilityRole="header"
+        ref={headingRef}
+        style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}
+      >
+        Kimliğini yeniden doğrula
+      </Text>
       <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>
         {actionLabel.charAt(0).toLocaleUpperCase("tr-TR") + actionLabel.slice(1)} için kısa süreli bir güvenlik doğrulaması gerekiyor.
       </Text>
+
+      {props.busy ? (
+        <View
+          accessible
+          accessibilityLabel="Kimlik doğrulanıyor"
+          accessibilityRole="progressbar"
+          accessibilityState={{ busy: true }}
+          style={[styles.progress, { gap: theme.spacing.xs }]}
+        >
+          <ActivityIndicator
+            accessibilityElementsHidden
+            color={theme.colors.action.primary}
+            importantForAccessibility="no-hide-descendants"
+          />
+          <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Kimlik doğrulanıyor</Text>
+        </View>
+      ) : null}
 
       {passwordAvailable && (
         <>
@@ -99,5 +140,9 @@ const styles = StyleSheet.create({
   panel: {
     borderWidth: 1,
     width: "100%"
-  }
+  },
+  progress: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
 });

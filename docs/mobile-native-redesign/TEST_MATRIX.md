@@ -835,3 +835,43 @@ This ledger supersedes only the accepted Phase 9 claims about personal-exam inte
 | Hygiene and scope | Whitespace, sensitive log, credential, `.skip/.only/.todo`, snapshot, empty/vacuous, Firestore, fake-social, Phase 10 diff scans | PASS; `MOBILE_NATIVE_LINT: NOT AVAILABLE` |
 
 The successful API runs used only a temporary `127.0.0.1` Mongo fixture. The initial no-Mongo run and sandbox-limited Vite attempts are environment diagnostics, not passes. No remote service or production data was accessed. Phase 10 was not started.
+
+## Phase 10 Profile and settings evidence — 5 August 2026
+
+This is the Phase 10 verification ledger. The automated results and bounded Android visual/runtime review below are fresh Phase 10 runs. Repository-state checks that must follow documentation reconciliation are reported by the final acceptance handoff rather than inferred from an earlier diff.
+
+### Phase 10 requirement matrix
+
+| Contract | Required evidence |
+|---|---|
+| Profile hierarchy and truth | Root/model tests for the fixed section order, authoritative `/me` name/email on Profile, and the same authoritative email on Account; renderer checks that academic, notification, Google, and account controls are routed rather than duplicated; absence scan for appearance/help/legal dead rows and fake profile/social content |
+| Academic editor | Hierarchy clearing, required university, search/virtualization, loading/no-result/error/retry/expanded/selected/invalid states, one Save, failed-save dirty retry, authoritative server response, shared discard guard for explicit Cancel/header/Android Back/navigation removal, and keyboard-safe route |
+| Notification truth | All permission/registration/preference combinations; stored preference explicitly Açık/Kapalı independent of save state; active only when every gate passes; duplicate-safe Open Settings busy/rejection; supported mode/categories; clean/dirty/saving/saved/error; no token or unsupported reminder/quiet-hours UI |
+| Google lifecycle | Disconnected/checking/connected/expired/syncing/partial/error presentation; account/last sync/current mapping count/warning; retained disconnected ledger/actions; externally owned busy state; surviving-heading focus after managed removal; unchanged Phase 3 owner/partial/late-operation and personal-event protections |
+| Account management | Authoritative `/me` identity; separate logout/data-delete/account-delete; collapsed danger area; keyboard-safe content; consequences, cancel, focus return, busy/duplicate guard, fixed error; one semantic owning-route feedback surface; purpose-bound single-use recent-authentication tests |
+| Platform/responsive | Android Material 3-compatible opaque tonal/ripple/sheet/dialog/edge-to-edge path; iOS navigation-only glass policy; 48 dp targets; exact 320 dp at font scale 2.0; phone light/dark; tablet readable width; reachable actions |
+| Accessibility | Logical reading order; selected, busy, expanded/collapsed, invalid, dirty/saved, disabled, and error semantics; status text/icon independent of color; sheet/dialog focus return; TalkBack/VoiceOver limitations disclosed |
+| Synthetic safety and scope | Dual `__DEV__` + Phase 10 environment gate, allowlisted local scenarios, reserved fixtures, no API/SecureStore/provider import; no Phase 11 implementation and no production account/data access |
+
+### Phase 10 validation ledger
+
+| Exact command or check | Final result | Evidence boundary |
+|---|---|---|
+| Focused Phase 10 pure/model and contract tests: `tests/unit/mobile-native-profile-settings.test.ts`, `tests/unit/mobile-native-recent-authentication.test.ts`, `tests/unit/mobile-native-notification-lifecycle.test.ts`, `tests/unit/google-calendar-lifecycle.test.ts`, `tests/unit/google-calendar-sync.test.ts` | PASS — 5 files / 80 tests | Covers hierarchy, academic commit, notification truth, Google lifecycle/personal-event exclusion, recent-auth purpose/single-use behavior, and scope |
+| Focused native `--runTestsByPath`: `ProfileSettings.test.tsx`, `ProfileSettingsPreview.test.tsx`, `AppNavigator.test.tsx`, `selection-sheet.test.tsx`, `AuthScreens.test.tsx` | PASS — 5 suites / 71 tests / 0 snapshots | Covers authoritative Profile/Account identity wiring, preference truth, dirty retry/Cancel guard, duplicate-safe Settings rejection, route-feedback ownership, retained Google ledger/actions/busy/focus, keyboard-safe routes, selector/auth semantics; no provider or OS claim |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — 23 suites / 206 tests / 0 snapshots | Complete native Jest regression |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 45 files / 445 tests | Used only the dedicated temporary `127.0.0.1` Mongo fixture; no remote service or production data |
+| `npm.cmd test -- --configLoader runner` | PASS — 72 files / 841 tests | Full root regression |
+| `npm.cmd run typecheck` | PASS | Workspace TypeScript |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS | Mobile-native TypeScript |
+| `npm.cmd run build:admin` | PASS — 1,742 modules; JS 250.51 kB / 73.89 kB gzip; 5.14 s | Admin regression build; web output is not native evidence |
+| `npm.cmd run build:mobile` | PASS — 1,755 modules; JS 349.76 kB / 104.37 kB gzip; 7.92 s | Mobile-web regression build; web output is not native evidence |
+| `./gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` from `apps/mobile-native/android` | PASS — 1 m 11 s; 268 tasks (7 executed, 261 up-to-date); fresh reinstall PASS | APK 56,804,991 bytes; SHA-256 `57DC2F1BDCD7D7C3B02429EF260DF29A3EEEBCC374C55B90D34334793FEFAAFD`; unchanged because debug JS is Metro-served; only known SDK XML/location, Gradle deprecation, and `NODE_ENV` warnings |
+| Android Profile/settings smoke on the authorized local x86_64 AVD | PASS — 44 original-resolution PNGs + 44 basename-matched XML exports; 88 integrity-index rows | Phone light/dark, exact 320 dp at font scale 2.0, simulated tablet, reachable 48 dp controls, ordinary Back from Notifications to Profile in PID 11098, no filtered fatal/runtime matches, and restored size/density/font settings |
+| `git diff --check` plus sensitive-log, credential, forbidden-test-modifier, snapshot/vacuous, Firestore, fake-social, and Phase 11 scope scans | PASS — no prohibited match; 77 scoped text artifacts also had zero trailing-whitespace or NUL findings | The Phase 11 phrase appears only in the negative guard test that asserts those markers are absent from production; the production scan itself has zero matches. `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact |
+
+### Native evidence inventory
+
+The dual-gated synthetic preview and its focused tests cover the allowlisted complete/incomplete summary, academic editor, notification truth, Google lifecycle, account/danger, confirmation, and error scenarios without a live dependency. [`evidence/phase-10-native`](./evidence/phase-10-native/README.md) indexes 44 original-resolution PNGs and 44 basename-matched UIAutomator XML exports; [`integrity-index.csv`](./evidence/phase-10-native/raw/integrity-index.csv) records all 88 artifact rows with hashes and byte counts. Reviewed profiles are phone light, phone dark, exact 320 dp at font scale 2.0, and a temporary approximately 853 dp simulated tablet. Hierarchies establish nonzero reachable action bounds and measured 48 dp Back, Settings, and notification-switch targets. The ordinary Back smoke returned from Notifications to Profile in the same process, PID 11098. The 772-line, 78,370-byte app-process log has no match in the final fatal/AndroidRuntime/React Native `TypeError`, `ReferenceError`, invariant, unhandled, or unable-to-load filter, and the device size, density, and font scale were restored.
+
+TalkBack was disabled, so hierarchy exports are not traversal evidence. This synthetic/native presentation evidence cannot prove a live authenticated relaunch/account-switch flow, SecureStore persistence, an OS notification prompt on Android 13, FCM/APNs delivery, a real Google chooser/calendar mutation/revoke, native dirty-guard behavior, iOS/VoiceOver/Dynamic Type/Liquid Glass, or predictive Back. The production dirty leave guard is covered by automated renderer/navigation tests. The tablet is an emulator `wm` override, not a physical device. No production account, calendar, provider, credential, or data was used. Phase 11 was not started.

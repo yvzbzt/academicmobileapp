@@ -66,6 +66,8 @@ describe("RecentAuthenticationPanel", () => {
       password: "owner-password"
     });
 
+    expect(screen.getByRole("progressbar")).toBeBusy();
+
     expect(screen.getByRole("button", { name: "Şifre ile Doğrula" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Google ile Doğrula" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Vazgeç" })).toBeDisabled();

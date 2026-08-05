@@ -93,7 +93,9 @@ export function Card({
     <View
       {...viewProps}
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ busy, disabled, selected }}
+      accessibilityState={
+        busy || disabled || selected ? { busy, disabled, selected } : undefined
+      }
       style={cardStyle}
     >
       {children}
