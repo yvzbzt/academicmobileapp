@@ -37,7 +37,8 @@
           "defaultChannel": "academic-updates",
           "enableBackgroundRemoteNotifications": false
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }

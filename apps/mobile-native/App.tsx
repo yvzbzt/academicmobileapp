@@ -170,6 +170,21 @@ import {
 } from "./src/content/content-trust";
 import { HomeDailyBrief } from "./src/home/HomeDailyBrief";
 import { selectExamCountdownItems } from "./src/home/home-model";
+import { CalendarExperience } from "./src/calendar/CalendarExperience";
+import { CalendarEventDetail } from "./src/calendar/CalendarEventDetail";
+import {
+  buildCalendarItems,
+  selectUniversityAcademicCalendarEvents,
+  type CalendarItem
+} from "./src/calendar/calendar-model";
+import type {
+  PersonalExamMutationInput,
+  PersonalExamMutationResult
+} from "./src/calendar/PersonalExamEditor";
+import {
+  CalendarPreview,
+  type CalendarPreviewScenario
+} from "./src/calendar/CalendarPreview";
 import {
   compareAcademicTemporalStart,
   formatAcademicRemainingTime,
@@ -818,11 +833,6 @@ function toCategoryLabel(category: string): string {
   return category.split("_").join(" ");
 }
 
-function isUniversityAcademicCalendarEvent(event: EventRecord): boolean {
-  if (event.facultyId || event.departmentId) return false;
-  return event.category !== "course_schedule" && event.category !== "department_exam_schedule";
-}
-
 function formatDateShort(value?: string): string {
   if (!value) return "-";
   const date = new Date(value);
@@ -1151,8 +1161,6 @@ function MainApplication() {
   const [manualExams, setManualExams] = useState<ManualExamRecord[]>([]);
   const [manualExamOwnerId, setManualExamOwnerId] = useState<string | null>(null);
   const [manualExamsHydrated, setManualExamsHydrated] = useState(false);
-  const [manualExamTitle, setManualExamTitle] = useState("");
-  const [manualExamDate, setManualExamDate] = useState("");
 
   const [selectedUniversityId, setSelectedUniversityId] = useState("");
   const [alarmEnabled, setAlarmEnabled] = useState(false);
@@ -1187,6 +1195,7 @@ function MainApplication() {
     | { type: "calendar_event"; id: string; title: string }
     | null
   >(null);
+  const [activeCalendarDetail, setActiveCalendarDetail] = useState<CalendarItem | null>(null);
   const [announcementDetailLoad, setAnnouncementDetailLoad] = useState<{
     id: string;
     loading: boolean;
@@ -1593,6 +1602,7 @@ function MainApplication() {
   ): Promise<void> {
     let destinationTitle: string | undefined;
     let destinationAnnouncement: AnnouncementRecord | undefined;
+    let destinationCalendarEvent: EventRecord | undefined;
     const resolution = await resolveNotificationDestination({
       record,
       currentOwner: { ownerId: ownerSnapshot.ownerId, generation: ownerSnapshot.generation },
@@ -1616,7 +1626,10 @@ function MainApplication() {
           }
           const match = normalizeEventRecordsForDisplay([payload])
             .find((event) => event.id === destination.id);
-          if (match) destinationTitle = match.title;
+          if (match) {
+            destinationTitle = match.title;
+            destinationCalendarEvent = match;
+          }
           return Boolean(match);
         }
 
@@ -1701,11 +1714,16 @@ function MainApplication() {
       } else if (resolution.destination.type === "calendar_event") {
         announcementDetailRequestGenerationRef.current += 1;
         setAnnouncementDetailLoad(null);
-        setActiveTrustedDetail({
-          type: "calendar_event",
-          id: resolution.destination.id,
-          title: destinationTitle ?? "Takvim ayrıntısı"
-        });
+        const detailItem = destinationCalendarEvent
+          ? buildCalendarItems({
+            academicEvents: [destinationCalendarEvent],
+            personalExams: [],
+            academicSourceLabel: calendar.data?.calendar.title
+              ?? selectedUniversity?.name
+              ?? "Resmî akademik takvim"
+          })[0]
+          : undefined;
+        setActiveCalendarDetail(detailItem ?? null);
       }
       const requestKey = requestAppRoute(
         targetRoute,
@@ -3902,6 +3920,7 @@ function MainApplication() {
     announcementDetailRequestGenerationRef.current += 1;
     setAnnouncementDetailLoad(null);
     setActiveTrustedDetail(null);
+    setActiveCalendarDetail(null);
     setPreferences({ loading: false });
     setAlarmEnabled(false);
     setAlarmMode("all_calendar");
@@ -3917,8 +3936,6 @@ function MainApplication() {
     academicSelectionPendingRef.current = null;
     setAcademicSelectionPending(null);
     setManualExams([]);
-    setManualExamTitle("");
-    setManualExamDate("");
     setNotificationDestinationNotice(null);
   }
 
@@ -5748,33 +5765,84 @@ function MainApplication() {
     );
   }
 
-  function addManualExam(): void {
-    if (accountCleanupInProgressRef.current) return;
-    if (!session || !manualExamsHydrated || manualExamOwnerId !== session.user.id) {
-      setMessage({ text: "Hesaba ait sınav alanı henüz hazır değil.", tone: "error" });
-      return;
-    }
-    if (!manualExamTitle.trim() || !manualExamDate.trim()) {
-      setMessage({ text: "Sınav adı ve tarihi zorunludur.", tone: "error" });
-      return;
-    }
+  function validateManualExamMutation(
+    input: PersonalExamMutationInput
+  ): { title: string; examDate: string } | null {
+    const title = input.title.normalize("NFKC").replace(/\s+/gu, " ").trim();
+    const examDate = new Date(input.examDate);
+    if (!title || title.length > 160 || Number.isNaN(examDate.getTime())) return null;
+    return { title, examDate: examDate.toISOString() };
+  }
 
-    const isoCandidate = new Date(manualExamDate.trim());
-    if (Number.isNaN(isoCandidate.getTime())) {
-      setMessage({ text: "Sınav tarihi hatalı. GG-AA-YYYY yerine YYYY-MM-DD kullan.", tone: "error" });
-      return;
-    }
+  function manualExamMutationOwner(): string | null {
+    if (accountCleanupInProgressRef.current) return null;
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession
+      || !ownerSnapshot
+      || !manualExamsHydrated
+      || manualExamOwnerId !== currentSession.user.id
+      || ownerSnapshot.ownerId !== currentSession.user.id) return null;
+    return currentSession.user.id;
+  }
 
+  function createPersonalExam(input: PersonalExamMutationInput): PersonalExamMutationResult {
+    const ownerId = manualExamMutationOwner();
+    const normalized = validateManualExamMutation(input);
+    if (!ownerId) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!normalized) return { ok: false, error: "Sınav adı, tarih veya saat doğrulanamadı." };
     const record: ManualExamRecord = {
       id: createLocalId("manual-exam"),
-      title: manualExamTitle.trim(),
-      examDate: isoCandidate.toISOString()
+      ...normalized
     };
-
     setManualExams((previous) => [...previous, record]);
-    setManualExamTitle("");
-    setManualExamDate("");
-    setMessage({ text: "Sınav geri sayımına eklendi.", tone: "success" });
+    setMessage({ text: "Kişisel sınav hesabının cihaz planına eklendi.", tone: "success" });
+    return { ok: true };
+  }
+
+  function updatePersonalExam(
+    id: string,
+    input: PersonalExamMutationInput
+  ): PersonalExamMutationResult {
+    const ownerId = manualExamMutationOwner();
+    const normalized = validateManualExamMutation(input);
+    if (!ownerId) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!normalized) return { ok: false, error: "Sınav adı, tarih veya saat doğrulanamadı." };
+    if (!manualExams.some((exam) => exam.id === id)) {
+      return { ok: false, error: "Bu kişisel sınav açık hesapta bulunamadı." };
+    }
+    setManualExams((previous) => previous.map((exam) => (
+      exam.id === id ? { id: exam.id, ...normalized } : exam
+    )));
+    setActiveCalendarDetail((current) => current?.source === "personal" && current.id === id
+      ? {
+        ...current,
+        title: normalized.title,
+        startDate: normalized.examDate,
+        temporalKind: "timestamp"
+      }
+      : current);
+    setMessage({ text: "Kişisel sınav güncellendi.", tone: "success" });
+    return { ok: true };
+  }
+
+  function deletePersonalExam(id: string): PersonalExamMutationResult {
+    const ownerId = manualExamMutationOwner();
+    if (!ownerId) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!manualExams.some((exam) => exam.id === id)) {
+      return { ok: false, error: "Bu kişisel sınav açık hesapta bulunamadı." };
+    }
+    setManualExams((previous) => previous.filter((exam) => exam.id !== id));
+    setActiveCalendarDetail(null);
+    setMessage({ text: "Kişisel sınav silindi.", tone: "success" });
+    requestAppRoute("Calendar");
+    return { ok: true };
+  }
+
+  function openCalendarItem(item: CalendarItem): void {
+    setActiveCalendarDetail(item);
+    setActiveTab("calendar");
+    requestAppRoute("CalendarEventDetail", { eventId: item.routeId });
   }
 
   function handleNavigationRequestHandled(requestKey: string): void {
@@ -6854,22 +6922,13 @@ function MainApplication() {
                   </View>
                 ))}
 
-                <TextInput
-                  value={manualExamTitle}
-                  onChangeText={setManualExamTitle}
-                  placeholder="Sınav adı"
-                  style={styles.input}
-                />
-                <TextInput
-                  value={manualExamDate}
-                  onChangeText={setManualExamDate}
-                  placeholder="Sınav tarihi (YYYY-MM-DD)"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={styles.input}
-                />
-                <Pressable style={[styles.button, styles.secondaryButton]} onPress={addManualExam} disabled={busy}>
-                  <Text style={styles.secondaryButtonText}>Sınav Ekle</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  style={[styles.button, styles.secondaryButton]}
+                  onPress={() => requestAppRoute("Calendar")}
+                  disabled={busy}
+                >
+                  <Text style={styles.secondaryButtonText}>Kişisel sınavları Takvim'de yönet</Text>
                 </Pressable>
               </Section>
 
@@ -6909,70 +6968,8 @@ function MainApplication() {
             </>
           )}
 
-          {session && (route === "Calendar" || route === "GoogleCalendarSettings") && (
+          {session && route === "GoogleCalendarSettings" && (
             <>
-              {route === "Calendar" && (
-                <Section title="Takvim Özeti">
-                <View style={styles.rowBetween}>
-                  <View style={styles.flexOne}>
-                    <Text style={styles.cardTitle}>{calendar.data?.calendar?.title ?? "Akademik takvim"}</Text>
-                    <Text style={styles.caption}>
-                      {calendar.data?.calendar?.academicYear ? `Akademik yıl: ${calendar.data.calendar.academicYear}` : "Takvim henüz yüklenmedi"}
-                    </Text>
-                  </View>
-                  <Pressable style={[styles.iconButton, busy && styles.buttonDisabled]} onPress={() => void loadMyCalendar()} disabled={busy}>
-                    <Ionicons name="refresh-outline" size={18} color="#1e293b" />
-                  </Pressable>
-                </View>
-
-                {calendar.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
-                {calendar.error && <Text style={styles.errorText}>{calendar.error}</Text>}
-                {calendarAvailabilityMessage && <Text style={styles.caption}>{calendarAvailabilityMessage}</Text>}
-
-                <View style={styles.calendarMiniGrid}>
-                  <View style={styles.calendarMiniCard}>
-                    <Text style={styles.calendarMiniValue}>{(calendar.data?.events ?? []).length}</Text>
-                    <Text style={styles.calendarMiniLabel}>Tarih</Text>
-                  </View>
-                  <View style={styles.calendarMiniCard}>
-                    <Text style={styles.calendarMiniValue}>{calendar.data?.calendar.status ? STATUS_LABELS[calendar.data.calendar.status] ?? calendar.data.calendar.status : "-"}</Text>
-                    <Text style={styles.calendarMiniLabel}>Durum</Text>
-                  </View>
-                </View>
-                </Section>
-              )}
-
-              {route === "Calendar" && (
-                <Section title="Kişisel Sınav Ekle">
-                  <Text style={styles.helperText}>Dersine ait kişisel sınavı bu cihazdaki hesabına ekle.</Text>
-                  <TextInput
-                    accessibilityLabel="Kişisel sınav adı"
-                    value={manualExamTitle}
-                    onChangeText={setManualExamTitle}
-                    placeholder="Sınav adı"
-                    style={styles.input}
-                  />
-                  <TextInput
-                    accessibilityLabel="Kişisel sınav tarihi"
-                    value={manualExamDate}
-                    onChangeText={setManualExamDate}
-                    placeholder="Sınav tarihi (YYYY-MM-DD)"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.input}
-                  />
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Kişisel sınavı ekle"
-                    style={[styles.button, styles.secondaryButton]}
-                    onPress={addManualExam}
-                    disabled={busy}
-                  >
-                    <Text style={styles.secondaryButtonText}>Sınav Ekle</Text>
-                  </Pressable>
-                </Section>
-              )}
-
               <Section title="Google Takvim">
                 <View style={styles.calendarConnectionHero}>
                   <View style={styles.calendarPanelIcon}>
@@ -7004,19 +7001,9 @@ function MainApplication() {
                   </View>
                 )}
 
-                <View style={styles.calendarExplainPanel}>
-                  <View style={styles.calendarExplainStep}>
-                    <Text style={styles.calendarExplainNumber}>1</Text>
-                    <Text style={styles.calendarExplainText}>Kullanmak istediğin Gmail hesabını seç.</Text>
-                  </View>
-                  <View style={styles.calendarExplainStep}>
-                    <Text style={styles.calendarExplainNumber}>2</Text>
-                    <Text style={styles.calendarExplainText}>Google Takvim'e etkinlik ekleme izni ver.</Text>
-                  </View>
-                  <View style={styles.calendarExplainStep}>
-                    <Text style={styles.calendarExplainNumber}>3</Text>
-                    <Text style={styles.calendarExplainText}>Akademik tarihler, duyurular ve etkinlikler gönderilip Google'da doğrulanır.</Text>
-                  </View>
+                <View style={styles.calendarSyncSummary} accessible accessibilityLabel="Google Takvim güvenlik sınırı">
+                  <Text style={styles.calendarSyncSummaryLabel}>Güvenli eşitleme sınırı</Text>
+                  <Text style={styles.caption}>Hesabını seçip izin verdiğinde akademik kayıtlar gönderilir ve doğrulanır. Kişisel Google etkinliklerin hiçbir zaman değiştirilmez.</Text>
                 </View>
 
                 {googleCalendarIntegration && (
@@ -7098,24 +7085,6 @@ function MainApplication() {
                 </View>
               </Section>
 
-              {route === "Calendar" && (
-                <Section title="Akademik Tarihler">
-                {(calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).slice(0, 8).map((event) => (
-                  <View key={event.id} style={styles.eventCard}>
-                    <Text style={styles.eventCategory}>{toCategoryLabel(event.category)}</Text>
-                    <Text style={styles.eventTitle}>{event.title}</Text>
-                    <Text style={styles.caption}>{formatAcademicTemporal(event)}</Text>
-                  </View>
-                ))}
-                {calendar.attempted && !calendar.loading && !calendar.error && (calendar.data?.events ?? []).filter(isUniversityAcademicCalendarEvent).length === 0 && (
-                  <View style={styles.emptyStatePanel}>
-                    <Ionicons name="calendar-clear-outline" size={24} color="#2563eb" />
-                    <Text style={styles.emptyStateTitle}>Takvim tarihi bulunamadı</Text>
-                    <Text style={styles.caption}>Üniversite takvimi yüklendiğinde önemli tarihler burada görünecek.</Text>
-                  </View>
-                )}
-                </Section>
-              )}
             </>
           )}
 
@@ -7714,6 +7683,43 @@ function MainApplication() {
     />
   ) : null;
 
+  const calendarExperience = session ? (
+    <CalendarExperience
+      academicEvents={selectUniversityAcademicCalendarEvents(calendar.data?.events ?? [])}
+      personalExams={homeManualExams}
+      personalExamsReady={manualExamsHydrated && manualExamOwnerId === session.user.id}
+      calendarTitle={calendar.data?.calendar.title}
+      academicYear={calendar.data?.calendar.academicYear}
+      universityName={selectedUniversity?.name}
+      loading={calendar.loading}
+      attempted={Boolean(calendar.attempted)}
+      error={calendar.error}
+      stale={calendar.stale}
+      partial={calendar.data?.sourceStatus === "source_only"}
+      google={{
+        state: googleCalendarState,
+        stateLabel: googleCalendarLifecycleLabel(googleCalendarState),
+        accountEmail: googleCalendarIntegration?.accountEmail,
+        verifiedCount: googleCalendarIntegration
+          ? googleCalendarLastResult?.verified ?? googleCalendarIntegration.mappings.length
+          : undefined,
+        lastSyncedLabel: googleCalendarIntegration?.lastSyncedAt
+          ? `Son eşitleme: ${formatDateTimeShort(googleCalendarIntegration.lastSyncedAt)}`
+          : undefined,
+        error: googleCalendarError ?? undefined,
+        warnings: googleCalendarWarnings,
+        busy: googleCalendarBusy,
+        connected: googleCalendarLive
+      }}
+      onRefresh={() => void loadMyCalendar()}
+      onOpenItem={openCalendarItem}
+      onCreatePersonalExam={createPersonalExam}
+      onUpdatePersonalExam={updatePersonalExam}
+      onSyncGoogle={() => void syncGoogleCalendar(!googleCalendarIntegration)}
+      onManageGoogle={() => requestAppRoute("GoogleCalendarSettings")}
+    />
+  ) : null;
+
   const routeBoundAnnouncementDetail = activeTrustedDetail?.type === "announcement"
     && (!announcementDetailLoad || activeTrustedDetail.id === announcementDetailLoad.id)
     ? activeTrustedDetail
@@ -7729,32 +7735,17 @@ function MainApplication() {
       onOpenOfficialSource={openAnnouncement}
     />
   );
-  const calendarDetailRecord = activeTrustedDetail?.type === "calendar_event"
-    ? activeTrustedDetail
-    : notificationDestinationNotice?.status === "opened"
-      && notificationDestinationNotice.destination.type === "calendar_event"
-      ? {
-        type: "calendar_event" as const,
-        id: notificationDestinationNotice.destination.id,
-        title: notificationDestinationNotice.title ?? "Takvim ayrıntısı"
-      }
-      : null;
-  const calendarTrustedDetail = calendarDetailRecord
-    ? (
-      <Section title="Takvim Ayrıntısı">
-        <View style={styles.inlineInfoCard} accessibilityLiveRegion="polite">
-          <Text style={styles.inlineInfoTitle}>{calendarDetailRecord.title}</Text>
-          <Text style={styles.inlineInfoText}>
-            Bu kayıt güncel hesap ve güvenilir kaynak sınırı içinde tam kimliğiyle doğrulandı.
-          </Text>
-        </View>
-      </Section>
-    )
-    : (
-      <Section title="İçerik kullanılamıyor">
-        <Text style={styles.caption}>Bu rota güvenilir bir tam kayıtla doğrulanmadığı için başka içerik gösterilmedi.</Text>
-      </Section>
-    );
+  const calendarTrustedDetail = (
+    <CalendarEventDetail
+      item={activeCalendarDetail}
+      academicYear={calendar.data?.calendar.academicYear}
+      universityName={selectedUniversity?.name}
+      facultyName={selectedFaculty?.name}
+      departmentName={selectedDepartment?.name}
+      onUpdatePersonalExam={updatePersonalExam}
+      onDeletePersonalExam={deletePersonalExam}
+    />
+  );
 
   const unknownRoute = (
     <Section title="Sayfa bulunamadı">
@@ -7784,7 +7775,7 @@ function MainApplication() {
     SummerSchool: renderRoutedScreen("SummerSchool"),
     YokAnnouncements: renderRoutedScreen("YokAnnouncements"),
     AnnouncementDetail: announcementDetail,
-    Calendar: renderRoutedScreen("Calendar"),
+    Calendar: calendarExperience,
     CalendarEventDetail: calendarTrustedDetail,
     Profile: renderRoutedScreen("Profile"),
     AcademicProfileSettings: renderRoutedScreen("AcademicProfileSettings"),
@@ -7813,6 +7804,8 @@ function MainApplication() {
 }
 
 export default function App() {
+  const showPhase9CalendarPreview = __DEV__
+    && process.env.EXPO_PUBLIC_PHASE9_CALENDAR_PREVIEW === "1";
   const showPhase8ContentFeedPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW === "1";
   const showPhase7HomePreview = __DEV__
@@ -7823,6 +7816,18 @@ export default function App() {
     && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
+
+  if (showPhase9CalendarPreview) {
+    const previewTheme = process.env.EXPO_PUBLIC_PHASE9_CALENDAR_PREVIEW_THEME === "dark"
+      ? "dark"
+      : "light";
+    return (
+      <CalendarPreview
+        preference={previewTheme}
+        scenario={process.env.EXPO_PUBLIC_PHASE9_CALENDAR_PREVIEW_SCENARIO as CalendarPreviewScenario | undefined}
+      />
+    );
+  }
 
   if (showPhase8ContentFeedPreview) {
     const previewTheme = process.env.EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW_THEME === "dark"
@@ -8797,35 +8802,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#ccfbf1",
     alignItems: "center",
     justifyContent: "center"
-  },
-  calendarExplainPanel: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#bae6fd",
-    backgroundColor: "#ffffff",
-    padding: 12,
-    gap: 10
-  },
-  calendarExplainStep: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10
-  },
-  calendarExplainNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#0f766e",
-    color: "#ffffff",
-    textAlign: "center",
-    lineHeight: 24,
-    fontWeight: "900"
-  },
-  calendarExplainText: {
-    flex: 1,
-    color: "#334155",
-    lineHeight: 19
   },
   calendarSyncSummary: {
     borderRadius: 8,

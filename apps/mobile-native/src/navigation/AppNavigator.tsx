@@ -187,7 +187,11 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
     );
   }
 
-  if (route === "Home" || route === "Announcements" || route === "AnnouncementDetail") {
+  if (route === "Home"
+    || route === "Announcements"
+    || route === "AnnouncementDetail"
+    || route === "Calendar"
+    || route === "CalendarEventDetail") {
     return (
       <Screen edges={[...authenticatedEdges]} fullBleed>
         {globalFeedback}

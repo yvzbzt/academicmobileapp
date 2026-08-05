@@ -771,3 +771,46 @@ The final gate uses the following current commands/checks after the documentatio
 | Phase 9 implementation | `git diff --name-only fd54f63669f0ef18230dfe0e9df64281310ac5a7..HEAD -- apps/api apps/mobile-native apps/mobile tests scripts` plus scoped diff review | No Phase 9 manual-exam edit/delete or native date-picker implementation |
 
 `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact. The untracked Phase 9–12 planning reports and raw prompts are not test evidence, are not staged automatically, and do not constitute implementation. Phase 9 was not started.
+
+## Phase 9 Calendar and personal-exam evidence — 5 August 2026
+
+### Phase 9 requirement matrix
+
+| Contract | Evidence |
+|---|---|
+| Agenda/Week/Month | Pure view-period/grouping tests; renderer view selection; native 360 dp and tablet Agenda/Week/Month captures; Agenda is the initial selected state |
+| Trusted temporal semantics | Date-only, inclusive-range, timestamp, DST-offset, and Europe/Istanbul regressions; academic detail/native captures show all-day/range labels without a clock |
+| Personal-exam CRUD/persistence | Pure owner-store create/update/delete, relaunch, stale-owner, and A→B→A tests; component create/edit/delete actions; native bottom sheet, Android pickers, detail, edit, native delete alert, and deletion captures |
+| Google lifecycle preservation | Existing Google sync/lifecycle suites in the full regression plus unchanged Phase 3 handlers/storage; compact status component/native partial-state evidence; remote mutation remains app-marker and owner gated |
+| Availability truth | Dominant-state pure tests, component cases, and native loading/populated/empty/stale/partial/offline/refreshing/error/Google-partial captures with retained-data behavior |
+| Detail and Back | Academic/personal component detail tests; native detail→system Back with the same PID and retained Calendar screen |
+| Platform/responsive | Android Material-compatible tonal/ripple/bottom-sheet/native-picker path; 48 dp hierarchy bounds; exact 320 dp/font-scale-2, 360 dp light/dark, and approximately 853 dp tablet evidence |
+| Accessibility | Text+icon+color classification; selected, busy, expanded, invalid, disabled, and error semantics; wrapping/reachable large-text actions; TalkBack/VoiceOver limitation disclosed |
+| Synthetic safety | Dual development gate, allowlisted scenarios/deep links, local reserved fixtures, and no API/storage/provider import; no production access |
+
+### Phase 9 validation ledger
+
+| Exact command/check | Result |
+|---|---|
+| `npm.cmd test -- tests/unit/mobile-native-calendar.test.ts --configLoader runner` | PASS — 1 file / 19 tests |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/calendar/CalendarExperience.test.tsx tests/calendar/CalendarEventDetail.test.tsx tests/calendar/CalendarPreview.test.tsx` | PASS — 3 suites / 20 tests / 0 snapshots |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — 20 suites / 178 tests / 0 snapshots |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 45 files / 445 tests |
+| `npm.cmd test -- --configLoader runner` | PASS — 70 files / 820 tests |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS |
+| `npm.cmd run typecheck` | PASS |
+| `npm.cmd run build:admin` | PASS — 1,742 modules; 250.51 kB main JS / 73.89 kB gzip |
+| `npm.cmd run build:mobile` | PASS — 1,755 modules; 349.76 kB main JS / 104.37 kB gzip |
+| `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` | PASS — final incremental verification 1m22s, 268 tasks (7 executed / 261 up-to-date); 56,804,991-byte APK; SHA-256 `57DC2F1BDCD7D7C3B02429EF260DF29A3EEEBCC374C55B90D34334793FEFAAFD` |
+| Android install/Calendar/personal-exam smoke | PASS — 33 original-resolution PNG/XML pairs, clean final runtime scan, restored device profile |
+| Mobile-native lint inventory | `MOBILE_NATIVE_LINT: NOT AVAILABLE` |
+
+Initial sandboxed Vite/Gradle attempts could not see required parent paths or the Android SDK; identical approved reruns passed. Final hygiene results and exact scans are stored with the native evidence.
+
+### Phase 9 native evidence results
+
+Native review ran on `emulator-5554` / `AcademicPhase1Low`, Android 7.0 / API 24 / x86_64. Phone captures are 720×1280; density 320 gives 360 dp at font scale 1.0. The exact compact case used density 360 for 320 dp at font scale 2.0. Temporary tablet captures are 1280×1920 at density 240, approximately 853 dp wide.
+
+Thirty-three visually reviewed screenshot/XML pairs cover default Agenda, Week, Month, academic detail and Back retention, personal create/edit/delete and native dialogs, every requested availability state, compact Google partial state, dark mode, long Turkish content, large-text reachability, and tablet Agenda/Month. Pairing and hashes are in [`evidence/phase-09-native/raw/integrity-index.txt`](./evidence/phase-09-native/raw/integrity-index.txt). The final runtime scan has no fatal/TypeError/runtime-error match. Device restoration passed at 720×1280, density 320, font scale 1.0, without ADB reverse, port-8081 listener, or app PID; the AVD was retained.
+
+TalkBack was unavailable (`accessibility_enabled=0`), Windows cannot provide iOS/Xcode/VoiceOver/Liquid Glass evidence, and API 24 cannot prove predictive Back. Synthetic preview evidence does not prove live authentication, SecureStore relaunch, account switching, or Google provider operations. No production account/provider/data was accessed. Phase 10 was not started.

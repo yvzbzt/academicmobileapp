@@ -1,0 +1,71 @@
+﻿Phase 9 native evidence integrity index
+PNG_COUNT=33
+XML_COUNT=33
+MISSING_XML=
+MISSING_PNG=
+PNG android-api24-320dp-dark-font2x-agenda-top.png bytes=67632 dimensions=720x1280 sha256=b728dc29d15981956fabc7eef222edc9dbdd6fe1b58a6baf4eaa9cb4a63ac691
+PNG android-api24-320dp-dark-font2x-create-actions-reachable.png bytes=87831 dimensions=720x1280 sha256=c957f599f0cb46b83b9ad11b70935cb9c5b40d0cfe4346a204c2819810dbe0d2
+PNG android-api24-320dp-dark-font2x-create-sheet-top.png bytes=84223 dimensions=720x1280 sha256=22b10f9c99474e219d6c913e9a7b5cf8c9793765842b6faaf3fb754fd5fc2aec
+PNG android-api24-320dp-dark-font2x-long-title.png bytes=89361 dimensions=720x1280 sha256=3ad4ea6dceec194c2d7ed62ec5151f4ed1b81333b392cfc02e90148fbc06a268
+PNG android-api24-320dp-dark-font2x-personal-action-reachable.png bytes=99511 dimensions=720x1280 sha256=34987941a4c3202d76a3ee510b3641445841770c32f5bd21acf54d80a798003d
+PNG android-api24-320dp-dark-font2x-reachable-controls.png bytes=91886 dimensions=720x1280 sha256=c6ee2371b35bf60fad84938316c135f69c5ff8bcfb2f0ee6ced8ab0cf59c1317
+PNG android-api24-360dp-dark-font1x-agenda-top.png bytes=84180 dimensions=720x1280 sha256=b6c7378624c327bc9a26014f95f71d7aad5c0373d436faf946920b528efd251b
+PNG android-api24-360dp-light-font1x-academic-detail.png bytes=105674 dimensions=720x1280 sha256=bfe9995dcbe852ff4fb54f1021716b41a6b5b513f6c6fa6fcf03155d393679e3
+PNG android-api24-360dp-light-font1x-agenda-after-back.png bytes=95106 dimensions=720x1280 sha256=71f559396cf33c743e6ba1be7eb011cb539c2b6b0694d501a04b14c1c39970a7
+PNG android-api24-360dp-light-font1x-agenda-events.png bytes=99356 dimensions=720x1280 sha256=ca485e4f4925881dd6cca725aed9b05ded23b439614e27edb4729b18ecbb9721
+PNG android-api24-360dp-light-font1x-agenda-top.png bytes=87023 dimensions=720x1280 sha256=3c92a1d6faf15b98e48336fe28129039269cdea740d54ca0b06dbdb9293d3f36
+PNG android-api24-360dp-light-font1x-empty.png bytes=77114 dimensions=720x1280 sha256=818fa47ce6b7aa2c64e9fbf7c1e1aba2a504155ee9212d36787680976f4446b7
+PNG android-api24-360dp-light-font1x-error.png bytes=77733 dimensions=720x1280 sha256=0c357258f39ba8cb7a91615f314c8d8a055161d10e4aaeccfb7cf5976b8c9e00
+PNG android-api24-360dp-light-font1x-google-partial.png bytes=91664 dimensions=720x1280 sha256=37fa7856958b48cb4f145697be2d131a5b671098738d12b7b43b1abcffa4460d
+PNG android-api24-360dp-light-font1x-loading.png bytes=71627 dimensions=720x1280 sha256=4b571bf83cee7f8ba09f2af6fa9a1690f7978ef734859c734d130c71bf5a3810
+PNG android-api24-360dp-light-font1x-month.png bytes=74855 dimensions=720x1280 sha256=cfbc7bfbc7fb62ab60d4a1630e2ca12cd08dd142daeb79064ff4d55419da3308
+PNG android-api24-360dp-light-font1x-native-date-picker.png bytes=80198 dimensions=720x1280 sha256=2cd3d7bb58b782ef6e62b5b4cc14cdbc3b545726884fa7b614d97907d3098808
+PNG android-api24-360dp-light-font1x-native-time-picker.png bytes=79955 dimensions=720x1280 sha256=244afd247bf4c25b51062234cc94049125e2e94e13071d6b34e0d50d39134f9c
+PNG android-api24-360dp-light-font1x-offline-retained.png bytes=87559 dimensions=720x1280 sha256=2d67d48d65e59201ccf9b70c1886f827511cfaf48edb0613e6f0568db588330b
+PNG android-api24-360dp-light-font1x-partial-retained.png bytes=90742 dimensions=720x1280 sha256=404a2b153841775dff81463e90ec689fa667fe3698f11897c9f278b13e42ae9f
+PNG android-api24-360dp-light-font1x-personal-actions.png bytes=79754 dimensions=720x1280 sha256=a35a55ffc6bdc008e9d629972b6d56e4f79c9014d14d117c61b32be1fa968272
+PNG android-api24-360dp-light-font1x-personal-created.png bytes=95093 dimensions=720x1280 sha256=4094f28d9880c7dcf3e7076d4f04642685f2c6973aa2eb5d1b95b1737ed59b1c
+PNG android-api24-360dp-light-font1x-personal-create-sheet.png bytes=75206 dimensions=720x1280 sha256=08215318948a19fa8a9403e3ff39a339c72bc6b9a1572a01ce371b1e242c2bf2
+PNG android-api24-360dp-light-font1x-personal-deleted.png bytes=98912 dimensions=720x1280 sha256=207d43b13a68d9648da89e883407d8069628622e4c94eabef0c90ee893749edb
+PNG android-api24-360dp-light-font1x-personal-delete-dialog.png bytes=88747 dimensions=720x1280 sha256=d112222f37ce27e74eabceb7e62afcf2fd22c32c9b6f9b89d8b8fb365106cb2f
+PNG android-api24-360dp-light-font1x-personal-detail.png bytes=84561 dimensions=720x1280 sha256=9f2f8cc7bed385e393cb72638fb4f5afab712e578864ffbd793aad6c96a3f5bd
+PNG android-api24-360dp-light-font1x-personal-edited-detail.png bytes=79754 dimensions=720x1280 sha256=a35a55ffc6bdc008e9d629972b6d56e4f79c9014d14d117c61b32be1fa968272
+PNG android-api24-360dp-light-font1x-personal-edit-sheet.png bytes=75745 dimensions=720x1280 sha256=7852525ca9ca5010f31c6a9901ac976aec1f19c140433d0f53bfc2a43f49792a
+PNG android-api24-360dp-light-font1x-refreshing-retained.png bytes=96190 dimensions=720x1280 sha256=8a9f5f8e14be99fdaec89bc16b3fbca5d473dada7677d264786eac4b12102b66
+PNG android-api24-360dp-light-font1x-stale-retained.png bytes=91516 dimensions=720x1280 sha256=cb1e7863f4b59109d4559f4c43c9bc1e92cc17310f82b57c783b61be93f739ee
+PNG android-api24-360dp-light-font1x-week.png bytes=75340 dimensions=720x1280 sha256=8470a8213ba2501f59f987c7dccc174ed277f2654a61972f7353c799e51b96a7
+PNG android-api24-tablet-853dp-light-font1x-agenda.png bytes=109720 dimensions=720x1280 sha256=82604e13bac8a2d270201b85b2354bc51498382d0533d6ed24c1c647e2ca610c
+PNG android-api24-tablet-853dp-light-font1x-month.png bytes=97834 dimensions=720x1280 sha256=8b7722242f1c7ca178480c137c5835a77182b06981a1a1e1328421ca19b193c8
+XML android-api24-320dp-dark-font2x-agenda-top.xml bytes=5225 sha256=1c80aba4ddfff8375025a63dad0cc1bfe59fe2963c076ec1a2f568198968f776
+XML android-api24-320dp-dark-font2x-create-actions-reachable.xml bytes=6697 sha256=fbc8e733ebe8fd4c53b14cf5c582069969ec3ab517a63a6e74e34a6e64f56699
+XML android-api24-320dp-dark-font2x-create-sheet-top.xml bytes=3660 sha256=cc2be7ad63d28cf0829784f586f02891458377c4379b50b8b0a8ae318dc3fb15
+XML android-api24-320dp-dark-font2x-long-title.xml bytes=3928 sha256=912bca907f200eaab89eb736e02ae7a4f6fceae209a03ce4c12734c25e322e52
+XML android-api24-320dp-dark-font2x-personal-action-reachable.xml bytes=5074 sha256=a8d9b7c855aa319cdcae1c6117eb7bd6e835b90143e83504190b9266fb59aefc
+XML android-api24-320dp-dark-font2x-reachable-controls.xml bytes=4375 sha256=ebd48676a6079a0af3e1a59a3b1031a8e664d87f29d5f8976f1ac779b74d493d
+XML android-api24-360dp-dark-font1x-agenda-top.xml bytes=9533 sha256=cb60d9f20da5ea61aead985135a20ed088fdb6d14d3ee2f4a6a33fc47b669eea
+XML android-api24-360dp-light-font1x-academic-detail.xml bytes=12226 sha256=6b921671dca7b72a8c2d3856425d09db9139542b9df021bb6c223d0f3ceb2d76
+XML android-api24-360dp-light-font1x-agenda-after-back.xml bytes=15652 sha256=92d60f2b25e423e75fc48f2553562f77f5cfb8b928c49a732820c3422a89eacc
+XML android-api24-360dp-light-font1x-agenda-events.xml bytes=14672 sha256=78a37229e87f718db6683dde7cb104e150d564b8d7b99ddc998a76adc3fe75dc
+XML android-api24-360dp-light-font1x-agenda-top.xml bytes=9533 sha256=cb60d9f20da5ea61aead985135a20ed088fdb6d14d3ee2f4a6a33fc47b669eea
+XML android-api24-360dp-light-font1x-empty.xml bytes=6560 sha256=0360af4fad1c072c1f12ba0a296fa1f27d75ad2b2e0f047904070e1d8553dbc9
+XML android-api24-360dp-light-font1x-error.xml bytes=6880 sha256=0d7e025509b6ba230069a2ee040aecb9725cdbc7f8d7d37e374f6c756d6a77ae
+XML android-api24-360dp-light-font1x-google-partial.xml bytes=8563 sha256=4b924bccbea652a053c0138952843f9d5d2a1051f21b6c755b10a256f986c713
+XML android-api24-360dp-light-font1x-loading.xml bytes=6798 sha256=34b7becbde407909aadd46605d729ed38fba11247628196525b24f2de143741a
+XML android-api24-360dp-light-font1x-month.xml bytes=45990 sha256=60228ad134d7a29cec137abd7ece14de12cae94f07c870a113e03bb0e86512d3
+XML android-api24-360dp-light-font1x-native-date-picker.xml bytes=18501 sha256=dfeb57fa2a4832ac8eea47227f01cdd756d7d8bbe2aa65ceb5cacf609fbed8ba
+XML android-api24-360dp-light-font1x-native-time-picker.xml bytes=14924 sha256=b235932465051413a06024d23b3fb8f7eb1184f75dc45426f05f6f24f7ddd2e2
+XML android-api24-360dp-light-font1x-offline-retained.xml bytes=8511 sha256=657f7ffc09e357540ba93349e6827c34b6e1b2dd20612972d6c34aa7f00de62e
+XML android-api24-360dp-light-font1x-partial-retained.xml bytes=8226 sha256=365daefc1f71b92d8f4f965a1d1765b5363b5b03c9875157ad00879df3516455
+XML android-api24-360dp-light-font1x-personal-actions.xml bytes=12158 sha256=624fa6cdd6cd5959237b6f2a980ff72a3aee91f2b262f7587e7ad9cbb765bbe5
+XML android-api24-360dp-light-font1x-personal-created.xml bytes=15307 sha256=3016c62c0bc6054ea369deaaa8760a3301cadd96112cca8a535519c87ded8106
+XML android-api24-360dp-light-font1x-personal-create-sheet.xml bytes=7081 sha256=789334ca246a89ac5c0d67075ed04dc67ced01ceffb4baa0b97c57dcc37fd947
+XML android-api24-360dp-light-font1x-personal-deleted.xml bytes=16137 sha256=444c39a6adbfd8112c8cf1b6d51417f3f64d06f686827eea43ee0f92edd25c73
+XML android-api24-360dp-light-font1x-personal-delete-dialog.xml bytes=6737 sha256=8cef0358eda50b5f69e0280619301a26adbf9f5117c6d6e7cf518bc95f056573
+XML android-api24-360dp-light-font1x-personal-detail.xml bytes=12452 sha256=05ca7ecda0f8318ac3c31026e32758666963fdc72107b72aaa80dc83e237b31b
+XML android-api24-360dp-light-font1x-personal-edited-detail.xml bytes=12167 sha256=d083d15daa6b7a01cd44f9cb416e2e95f774a7e97b8eb2bdb12950ea4fd83e55
+XML android-api24-360dp-light-font1x-personal-edit-sheet.xml bytes=10799 sha256=cda4c551fc2dfc16288e398b900090d46e36c7acfeed12c9a19d083950936223
+XML android-api24-360dp-light-font1x-refreshing-retained.xml bytes=8221 sha256=9494192a0cdcd80a221d1287de39856d74b4e7f1165385c2236a1b4d9efe858f
+XML android-api24-360dp-light-font1x-stale-retained.xml bytes=8190 sha256=7d5965aa576f72f2c63643cc3ea9d7460604a7e429587cd1e125ed24454a966c
+XML android-api24-360dp-light-font1x-week.xml bytes=16834 sha256=93c3f35a346a3a5fad45f59e7bf1e672c1188f585cc55da4c6f16bbe6d74b103
+XML android-api24-tablet-853dp-light-font1x-agenda.xml bytes=18884 sha256=631d9b10bfa25e70aecc879b4aac075e9e714a06661882affaf6f75476633f8e
+XML android-api24-tablet-853dp-light-font1x-month.xml bytes=53458 sha256=d0a253fc17de725c5905c477ab3f23435465c6d1a19542d0c61d939f9ed978f2

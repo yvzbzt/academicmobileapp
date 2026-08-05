@@ -21,6 +21,7 @@ export interface CardProps extends Omit<ViewProps, "style"> {
   onPress?: (event: GestureResponderEvent) => void;
   disabled?: boolean;
   selected?: boolean;
+  busy?: boolean;
   accessibilityLabel?: string;
   accessibilityRole?: AccessibilityRole;
   style?: StyleProp<ViewStyle>;
@@ -32,6 +33,7 @@ export function Card({
   onPress,
   disabled = false,
   selected = false,
+  busy = false,
   accessibilityLabel,
   accessibilityRole,
   style,
@@ -64,7 +66,7 @@ export function Card({
         {...viewProps}
         accessibilityLabel={accessibilityLabel}
         accessibilityRole={accessibilityRole ?? "button"}
-        accessibilityState={{ disabled, selected }}
+        accessibilityState={{ busy, disabled, selected }}
         android_ripple={
           adaptation.pressFeedback === "ripple"
             ? { color: theme.colors.state.pressed, borderless: false }
@@ -88,7 +90,12 @@ export function Card({
   }
 
   return (
-    <View {...viewProps} accessibilityLabel={accessibilityLabel} style={cardStyle}>
+    <View
+      {...viewProps}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ busy, disabled, selected }}
+      style={cardStyle}
+    >
       {children}
     </View>
   );
@@ -286,6 +293,7 @@ export interface SegmentedControlProps<Value extends string = string> {
   value: Value;
   onValueChange: (value: Value) => void;
   disabled?: boolean;
+  orientation?: "horizontal" | "vertical";
   style?: StyleProp<ViewStyle>;
 }
 
@@ -295,6 +303,7 @@ export function SegmentedControl<Value extends string = string>({
   value,
   onValueChange,
   disabled = false,
+  orientation = "horizontal",
   style,
 }: SegmentedControlProps<Value>) {
   const theme = useTheme();
@@ -307,6 +316,7 @@ export function SegmentedControl<Value extends string = string>({
       accessibilityRole="radiogroup"
       style={[
         styles.segmentedControl,
+        orientation === "vertical" && styles.segmentedControlVertical,
         {
           backgroundColor: theme.colors.background.subtle,
           borderColor: theme.colors.border.default,
@@ -332,6 +342,7 @@ export function SegmentedControl<Value extends string = string>({
             onPress={() => onValueChange(option.value)}
             style={({ pressed }) => [
               styles.segment,
+              orientation === "vertical" && styles.segmentVertical,
               {
                 minHeight: adaptation.minimumTouchTarget,
                 backgroundColor: selected
@@ -391,10 +402,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
   },
+  segmentedControlVertical: {
+    flexDirection: "column",
+  },
   segment: {
     alignItems: "center",
     borderWidth: 1,
     flex: 1,
     justifyContent: "center",
+  },
+  segmentVertical: {
+    flex: undefined,
+    width: "100%",
   },
 });

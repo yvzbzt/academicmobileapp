@@ -1,0 +1,9 @@
+Phase 9 restoration proof
+SIZE=Physical size: 720x1280
+DENSITY=Physical density: 320
+FONT_SCALE=1.0
+ADB_REVERSE=
+APP_PID=
+PORT_8081=
+List of devices attached
+emulator-5554          device product:sdk_google_phone_x86_64 model:Android_SDK_built_for_x86_64 device:generic_x86_64 transport_id:8

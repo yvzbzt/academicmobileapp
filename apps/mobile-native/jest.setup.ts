@@ -77,3 +77,22 @@ jest.mock("expo-network", () => ({
     type: "WIFI",
   })),
 }));
+
+jest.mock("@react-native-community/datetimepicker", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  return {
+    __esModule: true,
+    default: ({ mode, onChange, value, ...props }: {
+      mode: "date" | "time";
+      onChange: (event: { type: "set" | "dismissed" }, value?: Date) => void;
+      value: Date;
+    }) => React.createElement(View, {
+      ...props,
+      accessibilityLabel: mode === "date" ? "Sistem tarih seçici" : "Sistem saat seçici",
+      onChange,
+      testID: `native-${mode}-picker`,
+      value,
+    }),
+  };
+});

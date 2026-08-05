@@ -251,3 +251,31 @@ and zero frozen frames. Its unsuccessful SwiftShader tuning experiment was
 fully reverted. iOS runtime, VoiceOver, TalkBack, modern Android, provider,
 installed E2E, native tablet/rail, and mobile-native lint evidence remain
 unavailable. Phase 9 was not started.
+
+## Phase 9 Calendar inventory
+
+The authenticated four-tab route map is unchanged; Phase 9 completes the existing Calendar stack:
+
+```text
+CalendarTab
+├─ Calendar
+│  ├─ Ajanda (default)
+│  ├─ Hafta
+│  ├─ Ay
+│  ├─ Kişisel sınav ekle → native date/time picker sheet
+│  └─ compact Google Calendar status → sync/manage lifecycle
+└─ CalendarEventDetail({ calendarEventId })
+   ├─ trusted academic source/date semantics
+   └─ owner-matching personal exam → edit/delete
+```
+
+| Surface | Final hierarchy | States and actions | Boundary |
+|---|---|---|---|
+| Calendar / Agenda | Title/context → view radio group → add exam → availability → compact Google status → day headings and event rows | Loading, populated, empty, refreshing, stale, partial, offline, recoverable error; refresh; row detail | Current/future academic and owner-scoped personal records; Europe/Istanbul grouping; date-only/ranges remain untimed |
+| Calendar / Week | Seven-day period label → day summaries → accessible event list | Previous/next week; selected view; empty period; detail | Same item identity and semantics as Agenda |
+| Calendar / Month | Month label → 42 informational cells → accessible event list | Previous/next month; selected view; empty period; detail | Cells summarize type/icon/text without hiding actions inside a dense grid |
+| Academic event detail | Classification/source → wrapping title → date meaning → description when supplied | Ordinary stack Back | Read-only trusted record; no edit/delete and no invented time |
+| Personal exam detail/editor | Personal classification → title/date/time → edit/delete; sheet title input → native date → native time → cancel/save | Create, edit, delete confirmation; expanded, invalid, busy, error | Only active owner; existing SecureStore owner/generation persistence; stale operations rejected |
+| Google status | Compact connection/sync/partial status → sync/manage | Existing connect, sync, switch, disconnect-retain, managed removal, revoke and partial outcomes | Phase 3 lifecycle; app-managed marker plus owner required; personal Google events untouched |
+
+The synthetic preview scenarios are `populated`, `week`, `month`, `loading`, `refreshing`, `empty`, `stale`, `partial`, `offline`, `error`, `google-partial`, `detail-academic`, `detail-personal`, and `long-title`. They are development-only local fixtures and do not prove authentication, SecureStore, API, or provider behavior. Android evidence is indexed in [`evidence/phase-09-native`](./evidence/phase-09-native/README.md). Phase 10 was not started.

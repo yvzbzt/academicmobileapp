@@ -287,3 +287,15 @@ fully reverted. No unproven virtualization change is part of the current design
 contract; the hardware-rendered unchanged feed passed. Exact method, rejected
 controls, final trials, renderer, and cleanup proof live in
 `apps/mobile-native/performance/`.
+
+## Phase 9 Calendar and personal-exam contract
+
+- Calendar is a full-bleed, single-`FlatList` planning surface with **Ajanda** as the default. The **Hafta** and **Ay** controls select alternate summaries without changing event identity or date semantics.
+- Academic events are immutable trusted content. Date-only starts and inclusive date-only ranges remain civil dates; no clock label may be derived for them. Timestamped records and personal exams may show their real time.
+- Every event classification combines icon, Turkish text, and semantic color. Selected view, row press, background busy, expanded picker/editor, invalid input, and recoverable error each expose a non-color state.
+- Week is seven labelled day summaries plus an accessible item list. Month is a fixed six-week/42-cell grid plus an accessible event list; calendar cells do not become crowded nested action containers.
+- `PersonalExamEditor` uses a bottom sheet and the platform date/time dialog. Title is the only text entry. Picker buttons, cancel, and submit remain at least 48 dp on Android; the sheet scrolls for 320 dp and 200% font scale.
+- Calendar detail is an opaque reading/action surface. Academic detail shows source and all-day/range meaning. Personal detail alone offers edit/delete. Destructive confirmation uses the native alert boundary.
+- The Google integration is one compact status card with status, last sync/partial context, and real sync/manage actions. It does not reproduce Phase 3's long explainer or invent a provider guarantee.
+- On compact width or large text, the view selector becomes vertical. At wider phone/tablet widths it remains bounded by the existing readable-width contract. iOS Liquid Glass remains eligible only for navigation/control chrome, never calendar cells, event cards, forms, or detail content.
+- `CalendarPreview` is dual-gated development evidence using synthetic local fixtures. It cannot import or exercise API, persistence, authentication, or provider code and cannot be selected in production.

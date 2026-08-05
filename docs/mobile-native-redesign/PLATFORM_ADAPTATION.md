@@ -173,3 +173,12 @@ flows, installed E2E, and native tablet/rail acceptance remain unavailable.
 The repository also has no mobile-native lint command/configuration. These are
 evidence or later-phase limitations, not claims that Phase 1-8 code ran in
 those environments.
+
+## Phase 9 Calendar adaptation
+
+- Shared semantics own Agenda/Week/Month periods, trusted date-only/range labels, event classification, dominant availability, personal-exam validation, and owner identity. Platform adaptation does not reinterpret these values.
+- Android uses opaque Material-compatible tonal cards, native ripple, edge-to-edge shell ownership, a bottom-sheet editor, native Material date/time dialogs, and 48 dp minimum targets. Ordinary native-stack Back returns from event detail to the mounted Calendar view.
+- iOS keeps event cards, grids, detail, and editor content opaque. Only eligible navigation/control chrome may use the established Liquid Glass wrapper when the runtime supports it and Reduce Transparency is off; otherwise it uses the opaque semantic fallback. The native iOS picker and runtime appearance remain unverified on this Windows host.
+- Below 375 logical units or at large text, the Agenda/Week/Month control becomes a vertical radio group. The month grid stays informational and is followed by a readable event list. Bottom-sheet content scrolls so date/time launch and actions remain reachable at 320 dp and 200% font scale.
+- Availability uses text and semantics on both platforms: exclusive initial loading/empty/error surfaces and retained refreshing/stale/partial/offline banners. Google partial state cannot be described as fully synchronized.
+- Phase 9 native Android evidence covers 360 dp light/dark, exact 320 dp at font scale 2.0, and a temporary approximately 853 dp tablet viewport. TalkBack, iOS/VoiceOver/Liquid Glass, live provider mutation, and API 33+ predictive Back remain unclaimed.

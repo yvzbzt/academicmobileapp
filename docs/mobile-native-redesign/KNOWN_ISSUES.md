@@ -306,3 +306,25 @@ The attempted `initialNumToRender=4`, `maxToRenderPerBatch=3`, `windowSize=3`, `
 Raw article bodies, numeric parser-quality scores, a production content reconciliation/migration, Firestore restoration, a new Redis/BullMQ/replica-set requirement, invented Home/feed actions or badges, fake social mechanics, wholesale screen recreation, and a new native E2E framework are not supported by the committed Phase 1–8 contracts and were not implemented.
 
 Phase 9 was not started. Untracked Phase 9–12 planning documents do not constitute implementation.
+
+## Phase 9 disposition — Calendar and personal exams, 5 August 2026
+
+This section supersedes the Phase 1–8 statements that Calendar presentation and personal-exam edit/delete were unstarted.
+
+| Issue | Phase 9 disposition |
+|---|---|
+| MN-017 | Resolved. Owner-scoped personal exams now have create/edit/delete with native date/time dialogs, explicit validation, serialized SecureStore persistence, active-owner/account-generation guards, relaunch restoration, and A→B→A coverage. Owner-unknown legacy rows remain discarded. |
+| Calendar presentation portion of MN-012/MN-013 | Resolved for the Calendar root/detail on tested Android surfaces. Agenda is default; Week/Month, opaque semantic states, compact/large-text behavior, dark mode, tablet-width layout, 48 dp targets, and no color-only classification are implemented. Whole-app/iOS accessibility acceptance remains separate. |
+| Phase 3 Google reachability | Preserved. The compact status card keeps sync and management reachable without changing connect/verify/switch/disconnect/remove/revoke/partial/ownership/late-operation behavior. Personal Google events remain excluded from mutation. |
+| Date-only/range correctness | Preserved. Calendar view/detail and Google-compatible model tests retain civil-date and inclusive-range semantics without inventing a time. |
+| Ordinary Android Back | Passed for Calendar detail on API 24 with the same process and retained Calendar state. Predictive Back remains disabled/unproven. |
+
+Remaining evidence/tooling limitations:
+
+- MN-019: no installed Maestro/Detox/Appium authenticated E2E or automated screenshot regression.
+- MN-029: TalkBack is unavailable on the AVD; UIAutomator does not establish traversal/order acceptance.
+- MN-033: Windows has no iOS/Xcode runtime, VoiceOver, Dynamic Type, or native Liquid Glass result; API 24 cannot prove predictive Back.
+- MN-034: no authorized non-production Google account/calendar fixture was used. Synthetic UI plus existing lifecycle tests do not prove live chooser, mutation, removal, or revoke.
+- MN-020: `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact.
+
+Phase 9 used synthetic local fixtures only and accessed no production account, calendar, provider, or data. Phase 10 was not started.
