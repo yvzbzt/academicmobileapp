@@ -22,15 +22,15 @@ import {
   type PersonalExamDraftErrors,
 } from "./calendar-model";
 import { NativeDateTimePicker } from "./NativeDateTimePicker";
+import type {
+  PersonalExamMutationInput,
+  PersonalExamMutationResult,
+} from "./personal-exam-runtime";
 
-export interface PersonalExamMutationInput {
-  title: string;
-  examDate: string;
-}
-
-export type PersonalExamMutationResult =
-  | { ok: true }
-  | { ok: false; error: string };
+export type {
+  PersonalExamMutationInput,
+  PersonalExamMutationResult,
+} from "./personal-exam-runtime";
 
 export interface PersonalExamEditorProps {
   visible: boolean;

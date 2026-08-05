@@ -814,3 +814,24 @@ Native review ran on `emulator-5554` / `AcademicPhase1Low`, Android 7.0 / API 24
 Thirty-three visually reviewed screenshot/XML pairs cover default Agenda, Week, Month, academic detail and Back retention, personal create/edit/delete and native dialogs, every requested availability state, compact Google partial state, dark mode, long Turkish content, large-text reachability, and tablet Agenda/Month. Pairing and hashes are in [`evidence/phase-09-native/raw/integrity-index.txt`](./evidence/phase-09-native/raw/integrity-index.txt). The final runtime scan has no fatal/TypeError/runtime-error match. Device restoration passed at 720×1280, density 320, font scale 1.0, without ADB reverse, port-8081 listener, or app PID; the AVD was retained.
 
 TalkBack was unavailable (`accessibility_enabled=0`), Windows cannot provide iOS/Xcode/VoiceOver/Liquid Glass evidence, and API 24 cannot prove predictive Back. Synthetic preview evidence does not prove live authentication, SecureStore relaunch, account switching, or Google provider operations. No production account/provider/data was accessed. Phase 10 was not started.
+
+## Phase 9 acceptance-repair ledger — 5 August 2026
+
+This ledger supersedes only the accepted Phase 9 claims about personal-exam integration-test depth, cancellation coverage, and leap-year edge coverage. All other Phase 1–9 contracts and the historical ledgers above remain unchanged.
+
+| Required repair gate | Exact command/evidence | Fresh result |
+|---|---|---|
+| Real personal-exam production integration | `npm.cmd test -- tests/unit/mobile-native-personal-exam-integration.test.ts --configLoader runner` | PASS — 1 file / 1 test; real runtime mutation, owner envelope, hydration/relaunch, A/B/A, and delayed-A rejection |
+| Calendar/leap model | `npm.cmd test -- tests/unit/mobile-native-calendar.test.ts --configLoader runner` | PASS — 1 file / 25 tests; February 29, 42 cells, adjacent months, seven-day week, navigation, selection, date-only/range, and non-leap behavior |
+| Focused native Phase 9 | `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/calendar/CalendarExperience.test.tsx tests/calendar/CalendarEventDetail.test.tsx tests/calendar/CalendarPreview.test.tsx tests/calendar/PersonalExamCancellation.test.tsx` | PASS — 4 suites / 24 tests / 0 snapshots; create/edit/date/time cancellation is runtime-adapter backed |
+| Complete native Jest | `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — 21 suites / 182 tests / 0 snapshots |
+| Complete API | `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 45 files / 445 tests; dedicated localhost Mongo fixture |
+| Full root regression | `npm.cmd test -- --configLoader runner` | PASS — 71 files / 827 tests |
+| Documentation consistency | `npm.cmd test -- tests/unit/phase-1-8-documentation-consistency.test.ts --configLoader runner` | PASS — 1 file / 7 tests after documentation updates |
+| TypeScript | `npm.cmd run typecheck`; `npm.cmd --prefix apps/mobile-native run typecheck` | PASS / PASS |
+| Web regression builds | `npm.cmd run build:admin`; `npm.cmd run build:mobile` | PASS — 1,742 and 1,755 modules respectively |
+| Android x86_64 debug | `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` | PASS — 1m29s; 268 tasks; APK 56,804,991 bytes; SHA-256 `57DC2F1BDCD7D7C3B02429EF260DF29A3EEEBCC374C55B90D34334793FEFAAFD` |
+| Native repair smoke | Fresh APK on `AcademicPhase1Low`, API 24 / x86_64 | PASS — Agenda/Week/Month, date/time dialog cancel, editor cancel, same-process retention, clean runtime scan; restored profile and local-process cleanup |
+| Hygiene and scope | Whitespace, sensitive log, credential, `.skip/.only/.todo`, snapshot, empty/vacuous, Firestore, fake-social, Phase 10 diff scans | PASS; `MOBILE_NATIVE_LINT: NOT AVAILABLE` |
+
+The successful API runs used only a temporary `127.0.0.1` Mongo fixture. The initial no-Mongo run and sandbox-limited Vite attempts are environment diagnostics, not passes. No remote service or production data was accessed. Phase 10 was not started.

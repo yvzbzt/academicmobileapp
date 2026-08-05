@@ -148,12 +148,7 @@ import {
   type AuthOnboardingPreviewScenario
 } from "./src/auth/AuthOnboardingPreview";
 import {
-  LEGACY_MANUAL_EXAMS_STORAGE_KEY,
-  createManualExamStorageKey,
-  planLegacyManualExamMigration,
-  readManualExamEnvelope,
-  serializeManualExamEnvelope,
-  type ManualExamRecord
+  createManualExamStorageKey
 } from "./src/session-integrity/manual-exam-storage";
 import {
   canonicalizeOfficialAcademicUrl,
@@ -177,10 +172,13 @@ import {
   selectUniversityAcademicCalendarEvents,
   type CalendarItem
 } from "./src/calendar/calendar-model";
-import type {
-  PersonalExamMutationInput,
-  PersonalExamMutationResult
-} from "./src/calendar/PersonalExamEditor";
+import {
+  PersonalExamRuntime,
+  StalePersonalExamOperationError,
+  type PersonalExamRuntimeState,
+  type PersonalExamMutationInput,
+  type PersonalExamMutationResult
+} from "./src/calendar/personal-exam-runtime";
 import {
   CalendarPreview,
   type CalendarPreviewScenario
@@ -1158,9 +1156,14 @@ function MainApplication() {
   const [yokAnnouncements, setYokAnnouncements] = useState<Loadable<TrustedContentCollection>>({ loading: false });
   const [summerSchool, setSummerSchool] = useState<Loadable<SummerSchoolPayload>>({ loading: false });
   const [preferences, setPreferences] = useState<Loadable<NotificationPreferencePayload>>({ loading: false });
-  const [manualExams, setManualExams] = useState<ManualExamRecord[]>([]);
-  const [manualExamOwnerId, setManualExamOwnerId] = useState<string | null>(null);
-  const [manualExamsHydrated, setManualExamsHydrated] = useState(false);
+  const [manualExamState, setManualExamState] = useState<PersonalExamRuntimeState>({
+    ownerId: null,
+    hydrated: false,
+    exams: []
+  });
+  const manualExams = manualExamState.exams;
+  const manualExamOwnerId = manualExamState.ownerId;
+  const manualExamsHydrated = manualExamState.hydrated;
 
   const [selectedUniversityId, setSelectedUniversityId] = useState("");
   const [alarmEnabled, setAlarmEnabled] = useState(false);
@@ -1243,6 +1246,30 @@ function MainApplication() {
   const authOperationInProgressRef = useRef(false);
   const activationAttemptRef = useRef(0);
   const hydrationInProgressRef = useRef(false);
+  const personalExamRuntimeRef = useRef<PersonalExamRuntime | null>(null);
+  if (!personalExamRuntimeRef.current) {
+    personalExamRuntimeRef.current = new PersonalExamRuntime({
+      storage: {
+        getItemAsync: getStoredValue,
+        setItemAsync: (key, value) => enqueueStorageMutation(() => setStoredValue(key, value)),
+        deleteItemAsync: (key) => enqueueStorageMutation(() => deleteStoredValue(key))
+      },
+      ownerGuard: accountGuardRef.current,
+      createId: () => createLocalId("manual-exam"),
+      onStateChange: setManualExamState,
+      onPersistenceError: (ownerId) => {
+        const snapshot = accountGuardRef.current.capture();
+        if (!snapshot || snapshot.ownerId !== ownerId) return;
+        setCleanupIssue({
+          action: "manual_exam_save",
+          failedTargets: ["manual_exam_storage"],
+          ownerId
+        });
+        setMessage({ text: "Sınavlar cihazda saklanamadı. Lütfen tekrar dene.", tone: "error" });
+      }
+    });
+  }
+  const personalExamRuntime = personalExamRuntimeRef.current;
 
   const accessToken = session?.accessToken;
   const availableRecentAuthMethods = recentAuthenticationMethods(
@@ -1971,28 +1998,6 @@ function MainApplication() {
   }, []);
 
   useEffect(() => {
-    if (!manualExamsHydrated || !manualExamOwnerId || session?.user.id !== manualExamOwnerId) return;
-    const snapshot = accountGuardRef.current.capture();
-    if (!snapshot || snapshot.ownerId !== manualExamOwnerId) return;
-
-    void enqueueStorageMutation(async () => {
-      if (!accountGuardRef.current.isCurrent(snapshot)) return;
-      await setStoredValue(
-        createManualExamStorageKey(manualExamOwnerId),
-        serializeManualExamEnvelope(manualExamOwnerId, manualExams)
-      );
-    }).catch(() => {
-      if (!accountGuardRef.current.isCurrent(snapshot)) return;
-      setCleanupIssue({
-        action: "manual_exam_save",
-        failedTargets: ["manual_exam_storage"],
-        ownerId: manualExamOwnerId
-      });
-      setMessage({ text: "Sınavlar cihazda saklanamadı. Lütfen tekrar dene.", tone: "error" });
-    });
-  }, [manualExams, manualExamsHydrated, manualExamOwnerId, session?.user.id]);
-
-  useEffect(() => {
     if (!message || navigatorRootSurface !== "authenticated") return;
     const timer = setTimeout(() => setMessage(null), 3500);
     return () => clearTimeout(timer);
@@ -2228,9 +2233,7 @@ function MainApplication() {
           await restoreManualExams(restoredSession.user.id, snapshot);
         } catch (error) {
           if (error instanceof StaleAccountRequestError) throw error;
-          setManualExams([]);
-          setManualExamOwnerId(null);
-          setManualExamsHydrated(false);
+          personalExamRuntime.reset();
           recoverableTargets.push("manual_exam_storage");
         }
         try {
@@ -2247,9 +2250,7 @@ function MainApplication() {
         }
       } else {
         accountGuardRef.current.invalidate();
-        setManualExams([]);
-        setManualExamOwnerId(null);
-        setManualExamsHydrated(false);
+        personalExamRuntime.reset();
         try {
           await restoreGoogleCalendarConnection();
         } catch {
@@ -2300,9 +2301,7 @@ function MainApplication() {
       sessionRef.current = null;
       notificationCoordinatorOwnerTokenRef.current = null;
       setSession(null);
-      setManualExams([]);
-      setManualExamOwnerId(null);
-      setManualExamsHydrated(false);
+      personalExamRuntime.reset();
       setHydrationError("Cihazdaki oturum bilgileri güvenli biçimde okunamadı. Tekrar deneyebilirsin.");
       setHydrationStatus("error");
     } finally {
@@ -2371,28 +2370,20 @@ function MainApplication() {
     ownerId: string,
     ownerSnapshot?: AccountGenerationSnapshot | null
   ): Promise<void> {
-    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
-    setManualExamsHydrated(false);
-    const storageKey = createManualExamStorageKey(ownerId);
-    const stored = await getStoredValue(storageKey);
-    const result = readManualExamEnvelope(stored, ownerId);
-    if (result.shouldDelete) await deleteStoredValue(storageKey);
-
-    const legacyValue = await getStoredValue(LEGACY_MANUAL_EXAMS_STORAGE_KEY);
-    const migration = planLegacyManualExamMigration({ legacyValue, currentOwnerId: ownerId });
-    if (migration.status !== "no_data") {
-      await deleteStoredValue(LEGACY_MANUAL_EXAMS_STORAGE_KEY);
-      if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
-      setMessage({
-        text: "Sahibi doğrulanamayan eski cihaz sınavları güvenlik için bu hesaba aktarılmadı.",
-        tone: "info"
-      });
+    const snapshot = ownerSnapshot ?? accountGuardRef.current.capture();
+    if (!snapshot) throw new StaleAccountRequestError();
+    try {
+      const result = await personalExamRuntime.hydrate(ownerId, snapshot);
+      if (result.legacyDiscarded) {
+        setMessage({
+          text: "Sahibi doğrulanamayan eski cihaz sınavları güvenlik için bu hesaba aktarılmadı.",
+          tone: "info"
+        });
+      }
+    } catch (error) {
+      if (error instanceof StalePersonalExamOperationError) throw new StaleAccountRequestError();
+      throw error;
     }
-
-    if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
-    setManualExams(result.status === "loaded" ? result.exams : []);
-    setManualExamOwnerId(ownerId);
-    setManualExamsHydrated(true);
   }
 
   async function restoreGoogleCalendarConnection(
@@ -2696,9 +2687,7 @@ function MainApplication() {
       await restoreManualExams(nextSession.user.id, snapshot);
     } catch (error) {
       if (error instanceof StaleAccountRequestError) throw error;
-      setManualExams([]);
-      setManualExamOwnerId(null);
-      setManualExamsHydrated(false);
+      personalExamRuntime.reset();
       failedTargets.push("manual_exam_storage");
     }
     try {
@@ -3896,8 +3885,7 @@ function MainApplication() {
   }
 
   function resetUserScopedState(): void {
-    setManualExamsHydrated(false);
-    setManualExamOwnerId(null);
+    personalExamRuntime.reset();
     setSelectedUniversityId("");
     setRegisterUniversityId("");
     setRegisterFacultyId("");
@@ -3935,7 +3923,6 @@ function MainApplication() {
     setGoogleBusy(false);
     academicSelectionPendingRef.current = null;
     setAcademicSelectionPending(null);
-    setManualExams([]);
     setNotificationDestinationNotice(null);
   }
 
@@ -4042,13 +4029,7 @@ function MainApplication() {
               await restoreManualExams(issue.ownerId, currentSnapshot);
             } else if (issue.action === "manual_exam_save") {
               if (!currentSnapshot || !accountGuardRef.current.isCurrent(currentSnapshot)) throw new StaleAccountRequestError();
-              await enqueueStorageMutation(async () => {
-                if (!accountGuardRef.current.isCurrent(currentSnapshot)) throw new StaleAccountRequestError();
-                await setStoredValue(
-                  createManualExamStorageKey(issue.ownerId as string),
-                  serializeManualExamEnvelope(issue.ownerId as string, manualExams)
-                );
-              });
+              if (!await personalExamRuntime.persistCurrent(currentSnapshot)) throw new StaleAccountRequestError();
             } else {
               await enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(issue.ownerId as string)));
             }
@@ -4090,9 +4071,7 @@ function MainApplication() {
       if (failedTargets.length === 0) {
         setCleanupIssue(null);
         if (issue.action === "data_deletion" && issue.ownerId && sessionRef.current?.user.id === issue.ownerId) {
-          setManualExams([]);
-          setManualExamOwnerId(issue.ownerId);
-          setManualExamsHydrated(true);
+          personalExamRuntime.replaceAfterOwnerCleanup(issue.ownerId, true);
         }
         setMessage({ text: "Cihazdaki temizlik tamamlandı.", tone: "success" });
       } else {
@@ -4295,8 +4274,10 @@ function MainApplication() {
         }
       ]);
       await notificationCoordinatorRef.current?.activateOwner(currentSession.user.id, false);
-      setManualExamOwnerId(currentSession.user.id);
-      setManualExamsHydrated(!result.failedTargets.includes("manual_exam_storage"));
+      personalExamRuntime.replaceAfterOwnerCleanup(
+        currentSession.user.id,
+        !result.failedTargets.includes("manual_exam_storage")
+      );
       reportCleanupResult("data_deletion", result, currentSession.user.id);
       setMessage({
         text: result.complete
@@ -5765,78 +5746,58 @@ function MainApplication() {
     );
   }
 
-  function validateManualExamMutation(
-    input: PersonalExamMutationInput
-  ): { title: string; examDate: string } | null {
-    const title = input.title.normalize("NFKC").replace(/\s+/gu, " ").trim();
-    const examDate = new Date(input.examDate);
-    if (!title || title.length > 160 || Number.isNaN(examDate.getTime())) return null;
-    return { title, examDate: examDate.toISOString() };
-  }
-
-  function manualExamMutationOwner(): string | null {
+  function personalExamMutationSnapshot(): AccountGenerationSnapshot | null {
     if (accountCleanupInProgressRef.current) return null;
     const currentSession = sessionRef.current;
     const ownerSnapshot = accountGuardRef.current.capture();
+    const personalExamState = personalExamRuntime.getSnapshot();
     if (!currentSession
       || !ownerSnapshot
-      || !manualExamsHydrated
-      || manualExamOwnerId !== currentSession.user.id
+      || !personalExamState.hydrated
+      || personalExamState.ownerId !== currentSession.user.id
       || ownerSnapshot.ownerId !== currentSession.user.id) return null;
-    return currentSession.user.id;
+    return ownerSnapshot;
   }
 
   function createPersonalExam(input: PersonalExamMutationInput): PersonalExamMutationResult {
-    const ownerId = manualExamMutationOwner();
-    const normalized = validateManualExamMutation(input);
-    if (!ownerId) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
-    if (!normalized) return { ok: false, error: "Sınav adı, tarih veya saat doğrulanamadı." };
-    const record: ManualExamRecord = {
-      id: createLocalId("manual-exam"),
-      ...normalized
-    };
-    setManualExams((previous) => [...previous, record]);
+    const ownerSnapshot = personalExamMutationSnapshot();
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    const result = personalExamRuntime.create(input, ownerSnapshot);
+    if (!result.ok) return result;
     setMessage({ text: "Kişisel sınav hesabının cihaz planına eklendi.", tone: "success" });
-    return { ok: true };
+    return result;
   }
 
   function updatePersonalExam(
     id: string,
     input: PersonalExamMutationInput
   ): PersonalExamMutationResult {
-    const ownerId = manualExamMutationOwner();
-    const normalized = validateManualExamMutation(input);
-    if (!ownerId) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
-    if (!normalized) return { ok: false, error: "Sınav adı, tarih veya saat doğrulanamadı." };
-    if (!manualExams.some((exam) => exam.id === id)) {
-      return { ok: false, error: "Bu kişisel sınav açık hesapta bulunamadı." };
-    }
-    setManualExams((previous) => previous.map((exam) => (
-      exam.id === id ? { id: exam.id, ...normalized } : exam
-    )));
+    const ownerSnapshot = personalExamMutationSnapshot();
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    const result = personalExamRuntime.update(id, input, ownerSnapshot);
+    if (!result.ok) return result;
+    const updatedExam = personalExamRuntime.getSnapshot().exams.find((exam) => exam.id === id);
     setActiveCalendarDetail((current) => current?.source === "personal" && current.id === id
-      ? {
+      && updatedExam ? {
         ...current,
-        title: normalized.title,
-        startDate: normalized.examDate,
+        title: updatedExam.title,
+        startDate: updatedExam.examDate,
         temporalKind: "timestamp"
       }
       : current);
     setMessage({ text: "Kişisel sınav güncellendi.", tone: "success" });
-    return { ok: true };
+    return result;
   }
 
   function deletePersonalExam(id: string): PersonalExamMutationResult {
-    const ownerId = manualExamMutationOwner();
-    if (!ownerId) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
-    if (!manualExams.some((exam) => exam.id === id)) {
-      return { ok: false, error: "Bu kişisel sınav açık hesapta bulunamadı." };
-    }
-    setManualExams((previous) => previous.filter((exam) => exam.id !== id));
+    const ownerSnapshot = personalExamMutationSnapshot();
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    const result = personalExamRuntime.delete(id, ownerSnapshot);
+    if (!result.ok) return result;
     setActiveCalendarDetail(null);
     setMessage({ text: "Kişisel sınav silindi.", tone: "success" });
     requestAppRoute("Calendar");
-    return { ok: true };
+    return result;
   }
 
   function openCalendarItem(item: CalendarItem): void {

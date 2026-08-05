@@ -328,3 +328,12 @@ Remaining evidence/tooling limitations:
 - MN-020: `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact.
 
 Phase 9 used synthetic local fixtures only and accessed no production account, calendar, provider, or data. Phase 10 was not started.
+
+### Phase 9 acceptance-repair disposition — 5 August 2026
+
+- MN-017 remains resolved with stronger executable evidence. `App.tsx` now consumes a focused production personal-exam runtime for owner-guarded create/edit/delete, real owner-envelope persistence, hydration/relaunch, cleanup restoration, and late-operation rejection. The deterministic SecureStore-compatible integration sequence proves A create/edit/delete over three relaunches, B isolation and independent storage, A return, and delayed A rejection without B state/storage mutation.
+- The prior cancellation evidence gap is closed in renderer and native smoke evidence: create cancel, edit cancel, Android date-dialog cancel, and Android time-dialog cancel perform zero personal-exam mutation; edit relaunch restores the original record.
+- The prior leap-year gap is closed for February 29 grid/week/navigation/selection/date-only/inclusive-range behavior and a non-leap control year.
+- No live authenticated SecureStore A/B/A session was run. The exact production runtime is covered through its SecureStore-shaped deterministic adapter; OS SecureStore/account E2E remains part of MN-019's installed authenticated automation limitation.
+- MN-029, MN-033, and MN-034 remain unchanged: no TalkBack, iOS/Xcode/VoiceOver/Liquid Glass, modern predictive Back, or live Google-provider acceptance is claimed.
+- Phase 3 Google lifecycle ownership and personal-event exclusion were not modified. Phase 10 was not started.

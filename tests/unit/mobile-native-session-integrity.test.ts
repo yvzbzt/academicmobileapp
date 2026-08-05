@@ -189,17 +189,24 @@ describe("AccountGenerationGuard", () => {
 describe("native manual-exam hydration wiring", () => {
   it("does not persist or render an empty/pre-owner exam state during startup", () => {
     const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const persistenceEffect = appSource.slice(
-      appSource.indexOf("if (!manualExamsHydrated || !manualExamOwnerId"),
-      appSource.indexOf("}, [manualExams, manualExamsHydrated, manualExamOwnerId, session?.user.id])")
+    const runtimeSource = readFileSync(
+      new URL("../../apps/mobile-native/src/calendar/personal-exam-runtime.ts", import.meta.url),
+      "utf8"
+    );
+    const runtimeWiring = appSource.slice(
+      appSource.indexOf("personalExamRuntimeRef.current = new PersonalExamRuntime"),
+      appSource.indexOf("const accessToken")
     );
     const visibilityGuard = appSource.slice(
       appSource.indexOf("const visibleManualExams"),
       appSource.indexOf("const extraExams")
     );
 
-    expect(persistenceEffect).toContain("session?.user.id !== manualExamOwnerId");
-    expect(persistenceEffect).toContain("accountGuardRef.current.isCurrent(snapshot)");
+    expect(runtimeWiring).toContain("ownerGuard: accountGuardRef.current");
+    expect(runtimeWiring).toContain("setItemAsync: (key, value) => enqueueStorageMutation");
+    expect(runtimeWiring).toContain("onStateChange: setManualExamState");
+    expect(runtimeSource).toContain("!this.options.ownerGuard.isCurrent(expectedOwnerSnapshot)");
+    expect(runtimeSource).toContain("!this.state.hydrated");
     expect(visibilityGuard).toContain("session?.user.id === manualExamOwnerId && manualExamsHydrated");
   });
 });

@@ -5,6 +5,7 @@ import {
   buildCalendarItems,
   buildMonthSummary,
   buildWeekSummary,
+  calendarItemStartDateOnly,
   calendarPeriod,
   composePersonalExamTimestamp,
   moveCalendarAnchor,
@@ -159,6 +160,104 @@ describe("Phase 9 calendar and personal-exam model", () => {
     expect(moveCalendarAnchor("week", "2026-12-29", 1)).toBe("2027-01-05");
     expect(moveCalendarAnchor("month", "2026-01-31", 1)).toBe("2026-02-28");
     expect(moveCalendarAnchor("month", "2026-12-15", 1)).toBe("2027-01-15");
+  });
+
+  it("renders leap-year February as one 42-cell month with adjacent-month boundaries", () => {
+    const month = buildMonthSummary([], "2024-02-29");
+    expect(month).toHaveLength(42);
+    expect(month[0]).toMatchObject({ date: "2024-01-29", inPeriod: false });
+    expect(month[41]).toMatchObject({ date: "2024-03-10", inPeriod: false });
+    expect(month.filter((day) => day.date === "2024-02-29")).toEqual([{
+      date: "2024-02-29",
+      dayNumber: 29,
+      inPeriod: true,
+      itemCount: 0,
+      classifications: [],
+    }]);
+    expect(month.filter((day) => day.date.startsWith("2024-01-")).every((day) => !day.inPeriod)).toBe(true);
+    expect(month.filter((day) => day.date.startsWith("2024-03-")).every((day) => !day.inPeriod)).toBe(true);
+  });
+
+  it("builds a complete seven-day week across February 29", () => {
+    expect(calendarPeriod("week", "2024-02-29")).toMatchObject({
+      start: "2024-02-26",
+      end: "2024-03-03",
+    });
+    expect(buildWeekSummary([], "2024-02-29").map((day) => day.date)).toEqual([
+      "2024-02-26",
+      "2024-02-27",
+      "2024-02-28",
+      "2024-02-29",
+      "2024-03-01",
+      "2024-03-02",
+      "2024-03-03",
+    ]);
+  });
+
+  it("navigates January to leap February to March and back without skipping a month", () => {
+    const february = moveCalendarAnchor("month", "2024-01-15", 1);
+    const march = moveCalendarAnchor("month", february, 1);
+    expect([february, march]).toEqual(["2024-02-15", "2024-03-15"]);
+    expect(moveCalendarAnchor("month", march, -1)).toBe("2024-02-15");
+    expect(moveCalendarAnchor("month", february, -1)).toBe("2024-01-15");
+    expect(moveCalendarAnchor("month", "2024-01-31", 1)).toBe("2024-02-29");
+  });
+
+  it("keeps a system-selected February 29 valid through timestamp composition", () => {
+    const draft = applyDateSelection(
+      { title: "Artık yıl sınavı", date: null, time: "14:20" },
+      new Date(2024, 1, 29, 12, 0),
+    );
+    expect(draft.date).toBe("2024-02-29");
+    expect(validatePersonalExamDraft(draft)).toEqual({});
+    const timestamp = composePersonalExamTimestamp(draft);
+    expect(timestamp).not.toBeNull();
+    const selected = new Date(timestamp!);
+    expect([selected.getFullYear(), selected.getMonth() + 1, selected.getDate()]).toEqual([2024, 2, 29]);
+  });
+
+  it("keeps date-only February 29 stable and an inclusive Feb 28–Mar 1 range on every day", () => {
+    const [rangeItem, leapDayItem] = buildCalendarItems({
+      academicEvents: [
+        {
+          id: "leap-day",
+          title: "Artık yıl günü",
+          category: "academic",
+          startDate: "2024-02-29",
+          temporalKind: "date",
+        },
+        {
+          id: "leap-range",
+          title: "Artık yıl aralığı",
+          category: "course_registration",
+          startDate: "2024-02-28",
+          endDate: "2024-03-01",
+          temporalKind: "date",
+          endTemporalKind: "date",
+        },
+      ],
+      personalExams: [],
+      academicSourceLabel: "Resmî kaynak",
+    });
+    expect(calendarItemStartDateOnly(leapDayItem)).toBe("2024-02-29");
+    const week = buildWeekSummary([rangeItem, leapDayItem], "2024-02-29");
+    expect(week.find((day) => day.date === "2024-02-28")?.itemCount).toBe(1);
+    expect(week.find((day) => day.date === "2024-02-29")?.itemCount).toBe(2);
+    expect(week.find((day) => day.date === "2024-03-01")?.itemCount).toBe(1);
+    expect(rangeItem).toMatchObject({ startDate: "2024-02-28", endDate: "2024-03-01" });
+    expect(leapDayItem.startDate).toBe("2024-02-29");
+    expect(leapDayItem.startDate).not.toContain("T");
+  });
+
+  it("keeps non-leap February at 28 days", () => {
+    expect(calendarPeriod("month", "2023-02-14")).toMatchObject({
+      start: "2023-02-01",
+      end: "2023-02-28",
+    });
+    const month = buildMonthSummary([], "2023-02-14");
+    expect(month).toHaveLength(42);
+    expect(month.some((day) => day.date === "2023-02-29")).toBe(false);
+    expect(moveCalendarAnchor("month", "2023-01-31", 1)).toBe("2023-02-28");
   });
 
   it("groups timestamped items by the academic Europe/Istanbul calendar day", () => {

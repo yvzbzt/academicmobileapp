@@ -110,3 +110,46 @@ Phase 10 was not started. A later authorized phase may consume the existing Cale
 - Baseline ancestor check: PASS; it was exactly HEAD and there were no later commits before Phase 9 changes.
 - Initial tracked worktree/index: clean. Unrelated untracked logos, missing-link reports/data, later-phase planning files, and prompts were preserved.
 - At report authoring: only the scoped Phase 9 implementation, tests, documentation, dependency metadata, and evidence were intended for the required local commit; the final commit ID and post-commit status belong in the execution handoff.
+
+## Acceptance repair — real CRUD, cancellation, and leap-year coverage
+
+This repair started from accepted Phase 9 commit `b8f77c85b4506bd67d7c9b6c6292baedc25a8996`, which was exactly HEAD. The tracked worktree and index were clean, there were no later commits, and unrelated untracked files were preserved. This was not a Phase 9 restart and Phase 10 was not started.
+
+### Focused production extraction
+
+`src/calendar/personal-exam-runtime.ts` is now the single production boundary used by `App.tsx` for personal-exam hydration, validation, create, update, delete, owner-envelope serialization, queued persistence, cleanup restoration, and stale account-generation rejection. Its adapter deliberately matches the asynchronous `getItemAsync` / `setItemAsync` / `deleteItemAsync` shape used by SecureStore. React still owns presentation state; the focused runtime replaces only the formerly nested, untestable personal-exam state/persistence logic. No API, DTO, Google Calendar, notification, authentication, provider, or migration contract changed.
+
+The production integration test uses a deterministic SecureStore-compatible adapter and executes the required sequence without manual array simulation: User A create, real owner-envelope persist, relaunch restore, edit/persist, second relaunch restore, delete/persist, third relaunch empty restore, User B isolation, User B's independent create/persist, return to User A, and a delayed User A restore plus stale mutation rejection after User B activates. The final assertions prove that neither User B's runtime state nor User B's stored envelope changes.
+
+### Cancellation and leap-year closure
+
+- New-exam cancel goes through a callback backed by the production runtime and proves no append, no SecureStore-adapter write, and no visible-list change.
+- Edit cancel proves the original record remains unchanged, no write occurs, and a fresh runtime relaunch restores the original envelope.
+- Android native date-picker and time-picker dismissal callbacks leave their respective draft values unselected and perform no runtime/storage mutation.
+- Leap-year coverage proves a 42-cell February 2024 grid with February 29 exactly once and correct January/March cells, a seven-day week spanning February 29, January→February→March and reverse navigation, a valid system-selected February 29, stable date-only February 29 with no timestamp/UTC day shift, an inclusive February 28–March 1 range on every civil day, and correct non-leap February behavior.
+
+### Acceptance-repair validation ledger
+
+| Exact command/check | Fresh result |
+|---|---|
+| `npm.cmd test -- tests/unit/mobile-native-personal-exam-integration.test.ts --configLoader runner` | PASS — 1 file / 1 production integration test |
+| `npm.cmd test -- tests/unit/mobile-native-calendar.test.ts --configLoader runner` | PASS — 1 file / 25 model tests |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/calendar/CalendarExperience.test.tsx tests/calendar/CalendarEventDetail.test.tsx tests/calendar/CalendarPreview.test.tsx tests/calendar/PersonalExamCancellation.test.tsx` | PASS — 4 suites / 24 tests / 0 snapshots |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — 21 suites / 182 tests / 0 snapshots |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 45 files / 445 tests against a dedicated localhost Mongo fixture |
+| `npm.cmd test -- --configLoader runner` | PASS — 71 files / 827 tests |
+| `npm.cmd test -- tests/unit/phase-1-8-documentation-consistency.test.ts --configLoader runner` | PASS — 1 file / 7 tests after documentation updates |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS |
+| `npm.cmd run typecheck` | PASS |
+| `npm.cmd run build:admin` | PASS — 1,742 modules; 250.51 kB main JS / 73.89 kB gzip |
+| `npm.cmd run build:mobile` | PASS — 1,755 modules; 349.76 kB main JS / 104.37 kB gzip |
+| `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` | PASS — 1m29s; 268 tasks (7 executed / 261 up-to-date); 56,804,991-byte APK; SHA-256 `57DC2F1BDCD7D7C3B02429EF260DF29A3EEEBCC374C55B90D34334793FEFAAFD` |
+| Android API 24 / x86_64 Calendar and personal-exam repair smoke | PASS — fresh APK install; Agenda/Week/Month selection; Android date/time dialog cancel; editor cancel; same PID `3605`; zero filtered fatal/runtime matches; device restored to 720×1280, density 320, font scale 1.0, no ADB reverse, Metro listener, or app process |
+
+The first API attempt correctly failed because the installed local Mongo service was stopped; no tests were counted from that attempt. A dedicated `127.0.0.1:27017` fixture under `C:\tmp` was then used for both successful complete runs and removed afterward. Initial sandboxed Vite attempts could not read their configuration paths; identical approved local builds passed. The Android assembly emitted only the already documented Expo `NODE_ENV`, Android SDK location/XML-version, and Gradle deprecation notices.
+
+Final whitespace, sensitive-log, credential-literal, forbidden modifier, snapshot, empty/vacuous, Firestore, fake-social, and Phase 10 scope scans passed and remain separate from the unavailable lint gate. `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact.
+
+### Remaining evidence limits
+
+Windows still cannot provide an iOS build/simulator, Dynamic Type, VoiceOver, or Liquid Glass runtime acceptance. The API 24 AVD cannot prove predictive Back, and TalkBack remains unavailable. The repair's deterministic adapter exercises the exact production runtime and envelope contract, but a synthetic preview/native smoke does not prove a live authenticated SecureStore account-switch session or a live Google provider flow. No production account, calendar, provider, backend, or data was accessed. Phase 3 Google lifecycle behavior and the rule that personal Google Calendar events are never mutated remain unchanged and regression-covered.
