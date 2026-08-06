@@ -19,9 +19,21 @@ afterEach(() => {
 });
 
 describe("production runtime secret validation", () => {
-  it.each([undefined, "", "                               ", "x".repeat(31), "change-me-access-secret-with-32-plus-chars"])(
-    "fails startup validation for invalid production secret %s",
-    (invalidSecret) => {
+  it.each([
+    { label: "missing", invalidSecrets: [undefined] },
+    { label: "blank", invalidSecrets: [""] },
+    { label: "whitespace-only", invalidSecrets: ["                               "] },
+    { label: "short", invalidSecrets: ["x".repeat(31)] },
+    {
+      label: "known placeholders",
+      invalidSecrets: [
+        "change-me-access-secret-with-32-plus-chars",
+        "example-access-secret-with-32-plus-chars",
+        "placeholder-calendar-secret-with-32-plus-chars"
+      ]
+    }
+  ])("fails startup validation for $label production secrets", ({ invalidSecrets }) => {
+    for (const invalidSecret of invalidSecrets) {
       const result = validateEnvironment({
         ...productionEnvironment,
         JWT_ACCESS_SECRET: invalidSecret,
@@ -32,7 +44,7 @@ describe("production runtime secret validation", () => {
       expect(result.errors).toContain("JWT_ACCESS_SECRET must be set to a 32+ character secret in production.");
       expect(result.errors).toContain("CALENDAR_FEED_SECRET must be set to a 32+ character secret in production.");
     }
-  );
+  });
 
   it("accepts independently configured production-grade runtime secrets", () => {
     expect(validateEnvironment(productionEnvironment)).toEqual(expect.objectContaining({
