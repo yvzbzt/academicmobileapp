@@ -23,6 +23,7 @@ storage/
 *.jks
 *.keystore
 release-signing.properties
+apps/mobile-native/google-services.json
 
 # Local validation reports, screenshots, and logs
 ANDROID_*_BUILD_REPORT.md

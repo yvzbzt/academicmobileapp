@@ -1,11 +1,13 @@
 # Phase 03 — Integrations
 
-Status date: 2026-08-04
-Status: Reconciled current. The original Phase 3 provider/device contract remains accepted, and the missing autonomous notification-production/dispatch lifecycle is closed by the Phase 2 repair descendant.
+Status date: 2026-08-06
+Status: Reconciled current. The original Phase 3 provider/device contract remains accepted, and the autonomous notification lifecycle plus its final ambiguous-delivery fence are closed by accepted descendants.
 
 ## Reconciled current state — 2026-08-04
 
 The original Phase 3 milestone remains `b74bdcc8da7657c2886cf35f6a9b4f2dedbe29d8`. Starting from the accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`, commit `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` completed the automatic notification path without adding Redis, BullMQ, or another queue service.
+
+**Phase 12 provenance correction — 2026-08-06.** Commit `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` owns automatic job production, retirement, and the Mongo worker lifecycle. The final Phase 3 fence repair is `c5c4744be43cc4b52be566a5cbd81ebea7440d0a` (`fix(notifications): fence ambiguous device deliveries`), which adds the durable per-device attempt identity and prevents automatic resend after an ambiguous provider outcome, including across restart.
 
 - New or materially changed trusted announcements and published calendar records reconcile their eligible notification jobs automatically. Rejected, quarantined, untrusted, unsafe, source-less, removed, or superseded content creates no active delivery job; producer relationships retire/cancel stale work deterministically.
 - The Mongo-backed worker starts from the application lifecycle, scans and retires stale jobs, claims due jobs with UUID fencing, revision checks, and renewable leases, and applies bounded retry/exhaustion state. Provider failures cannot let a stale claimant finalize a newer revision.
@@ -22,6 +24,7 @@ The original Phase 3 milestone remains `b74bdcc8da7657c2886cf35f6a9b4f2dedbe29d8
 | Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Starting point for the bounded remediation |
 | Phase 1 repair ancestor | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Preserved authentication/owner boundary |
 | Phase 2 repair | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Automatic job production/retirement, due-job dispatch, fencing, retry, destination revalidation, health, and shutdown |
+| Final Phase 3 delivery-fence repair | `c5c4744be43cc4b52be566a5cbd81ebea7440d0a` | Durable per-device attempt identity, terminal ambiguous outcome, and restart-safe no-resend enforcement |
 | Phase 3 mobile repair descendant | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Preserves the repaired integration runtime through the mobile reconciliation |
 
 ## Historical Phase 3 milestone record

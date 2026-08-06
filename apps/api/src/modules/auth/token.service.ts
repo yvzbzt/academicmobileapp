@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import jwt from "jsonwebtoken";
 import type { AuthUserRecord, RecentAuthenticationPurpose } from "./auth.types.js";
 import { PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_TTL_SECONDS } from "./auth.constants.js";
+import { isProductionSecret } from "../../config/production-secret.js";
 
 export interface AccessTokenPayload {
   sub: string;
@@ -206,12 +207,16 @@ export class TokenService {
   }
 
   private accessTokenSecret(): string {
-    return process.env.JWT_ACCESS_SECRET ?? "development-access-secret-change-me-32-chars";
+    const configuredSecret = process.env.JWT_ACCESS_SECRET;
+    if (process.env.NODE_ENV === "production" && !isProductionSecret(configuredSecret)) {
+      throw new Error("JWT_ACCESS_SECRET_NOT_CONFIGURED");
+    }
+    return configuredSecret || "development-access-secret-change-me-32-chars";
   }
 
   private passwordRecoverySecret(): string {
     const configuredSecret = process.env.PASSWORD_RECOVERY_TOKEN_PEPPER ?? process.env.JWT_ACCESS_SECRET;
-    if (process.env.NODE_ENV === "production" && (!configuredSecret || configuredSecret.length < 32)) {
+    if (process.env.NODE_ENV === "production" && !isProductionSecret(configuredSecret)) {
       throw new Error("PASSWORD_RECOVERY_TOKEN_PEPPER_NOT_CONFIGURED");
     }
     return configuredSecret ?? "development-password-recovery-pepper-change-me";

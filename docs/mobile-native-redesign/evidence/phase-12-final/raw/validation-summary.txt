@@ -1,0 +1,38 @@
+PHASE 12 VALIDATION SUMMARY
+Date: 2026-08-06 Europe/Istanbul
+
+Phase 1 focused: PASS (API security 5/47; clients 2/8; recent auth 1/3; trusted delivery 7/38)
+Phase 2 focused: PASS 8/148
+Phase 3 focused: PASS root 10/162 and native 4/78
+Phase 4 focused: PASS 2/45
+Phase 5 focused: PASS root 3/50 and native 2/25
+Phase 6 focused: PASS root 4/112, native Auth 1/24, preview 1/3
+Phase 7 focused: PASS root 1/11, native Home 1/13, preview 1/8
+Phase 8 focused: PASS root 3/95 and native 4/74
+Phase 9 focused: PASS root Calendar 1/25, persistence integration 1/1, native 4/27
+Phase 10 focused: PASS root 5/80 and native 5/74
+Phase 11 focused: PASS root 5/77 and native 15/155
+SecureStore/session regression: PASS 6/84
+New Phase 12 regressions: PASS 2 files / 12 tests
+
+Complete API: PASS 46 files / 456 tests
+Complete native Jest: PASS 25 suites / 227 tests / 0 snapshots
+Complete Vitest: PASS 75 files / 866 tests
+Workspace TypeScript: PASS
+Mobile-native TypeScript: PASS
+Documentation consistency: PASS 1 file / 7 tests
+Admin production build: PASS 1742 modules, JS 250.51 kB / 73.89 kB gzip, 2.15s
+Mobile-web production build: PASS 1755 modules, JS 349.76 kB / 104.37 kB gzip, 4.07s
+Android x86_64 debug assembly: PASS
+Android signed all-ABI AAB: PASS
+Android release-feed performance: PASS
+Mobile-native lint: NOT AVAILABLE (no applicable script/config/dependency)
+
+Release-feed activity timing: 886/886/927ms ThisTime/TotalTime/WaitTime
+Release-feed frames: 5 trials x 120 = 600
+Aggregate p90: 19.941713ms
+Aggregate p95: 20.257643ms
+Frozen frames: 0
+
+The first trusted-delivery attempt lacked its local Mongo fixture and skipped five fixture-backed cases after ECONNREFUSED. The identical gate passed after starting the dedicated localhost fixture. The original all-ABI build hit the Windows path-length boundary; the unchanged tree passed through a temporary short-path mapping. Neither was a product/source failure.
+The first complete-root rerun after distinct-key hardening found one stale documentation-consistency string; all product/API tests in that attempt passed. The assertion and runbook wording were aligned, the focused documentation gate passed 1 file / 7 tests, and the final complete regression passed 75 / 866.

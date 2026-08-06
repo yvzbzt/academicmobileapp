@@ -74,7 +74,7 @@ gcloud run deploy academic-calendar-api `
   --region europe-west1 `
   --allow-unauthenticated `
   --env-vars-file "C:\secure\academic-calendar-api.nonsensitive.yaml" `
-  --set-secrets "MONGODB_URI=mongodb-uri:latest,JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest,PASSWORD_RECOVERY_TOKEN_PEPPER=password-recovery-pepper:latest"
+  --set-secrets "MONGODB_URI=mongodb-uri:latest,JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest,CALENDAR_FEED_SECRET=calendar-feed-secret:latest,PASSWORD_RECOVERY_TOKEN_PEPPER=password-recovery-pepper:latest"
 ```
 
 Do not pass a credential-bearing Mongo URI, real JWT secrets, the recovery pepper, SMTP credentials, or bootstrap credentials through `--set-env-vars`/`--update-env-vars`; command lines and shell history are not secret stores. Using the YAML file also avoids misparsing the comma-separated two-origin `CORS_ORIGIN` value.
@@ -126,7 +126,7 @@ gcloud run services update academic-calendar-api `
 
 For local development without SMTP, the API emits a non-sensitive warning without logging the email address or verification code. Whenever `NODE_ENV !== "production"`, the API includes the verification preview token. Production email operations fail closed when SMTP is unavailable; deploys must keep `AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN` absent or `false` and assert that preview fields are absent in the production smoke.
 
-Password recovery uses the same SMTP transport but has an independent digest-secret gate. Production startup/request handling requires `PASSWORD_RECOVERY_TOKEN_PEPPER`, or the `JWT_ACCESS_SECRET` fallback, to contain at least 32 characters; use a dedicated random pepper in real deployments. Store it in Secret Manager or the deployment platform's secret facility rather than in source, shell history, or a checked-in environment file.
+Password recovery uses the same SMTP transport but has an independent digest-secret gate. Production startup/request handling requires `PASSWORD_RECOVERY_TOKEN_PEPPER`, or the `JWT_ACCESS_SECRET` fallback, to contain at least 32 non-whitespace characters and not be a checked-in placeholder; use a dedicated random pepper in real deployments. Production also requires valid `JWT_ACCESS_SECRET` and `CALENDAR_FEED_SECRET` values that differ, and never falls back to or reuses public/development access-signing material for the Calendar feed. Store them in Secret Manager or the deployment platform's secret facility rather than in source, shell history, or a checked-in environment file.
 
 The public `POST /auth/password-recovery/request` production status/body fields are intentionally identical for known, unknown, and cooldown cases. Do not add Cloud Run/API Gateway rules, mail-delivery diagnostics, or client-visible logs that reintroduce a response-field account-existence signal. Each path performs comparable token/hash/lookup/repository work and observes a 350 ms production response floor; eligible SMTP delivery is scheduled outside the public response, bounded to 12 seconds, and uses bounded transport timeouts. This is the committed application-level timing contract, not a claim of internet-wide statistical indistinguishability. Both password-recovery routes use the strict 10-requests-per-60-seconds rate class; configure `TRUSTED_PROXY_CIDRS` for the exact proxy topology before relying on forwarded client addresses.
 

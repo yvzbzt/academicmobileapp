@@ -36,20 +36,32 @@ The smoke test verifies MongoDB ping/write/read, Redis ping and BullMQ enqueue a
 Production-style local packaging:
 
 ```powershell
-$env:JWT_ACCESS_SECRET="change-this-access-secret-32-plus-chars"
-$env:JWT_REFRESH_SECRET="change-this-refresh-secret-32-plus-chars"
-npm run compose:prod:config
-npm run compose:prod:build
+function New-DeploymentSecret {
+  $secretBytes = New-Object byte[] 48
+  $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $generator.GetBytes($secretBytes)
+    [Convert]::ToBase64String($secretBytes)
+  } finally {
+    $generator.Dispose()
+  }
+}
+$env:JWT_ACCESS_SECRET = New-DeploymentSecret
+$env:JWT_REFRESH_SECRET = New-DeploymentSecret
+$env:CALENDAR_FEED_SECRET = New-DeploymentSecret
+Remove-Item Function:\New-DeploymentSecret
+npm.cmd run compose:prod:config
+npm.cmd run compose:prod:build
 docker compose -f docker-compose.prod.yml up
 ```
 
 Windows fallback for Docker Compose Buildx/Bake path issues:
 
 ```powershell
-npm run compose:prod:build:classic
+npm.cmd run compose:prod:build:classic
 ```
 
-The production compose file builds three application containers: API, admin static web and student mobile web. MongoDB is the required database; Redis remains an optional adapter only when an operator deliberately selects a Redis/BullMQ mode. The included containers are for staging-like validation and self-hosted MVP deployments.
+The production compose file builds three application containers: API, admin static web and student mobile web. MongoDB is the required database; Redis remains an optional adapter only when an operator deliberately selects a Redis/BullMQ mode. Production startup rejects missing, short, whitespace-only, checked-in placeholder, or reused access-token/calendar-feed signing values. The included containers are for staging-like validation and self-hosted MVP deployments.
 
 ## 2. Production Recommendation
 

@@ -70,15 +70,27 @@ Default local URLs:
 
 Set strong secrets before running:
 
-```bash
-$env:JWT_ACCESS_SECRET="change-this-access-secret-32-plus-chars"
-$env:JWT_REFRESH_SECRET="change-this-refresh-secret-32-plus-chars"
-npm run compose:prod:config
-npm run compose:prod:build
+```powershell
+function New-DeploymentSecret {
+  $secretBytes = New-Object byte[] 48
+  $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $generator.GetBytes($secretBytes)
+    [Convert]::ToBase64String($secretBytes)
+  } finally {
+    $generator.Dispose()
+  }
+}
+$env:JWT_ACCESS_SECRET = New-DeploymentSecret
+$env:JWT_REFRESH_SECRET = New-DeploymentSecret
+$env:CALENDAR_FEED_SECRET = New-DeploymentSecret
+Remove-Item Function:\New-DeploymentSecret
+npm.cmd run compose:prod:config
+npm.cmd run compose:prod:build
 docker compose -f docker-compose.prod.yml up
 ```
 
-On Windows, if Docker Compose reports a Buildx/Bake gRPC header error from a non-ASCII workspace path, use `npm run compose:prod:build:classic` for the build step.
+On Windows, if Docker Compose reports a Buildx/Bake gRPC header error from a non-ASCII workspace path, use `npm.cmd run compose:prod:build:classic` for the build step.
 
 Exposed services:
 

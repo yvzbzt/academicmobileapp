@@ -1,11 +1,13 @@
 # Phase 02 — Content Correctness and Trust
 
-Status date: 2026-08-04
-Status: Reconciled current through the trusted-date, outbound-network, parser-invariant, and content-identity repair. The original Phase 2 completion report remains below as historical provenance.
+Status date: 2026-08-06
+Status: Reconciled current through the trusted-date, outbound-network, parser-invariant, and content-identity repairs and the accepted Phase 3–11 descendants. The original Phase 2 completion report remains below as historical provenance.
 
 ## Reconciled current state — 2026-08-04
 
 The Phase 2 contract was revalidated from the accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` and repaired in `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` (`fix(api): complete trusted dates and notification delivery`).
+
+**Phase 12 provenance correction — 2026-08-06.** Commit `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` owns the trusted-date/range, parser, identity, and initial shared outbound boundary. The final outbound-network blocker repair is its descendant `1dd36d1811949ba3ff166e982a8b72bda014c5ef` (`fix(api): close recent-auth and outbound-network gaps`), which closes the remaining named server call sites and caller-specific fixed-authority policies while retaining mandatory TLS verification.
 
 - Academic dates now have an explicit date-only/timestamp temporal kind and preserve an optional inclusive range end through parser/PDF ingestion, Mongo persistence, shared API DTOs, Home/feed/detail rendering, Google Calendar transfer, and native-calendar mapping. A date-only value does not invent a clock time; timestamped records retain their real instant. The API-to-native regression exercises `Europe/Istanbul` so local academic dates do not shift across UTC day boundaries.
 - Every server HTTP/PDF/OCR/source-discovery/provider transport uses the shared safe outbound request boundary. Every initial and redirect hop revalidates scheme, credentials, hostname, port, DNS answers, and the actual connected remote address; loopback, private, link-local, multicast, documentation, unspecified, mismatched, and rebound destinations fail closed. Method, headers, body, timeout, redirect count, and response size are bounded by the caller's policy. Google public APIs use fixed trusted authorities, while the non-configurable metadata endpoint has a separate exact-destination, required-header, no-redirect policy. TLS certificate validation is mandatory in every environment and no invalid-certificate flag or retry exists.
@@ -21,6 +23,7 @@ The Phase 2 contract was revalidated from the accepted Phase 8 baseline `7b64c9c
 | Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Starting point for the bounded remediation |
 | Phase 1 repair ancestor | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Preserved security boundary |
 | Phase 2 repair | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Date/range correctness, safe outbound networking, parser invariants, fingerprint identity, and notification lifecycle repair |
+| Final Phase 2 outbound repair | `1dd36d1811949ba3ff166e982a8b72bda014c5ef` | Completes named-call-site coverage, caller-specific outbound policies, fixed-authority handling, and fail-closed TLS behavior |
 | Phase 3 repair descendant | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Preserves the repaired Phase 2 contract through the mobile reconciliation |
 
 ## Historical Phase 2 milestone record

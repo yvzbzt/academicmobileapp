@@ -1,14 +1,17 @@
 # Mobile Native Design System Contract
 
-Status: Phases 1-11 implemented and reconciled; Phase 12 is not started.
+Status: Phases 1-11 remain current; Phase 12 is a release reconciliation with
+no new or redesigned production screen.
 Last updated: 6 August 2026
 
 ## Current reconciliation
 
-Phase 11 starts from the accepted Phase 10 baseline
-`8dbe5e1efdb0c5fab665345188228ff66a0f84f6`. Sections that describe the scope
-of an earlier phase remain historical scope statements; this reconciliation
-and the later phase-specific contracts describe current behavior.
+Phase 12 preserves the accepted Phase 1-11 design contracts and the exact
+four-tab authenticated information architecture: Home, Announcements,
+Calendar, and Profile. It adds no destination, screen, or visual redesign.
+Sections that describe the scope of an earlier phase remain historical scope
+statements; this reconciliation and the later phase-specific contracts
+describe current behavior.
 
 Current native acceptance is bounded to the committed component/contract tests
 and the synthetic Android API 24 x86_64 AVD evidence indexed by each phase.
@@ -409,4 +412,18 @@ prove Android 13 notification permission or modern predictive Back; a temporary
 tablet-style viewport is not physical tablet/foldable acceptance; and no live
 Google Calendar, Firebase/APNs, production account, provider, or data result is
 inferred. Mobile-native lint and installed authenticated E2E/screenshot
-automation remain unavailable. Phase 12 is not started.
+automation remain unavailable.
+
+### Phase 12 current status
+
+Because Phase 12 does not change production UI source, the
+[Phase 11 Android native-evidence index](./evidence/phase-11-native/README.md)
+remains the current-source visual record. Phase 12 re-hashes and reconciles
+that evidence; it does not claim a new screen set. The indexed API 24 run
+establishes only its recorded native Android Material surfaces, ordinary Back,
+native pickers, runtime light/dark behavior, and compact, large-text, and
+temporary tablet-style layouts. API 33+ notification permission and predictive
+Back remain unverified, with predictive Back still disabled by compatibility
+policy. UIAutomator is not TalkBack coverage, Windows renderer tests are not
+native iOS or VoiceOver coverage, and installed authenticated E2E remains
+absent.

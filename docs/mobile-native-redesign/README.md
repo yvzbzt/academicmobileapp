@@ -1,6 +1,6 @@
 # Mobile Native Redesign Program
 
-Status date: 4 August 2026
+Status date: 6 August 2026
 
 Product target: `apps/mobile-native`
 
@@ -8,7 +8,7 @@ Package manager: npm
 
 Historical Phase 1 closure-start baseline: branch `agent/google-play-readiness-20260724`, HEAD `cbd0067b03c3cf7286270df25164a556c55b55b9`.
 
-Accepted Phase 8 baseline: `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`. The bounded Phase 1–8 remediation commits are Package 1 `641d7bee8a1cd539179769069a22b5c3220e8a6d`, Package 2 `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, Package 3 `2e3664546f628a19c6fa929b9ee9469e5322f9a8`, and documentation Package 4 `fd54f63669f0ef18230dfe0e9df64281310ac5a7`.
+Accepted Phase 11 baseline and Phase 12 starting HEAD: `f50a45bddcd7d476c4f1797bede77da65fc4c6fc`. The complete milestone and repair ancestry is recorded in the [Phase 12 final reconciliation](./phases/phase-12-final-reconciliation.md). Earlier bounded reconciliation commits remain part of that ancestry and are historical evidence rather than the current release boundary.
 
 The earlier Phase 1–6 reconciliation at `f346d8556e19b95277b27f7ecfda3f162a8ad57f` remains historical evidence in [`phase-01-06-reconciliation.md`](./phases/phase-01-06-reconciliation.md); it is not the current implementation boundary.
 
@@ -46,18 +46,18 @@ Authentication, registration, verification, and onboarding live outside the auth
 | Phase | Scope | Status | Report |
 |---:|---|---|---|
 | 00 | Baseline, checkpoint, design contract, test inventory | Complete — 2026-07-29 | [phase-00-baseline.md](./phases/phase-00-baseline.md) |
-| 01 | Authentication and session integrity | Complete — original checkpoint chain ended at `18a93d4`; verified security closure is `641d7bee` | [phase-01-auth-session-integrity.md](./phases/phase-01-auth-session-integrity.md) |
-| 02 | Content correctness and trust | Complete at `d722f90`; date/range, outbound-fetch, layout, and identity hardening completed at `5a6ac1a4` | [phase-02-content-trust.md](./phases/phase-02-content-trust.md) |
-| 03 | Google Calendar and notification integrations | Complete at `b74bdcc`; automatic notification production/dispatch and temporal correctness completed at `5a6ac1a4` | [phase-03-integrations.md](./phases/phase-03-integrations.md) |
+| 01 | Authentication and session integrity | Complete — implementation through `18a93d4`; repairs `641d7bee` and `1dd36d1` | [phase-01-auth-session-integrity.md](./phases/phase-01-auth-session-integrity.md) |
+| 02 | Content correctness and trust | Complete at `d722f90`; repairs `5a6ac1a4` and `1dd36d1` | [phase-02-content-trust.md](./phases/phase-02-content-trust.md) |
+| 03 | Google Calendar and notification integrations | Complete at `b74bdcc`; repairs `5a6ac1a4` and `c5c4744` | [phase-03-integrations.md](./phases/phase-03-integrations.md) |
 | 04 | Design tokens, components, theming, test foundation | Complete at `abbf1b7`; platform evidence limitations remain explicit | [phase-04-foundation.md](./phases/phase-04-foundation.md) |
 | 05 | Four-destination native app shell | Complete at `abdf0cc`; integrated reselect/retention/inset coverage completed at `2e366454` | [phase-05-app-shell.md](./phases/phase-05-app-shell.md) |
 | 06 | Authentication and onboarding UI | Complete at `00e03ac`; first-step marker and real first-invalid Login focus completed at `2e366454` | [phase-06-auth-onboarding-ui.md](./phases/phase-06-auth-onboarding-ui.md) |
 | 07 | Home | Complete at `f346d85`, accepted reconciliation `d96dff5`; temporal and state/priority repairs completed at `5a6ac1a4` and `2e366454` | [phase-07-home.md](./phases/phase-07-home.md) |
 | 08 | Unified content feed | Implemented at `7b64c9c`; temporal corrections and accepted release-performance evidence completed at `5a6ac1a4` and `2e366454` | [phase-08-content-feed.md](./phases/phase-08-content-feed.md) |
-| 09 | Calendar and planning | Not started | Planning file intentionally remains untracked |
-| 10 | Profile and settings | Not started | Planning file intentionally remains untracked |
-| 11 | Cross-platform quality and native visual QA | Not started | Planning file intentionally remains untracked |
-| 12 | Final reconciliation and release evidence | Not started | Planning file intentionally remains untracked |
+| 09 | Calendar and personal exams | Complete at `b8f77c8`; acceptance repair `2e8a77f` | [phase-09-calendar.md](./phases/phase-09-calendar.md) |
+| 10 | Profile and settings | Complete at `8dbe5e1` | [phase-10-profile-settings.md](./phases/phase-10-profile-settings.md) |
+| 11 | Cross-platform quality and native visual QA | Complete at `f50a45b` | [phase-11-cross-platform-quality.md](./phases/phase-11-cross-platform-quality.md) |
+| 12 | Final reconciliation and release-readiness gate | Complete — local closure commit recorded by Git history | [phase-12-final-reconciliation.md](./phases/phase-12-final-reconciliation.md) |
 
 ## Permanent documents
 
@@ -73,21 +73,25 @@ Authentication, registration, verification, and onboarding live outside the auth
 - [Historical pre-redesign native UI/UX audit at `cbd0067`](../19-mobile-native-current-state-ui-ux-audit.md)
 - [Historical pre-redesign in-app activity report at `cbd0067`](../20-mobile-native-in-app-user-activity-report.md)
 
-Those reports preserve the original six-tab, pre-Phase-1 baseline and do not describe the current application. Current architecture and behavior are defined by this README, the Phase 1–8 reports, and the current test matrix. Native visual acceptance still requires emulator/device or simulator/device screenshots.
+Those reports preserve the original six-tab, pre-Phase-1 baseline and do not describe the current application. Current architecture and behavior are defined by this README, the Phase 1–12 reports, and the current test matrix. Phase 11 Android evidence is the current representative visual matrix; Phase 12 reconciles and re-hashes it because no production UI source changed during the final security/configuration repair.
 
-## Current Phase 1–8 remediation boundary
+## Current Phase 1–12 reconciliation boundary
 
-Packages 1–3 close the verified implementation gaps without recreating completed phases. Package 1 enforces credential generations across access, refresh, and recovery material; commits password reset through a standalone-Mongo compare-and-set boundary; makes recovery request work practically comparable; defines bounded proxy trust; and removes the legacy Firebase web-key fallback. The final blocker remediation makes every recent-authentication proof single-use and purpose-specific: it carries a random identifier, persists only its digest, and is atomically consumed for the matching owner and credential generation before one destructive action. A failed action does not restore the proof, so every retry obtains a fresh purpose-specific proof. MongoDB remains the only runtime database. Firestore database persistence is historical evidence only and was not restored.
+Historical Packages 1–3 closed the verified Phase 1–8 implementation gaps without recreating completed phases. Package 1 enforces credential generations across access, refresh, and recovery material; commits password reset through a standalone-Mongo compare-and-set boundary; makes recovery request work practically comparable; defines bounded proxy trust; and removes the legacy Firebase web-key fallback. The final blocker remediation makes every recent-authentication proof single-use and purpose-specific: it carries a random identifier, persists only its digest, and is atomically consumed for the matching owner and credential generation before one destructive action. A failed action does not restore the proof, so every retry obtains a fresh purpose-specific proof. MongoDB remains the only runtime database. Firestore database persistence is historical evidence only and was not restored.
 
 Package 2 preserves date-only and inclusive date-range meaning through ingestion, Mongo, trusted DTOs, Home, feed/detail, and future Calendar compatibility. The final blocker remediation routes all remaining API transports through per-caller safe policies, requires valid TLS everywhere, and adds durable deterministic per-device notification attempts so an unconfirmed provider outcome remains fenced across retry and restart. The trusted delivery path still creates, dispatches, revalidates, retries only proven non-acceptance, and retires Mongo-backed notification jobs without external queue infrastructure. Package 3 adds bounded shell/auth/Home regression repairs and a repository-owned Android release feed measurement. The attempted `4/3/window 3/75 ms` plus clipping experiment worsened the SwiftShader run and was fully reverted; the original FlatList settings remain shipped.
 
-The accepted performance run used `NODE_ENV=production`, a non-debuggable x86_64 release build, the deterministic 100-record fixture, and the API 24 emulator at 720×1280/320 dpi with the host Intel renderer. Five trials produced 600 valid frames, aggregate p90 `24.928167 ms`, p95 `35.777763 ms`, and zero frames at or above 700 ms; APK SHA-256 is `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`. This is bounded local release evidence, not production-device, modern-Android, or iOS performance acceptance.
+That checkpoint's accepted performance run used `NODE_ENV=production`, a non-debuggable x86_64 release build, the deterministic 100-record fixture, and the API 24 emulator at 720×1280/320 dpi with the host Intel renderer. Five trials produced 600 valid frames, aggregate p90 `24.928167 ms`, p95 `35.777763 ms`, and zero frames at or above 700 ms; APK SHA-256 is `ce910347fbb1b663c1ec12b8b03b442533655e23a131093bd4abcbdeded17a26`. The Phase 12 report records the current run; neither run is production-device, modern-Android, or iOS performance acceptance.
 
-Audit classification is explicit:
+The historical Phase 1–8 audit classification was:
 
 - **Fixed now:** the Package 1 security gaps, Package 2 content/date/notification gaps, Package 3 shell/auth/Home/performance gaps, and current-state documentation drift.
-- **Intentionally deferred:** manual-exam edit/delete and native date picking remain Phase 9; predictive Back, complete iOS/TalkBack/tablet acceptance, native lint, installed native E2E, and broad `App.tsx` decomposition remain later work.
+- **Intentionally deferred at that checkpoint:** manual-exam edit/delete and native date picking were subsequently completed in Phase 9; predictive Back, complete iOS/TalkBack acceptance, native lint, installed native E2E, and broad `App.tsx` decomposition remain unavailable or separately scoped.
 - **Evidence-only:** unavailable iOS/VoiceOver, modern Android notification/predictive-Back, live provider, authenticated-content fixture, TalkBack, and physical tablet/rail results are not relabelled as implementation failures or acceptance.
 - **Unsupported by committed contracts:** raw article bodies, numeric parser scores, production reconciliation/migration, Firestore restoration, Redis/BullMQ/replica-set requirements, invented actions/badges/social mechanics, wholesale redesign, and a new native E2E framework were not implemented.
 
-Phase 9 was not started. The untracked Phase 9–12 planning documents are not implementation and are excluded from the Phase 1–8 commits.
+Phases 9–11 completed Calendar/personal exams, Profile/settings, and cross-platform quality without reopening the earlier contracts. Phase 12 found and repaired two release-blocking regressions at their narrowest boundaries: production access/calendar signing secrets now fail closed, use distinct values, and never cross-fallback, while tracked Expo configuration now applies SecureStore backup exclusions and deterministic notification metadata during native generation. Focused coverage was added for both repairs.
+
+The current Android implementation is `CONDITIONALLY_READY` pending direct modern-Android, TalkBack, and installed-authenticated manual evidence. Publication remains `NOT_READY`: source version code `12` is below locally documented historical codes `13`/`14`, the highest Play-uploaded code and Play signing acceptance are unknown, release-signing enforcement is not source-authoritative in a clean clone, and store/privacy materials remain incomplete. iOS implementation/publication and the combined live-provider gate are `NOT_READY` because required iOS identity/signing/APNs configuration and native evidence are absent. These external and release limitations do not undo the deterministically tested Phase 1–11 product implementation.
+
+MongoDB remains the only runtime database; Firestore persistence remains absent. The authenticated shell still has exactly four primary tabs. No fake social feature, production credential, production provider access, deployment, publication, migration, or store upload was introduced by Phase 12. Any post-Phase-12 work requires a separately approved plan.

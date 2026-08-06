@@ -14,7 +14,7 @@ const historicalReports = [
   "docs/20-mobile-native-in-app-user-activity-report.md",
 ];
 
-describe("Phase 1-8 documentation consistency", () => {
+describe("Phase 1-12 documentation consistency", () => {
   it.each(historicalReports)("marks %s as a superseded cbd0067 baseline", (relativePath) => {
     const source = readRepositoryFile(relativePath);
 
@@ -22,20 +22,17 @@ describe("Phase 1-8 documentation consistency", () => {
     expect(source).toContain("preserved");
     expect(source).toContain("`cbd0067`");
     expect(source).toContain("does **not** describe the current application");
-    expect(source).toContain("Phases 2–8 are implemented");
-    expect(source).toContain("**Ana Sayfa**, **Duyurular**, **Takvim**, and **Profil**");
-    expect(source).toContain("[current redesign README](./mobile-native-redesign/README.md)");
-
-    for (const phase of ["01-auth-session-integrity", "02-content-trust", "03-integrations", "04-foundation", "05-app-shell", "06-auth-onboarding-ui", "07-home", "08-content-feed"]) {
-      expect(source).toContain(`./mobile-native-redesign/phases/phase-${phase}.md`);
-    }
+    expect(source).toContain("Phases 1–11 are implemented");
+    expect(source).toContain("[Phase 12 final reconciliation](./mobile-native-redesign/phases/phase-12-final-reconciliation.md)");
+    expect(source).toContain("[redesign README](./mobile-native-redesign/README.md)");
+    expect(source).toContain("[test matrix](./mobile-native-redesign/TEST_MATRIX.md)");
   });
 
   it("labels reports 19 and 20 as historical rather than current architecture", () => {
     const readme = readRepositoryFile("docs/mobile-native-redesign/README.md");
     const historicalSection = readme.slice(
       readme.indexOf("## Historical baseline reports"),
-      readme.indexOf("## Current Phase 1–8 remediation boundary"),
+      readme.indexOf("## Current Phase 1–12 reconciliation boundary"),
     );
 
     expect(historicalSection).toContain("Historical pre-redesign native UI/UX audit at `cbd0067`");
@@ -45,7 +42,7 @@ describe("Phase 1-8 documentation consistency", () => {
     expect(historicalSection).not.toContain("Current in-app activity report");
   });
 
-  it("defines exactly the four current Turkish primary tabs and records Phases 2-8 implemented", () => {
+  it("defines exactly the four current Turkish primary tabs and records Phases 1-12 complete", () => {
     const readme = readRepositoryFile("docs/mobile-native-redesign/README.md");
     const architecture = readme.slice(
       readme.indexOf("## Target information architecture"),
@@ -63,7 +60,7 @@ describe("Phase 1-8 documentation consistency", () => {
     expect(architecture).toContain("4. **Profil**");
     expect(architecture).not.toMatch(/^5\. /m);
 
-    for (const phase of ["02", "03", "04", "05", "06", "07", "08"]) {
+    for (const phase of ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]) {
       expect(phaseStatus).toMatch(new RegExp(`\\| ${phase} \\|[^\\n]+\\| (?:Complete|Implemented)`));
     }
   });
@@ -100,6 +97,7 @@ describe("Phase 1-8 documentation consistency", () => {
     const screenInventory = readRepositoryFile("docs/mobile-native-redesign/SCREEN_INVENTORY.md");
     const phaseOneReconciliation = readRepositoryFile("docs/mobile-native-redesign/phases/phase-01-06-reconciliation.md");
     const devops = readRepositoryFile("docs/08-devops-deployment.md");
+    const finalReconciliation = readRepositoryFile("docs/mobile-native-redesign/phases/phase-12-final-reconciliation.md");
 
     expect(security).toContain("Credential generations are enforced across access, refresh, and recovery material");
     expect(security).toContain("one standalone-Mongo compare-and-set");
@@ -125,6 +123,12 @@ describe("Phase 1-8 documentation consistency", () => {
     expect(phaseOneReconciliation).toContain("final blocker remediation closes recent-authentication replay");
     expect(devops).toContain("replica health only when a replica topology is independently configured");
     expect(devops).toContain("Optional ping and queue latency when Redis-backed modes are configured");
+    expect(devops).toContain("Production startup rejects missing, short, whitespace-only, checked-in placeholder, or reused access-token/calendar-feed signing values");
+    expect(finalReconciliation).toContain("Android implementation");
+    expect(finalReconciliation).toContain("Android publication");
+    expect(finalReconciliation).toContain("iOS implementation");
+    expect(finalReconciliation).toContain("live-provider");
+    expect(finalReconciliation).toContain("Phase 13 was not started");
 
     expect(ingestion).toContain("there is no supported configuration that disables certificate verification");
     expect(ingestion).not.toContain(["ANNOUNCEMENT", "ALLOW", "INVALID", "TLS"].join("_"));

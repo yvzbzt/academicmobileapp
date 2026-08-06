@@ -1,0 +1,55 @@
+PHASE 12 FINAL SECURITY AND HYGIENE RECORD
+Date: 2026-08-06 Europe/Istanbul
+
+git diff --check: PASS
+Intended Phase 12 text files checked: 39
+Trailing-whitespace findings: 0
+NUL-bearing files: 0
+
+Sensitive-log scan:
+- Four lexical candidates, all fixed operational messages: one unavailable Google OCR access-token warning and three non-production SMTP-not-configured/not-sent warnings.
+- None interpolates or prints an email address, token, password, authorization header, credential, payload, or secret value.
+- Prohibited sensitive-value log finding: 0
+
+Credential/artifact scan:
+- Google API-key literal, private-key header, and assigned client_secret findings in current source/config/tests: 0
+- Tracked google-services, GoogleService-Info, keystore/JKS, release-signing properties, APK, or AAB files: 0
+- Existing local Android provider/signing/AAB paths: ignored; build inputs were consumed without values being read into evidence, exposed, or changed
+- Windows PowerShell 5-compatible random-secret helper: PASS; three distinct 64-character values generated and not printed
+
+Runtime-secret scan:
+- Expected non-production fallbacks: 3 (access token, recovery pepper, Calendar feed)
+- Production use: blocked independently by placeholder-aware startup/direct-boundary guards
+- Focused adversarial secret tests: PASS 11 tests
+- Production access/calendar secret equality and cross-fallback: rejected
+
+Outbound/TLS/persistence/trust scans:
+- Server direct-fetch inventory: PASS 1 file / 2 tests
+- Invalid-TLS bypass patterns in runtime source/scripts: 0
+- Runtime Firestore persistence patterns in apps/api/src: 0
+- Structural fake-social patterns in production native source: 0
+- Screen-local hard-coded colors in apps/mobile-native/src outside semantic tokens: 0
+
+Test/scope scans:
+- .skip/.only/.todo/xit/xdescribe findings: 0
+- snapshot findings: 0
+- empty/vacuous-test pattern findings: 0
+- Phase 13 matches: negative documentation/test assertions only
+- Phase 13 product/source files: 0
+- Phase 12 production UI source changes: 0
+
+Native-evidence integrity:
+- Phase 11 integrity rows recomputed: 97 / 97 valid
+- Phase 11 PNG count: 32
+- Phase 11 XML count: 32
+- Phase 11 index SHA-256: AD1F872742FCD8819A25B61CBC8EE22F90234EA03BAA44EB32C96D629F2AA419
+
+Cleanup:
+- Temporary localhost Mongo fixture stopped; port 27017 clear
+- Metro port 8081 clear
+- Android emulator process and ADB device list clear
+- Temporary subst mappings clear
+- Phase 12-created root provider-file duplicate removed; pre-existing ignored android/app provider copy preserved
+
+No reset, rebase, amend, clean, stash, discard, push, deploy, publish, migrate, upload, or production-account/live-provider/user-data access occurred.
+Existing ignored local signing/provider inputs were used only by the authorized Android build; their values were not recorded or changed.

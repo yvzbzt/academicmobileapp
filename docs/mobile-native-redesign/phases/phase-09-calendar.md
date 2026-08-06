@@ -2,6 +2,8 @@
 
 Status: Complete on the bounded Android/automated evidence described below. Phase 10 was not started.
 
+> **Current provenance note — 6 August 2026.** Phase 9 was delivered by `b8f77c85b4506bd67d7c9b6c6292baedc25a8996` and closed by acceptance repair `2e8a77fe04f2b89c75d6c636a0dd7abfee4c60f5`. Statements below that Phase 10 was not started record the applicable Phase 9 checkpoint; Phase 10 (`8dbe5e1efdb0c5fab665345188228ff66a0f84f6`) and Phase 11 (`f50a45bddcd7d476c4f1797bede77da65fc4c6fc`) are now completed linear descendants.
+
 ## Scope completed
 
 - Calendar now opens in **Ajanda** and offers explicit **Ajanda**, **Hafta**, and **Ay** views over one trusted presentation model.
@@ -99,7 +101,9 @@ The final debug APK is 56,804,991 bytes with SHA-256 `57DC2F1BDCD7D7C3B02429EF26
 - There is no installed Maestro/Detox/Appium flow and no mobile-native lint command.
 - `npm install` reports the repository's existing audit state of 17 vulnerabilities (15 moderate, 2 high); no unrelated dependency remediation was attempted in this visual phase.
 
-## Next-phase handoff
+## Historical next-phase handoff
+
+The following statement is retained as the Phase 9 handoff checkpoint:
 
 Phase 10 was not started. A later authorized phase may consume the existing Calendar route and shared primitives but must not reinterpret Phase 9's date-only, owner, Google-managed-event, or evidence boundaries. iOS/VoiceOver, TalkBack, modern predictive Back, and live-provider acceptance remain explicit later quality gates.
 
@@ -113,7 +117,7 @@ Phase 10 was not started. A later authorized phase may consume the existing Cale
 
 ## Acceptance repair — real CRUD, cancellation, and leap-year coverage
 
-This repair started from accepted Phase 9 commit `b8f77c85b4506bd67d7c9b6c6292baedc25a8996`, which was exactly HEAD. The tracked worktree and index were clean, there were no later commits, and unrelated untracked files were preserved. This was not a Phase 9 restart and Phase 10 was not started.
+This repair started from accepted Phase 9 commit `b8f77c85b4506bd67d7c9b6c6292baedc25a8996`, which was exactly HEAD. The tracked worktree and index were clean, there were no later commits, and unrelated untracked files were preserved. This was not a Phase 9 restart and, at that repair checkpoint, Phase 10 was not started.
 
 ### Focused production extraction
 

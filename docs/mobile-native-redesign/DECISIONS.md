@@ -457,4 +457,40 @@ Liquid Glass; the authorized API 24 AVD cannot establish Android 13 notification
 permission or predictive Back, and TalkBack traversal is unavailable. A
 temporary tablet-style viewport is not physical tablet/foldable acceptance. No
 live provider/account result, installed authenticated E2E, automated screenshot
-regression, or mobile-native lint result is claimed. Phase 12 is not started.
+regression, or mobile-native lint result is claimed. Phase 12 later reconciled
+these boundaries without altering this Phase 11 decision.
+
+### D-052 — Final readiness is platform-specific and production secrets fail closed
+
+**Security/configuration decision:** A production access-token signing secret and
+the dedicated Calendar-feed signing secret are independently required, must
+contain at least 32 non-whitespace characters, must differ, and must not be a checked-in
+development/example placeholder. Production startup and the direct signing
+boundaries both fail closed; neither production signer falls back to a public
+development value or to the other key. Non-production deterministic fallbacks
+remain available only for local tests and development. Android generation must
+apply Expo SecureStore backup exclusions and deterministic Firebase default
+notification metadata from tracked Expo/plugin configuration; ignored generated
+native state is evidence, not the configuration authority.
+
+**Readiness decision:** Phase completion, implementation readiness, publication
+readiness, and provider verification are separate claims. Android implementation
+is `CONDITIONALLY_READY` because deterministic tests, current debug/release
+builds, API 24 native evidence, and the release-feed measurement pass, while
+modern-Android, TalkBack, and installed-authenticated checks remain explicit
+manual evidence. Android publication is `NOT_READY` until a version code above
+the independently verified Play maximum is selected, source-authoritative
+release-signing enforcement is established, and Play signing, store,
+privacy, and listing gates are completed. iOS implementation and publication
+are `NOT_READY` because source-owned bundle/build identity, native project and
+signing/APNs configuration, and Xcode evidence are absent. Combined live-provider
+readiness and overall product release readiness are therefore `NOT_READY`.
+
+**Scope/evidence boundary:** Phase 12 adds no product screen, feature, provider
+infrastructure, database, endpoint, schema, or Phase 13. Phase 11's 32 PNG/XML
+pairs remain representative current-source UI evidence because Phase 12 changed
+only API security and native generation configuration; Phase 12 independently
+reconciles their integrity index and records current Android build/performance
+artifacts. API 24 is not evidence for Android 13 notification permission,
+predictive Back, or TalkBack. No iOS, live provider, Play Console, production
+account, calendar, notification token, credential, or user-data claim is made.

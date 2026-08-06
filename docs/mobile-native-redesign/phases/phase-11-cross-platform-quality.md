@@ -19,6 +19,11 @@ Current HEAD before the required Phase 11 commit:
 Required local commit subject:
 `feat(mobile-native): complete cross-platform quality hardening`
 
+Final scoped Phase 11 commit:
+`f50a45bddcd7d476c4f1797bede77da65fc4c6fc`
+
+The pre-commit HEAD wording above is preserved as report-authoring context; the final commit above is the accepted Phase 11 descendant.
+
 ## Repository entry gate
 
 - The accepted baseline is an ancestor of HEAD; HEAD was exactly the accepted
@@ -231,8 +236,9 @@ integrity index has 97 rows for those 64 artifacts plus 33 raw evidence files;
 the index SHA-256 is
 `AD1F872742FCD8819A25B61CBC8EE22F90234EA03BAA44EB32C96D629F2AA419`.
 Reviewed profiles cover 320, 360, 393, 430, and approximately 853 dp; 100%,
-130%, 150%, and 200% font scales; light and dark themes; keyboard-open Login,
-Calendar editor, and Profile fields; native Android date and time pickers;
+130%, 150%, and 200% font scales; light and dark themes; keyboard-open Login
+and Calendar editor, plus automated keyboard-safe Profile-field coverage; native
+Android date and time pickers;
 Agenda/Week/Month; feed/detail; Profile/settings and Google states; destructive
 confirmation/action reachability; and reduced motion with all three animation
 scales set to 0.
@@ -289,7 +295,7 @@ sensitive-log, credential, Firestore/outbound/TLS, fake-social, forbidden-test,
 raw-color, and Phase 12 scope scans pass. The one existing SMTP warning says
 only that a recovery message was not sent and logs no credential or payload.
 
-## Working-tree status and next-phase handoff
+## Historical working-tree status and next-phase handoff
 
 At final pre-commit audit, the worktree contains only the intended
 tracked/untracked Phase 11 patch plus the separately recorded unrelated
@@ -297,7 +303,7 @@ untracked files. The final repository check must confirm one scoped local
 commit and a clean tracked worktree/index while preserving every unrelated
 untracked path.
 
-Phase 12 implementation scan: no Phase 12 implementation;
+Historical Phase 11 scope scan: no Phase 12 implementation;
 `PHASE_12_NOT_STARTED`. Its final reconciliation must begin only from an
 accepted Phase 11 commit and must inherit the explicit iOS, TalkBack,
 modern-Android, provider, lint, E2E, physical-device, dormant-`App.tsx`, and

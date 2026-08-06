@@ -2,6 +2,8 @@
 
 Status: Implementation, automated validation, bounded Android native evidence, and documentation reconciliation passed. The scoped commit identity and post-documentation repository-state checks are reported in the final acceptance handoff.
 
+> **Current provenance note — 6 August 2026.** The final scoped Phase 10 commit is `8dbe5e1efdb0c5fab665345188228ff66a0f84f6`. Statements below that Phase 11 was not started describe the Phase 10 checkpoint; Phase 11 is now complete at descendant `f50a45bddcd7d476c4f1797bede77da65fc4c6fc`.
+
 Date: 5 August 2026
 
 Accepted starting baseline: `2e8a77fe04f2b89c75d6c636a0dd7abfee4c60f5`
@@ -29,7 +31,7 @@ The Google route is compact but preserves Phase 3 connect, verification, sync, s
 
 Account management keeps logout, delete app data, and delete account distinct. The danger area is collapsed by default. Destructive confirmations explain consequences, allow cancel, return focus, lock duplicate submissions, expose fixed non-raw error states, and use the existing purpose-bound, single-use recent-authentication proof. Profile/Account operation feedback is semantic and rendered only on its owning active route, preventing duplicate banners.
 
-Phase 10 does not redesign Home, Announcements, Calendar, authentication, or onboarding. It does not alter an API, database schema, repository, persistence envelope, provider configuration, authentication/session rule, recent-authentication security contract, notification backend contract, or Google Calendar lifecycle. Phase 11 was not started.
+Phase 10 does not redesign Home, Announcements, Calendar, authentication, or onboarding. It does not alter an API, database schema, repository, persistence envelope, provider configuration, authentication/session rule, recent-authentication security contract, notification backend contract, or Google Calendar lifecycle. At the Phase 10 implementation checkpoint, Phase 11 was not started.
 
 ## Files changed
 
@@ -134,11 +136,13 @@ Focused renderer/navigation/selector/auth assertions passed in 5 suites / 71 tes
 
 Automated regression passed: focused lifecycle/security coverage 5 files / 80 tests, complete API 45 / 445, full root 72 / 841, complete native Jest 23 / 206 / 0 snapshots, both TypeScript checks, both web builds, and Android x86_64 assembly. This covers the executable Phase 1 recent-authentication, Phase 3 notification/Google lifecycle, Phase 5 navigation, Phase 6 shared academic fields, and Phase 9 Calendar/personal-exam regressions represented by those suites. The bounded installed Android review passed as described above; no live provider, authenticated storage, production behavior, iOS behavior, or assistive-technology traversal is inferred.
 
-## Next-phase handoff
+## Historical next-phase handoff
+
+The following statement is retained as the Phase 10 handoff checkpoint:
 
 Stop after Phase 10. Phase 11 was not started. Its whole-app cross-platform acceptance boundary remains outside this implementation and evidence set.
 
-## Git state
+## Historical Git state at report authoring
 
 - Branch: `agent/google-play-readiness-20260724`
 - Starting HEAD: `2e8a77fe04f2b89c75d6c636a0dd7abfee4c60f5`
@@ -146,6 +150,6 @@ Stop after Phase 10. Phase 11 was not started. Its whole-app cross-platform acce
 - Required commit subject: `feat(mobile-native): redesign profile and settings experience`
 - Unrelated untracked files remain preserved and outside the Phase 10 scoped commit.
 
-## Exit gate
+## Historical exit gate
 
 The final acceptance handoff must record the post-documentation hygiene/scope result, starting and final HEAD, and the single scoped local commit; confirm no push, deploy, publish, migration, production access, or live-provider access; and stop before Phase 11.

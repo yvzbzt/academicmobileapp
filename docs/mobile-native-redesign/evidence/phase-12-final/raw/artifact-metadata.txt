@@ -1,0 +1,78 @@
+PHASE 12 ANDROID ARTIFACT RECORD
+Date: 2026-08-06 Europe/Istanbul
+Source: accepted Phase 11 HEAD f50a45bddcd7d476c4f1797bede77da65fc4c6fc plus the scoped Phase 12 security/native-configuration repair
+Application name: Akademik Takvim
+Package: com.anssoft.akademiktakvim
+Version: 0.1.1
+Android versionCode: 12
+SDK min/target/compile: 24/36/36
+Deep-link scheme: academicpulse
+
+DEBUG APK
+Command: ./gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon
+Working directory: apps/mobile-native/android
+Result: PASS, 1m26s, 268 tasks (18 executed / 250 up-to-date)
+Type/ABI: debug-signed, Metro-required, x86_64
+Size: 56805462 bytes
+SHA-256: 8D2133DF10EA6CDC6580E0739BACFA3B7BBCCD46096636420C6A8C8AE0C041B3
+Signature verification: PASS with Android apksigner
+Publication suitability: no
+
+RELEASE AAB
+Command: ./gradlew.bat :app:bundleRelease --no-daemon
+Working directory: temporary short-path mapping of apps/mobile-native/android
+Result: PASS, final incremental short-path run 52s, 450 tasks
+Type/ABIs: signed release bundle; arm64-v8a, armeabi-v7a, x86, x86_64
+Size: 49219740 bytes
+SHA-256: 6C9609CE37876B5958FFA70C819D70463C9F75818D20665201DBE7A89E0310F0
+JAR signature verification: PASS
+Upload-certificate SHA-256: E5:C3:15:28:B9:A6:CB:00:FB:E1:0B:88:41:4B:26:57:53:85:81:A2:E5:1A:FC:EC:26:14:95:3C:16:97:E9:59
+Play signing/upload-key acceptance: UNVERIFIED
+Play highest version code: UNKNOWN; source code 12 is below locally documented historical codes 13/14
+Release-signing enforcement source authority: NOT ESTABLISHED; fail-closed wiring remains in ignored generated Gradle state
+Clean-clone release reproducibility: NOT CLAIMED
+Publication suitability: no
+
+MERGED RELEASE MANIFEST
+SHA-256: C5AFA136B4AA88B1BEE17C2CE31AE063BA87A9EC1884966373334EC8985D8837
+Permissions: 28
+SecureStore exclusions: secure_store_backup_rules and secure_store_data_extraction_rules present
+Firebase default channel: academic-updates
+Permission names:
+- android.permission.INTERNET
+- android.permission.VIBRATE
+- android.permission.WAKE_LOCK
+- android.permission.ACCESS_NETWORK_STATE
+- android.permission.USE_BIOMETRIC
+- android.permission.USE_FINGERPRINT
+- android.permission.RECEIVE_BOOT_COMPLETED
+- android.permission.POST_NOTIFICATIONS
+- com.google.android.c2dm.permission.RECEIVE
+- com.anssoft.akademiktakvim.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+- android.permission.ACCESS_WIFI_STATE
+- com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE
+- com.sec.android.provider.badge.permission.READ
+- com.sec.android.provider.badge.permission.WRITE
+- com.htc.launcher.permission.READ_SETTINGS
+- com.htc.launcher.permission.UPDATE_SHORTCUT
+- com.sonyericsson.home.permission.BROADCAST_BADGE
+- com.sonymobile.home.permission.PROVIDER_INSERT_BADGE
+- com.anddoes.launcher.permission.UPDATE_COUNT
+- com.majeur.launcher.permission.UPDATE_BADGE
+- com.huawei.android.launcher.permission.CHANGE_BADGE
+- com.huawei.android.launcher.permission.READ_SETTINGS
+- com.huawei.android.launcher.permission.WRITE_SETTINGS
+- android.permission.READ_APP_BADGE
+- com.oppo.launcher.permission.READ_SETTINGS
+- com.oppo.launcher.permission.WRITE_SETTINGS
+- me.everything.badger.permission.BADGE_COUNT_READ
+- me.everything.badger.permission.BADGE_COUNT_WRITE
+
+RELEASE-FEED PERFORMANCE APK
+Command: $env:FEED_PERFORMANCE_EPHEMERAL_DEVICE = "1"; npm.cmd run measure:mobile-native:feed-release
+Type/ABI: nondebuggable, no Metro, Hermes/Fabric, x86_64, synthetic alternate entry
+Size: 29686438 bytes
+SHA-256: D8C87640CD5F84B67B34E7D0D160C40B2D6676039A74FCCB9AC392F400C5FC97
+Disposition: disposable package uninstalled; alternate APK removed; prior artifact and device settings restored
+
+No artifact was uploaded, published, deployed, or committed.

@@ -8,6 +8,7 @@ import type { AnnouncementRepository, AnnouncementSourceRecord } from "../announ
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import type { CalendarScopeView } from "./calendar.dto.js";
+import { isProductionSecret } from "../../config/production-secret.js";
 import { CalendarIngestionService, isAcceptableAcademicYear, isUnitSpecificCalendarSource } from "./calendar-ingestion.service.js";
 import { compareEventStart, temporalStartValue } from "./calendar-temporal.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
@@ -599,7 +600,14 @@ function signCalendarFeedPayload(payload: string): string {
 }
 
 function calendarFeedSecret(): string {
-  return process.env.CALENDAR_FEED_SECRET ?? process.env.JWT_ACCESS_SECRET ?? "development-calendar-feed-secret-change-me-32-chars";
+  const configuredSecret = process.env.CALENDAR_FEED_SECRET;
+  if (
+    process.env.NODE_ENV === "production"
+    && (!isProductionSecret(configuredSecret) || configuredSecret === process.env.JWT_ACCESS_SECRET)
+  ) {
+    throw new Error("CALENDAR_FEED_SECRET_NOT_CONFIGURED");
+  }
+  return configuredSecret || process.env.JWT_ACCESS_SECRET || "development-calendar-feed-secret-change-me-32-chars";
 }
 
 function dedupeCalendarEvents(events: AcademicEventRecord[]): AcademicEventRecord[] {

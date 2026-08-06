@@ -3,7 +3,7 @@
 Historical baseline date: 29 July 2026
 Historical baseline branch/HEAD: `agent/google-play-readiness-20260724` / `cbd0067b03c3cf7286270df25164a556c55b55b9`
 
-The dated Phase 0–8 ledgers below are preserved historical evidence. Their counts and statements such as “next phase not started” apply only to the named checkpoint. The **Current Phase 1–8 remediation ledger — 4 August 2026** at the end is authoritative for the current suite and supersedes conflicting current-state wording without rewriting the old results.
+The dated Phase 0–11 ledgers below are preserved historical evidence. Their counts and statements such as “next phase not started” apply only to the named checkpoint. The **Phase 12 final reconciliation ledger — 6 August 2026** at the end is authoritative for the current suite and supersedes conflicting current-state wording without rewriting the old results.
 
 ## Evidence classes
 
@@ -896,7 +896,7 @@ accurate only for its own checkpoint.
 | Motion/reduced effects | Deterministic tests retain restrained motion, simplify nonessential sheet/result behavior for Reduce Motion, select opaque fallback for Reduce Transparency, and reject Three.js. Android native evidence covers all three animation scales at 0; native iOS Reduce Transparency remains unavailable. |
 | Virtualization and trust | Home, Announcements, Calendar, YÖK, Summer School, and long selectors use `FlatList`/`SectionList` boundaries without speculative clipping/batch tuning. Official links remain canonicalized before handoff; academic date-only/range semantics remain unchanged. |
 | Release feed performance | Fresh non-debuggable x86_64 Hermes/Fabric release build, deterministic 100-record fixture, one activity-start timing, five measured trials, exact device configuration/restoration, and explicit thresholds passed on the authorized API 24 AVD. This is not a release-timing distribution for unrelated screens or iOS. |
-| Contract/scope preservation | Complete API/native/root regression plus TypeScript/build gates preserve Phase 1–10 contracts. No endpoint, schema, repository, auth/session, notification/provider, Google ownership/lifecycle, personal-exam persistence, or production-data contract changed. Phase 12 was not started. |
+| Contract/scope preservation | Complete API/native/root regression plus TypeScript/build gates preserve Phase 1–10 contracts. No endpoint, schema, repository, auth/session, notification/provider, Google ownership/lifecycle, personal-exam persistence, or production-data contract changed. At this historical Phase 11 checkpoint, Phase 12 was not started. |
 
 ### Phase 11 automated validation ledger
 
@@ -917,7 +917,7 @@ accurate only for its own checkpoint.
 | `$env:FEED_PERFORMANCE_EPHEMERAL_DEVICE='1'; npm.cmd run measure:mobile-native:feed-release` | PASS — 430 Gradle tasks in 8 min 03 s; 29,525,380-byte APK; SHA-256 `6f32ed35453881073664c516792b69fae2a6af82e18109a7535fce92be2ede63` | Non-debuggable/no-Metro x86_64 Hermes/Fabric release harness on `AcademicPhase1Low`, API 24; the guard authorized replacing only the disposable local package |
 | `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` from `apps/mobile-native/android` | PASS — 43 s; 268 tasks (7 executed / 261 up-to-date); APK 56,804,991 bytes; SHA-256 `FA93D03F277DB169564B09CC4E389D146D0D0E6911C7CA0774372DFB8A0A1BCA` | Final x86_64 debug assembly; install `Success`; package version `0.1.1`, versionCode `12`, ABI x86_64 |
 | Android installed-app native matrix | PASS — 32 original-resolution PNGs + 32 basename-paired XML exports; 97 integrity rows; index SHA-256 `AD1F872742FCD8819A25B61CBC8EE22F90234EA03BAA44EB32C96D629F2AA419` | 320/360/393/430/~853 dp, 100/130/150/200% font, light/dark, keyboards, native date/time pickers, same-PID feed/Calendar Back, destructive reachability, reduced-motion scales 0, clean runtime/sensitive scan, and exact cleanup |
-| Documentation consistency and final hygiene/scope scans | PASS — `git diff --check`; 113 intended text artifacts with zero trailing-whitespace or NUL findings; zero prohibited credential, Firestore, TLS-bypass, fake-social, forbidden modifier/snapshot/empty/vacuous-test, screen-local raw-color, or Phase 12 implementation matches | The one existing SMTP warning states only that a recovery message was not sent and contains no secret/payload. Six semantic raw-color changes are confined to `tokens.ts`; no raw color was added to `App.tsx`. Ports 8081/27017 were clear and no ADB device remained attached. Phase 12 implementation scan: no Phase 12 implementation; `PHASE_12_NOT_STARTED`. |
+| Documentation consistency and final hygiene/scope scans | PASS — `git diff --check`; 113 intended text artifacts with zero trailing-whitespace or NUL findings; zero prohibited credential, Firestore, TLS-bypass, fake-social, forbidden modifier/snapshot/empty/vacuous-test, screen-local raw-color, or Phase 12 implementation matches | The one existing SMTP warning states only that a recovery message was not sent and contains no secret/payload. Six semantic raw-color changes are confined to `tokens.ts`; no raw color was added to `App.tsx`. Ports 8081/27017 were clear and no ADB device remained attached. Historical Phase 11 scope marker: `PHASE_12_NOT_STARTED`. |
 | Mobile-native lint inventory | `MOBILE_NATIVE_LINT: NOT AVAILABLE` | No applicable lint script, configuration, or dependency; TypeScript is not relabelled as lint |
 
 The first sandboxed admin/mobile-web attempts were blocked before compilation by
@@ -981,4 +981,140 @@ No authorized live Google Calendar, FCM, APNs, authenticated backend/content,
 production account, provider, calendar, credential, or data was accessed. No
 installed authenticated Maestro/Detox/Appium E2E, automated native screenshot
 regression, shipped observability, mobile-native lint, or production fleet
-performance evidence exists. Phase 12 was not started.
+performance evidence exists. At the Phase 11 checkpoint, Phase 12 was not
+started.
+
+The preceding sentence is the historical Phase 11 handoff. The following
+ledger is the current authority.
+
+## Phase 12 final reconciliation ledger — 6 August 2026
+
+Entry started from accepted Phase 11 HEAD
+`f50a45bddcd7d476c4f1797bede77da65fc4c6fc`; the accepted commit was an
+ancestor of and identical to HEAD, there were zero later commits, tracked index
+and worktree were clean. Entry had 22 untracked files: 21 unrelated files were
+preserved and the Phase 12 report stub became part of the scoped work. All
+tests used synthetic local fixtures. No production account, calendar,
+notification token, or user data was accessed, and no live provider was
+exercised. The authorized Android build
+consumed existing ignored local provider/signing inputs without exposing,
+recording, or changing their values.
+
+### Focused and complete automated gates
+
+Every exact Phase 1–11 focused command recorded in its dated ledger above was
+rerun against the Phase 12 working source. The final result inventory is:
+
+| Gate | Final result |
+|---|---|
+| Phase 1 API security; native/client/session; recent-authentication; trusted-delivery | PASS — 5 files / 47 tests; 2 / 8; 1 / 3; 7 / 38 |
+| Phase 2 content trust | PASS — 8 files / 148 tests |
+| Phase 3 integration and native behavior | PASS — root 10 / 162; native 4 suites / 78 tests |
+| Phase 4 foundation | PASS — 2 files / 45 tests |
+| Phase 5 shell | PASS — root 3 / 50; native 2 / 25 |
+| Phase 6 auth/onboarding | PASS — root 4 / 112; native Auth 1 / 24; preview 1 / 3 |
+| Phase 7 Home | PASS — root 1 / 11; native Home 1 / 13; preview 1 / 8 |
+| Phase 8 trusted feed | PASS — root 3 / 95; native 4 / 74 |
+| Phase 9 Calendar/personal exams | PASS — Calendar root 1 / 25; persistence integration 1 / 1; native 4 / 27 |
+| Phase 10 Profile/settings | PASS — root 5 / 80; native 5 / 74 |
+| Phase 11 quality | PASS — root 5 / 77; native 15 / 155 |
+| SecureStore/session regression | PASS — 6 files / 84 tests |
+| New Phase 12 secret and native-release configuration coverage | PASS — 2 files / 12 tests |
+
+The focused trusted-delivery gate's first attempt had no local Mongo fixture,
+so five fixture-backed cases were skipped after `ECONNREFUSED`; the identical
+gate passed 7 files / 38 tests after starting the dedicated local
+`127.0.0.1` Mongo fixture. This was an environment setup correction, not a
+product repair.
+
+After the final distinct-key hardening, the first complete-root rerun found one
+stale documentation-consistency string that still expected the prior runbook
+wording; all product/API tests in that attempt passed. The assertion was updated,
+the focused 1-file/7-test documentation gate passed, and the final complete
+regression passed 75 files / 866 tests.
+
+The follow-up changed API validation/tests and documentation only. No
+mobile-native source/configuration changed after the recorded native artifacts
+and performance run, so those hashes remain current for the mobile source
+boundary and were not rebuilt for the API-only repair.
+
+| Exact command | Final result | Boundary |
+|---|---|---|
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 46 files / 456 tests | Dedicated temporary localhost Mongo only; increased from 45 / 445 |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — 25 suites / 227 tests / 0 snapshots | Complete native Jest; count did not decrease |
+| `npm.cmd test -- --configLoader runner` | PASS — 75 files / 866 tests | Complete Vitest; increased from 73 / 854 |
+| `npm.cmd run typecheck` | PASS | Workspace TypeScript |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS | Mobile-native TypeScript |
+| `npm.cmd run build:admin -- --configLoader runner` | PASS — 1,742 modules; JS 250.51 kB / 73.89 kB gzip; 2.15 s | Web regression build, not native evidence |
+| `npm.cmd run build:mobile -- --configLoader runner` | PASS — 1,755 modules; JS 349.76 kB / 104.37 kB gzip; 4.07 s | Mobile-web regression build, not native evidence |
+| Mobile-native lint inventory | `MOBILE_NATIVE_LINT: NOT AVAILABLE` | No applicable script, configuration, or dependency; TypeScript is not relabelled as lint |
+
+### Android generation, build, artifact, and performance gates
+
+| Exact command/check | Final result | Artifact/evidence boundary |
+|---|---|---|
+| `npx.cmd expo config --type introspect` from `apps/mobile-native` | PASS | Effective manifest declares both SecureStore backup XML resources and deterministic Firebase channel/color merge attributes |
+| `npx.cmd expo prebuild --platform android --no-install` from `apps/mobile-native` | PASS | Non-clean regeneration retained signing/provider files and removed stale generated launcher-resource conflicts; ignored generated project is not committed authority |
+| `./gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` from `apps/mobile-native/android` | PASS — 1 m 26 s; 268 tasks (18 executed / 250 up-to-date) | x86_64, debug-signed, Metro-required APK; 56,805,462 bytes; SHA-256 `8D2133DF10EA6CDC6580E0739BACFA3B7BBCCD46096636420C6A8C8AE0C041B3`; APK signature verified |
+| `./gradlew.bat :app:bundleRelease --no-daemon` from the temporary short-path mapping of `apps/mobile-native/android` | PASS — final incremental short-path run 52 s; 450 tasks | Signed all-ABI AAB; 49,219,740 bytes; SHA-256 `6C9609CE37876B5958FFA70C819D70463C9F75818D20665201DBE7A89E0310F0`; JAR signature verified; Play acceptance unverified |
+| `$env:FEED_PERFORMANCE_EPHEMERAL_DEVICE='1'; npm.cmd run measure:mobile-native:feed-release` | PASS — 430 Gradle tasks / 7 m 15 s within the 9 m run | Current-source nondebuggable/no-Metro x86_64 Hermes/Fabric APK; 29,686,438 bytes; SHA-256 `D8C87640CD5F84B67B34E7D0D160C40B2D6676039A74FCCB9AC392F400C5FC97` |
+
+The ordinary all-ABI release build first exposed the Windows path-length limit
+at the `armeabi-v7a` native object path after 6 m 07 s. A temporary `subst`
+short path reused the unchanged tree; the incremental build passed, and the
+mapping was removed. This is an environment diagnostic, not a compiler/source
+failure. The signed AAB contains `arm64-v8a`, `armeabi-v7a`, `x86`, and
+`x86_64`; package is `com.anssoft.akademiktakvim`, version `0.1.1` / code
+`12`, and min/target/compile SDK are `24`/`36`/`36`. The upload-certificate
+SHA-256 is
+`E5:C3:15:28:B9:A6:CB:00:FB:E1:0B:88:41:4B:26:57:53:85:81:A2:E5:1A:FC:EC:26:14:95:3C:16:97:E9:59`;
+no secret value was exposed. The merged manifest SHA-256 is
+`C5AFA136B4AA88B1BEE17C2CE31AE063BA87A9EC1884966373334EC8985D8837`
+and declares 28 permissions plus both SecureStore exclusion resources.
+
+The release-feed run used the existing `AcademicPhase1Low` API 24 x86_64 AVD,
+720×1280 at 320 dpi, font scale 1.0, and the deterministic 100-record fixture.
+Activity timing was 886/886/927 ms (`ThisTime`/`TotalTime`/`WaitTime`). Five
+trials produced 120 valid frames each (600 total), aggregate p90
+`19.941713 ms`, p95 `20.257643 ms`, and zero frozen frames. The disposable
+package and alternate APK were removed, prior artifact/settings were restored,
+and the emulator was shut down. This is not physical-device, modern-Android,
+iOS, fleet, or shipped-telemetry evidence.
+
+### Current native-evidence reconciliation
+
+Phase 12 changed API security and tracked native-generation configuration, not
+production UI source. The Phase 11 matrix therefore remains representative
+current-source visual evidence: 32 original-resolution PNGs, 32 matching XML
+hierarchies, 33 raw records, and 97 indexed rows. Its index SHA-256 is
+`AD1F872742FCD8819A25B61CBC8EE22F90234EA03BAA44EB32C96D629F2AA419`.
+The [Phase 12 evidence index](./evidence/phase-12-final/README.md) records the
+reconciliation and the current build/test provenance without duplicating the
+unchanged screen matrix.
+
+That evidence covers Login, Registration, Calendar native dialogs and editor
+keyboard, Home/feed/detail, Agenda/Week/Month, Profile/settings, notification
+and Google presentation states, destructive reachability, light/dark, 320/360/
+393/430/~853 dp, 100/130/150/200% font, reduced motion, and ordinary same-process
+Back as itemized in the Phase 11 index. It does not prove API 33+ notification
+permission, predictive Back, TalkBack, iOS/VoiceOver/Dynamic Type/Liquid Glass,
+live providers, a physical device/tablet, or installed authenticated E2E.
+
+### Final hygiene, scope, and cleanup gates
+
+| Check | Final result |
+|---|---|
+| `git diff --check`; intended-text trailing whitespace and NUL scan | PASS — 39 intended files; zero trailing-whitespace and zero NUL findings |
+| Sensitive-log scan | PASS — four fixed operational candidates disclose no email, token, password, authorization, credential, payload, or secret value |
+| Credential/provider/signing/artifact scan | PASS — zero credential literal and zero tracked provider/signing/APK/AAB file; local release inputs/outputs remain ignored |
+| Runtime-secret scan | PASS — only three expected non-production fallbacks; production startup and direct signing guards plus 11 adversarial tests reject invalid or reused keys |
+| Direct server fetch | PASS — `apps/api/tests/server-outbound-inventory.test.ts`, 1 file / 2 tests |
+| Invalid TLS and runtime Firestore | PASS — zero runtime/source match |
+| Fake social and modular hard-coded colors | PASS — zero structural fake-social match and zero raw color outside `design-system/tokens.ts` |
+| Forbidden `.skip`/`.only`/`.todo`, snapshot, empty, and vacuous tests | PASS — zero prohibited match |
+| Phase scope | PASS — Phase 13 matches are negative docs/test assertions only; zero Phase 13 source/file and zero Phase 12 production UI source change |
+| Evidence integrity | PASS — all Phase 11 97 rows independently re-hashed and byte-checked |
+| Cleanup | PASS — ports 8081/27017 clear, emulator/ADB clear, temporary `subst` mapping clear, temporary root provider duplicate removed |
+
+The exact candidate classifications and cleanup record are preserved in
+[`evidence/phase-12-final/raw/security-hygiene.txt`](./evidence/phase-12-final/raw/security-hygiene.txt).

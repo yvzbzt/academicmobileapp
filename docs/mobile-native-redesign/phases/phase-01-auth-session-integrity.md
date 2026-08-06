@@ -1,11 +1,13 @@
 # Phase 01 — Authentication, Session, Storage, and Academic-Profile Integrity
 
-Status date: 2026-08-04\
-Status: Reconciled current through the Phase 1 security repair and the accepted Phase 2–3 descendants. The runtime remains MongoDB-only; the original Phase 1 milestone and evidence ledger are preserved below as historical provenance.
+Status date: 2026-08-06\
+Status: Reconciled current through the Phase 1 security repairs and the accepted Phase 2–11 descendants. The runtime remains MongoDB-only; the original Phase 1 milestone and evidence ledger are preserved below as historical provenance.
 
 ## Reconciled current state — 2026-08-04
 
 The accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` was repaired by `641d7bee8a1cd539179769069a22b5c3220e8a6d` (`fix(auth): close phase-one security gaps`). The later Phase 2 and Phase 3 repair commits are linear descendants and do not reopen these security decisions.
+
+**Phase 12 provenance correction — 2026-08-06.** The final direct Phase 1 blocker repair is `1dd36d1811949ba3ff166e982a8b72bda014c5ef` (`fix(api): close recent-auth and outbound-network gaps`). It completes the purpose-specific, digest-only, single-use recent-authentication boundary described here, including atomic consumption and the corresponding API/native contract coverage. The earlier `641d7bee8a1cd539179769069a22b5c3220e8a6d` repair remains part of the accepted lineage rather than being superseded or rewritten.
 
 - Missing legacy credential generations still normalize to `0`. Access tokens, refresh records, and password-recovery records carry the current generation; protected access, refresh rotation, and recovery confirmation all reject a stale generation.
 - Password reset now uses a standalone-Mongo-compatible compare-and-set on the user document. The accepted token hash, expected generation, new password hash, completion operation key, and one-step generation advance form the durable security boundary. Hash failure performs no write; concurrent records cannot both commit; a response-loss retry with the same operation is deterministic; a different proposed password is not reported as a success. Generation advancement immediately invalidates older credentials even if best-effort physical cleanup later fails.
@@ -22,6 +24,7 @@ The accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` was rep
 | Historical final Phase 1 checkpoint | `18a93d4ecca5ef810ccd4f6f208cdb2774638afb` | Original Phase 1/R1C1 milestone retained below |
 | Accepted Phase 8 baseline | `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` | Starting point for the bounded remediation |
 | Phase 1 security repair | `641d7bee8a1cd539179769069a22b5c3220e8a6d` | Generation enforcement, reset CAS/idempotency, recent authentication, recovery parity, trusted-proxy policy, and Firebase fallback removal |
+| Final Phase 1 blocker repair | `1dd36d1811949ba3ff166e982a8b72bda014c5ef` | Completes purpose-bound recent-auth proof issuance, digest persistence, atomic single-use consumption, and caller coverage |
 | Phase 2 repair descendant | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Preserves the repaired authentication boundary |
 | Phase 3 repair descendant | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Preserves the repaired authentication boundary through the mobile reconciliation |
 

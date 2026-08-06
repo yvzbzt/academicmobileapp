@@ -1,9 +1,11 @@
 # Native Screen and State Inventory
 
-Current reconciliation: 6 August 2026. Phase 11 begins from the accepted
-Phase 10 baseline `8dbe5e1efdb0c5fab665345188228ff66a0f84f6`. The baseline and
-earlier phase sections below are retained as explicitly historical inventory;
-the latest phase-specific sections describe the current reachable product.
+Current reconciliation: 6 August 2026. Phase 12 retains the accepted Phase
+1-11 screen, state, and navigation contracts. The authenticated shell still
+has exactly four primary tabs: Home, Announcements, Calendar, and Profile;
+Phase 12 redesigns or adds no screen. Earlier phase sections below are retained
+as explicitly historical inventory; the latest phase-specific sections
+describe the current reachable product.
 
 Baseline: 29 July 2026, `apps/mobile-native/App.tsx` at HEAD `cbd0067b03c3cf7286270df25164a556c55b55b9`.
 
@@ -369,5 +371,23 @@ and release measurements belong to the Phase 11 evidence index and report.
 They do not establish native iOS/VoiceOver/Dynamic Type/Liquid Glass, TalkBack
 traversal, API 33 notification permission, predictive Back, a physical
 tablet/foldable, live provider behavior, authenticated relaunch/account
-switching, or installed E2E. Mobile-native lint remains unavailable. Phase 12
-is not started.
+switching, or installed E2E. Mobile-native lint remains unavailable.
+
+## Phase 12 current-status reconciliation
+
+Phase 12 preserves every Phase 1-11 screen and state contract, the exact
+four-tab authenticated shell, and all existing nested routes. It introduces no
+new destination and redesigns no production screen. Because production UI
+source is unchanged, the current-source native visual record remains the
+[Phase 11 native-evidence index](./evidence/phase-11-native/README.md); Phase 12
+re-hashes and reconciles that evidence rather than presenting duplicate
+captures as new UI coverage.
+
+That evidence is native Android 7 / API 24 coverage for the recorded Material
+surfaces, ordinary Back behavior, native pickers, light/dark transitions,
+compact and large-text layouts, and the temporary tablet-style viewport. It is
+not API 33+ notification-permission or predictive-Back evidence; predictive
+Back remains disabled under the documented navigator compatibility policy.
+TalkBack traversal, native iOS and VoiceOver, and installed authenticated E2E
+also remain unverified and are not inferred from UIAutomator, renderer tests,
+or synthetic fixtures.

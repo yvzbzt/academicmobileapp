@@ -2,10 +2,12 @@
 
 Last updated: 6 August 2026
 
-Current provenance: Phase 11 begins from the accepted Phase 10 baseline
-`8dbe5e1efdb0c5fab665345188228ff66a0f84f6`. Earlier phase sections remain
+Current provenance: Phase 12 preserves the accepted Phase 1-11 platform
+contracts, exactly four authenticated primary tabs, and every existing route.
+It adds or redesigns no production screen. Earlier phase sections remain
 historical checkpoint records where their wording is explicitly time-bound;
-the Phase 11 reconciliation at the end is the current cross-platform contract.
+the Phase 11 contract plus the Phase 12 reconciliation at the end describe the
+current cross-platform boundary.
 
 ## Shared product semantics
 
@@ -276,4 +278,17 @@ image exposes no controllable setting. No production or live Google Calendar,
 Firebase/APNs, account, calendar, provider, or content fixture is used. Installed
 authenticated E2E and automated native screenshot regression remain absent, and
 the repository still provides no mobile-native lint command/configuration.
-Phase 12 is not started.
+
+### Phase 12 current status
+
+Production UI source is unchanged in Phase 12, so the current-source native
+record remains the [Phase 11 evidence index](./evidence/phase-11-native/README.md).
+Phase 12 re-hashes and reconciles that set instead of treating unchanged
+captures as new platform acceptance. Its Android 7 / API 24 evidence covers the
+recorded Material rendering, ordinary Back behavior, native pickers,
+light/dark transitions, and compact, large-text, and temporary tablet-style
+profiles. It cannot verify API 33+ notification permission or predictive Back;
+the predictive callback remains disabled under the supported navigator policy.
+TalkBack traversal is unverified, UIAutomator is not a screen reader, native
+iOS and VoiceOver remain unavailable on this Windows host, and installed
+authenticated E2E remains absent.

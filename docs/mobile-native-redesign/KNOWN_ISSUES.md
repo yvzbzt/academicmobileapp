@@ -5,7 +5,7 @@ Historical baseline date: 29 July 2026. Severity reflects user trust, privacy, d
 The baseline tables and dated phase dispositions below are checkpoint evidence.
 Their present-tense issue wording describes the named historical snapshot and
 must not be read as the current source state. The latest applicable Phase 9,
-Phase 10, or Phase 11 disposition supersedes older wording when they conflict.
+Phase 10, Phase 11, or Phase 12 disposition supersedes older wording when they conflict.
 In particular, Firestore database persistence and the six-tab phone shell are
 historical only: MongoDB is the sole runtime database and the authenticated
 phone shell has four destinations.
@@ -404,7 +404,31 @@ contract. The authorized evidence uses synthetic local fixtures only. Physical
 iOS and tablet/foldable devices, VoiceOver, TalkBack, modern Android permission/
 predictive Back, live providers/accounts, installed authenticated E2E,
 automated screenshot regression, shipped observability, and mobile-native lint
-remain the exact open environment/tooling boundaries. Phase 12 is not started.
+remain the exact open environment/tooling boundaries at the Phase 11 checkpoint.
+Phase 12 did not convert any unavailable environment into a pass.
 The reviewed Android evidence is indexed at
 [`evidence/phase-11-native`](./evidence/phase-11-native/README.md): 32 paired
 screenshots/hierarchies plus runtime, integrity, and exact restoration records.
+
+## Phase 12 disposition — final reconciliation, 6 August 2026
+
+This section is the current issue boundary and supersedes earlier future-phase
+wording. No new product feature, screen, provider, database, or architecture was
+introduced.
+
+| ID/finding | Phase 12 disposition | Release consequence / remaining action |
+|---|---|---|
+| MN-035 — production signing secrets could fall back to public development values | **Resolved.** Production environment validation and each direct signer now reject missing, blank, whitespace-only, short, known placeholder, and reused access/calendar secrets. The access-token and Calendar-feed values must differ; development-only fallbacks remain outside production. Eleven focused adversarial tests plus the complete API/root suites pass. | No remaining implementation blocker. Operators must provision distinct secrets through the documented deployment boundary; values are never logged or committed. |
+| MN-036 — SecureStore backup exclusion and Firebase default-channel metadata were not reproducible | **Resolved.** Tracked Expo configuration applies `expo-secure-store` with Android backup exclusions, declares the ignored local Google services file boundary, and applies a tracked notification-manifest merge override. Native introspection and the current merged release manifest contain both backup-rule references and the `academic-updates` metadata; current debug and AAB builds pass. | No remaining implementation blocker. The local provider file and signing material remain intentionally ignored and must be supplied through an approved release environment. |
+| MN-037 — Android publication version/signing gate | **Open P0 release blocker.** Source is version `0.1.1`, code `12`, while local historical audit evidence records codes `13` and `14`. The highest Play-uploaded code and Play App Signing/upload-certificate acceptance were not accessed. Clean Expo generation defaults release to debug signing; the fail-closed local signing guard currently lives only in ignored generated Gradle state. | Establish source-authoritative tracked plugin/configuration or approved pipeline enforcement, select a code higher than the independently verified Play maximum, rebuild, verify Play signing, and repeat artifact evidence before any upload. Current signed AAB is build evidence only, not publication authorization. |
+| MN-038 — iOS release identity and native pipeline | **Open P0 release blocker.** Tracked source has no authoritative bundle identifier/build number, iOS native project, signing/APNs configuration, or Xcode result. Expo introspection's placeholder identifier is not release metadata. | Add approved source-owned identity/build configuration and complete macOS/Xcode signing, archive, APNs, device, VoiceOver, Dynamic Type, swipe-Back, and Liquid Glass evidence in separately authorized work. |
+| MN-039 — store/privacy/operational package | **Open P0 release blocker.** No approved privacy policy/terms target, Data Safety/privacy declarations, content rating, listing assets/copy, release notes, tester account, current rollback artifact, or store submission runbook is present. | Product/legal/release owners must supply and verify these artifacts. Account deletion, notification/device identifiers, Firebase Installations/FCM, and Google private ownership markers must be disclosed accurately. |
+| MN-010 / MN-019 / MN-020 / MN-021 | Remain open as bounded architecture/tooling limitations: the orchestrator retains compatibility debt; no installed authenticated E2E or screenshot-regression runner; `MOBILE_NATIVE_LINT: NOT AVAILABLE`; no shipped analytics/crash/performance SDK. | None is silently relabelled as complete. Phase 12 adds no telemetry SDK or broad refactor merely to close documentation. |
+| MN-024 / MN-029 / MN-033 | Current API 24 native evidence proves ordinary Back and the documented visual matrix only. Predictive Back, API 33+ permission behavior, TalkBack, iOS/VoiceOver/Dynamic Type/Liquid Glass, and physical-device/tablet performance remain unverified. | Android implementation is `CONDITIONALLY_READY`; iOS implementation/publication is `NOT_READY`. Run the named platform/accessibility gates in authorized environments. |
+| MN-032 / MN-034 | Deterministic contracts and synthetic local fixtures pass; no live authenticated content, Google Calendar, FCM, APNs, or SMTP fixture was accessed. | Combined live-provider readiness is `NOT_READY`; provider-specific non-production verification remains mandatory, and iOS/APNs still requires configuration work. |
+
+Phase 12's final verdict is: Android implementation `CONDITIONALLY_READY`;
+Android publication `NOT_READY`; iOS implementation `NOT_READY`; iOS
+publication `NOT_READY`; live providers `NOT_READY`; overall product readiness
+`NOT_READY`. The negative publication verdict preserves rather than contradicts
+the completed Phase 1–11 implementation contracts.

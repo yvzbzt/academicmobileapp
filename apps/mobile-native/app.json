@@ -21,6 +21,7 @@
     },
     "android": {
       "package": "com.anssoft.akademiktakvim",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 12,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -31,6 +32,13 @@
     "plugins": [
       "expo-font",
       "expo-system-ui",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": false
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       [
@@ -41,6 +49,7 @@
           "enableBackgroundRemoteNotifications": false
         }
       ],
+      "./plugins/with-notification-manifest-overrides.cjs",
       "@react-native-community/datetimepicker"
     ]
   }

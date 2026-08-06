@@ -142,7 +142,9 @@ For an eligible known account outside cooldown, the service:
 3. persists only an email-domain-separated HMAC-SHA-256 digest plus user ID and timestamps; and
 4. attempts delivery without changing the generic public result when delivery fails.
 
-The HMAC input domain is `password-recovery:<normalized-email>:<code>`. Production fails closed unless `PASSWORD_RECOVERY_TOKEN_PEPPER`, or the `JWT_ACCESS_SECRET` fallback, supplies at least 32 characters. A dedicated recovery pepper is preferred so recovery-digest rotation is independent of access-token signing.
+The HMAC input domain is `password-recovery:<normalized-email>:<code>`. Production fails closed unless `PASSWORD_RECOVERY_TOKEN_PEPPER`, or the `JWT_ACCESS_SECRET` fallback, supplies at least 32 non-whitespace characters and is not a checked-in development/example placeholder. A dedicated recovery pepper is preferred so recovery-digest rotation is independent of access-token signing.
+
+Production also requires independent valid `JWT_ACCESS_SECRET` and `CALENDAR_FEED_SECRET` values at startup and at their direct signing boundaries, and the two values must differ. The Calendar feed never falls back to or reuses the access-token key in production, and neither signer can use the public development defaults. Development/test fallbacks remain intentionally deterministic outside production only.
 
 #### `POST /auth/password-recovery/confirm`
 
