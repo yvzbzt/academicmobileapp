@@ -68,13 +68,13 @@ const lightColors: SemanticColors = {
   text: {
     primary: "#172033",
     secondary: "#526079",
-    disabled: "#758197",
+    disabled: "#526079",
     inverse: "#FFFFFF",
     link: "#3730A3",
   },
   border: {
-    default: "#D7DEEA",
-    strong: "#AAB5C7",
+    default: "#758197",
+    strong: "#526079",
     focus: "#6D5CE7",
   },
   action: {
@@ -85,7 +85,7 @@ const lightColors: SemanticColors = {
     secondaryPressed: "#E0E7FF",
     ghostPressed: "#E7EAF1",
     disabled: "#E2E6EE",
-    onDisabled: "#758197",
+    onDisabled: "#526079",
     focus: "#6D5CE7",
   },
   status: {
@@ -129,8 +129,8 @@ const darkColors: SemanticColors = {
     link: "#C7D2FE",
   },
   border: {
-    default: "#344158",
-    strong: "#64748B",
+    default: "#94A3B8",
+    strong: "#CBD5E1",
     focus: "#C7D2FE",
   },
   action: {

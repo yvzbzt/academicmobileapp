@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   APP_SHELL_ANDROID_BOTTOM_NAVIGATION_CONTENT_HEIGHT,
   APP_SHELL_COMPACT_LARGE_TEXT_MAX_FONT_SIZE_MULTIPLIER,
+  APP_SHELL_IOS_BOTTOM_NAVIGATION_CONTENT_HEIGHT,
   APP_SHELL_LABEL_MAX_FONT_SIZE_MULTIPLIER,
   PRIMARY_TABS,
   primaryTabDefinition,
@@ -57,6 +58,29 @@ describe("Phase 5 app-shell contract", () => {
       navigationLabelMaxFontSizeMultiplier:
         APP_SHELL_LABEL_MAX_FONT_SIZE_MULTIPLIER,
       largeTextFallback: "native-scaling",
+      bottomNavigationContentHeight:
+        APP_SHELL_IOS_BOTTOM_NAVIGATION_CONTENT_HEIGHT,
     });
+  });
+
+  it("reserves unclipped bottom-tab content height across the Phase 11 size matrix", () => {
+    for (const platform of ["android", "ios"] as const) {
+      for (const windowWidth of [320, 360, 393, 430, 853]) {
+        for (const fontScale of [1, 1.3, 1.5, 2]) {
+          const contract = resolveAppShellLayoutContract({
+            platform,
+            windowWidth,
+            fontScale,
+          });
+          const scaledLineHeight =
+            (contract.navigationLabelFontSize + 4)
+            * Math.min(fontScale, contract.navigationLabelMaxFontSizeMultiplier);
+          expect(contract.navigationLabelLines).toBe(1);
+          expect(contract.bottomNavigationContentHeight).toBeGreaterThanOrEqual(
+            24 + scaledLineHeight + 16,
+          );
+        }
+      }
+    }
   });
 });

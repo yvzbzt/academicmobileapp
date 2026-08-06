@@ -1,0 +1,266 @@
+﻿Current Input Method Manager state:
+  Input Methods:
+  InputMethod #0:
+    mId=com.android.inputmethod.latin/.LatinIME mSettingsActivityName=com.android.inputmethod.latin.settings.SettingsActivity mSupportsSwitchingToNextInputMethod=true
+    mIsDefaultResId=0x7f070000
+    Service:
+      priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false
+      ServiceInfo:
+        name=com.android.inputmethod.latin.LatinIME
+        packageName=com.android.inputmethod.latin
+        labelRes=0x7f0a0037 nonLocalizedLabel=null icon=0x0 banner=0x0
+        enabled=true exported=true directBootAware=true
+        permission=android.permission.BIND_INPUT_METHOD
+        flags=0x3
+        ApplicationInfo:
+          packageName=com.android.inputmethod.latin
+          labelRes=0x7f0a0037 nonLocalizedLabel=null icon=0x7f020098 banner=0x0
+          processName=com.android.inputmethod.latin
+          taskAffinity=com.android.inputmethod.latin
+          uid=10053 flags=0x3 privateFlags=0x60 theme=0x0
+          requiresSmallestWidthDp=0 compatibleWidthLimitDp=0 largestWidthLimitDp=0
+          sourceDir=/system/app/LatinIME/LatinIME.apk
+          seinfo=default
+          dataDir=/data/user_de/0/com.android.inputmethod.latin
+          deviceProtectedDataDir=/data/user_de/0/com.android.inputmethod.latin
+          credentialProtectedDataDir=/data/user/0/com.android.inputmethod.latin
+          enabled=true minSdkVersion=14 targetSdkVersion=23 versionCode=24
+          supportsRtl=true
+          fullBackupContent=true
+  InputMethod #1:
+    mId=com.google.android.googlequicksearchbox/com.google.android.voicesearch.ime.VoiceInputMethodService mSettingsActivityName=com.google.android.apps.gsa.velvet.ui.settings.VoiceSearchPreferences mSupportsSwitchingToNextInputMethod=false
+    mIsDefaultResId=0x0
+    Service:
+      priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false
+      ServiceInfo:
+        name=com.google.android.voicesearch.ime.VoiceInputMethodService
+        packageName=com.google.android.googlequicksearchbox
+        labelRes=0x7f0c06fa nonLocalizedLabel=null icon=0x0 banner=0x0
+        processName=com.google.android.googlequicksearchbox:search
+        enabled=true exported=true directBootAware=false
+        permission=android.permission.BIND_INPUT_METHOD
+        flags=0x3
+        ApplicationInfo:
+          packageName=com.google.android.googlequicksearchbox
+          labelRes=0x7f0c0135 nonLocalizedLabel=null icon=0x7f030001 banner=0x0
+          className=com.google.android.apps.gsa.velvet.VelvetApplication
+          processName=com.google.android.googlequicksearchbox
+          taskAffinity=com.google.android.googlequicksearchbox
+          uid=10028 flags=0x3 privateFlags=0x8 theme=0x7f100355
+          requiresSmallestWidthDp=0 compatibleWidthLimitDp=0 largestWidthLimitDp=0
+          sourceDir=/system/priv-app/Velvet/Velvet.apk
+          seinfo=default:privapp
+          dataDir=/data/user/0/com.google.android.googlequicksearchbox
+          deviceProtectedDataDir=/data/user_de/0/com.google.android.googlequicksearchbox
+          credentialProtectedDataDir=/data/user/0/com.google.android.googlequicksearchbox
+          enabled=true minSdkVersion=21 targetSdkVersion=24 versionCode=300673168
+          manageSpaceActivityName=com.google.android.apps.gsa.managespace.VelvetManageSpaceActivity
+          supportsRtl=true
+          fullBackupContent=true
+  InputMethod #2:
+    mId=jp.co.omronsoft.openwnn/.OpenWnnJAJP mSettingsActivityName=jp.co.omronsoft.openwnn.OpenWnnControlPanelJAJP mSupportsSwitchingToNextInputMethod=false
+    mIsDefaultResId=0x0
+    Service:
+      priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false
+      ServiceInfo:
+        name=jp.co.omronsoft.openwnn.OpenWnnJAJP
+        packageName=jp.co.omronsoft.openwnn
+        labelRes=0x0 nonLocalizedLabel=Japanese IME icon=0x0 banner=0x0
+        enabled=true exported=true directBootAware=false
+        permission=android.permission.BIND_INPUT_METHOD
+        flags=0x3
+        ApplicationInfo:
+          packageName=jp.co.omronsoft.openwnn
+          labelRes=0x0 nonLocalizedLabel=OpenWnn icon=0x0 banner=0x0
+          processName=jp.co.omronsoft.openwnn
+          taskAffinity=jp.co.omronsoft.openwnn
+          uid=10059 flags=0x3 privateFlags=0x800 theme=0x0
+          requiresSmallestWidthDp=0 compatibleWidthLimitDp=0 largestWidthLimitDp=0
+          sourceDir=/system/app/OpenWnn/OpenWnn.apk
+          seinfo=default
+          dataDir=/data/user/0/jp.co.omronsoft.openwnn
+          deviceProtectedDataDir=/data/user_de/0/jp.co.omronsoft.openwnn
+          credentialProtectedDataDir=/data/user/0/jp.co.omronsoft.openwnn
+          enabled=true minSdkVersion=24 targetSdkVersion=24 versionCode=24
+          supportsRtl=false
+          fullBackupContent=true
+  InputMethod #3:
+    mId=com.example.android.softkeyboard/.SoftKeyboard mSettingsActivityName=com.example.android.softkeyboard.ImePreferences mSupportsSwitchingToNextInputMethod=true
+    mIsDefaultResId=0x0
+    Service:
+      priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false
+      ServiceInfo:
+        name=com.example.android.softkeyboard.SoftKeyboard
+        packageName=com.example.android.softkeyboard
+        enabled=true exported=true directBootAware=false
+        permission=android.permission.BIND_INPUT_METHOD
+        flags=0x3
+        ApplicationInfo:
+          packageName=com.example.android.softkeyboard
+          labelRes=0x7f070000 nonLocalizedLabel=null icon=0x0 banner=0x0
+          processName=com.example.android.softkeyboard
+          taskAffinity=com.example.android.softkeyboard
+          uid=10076 flags=0x3 privateFlags=0x800 theme=0x0
+          requiresSmallestWidthDp=0 compatibleWidthLimitDp=0 largestWidthLimitDp=0
+          sourceDir=/data/app/SoftKeyboard/SoftKeyboard.apk
+          seinfo=default
+          dataDir=/data/user/0/com.example.android.softkeyboard
+          deviceProtectedDataDir=/data/user_de/0/com.example.android.softkeyboard
+          credentialProtectedDataDir=/data/user/0/com.example.android.softkeyboard
+          enabled=true minSdkVersion=24 targetSdkVersion=24 versionCode=24
+          supportsRtl=false
+          fullBackupContent=true
+  Clients:
+  Client ClientState{2ead196 uid 10020 pid 2028}:
+    client=com.android.internal.view.IInputMethodClient$Stub$Proxy@302d274
+    inputContext=com.android.internal.view.IInputContext$Stub$Proxy@e0b239d
+    sessionRequested=false
+    curSession=SessionState{uid 10020 pid 2028 method 8063012 session d3423e3 channel ClientState{2ead196 uid 10020 pid 2028} (server)}
+  Client ClientState{8c43282 uid 1000 pid 1601}:
+    client=android.view.inputmethod.InputMethodManager$1@a8b0306
+    inputContext=ControlledInputConnectionWrapper{connection=android.view.inputmethod.BaseInputConnection@6b4a1e0 finished=false mParentInputMethodManager.mActive=false mInputMethodId=null}
+    sessionRequested=false
+    curSession=SessionState{uid 1000 pid 1601 method 8063012 session 77b5c99 channel ClientState{8c43282 uid 1000 pid 1601} (server)}
+  Client ClientState{d133b5e uid 10053 pid 1675}:
+    client=com.android.internal.view.IInputMethodClient$Stub$Proxy@5fb1b3f
+    inputContext=com.android.internal.view.IInputContext$Stub$Proxy@ff1fc0c
+    sessionRequested=false
+    curSession=null
+  Client ClientState{b994043 uid 10081 pid 5305}:
+    client=com.android.internal.view.IInputMethodClient$Stub$Proxy@21c2955
+    inputContext=com.android.internal.view.IInputContext$Stub$Proxy@753af6a
+    sessionRequested=false
+    curSession=SessionState{uid 10081 pid 5305 method 8063012 session 4102c5b channel ClientState{b994043 uid 10081 pid 5305} (server)}
+  Client ClientState{1c8ccf8 uid 10027 pid 1681}:
+    client=com.android.internal.view.IInputMethodClient$Stub$Proxy@c305d1
+    inputContext=com.android.internal.view.IInputContext$Stub$Proxy@f755836
+    sessionRequested=false
+    curSession=null
+  mCurMethodId=com.android.inputmethod.latin/.LatinIME
+  mCurClient=ClientState{b994043 uid 10081 pid 5305} mCurSeq=6
+  mCurFocusedWindow=android.os.BinderProxy@3c410fd
+  mCurFocusedWindowClient=ClientState{b994043 uid 10081 pid 5305}
+  mCurId=com.android.inputmethod.latin/.LatinIME mHaveConnect=true mBoundToMethod=true
+  mCurToken=android.os.Binder@4ad7c69
+  mCurIntent=Intent { act=android.view.InputMethod cmp=com.android.inputmethod.latin/.LatinIME (has extras) }
+  mCurMethod=com.android.internal.view.IInputMethod$Stub$Proxy@8063012
+  mEnabledSession=SessionState{uid 10081 pid 5305 method 8063012 session 4102c5b channel ClientState{b994043 uid 10081 pid 5305} (server)}
+  mImeWindowVis=Active|Visible
+  mShowRequested=true mShowExplicitlyRequested=true mShowForced=false mInputShown=true
+  mCurUserActionNotificationSequenceNumber=2
+  mSystemReady=true mInteractive=true
+  mSettingsObserver=SettingsObserver{mUserId=0 mRegistered=true mLastEnabled=}
+  mSwitchingController:
+    mSwitchingAwareRotationList:
+      rank=0 item=ImeSubtypeListItem{mImeName=Android Keyboard (AOSP) mSubtypeName=English (US) mSubtypeId=0 mIsSystemLocale=true mIsSystemLanguage=true}
+    mSwitchingUnawareRotationList:
+  mSettings:
+    mCurrentUserId=0
+    mCurrentProfileIds=[0]
+    mCopyOnWrite=false
+    mEnabledInputMethodsStrCache=com.android.inputmethod.latin/.LatinIME:com.google.android.googlequicksearchbox/com.google.android.voicesearch.ime.VoiceInputMethodService
+
+Input method client state for android.view.inputmethod.InputMethodManager@901fbd5:
+  mService=com.android.internal.view.IInputMethodManager$Stub$Proxy@c514fea
+  mMainLooper=Looper (main, tid 1) {df482db}
+  mIInputContext=ControlledInputConnectionWrapper{connection=android.view.inputmethod.BaseInputConnection@15ca178 finished=false mParentInputMethodManager.mActive=true mInputMethodId=null}
+  mActive=true mHasBeenInactive=false mBindSequence=6 mCurId=com.android.inputmethod.latin/.LatinIME
+  mCurMethod=com.android.internal.view.IInputMethodSession$Stub$Proxy@8738051
+  mCurRootView=DecorView@9ec80b6[MainActivity]
+  mServedView=com.facebook.react.views.textinput.ReactEditText{8b7b718 VFED..CL. .F...... 36,84-620,172 #26}
+  mNextServedView=com.facebook.react.views.textinput.ReactEditText{8b7b718 VFED..CL. .F...... 36,84-620,172 #26}
+  mServedConnecting=false
+  mCurrentTextBoxAttribute:
+    inputType=0x80021 imeOptions=0xc000005 privateImeOptions=null
+    actionLabel=null actionId=0
+    initialSelStart=22 initialSelEnd=22 initialCapsMode=0x0
+    hintText=ornek@universite.edu.tr label=null
+    packageName=com.anssoft.akademiktakvim fieldId=38 fieldName=null
+    extras=Bundle[{androidx.core.view.inputmethod.EditorInfoCompat.CONTENT_SELECTION_HEAD=22, androidx.core.view.inputmethod.EditorInfoCompat.CONTENT_SELECTION_END=22, androidx.core.view.inputmethod.EditorInfoCompat.CONTENT_SURROUNDING_TEXT=ogrenci@phase6.invalid}]
+    hintLocales=null
+  mServedInputConnectionWrapper=ControlledInputConnectionWrapper{connection=androidx.emoji2.viewsintegration.EmojiInputConnection@bae71b7 finished=false mParentInputMethodManager.mActive=true mInputMethodId=com.android.inputmethod.latin/.LatinIME}
+  mCompletions=null
+  mCursorRect=Rect(0, 0 - 0, 0)
+  mCursorSelStart=17 mCursorSelEnd=17 mCursorCandStart=-1 mCursorCandEnd=-1
+  mNextUserActionNotificationSequenceNumber=2 mLastSentUserActionNotificationSequenceNumber=-1
+
+Input method service state for com.android.inputmethod.latin.LatinIME@45b465b:
+  mWindowCreated=true mWindowAdded=true
+  mWindowVisible=true mWindowWasVisible=true mInShowWindow=false
+  Configuration={1.0 310mcc260mnc [en_US] ldltr sw360dp w360dp h568dp 320dpi nrml port finger qwerty/v/v dpad/v s.5}
+  mToken=android.os.BinderProxy@c384905
+  mInputBinding=InputBinding{android.os.BinderProxy@914cd5a / uid 10081 / pid 5305}
+  mInputConnection=InputConnectionWrapper{idHash=#2090b8b mMissingMethods=}
+  mStartedInputConnection=InputConnectionWrapper{idHash=#7e07468 mMissingMethods=}
+  mInputStarted=true mInputViewStarted=true mCandidatesViewStarted=false
+  mInputEditorInfo:
+    inputType=0x80021 imeOptions=0xc000005 privateImeOptions=null
+    actionLabel=null actionId=0
+    initialSelStart=22 initialSelEnd=22 initialCapsMode=0x0
+    hintText=ornek@universite.edu.tr label=null
+    packageName=com.anssoft.akademiktakvim fieldId=38 fieldName=null
+    extras=Bundle[mParcelledData.dataSize=528]
+    hintLocales=null
+  mShowInputRequested=true mLastShowInputRequested=true mShowInputFlags=0x1
+  mCandidatesVisibility=4 mFullscreenApplied=true mIsFullscreen=false mExtractViewHidden=false
+  mExtractedText: null
+  mExtractedToken=0
+  mIsInputViewShown=true mStatusIcon=0
+Last computed insets:
+  contentTopInsets=690 visibleTopInsets=690 touchableInsets=3 touchableRegion=SkRegion((0,690,720,1236))
+ mShouldClearInsetOfPreviousIme=false
+ mSettingsObserver=SettingsObserver{mShowImeWithHardKeyboard=2}
+LatinIME state :
+  VersionCode = 24
+  VersionName = 7.0
+  Keyboard mode = 2
+Current settings :
+   mSpacingAndPunctuations = mSortedSymbolsPrecededBySpace = [38, 40, 91, 123]
+   mSortedSymbolsFollowedBySpace = [33, 38, 41, 44, 46, 58, 59, 63, 93, 125]
+   mSortedWordConnectors = [39, 45]
+   mSortedWordSeparators = [9, 10, 32, 33, 34, 38, 40, 41, 42, 43, 44, 46, 47, 58, 59, 60, 61, 62, 63, 91, 93, 95, 123, 124, 125, 160]
+   mSuggestPuncList = PunctuationSuggestions:  words=[!, ?, \,, :, ;, ", (, ), ', -, /, @, _]
+   mSentenceSeparator = 46
+   mSentenceSeparatorAndSpace = .
+   mCurrentLanguageHasSpaces = true
+   mUsesAmericanTypography = true
+   mUsesGermanRules = false
+   mDelayInMillisecondsToUpdateOldSuggestions = 300
+   mAutoCap = true
+   mVibrateOn = false
+   mSoundOn = false
+   mKeyPreviewPopupOn = true
+   mShowsVoiceInputKey = false
+   mIncludesOtherImesInLanguageSwitchList = true
+   mShowsLanguageSwitchKey = true
+   mUseContactsDict = true
+   mUsePersonalizedDicts = true
+   mUseDoubleSpacePeriod = false
+   mBlockPotentiallyOffensive = true
+   mBigramPredictionEnabled = true
+   mGestureInputEnabled = false
+   mGestureTrailEnabled = true
+   mGestureFloatingPreviewTextEnabled = true
+   mSlidingKeyInputPreviewEnabled = true
+   mKeyLongpressTimeout = 300
+   mLocale = en_US
+   mInputAttributes = InputAttributes: inputType=0x00080021 noAutoCorrect targetApp=com.anssoft.akademiktakvim
+
+   mKeypressVibrationDuration = -1
+   mKeypressSoundVolume = -1.0
+   mKeyPreviewPopupDismissDelay = 70
+   mAutoCorrectEnabled = true
+   mAutoCorrectionThreshold = 0.185
+   mAutoCorrectionEnabledPerUserSettings = false
+   mSuggestionsEnabledPerUserSettings = true
+   mDisplayOrientation = 1
+   mAppWorkarounds = Target application : null
+Package : com.anssoft.akademiktakvim
+Target app sdk version : 36
+   mIsInternal = false
+   mKeyPreviewShowUpDuration = 17
+   mKeyPreviewDismissDuration = 53
+   mKeyPreviewShowUpStartScaleX = 0.98
+   mKeyPreviewShowUpStartScaleY = 0.98
+   mKeyPreviewDismissEndScaleX = 0.94000006
+   mKeyPreviewDismissEndScaleY = 0.94000006

@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import {
   FEED_PERFORMANCE_THRESHOLDS,
   evaluateFeedPerformanceTrials,
+  parseAndroidActivityStartTiming,
   parseAndroidFrameStats,
 } from "../apps/mobile-native/src/performance/feed-performance.js";
 
@@ -25,6 +26,13 @@ const performanceEntryFile = "index.feed-performance.ts";
 const hierarchyPath = "/sdcard/academic-feed-performance.xml";
 const expectedRuntimeMarker = "Release feed performance harness, 100 records";
 const postBuildSettlingMs = 15_000;
+const standardDeviceProfile = Object.freeze({
+  width: 720,
+  height: 1280,
+  densityDpi: 320,
+  fontScale: 1,
+  animationScale: 1,
+} as const);
 
 interface CommandOptions {
   cwd?: string;
@@ -45,11 +53,41 @@ interface ExistingArtifactSnapshot {
   modifiedAt: Date;
 }
 
+interface DisplaySizeConfiguration {
+  physical: { width: number; height: number };
+  override?: { width: number; height: number };
+}
+
+interface DisplayDensityConfiguration {
+  physical: number;
+  override?: number;
+}
+
+interface DeviceConfigurationSnapshot {
+  size: DisplaySizeConfiguration;
+  density: DisplayDensityConfiguration;
+  fontScale: string | null;
+  animationScales: {
+    window: string | null;
+    transition: string | null;
+    animator: string | null;
+  };
+}
+
+interface ReactNativeRuntimeConfiguration {
+  jsEngine: "Hermes";
+  renderer: "Fabric";
+  hermesEnabled: true;
+  newArchitectureEnabled: true;
+}
+
 async function main(): Promise<void> {
   const sdkRoot = resolveAndroidSdkRoot();
   const adb = resolveSdkTool(sdkRoot, "platform-tools", executableName("adb"));
   const aapt2 = resolveLatestBuildTool(sdkRoot, executableName("aapt2"));
   const serial = await resolveSingleDevice(adb);
+  const gitHead = await resolveGitHead();
+  const reactNativeRuntime = readReactNativeRuntimeConfiguration();
   const ephemeralDevice = process.env.FEED_PERFORMANCE_EPHEMERAL_DEVICE === "1";
   const preexistingPackage = (await runAdb(adb, serial, ["shell", "pm", "list", "packages", packageName])).stdout
     .split(/\r?\n/u)
@@ -59,14 +97,26 @@ async function main(): Promise<void> {
   }
   let installed = false;
   const preexistingReleaseArtifact = snapshotExistingReleaseArtifact();
+  const originalDeviceConfiguration = await readDeviceConfiguration(adb, serial);
+  let measuredDeviceConfiguration: DeviceConfigurationSnapshot | undefined;
+  let restoredDeviceConfiguration: DeviceConfigurationSnapshot | undefined;
+  let deviceConfigurationMutationAttempted = false;
+  let deviceConfigurationRestored = false;
   let benchmarkApkPath: string | undefined = canonicalReleaseApkPath();
   let releaseArtifactRestored = false;
 
   try {
+    deviceConfigurationMutationAttempted = true;
+    await applyStandardDeviceConfiguration(adb, serial);
+    measuredDeviceConfiguration = await readDeviceConfiguration(adb, serial);
+    assertStandardDeviceConfiguration(measuredDeviceConfiguration);
+
     console.log("Building a fresh x86_64 release bundle from the isolated feed entry...");
     await runCommand(gradleExecutable(), [
       ":app:assembleRelease",
       "-PreactNativeArchitectures=x86_64",
+      "-PhermesEnabled=true",
+      "-PnewArchEnabled=true",
       "--no-daemon",
       "--rerun-tasks",
     ], {
@@ -117,6 +167,8 @@ async function main(): Promise<void> {
     await runAdb(adb, serial, ["logcat", "-c"]);
     const launch = await runAdb(adb, serial, ["shell", "am", "start", "-W", "-n", activityName], true);
     if (!/Status:\s+ok/iu.test(launch.stdout)) throw new Error("PERFORMANCE_APP_LAUNCH_FAILED");
+    const activityStartTiming = parseAndroidActivityStartTiming(launch.stdout);
+    if (!activityStartTiming) throw new Error("PERFORMANCE_APP_LAUNCH_TIMING_INVALID");
     await delay(5_000);
 
     const pid = (await runAdb(adb, serial, ["shell", "pidof", packageName])).stdout.trim();
@@ -130,8 +182,10 @@ async function main(): Promise<void> {
       throw new Error("PERFORMANCE_RELEASE_REQUESTED_METRO");
     }
 
-    const screen = parseDeviceSize((await runAdb(adb, serial, ["shell", "wm", "size"])).stdout);
-    const densityDpi = parseDeviceDensity((await runAdb(adb, serial, ["shell", "wm", "density"])).stdout);
+    measuredDeviceConfiguration = await readDeviceConfiguration(adb, serial);
+    assertStandardDeviceConfiguration(measuredDeviceConfiguration);
+    const screen = effectiveDisplaySize(measuredDeviceConfiguration.size);
+    const densityDpi = effectiveDisplayDensity(measuredDeviceConfiguration.density);
     const displayDump = (await runAdb(adb, serial, ["shell", "dumpsys", "display"])).stdout;
     const surfaceFlingerDump = (await runAdb(adb, serial, ["shell", "dumpsys", "SurfaceFlinger"])).stdout;
     const deviceMetadata = {
@@ -143,13 +197,9 @@ async function main(): Promise<void> {
         : undefined,
       densityDpi,
       graphicsRenderer: parseGraphicsRenderer(surfaceFlingerDump),
-      fontScale: (await runAdb(adb, serial, ["shell", "settings", "get", "system", "font_scale"])).stdout.trim(),
+      fontScale: measuredDeviceConfiguration.fontScale,
       refreshRateHz: parseRefreshRate(displayDump),
-      animationScales: {
-        window: (await runAdb(adb, serial, ["shell", "settings", "get", "global", "window_animation_scale"])).stdout.trim(),
-        transition: (await runAdb(adb, serial, ["shell", "settings", "get", "global", "transition_animation_scale"])).stdout.trim(),
-        animator: (await runAdb(adb, serial, ["shell", "settings", "get", "global", "animator_duration_scale"])).stdout.trim(),
-      },
+      animationScales: measuredDeviceConfiguration.animationScales,
     };
     // The release build saturates the same host CPUs used by the emulator.
     // Let compiler/Gradle teardown settle before the unmeasured warm-up so the
@@ -179,17 +229,29 @@ async function main(): Promise<void> {
     restoreReleaseArtifact(benchmarkApkPath, preexistingReleaseArtifact);
     benchmarkApkPath = undefined;
     releaseArtifactRestored = true;
+    restoredDeviceConfiguration = await restoreAndVerifyDeviceConfiguration(
+      adb,
+      serial,
+      originalDeviceConfiguration,
+    );
+    deviceConfigurationRestored = true;
 
     const report = {
+      repository: {
+        gitHead,
+      },
       method: {
         buildVariant: "release",
         entryFile: performanceEntryFile,
         architecture: "x86_64",
         nodeEnv: "production",
         metroRequired: false,
+        reactNativeRuntime,
+        standardDeviceProfile,
         postBuildSettlingMs,
         warmupTrials: 1,
         measuredTrials: FEED_PERFORMANCE_THRESHOLDS.requiredTrialCount,
+        activityStartSource: `adb shell am start -W -n ${activityName}`,
         frameSource: `adb shell dumpsys gfxinfo ${packageName} framestats`,
         percentileMethod: "nearest-rank",
         thresholds: FEED_PERFORMANCE_THRESHOLDS,
@@ -209,6 +271,8 @@ async function main(): Promise<void> {
         embeddedRecordCount: 100,
         harnessMarkerObserved: true,
         metroConnectionErrorObserved: false,
+        activityStartTimingMs: activityStartTiming,
+        reactNativeRuntime,
         screen,
         ...deviceMetadata,
       },
@@ -219,7 +283,14 @@ async function main(): Promise<void> {
         alternateEntryApkRemoved: true,
         preexistingReleaseArtifactRestored: Boolean(preexistingReleaseArtifact),
         preexistingPackageRemovedInEphemeralSession: preexistingPackage,
-        displaySettingsChanged: false,
+        standardDeviceConfigurationApplied: true,
+        deviceConfigurationChangedForMeasurement: !deviceConfigurationsEqual(
+          originalDeviceConfiguration,
+          measuredDeviceConfiguration,
+        ),
+        deviceConfigurationRestored,
+        originalDeviceConfiguration,
+        restoredDeviceConfiguration,
         adbReverseAdded: false,
       },
     };
@@ -228,13 +299,22 @@ async function main(): Promise<void> {
       throw new Error(`PERFORMANCE_ACCEPTANCE_FAILED:${evaluation.reasons.map((reason) => reason.code).join("|")}`);
     }
   } finally {
-    if (installed) {
-      await runAdb(adb, serial, ["shell", "am", "force-stop", packageName]).catch(() => undefined);
-      await runAdb(adb, serial, ["uninstall", packageName]).catch(() => undefined);
-      await runAdb(adb, serial, ["shell", "rm", "-f", hierarchyPath]).catch(() => undefined);
-    }
-    if (!releaseArtifactRestored) {
-      restoreReleaseArtifact(benchmarkApkPath, preexistingReleaseArtifact);
+    try {
+      if (installed) {
+        await runAdb(adb, serial, ["shell", "am", "force-stop", packageName]).catch(() => undefined);
+        await runAdb(adb, serial, ["uninstall", packageName]).catch(() => undefined);
+        await runAdb(adb, serial, ["shell", "rm", "-f", hierarchyPath]).catch(() => undefined);
+      }
+    } finally {
+      try {
+        if (!releaseArtifactRestored) {
+          restoreReleaseArtifact(benchmarkApkPath, preexistingReleaseArtifact);
+        }
+      } finally {
+        if (deviceConfigurationMutationAttempted && !deviceConfigurationRestored) {
+          await restoreAndVerifyDeviceConfiguration(adb, serial, originalDeviceConfiguration);
+        }
+      }
     }
   }
 }
@@ -264,24 +344,186 @@ async function readRuntimeHierarchy(adb: string, serial: string): Promise<string
   }
 }
 
-function parseDeviceSize(output: string): { width: number; height: number } {
-  const matches = [...output.matchAll(/(?:Physical|Override) size:\s*(\d+)x(\d+)/giu)];
-  const selected = matches.at(-1);
-  const width = Number(selected?.[1]);
-  const height = Number(selected?.[2]);
-  if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
-    throw new Error("PERFORMANCE_DEVICE_SIZE_INVALID");
-  }
-  return { width, height };
+async function readDeviceConfiguration(
+  adb: string,
+  serial: string,
+): Promise<DeviceConfigurationSnapshot> {
+  const [size, density, fontScale, windowScale, transitionScale, animatorScale] = await Promise.all([
+    runAdb(adb, serial, ["shell", "wm", "size"]),
+    runAdb(adb, serial, ["shell", "wm", "density"]),
+    runAdb(adb, serial, ["shell", "settings", "get", "system", "font_scale"]),
+    runAdb(adb, serial, ["shell", "settings", "get", "global", "window_animation_scale"]),
+    runAdb(adb, serial, ["shell", "settings", "get", "global", "transition_animation_scale"]),
+    runAdb(adb, serial, ["shell", "settings", "get", "global", "animator_duration_scale"]),
+  ]);
+
+  return {
+    size: parseDisplaySizeConfiguration(size.stdout),
+    density: parseDisplayDensityConfiguration(density.stdout),
+    fontScale: normalizeAndroidSetting(fontScale.stdout),
+    animationScales: {
+      window: normalizeAndroidSetting(windowScale.stdout),
+      transition: normalizeAndroidSetting(transitionScale.stdout),
+      animator: normalizeAndroidSetting(animatorScale.stdout),
+    },
+  };
 }
 
-function parseDeviceDensity(output: string): number {
-  const matches = [...output.matchAll(/(?:Physical|Override) density:\s*(\d+)/giu)];
-  const density = Number(matches.at(-1)?.[1]);
-  if (!Number.isInteger(density) || density <= 0) {
-    throw new Error("PERFORMANCE_DEVICE_DENSITY_INVALID");
+async function applyStandardDeviceConfiguration(adb: string, serial: string): Promise<void> {
+  await runAdb(adb, serial, ["shell", "wm", "size", "reset"]);
+  await runAdb(adb, serial, ["shell", "wm", "density", "reset"]);
+  await runAdb(adb, serial, ["shell", "settings", "put", "system", "font_scale", "1.0"]);
+  await runAdb(adb, serial, ["shell", "settings", "put", "global", "window_animation_scale", "1.0"]);
+  await runAdb(adb, serial, ["shell", "settings", "put", "global", "transition_animation_scale", "1.0"]);
+  await runAdb(adb, serial, ["shell", "settings", "put", "global", "animator_duration_scale", "1.0"]);
+}
+
+async function restoreAndVerifyDeviceConfiguration(
+  adb: string,
+  serial: string,
+  snapshot: DeviceConfigurationSnapshot,
+): Promise<DeviceConfigurationSnapshot> {
+  if (snapshot.size.override) {
+    await runAdb(adb, serial, [
+      "shell",
+      "wm",
+      "size",
+      `${snapshot.size.override.width}x${snapshot.size.override.height}`,
+    ]);
+  } else {
+    await runAdb(adb, serial, ["shell", "wm", "size", "reset"]);
   }
-  return density;
+  if (snapshot.density.override) {
+    await runAdb(adb, serial, ["shell", "wm", "density", String(snapshot.density.override)]);
+  } else {
+    await runAdb(adb, serial, ["shell", "wm", "density", "reset"]);
+  }
+  await restoreAndroidSetting(adb, serial, "system", "font_scale", snapshot.fontScale);
+  await restoreAndroidSetting(
+    adb,
+    serial,
+    "global",
+    "window_animation_scale",
+    snapshot.animationScales.window,
+  );
+  await restoreAndroidSetting(
+    adb,
+    serial,
+    "global",
+    "transition_animation_scale",
+    snapshot.animationScales.transition,
+  );
+  await restoreAndroidSetting(
+    adb,
+    serial,
+    "global",
+    "animator_duration_scale",
+    snapshot.animationScales.animator,
+  );
+
+  const restored = await readDeviceConfiguration(adb, serial);
+  if (!deviceConfigurationsEqual(snapshot, restored)) {
+    throw new Error("PERFORMANCE_DEVICE_CONFIGURATION_RESTORE_FAILED");
+  }
+  return restored;
+}
+
+async function restoreAndroidSetting(
+  adb: string,
+  serial: string,
+  namespace: "global" | "system",
+  key: string,
+  value: string | null,
+): Promise<void> {
+  await runAdb(
+    adb,
+    serial,
+    value === null
+      ? ["shell", "settings", "delete", namespace, key]
+      : ["shell", "settings", "put", namespace, key, value],
+  );
+}
+
+function assertStandardDeviceConfiguration(configuration: DeviceConfigurationSnapshot): void {
+  const size = effectiveDisplaySize(configuration.size);
+  const densityDpi = effectiveDisplayDensity(configuration.density);
+  const values = [
+    configuration.fontScale,
+    configuration.animationScales.window,
+    configuration.animationScales.transition,
+    configuration.animationScales.animator,
+  ].map((value) => value === null ? Number.NaN : Number(value));
+  const valid = !configuration.size.override
+    && !configuration.density.override
+    && size.width === standardDeviceProfile.width
+    && size.height === standardDeviceProfile.height
+    && densityDpi === standardDeviceProfile.densityDpi
+    && values[0] === standardDeviceProfile.fontScale
+    && values.slice(1).every((value) => value === standardDeviceProfile.animationScale);
+  if (!valid) {
+    throw new Error("PERFORMANCE_STANDARD_DEVICE_CONFIGURATION_INVALID");
+  }
+}
+
+function parseDisplaySizeConfiguration(output: string): DisplaySizeConfiguration {
+  const physical = parseSizeLine(output, "Physical");
+  if (!physical) throw new Error("PERFORMANCE_DEVICE_SIZE_INVALID");
+  const override = parseSizeLine(output, "Override");
+  return { physical, ...(override ? { override } : {}) };
+}
+
+function parseSizeLine(
+  output: string,
+  kind: "Physical" | "Override",
+): { width: number; height: number } | null {
+  const match = output.match(new RegExp(`^${kind} size:\\s*(\\d+)x(\\d+)\\s*$`, "imu"));
+  const width = Number(match?.[1]);
+  const height = Number(match?.[2]);
+  return Number.isInteger(width) && width > 0 && Number.isInteger(height) && height > 0
+    ? { width, height }
+    : null;
+}
+
+function parseDisplayDensityConfiguration(output: string): DisplayDensityConfiguration {
+  const physical = parseDensityLine(output, "Physical");
+  if (!physical) throw new Error("PERFORMANCE_DEVICE_DENSITY_INVALID");
+  const override = parseDensityLine(output, "Override");
+  return { physical, ...(override ? { override } : {}) };
+}
+
+function parseDensityLine(output: string, kind: "Physical" | "Override"): number | null {
+  const value = Number(output.match(new RegExp(`^${kind} density:\\s*(\\d+)\\s*$`, "imu"))?.[1]);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function normalizeAndroidSetting(output: string): string | null {
+  const value = output.trim();
+  return value && value !== "null" ? value : null;
+}
+
+function effectiveDisplaySize(configuration: DisplaySizeConfiguration): { width: number; height: number } {
+  return configuration.override ?? configuration.physical;
+}
+
+function effectiveDisplayDensity(configuration: DisplayDensityConfiguration): number {
+  return configuration.override ?? configuration.physical;
+}
+
+function deviceConfigurationsEqual(
+  left: DeviceConfigurationSnapshot,
+  right: DeviceConfigurationSnapshot | undefined,
+): boolean {
+  if (!right) return false;
+  return left.size.physical.width === right.size.physical.width
+    && left.size.physical.height === right.size.physical.height
+    && left.size.override?.width === right.size.override?.width
+    && left.size.override?.height === right.size.override?.height
+    && left.density.physical === right.density.physical
+    && left.density.override === right.density.override
+    && left.fontScale === right.fontScale
+    && left.animationScales.window === right.animationScales.window
+    && left.animationScales.transition === right.animationScales.transition
+    && left.animationScales.animator === right.animationScales.animator;
 }
 
 function parseRefreshRate(output: string): number {
@@ -302,6 +544,38 @@ function parseGraphicsRenderer(output: string): string {
 function parseNativeCodeAbis(badging: string): string[] {
   const line = badging.split(/\r?\n/u).find((candidate) => candidate.startsWith("native-code:"));
   return line ? [...line.matchAll(/'([^']+)'/gu)].flatMap((match) => match[1] ? [match[1]] : []) : [];
+}
+
+async function resolveGitHead(): Promise<string> {
+  const head = (await runCommand("git", ["rev-parse", "HEAD"])).stdout.trim();
+  if (!/^[0-9a-f]{40}$/u.test(head)) throw new Error("PERFORMANCE_GIT_HEAD_INVALID");
+  return head;
+}
+
+function readReactNativeRuntimeConfiguration(): ReactNativeRuntimeConfiguration {
+  const propertiesPath = join(androidRoot, "gradle.properties");
+  const properties = new Map(
+    readFileSync(propertiesPath, "utf8")
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && line.includes("="))
+      .map((line) => {
+        const separator = line.indexOf("=");
+        return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()] as const;
+      }),
+  );
+  if (properties.get("hermesEnabled") !== "true") {
+    throw new Error("PERFORMANCE_HERMES_NOT_ENABLED");
+  }
+  if (properties.get("newArchEnabled") !== "true") {
+    throw new Error("PERFORMANCE_FABRIC_NOT_ENABLED");
+  }
+  return {
+    jsEngine: "Hermes",
+    renderer: "Fabric",
+    hermesEnabled: true,
+    newArchitectureEnabled: true,
+  };
 }
 
 async function resolveSingleDevice(adb: string): Promise<string> {

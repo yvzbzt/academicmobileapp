@@ -6,7 +6,7 @@ import {
   renderAsync,
   screen,
 } from "@testing-library/react-native";
-import { FlatList } from "react-native";
+import { AccessibilityInfo, FlatList } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   AnnouncementsFeed,
@@ -274,6 +274,43 @@ describe("Phase 8 Announcements feed", () => {
     );
     expect(screen.getByTestId("announcements-filter-summary").props.accessibilityLabel)
       .toContain("Haberler, Fakültem");
+    expect(screen.getByTestId("announcements-filter-summary").props.accessibilityLiveRegion)
+      .toBe("polite");
+  });
+
+  it("announces committed iOS filter and debounced search results without an initial announcement", async () => {
+    const announceSpy = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockImplementation(() => undefined);
+
+    try {
+      await renderFeed(feedProps(), "ios");
+      expect(announceSpy).not.toHaveBeenCalled();
+
+      fireEvent.press(screen.getByRole("button", {
+        name: "Haberler içerik türü filtresi",
+      }));
+      expect(announceSpy).toHaveBeenLastCalledWith(
+        screen.getByTestId("announcements-filter-summary").props.accessibilityLabel,
+      );
+      expect(announceSpy).toHaveBeenLastCalledWith(
+        "Seçili filtreler: Haberler, Tüm kaynaklar. 1 sonuç.",
+      );
+
+      announceSpy.mockClear();
+      fireEvent.changeText(
+        screen.getByRole("search", { name: "Duyurularda ara" }),
+        "burs",
+      );
+      act(() => jest.advanceTimersByTime(299));
+      expect(announceSpy).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      expect(announceSpy).toHaveBeenLastCalledWith(
+        "Seçili filtreler: Haberler, Tüm kaynaklar, arama etkin. 1 sonuç.",
+      );
+    } finally {
+      announceSpy.mockRestore();
+    }
   });
 
   it("keeps YÖK and Summer School reachable and uses full-row in-app navigation", async () => {

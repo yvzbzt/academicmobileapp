@@ -1,12 +1,9 @@
 # Native Screen and State Inventory
 
-Current reconciliation: 4 August 2026. The accepted Phase 8 baseline is
-`7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`; remediation Packages 1-3 are
-`641d7bee8a1cd539179769069a22b5c3220e8a6d`,
-`5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and
-`2e3664546f628a19c6fa929b9ee9469e5322f9a8`. The baseline and Phase 3 sections
-below are retained as explicitly historical inventory; Phases 4-8 and this
-reconciliation describe the current reachable product.
+Current reconciliation: 6 August 2026. Phase 11 begins from the accepted
+Phase 10 baseline `8dbe5e1efdb0c5fab665345188228ff66a0f84f6`. The baseline and
+earlier phase sections below are retained as explicitly historical inventory;
+the latest phase-specific sections describe the current reachable product.
 
 Baseline: 29 July 2026, `apps/mobile-native/App.tsx` at HEAD `cbd0067b03c3cf7286270df25164a556c55b55b9`.
 
@@ -314,3 +311,63 @@ ProfileTab
 The Profile route does not duplicate controls owned by its nested routes. Appearance is omitted because system appearance is automatic and no persisted user choice exists. Help, privacy, terms, and support rows are omitted because the application has no real destinations. The only app metadata displayed is truthful configuration-backed version/build information.
 
 The synthetic Phase 10 preview is development-only, dual-gated, and backed by reserved local fixtures. Its allowlisted scenarios are `profile-summary`, `profile-incomplete`, `academic-editor`, `notifications-active`, `notifications-denied`, `notifications-settings-required`, `notifications-registering`, `notifications-error`, `google-disconnected`, `google-connected`, `google-partial`, `google-expired`, `account-management`, `danger-expanded`, `data-confirm`, `data-error`, `account-confirm`, and `account-error`. Focused Phase 10 renderer/navigation/selector/auth validation passes 5 suites / 71 tests / 0 snapshots, including preview gate/URL/synthetic-boundary checks. The reviewed Android inventory in [`evidence/phase-10-native`](./evidence/phase-10-native/README.md) contains 44 original-resolution screenshots and 44 basename-matched hierarchies with 88 integrity-index rows. It covers phone light/dark, exact 320 dp at 200% text, simulated tablet width, reachable actions and 48 dp targets, and ordinary Back from Notifications to Profile in the same process. The dirty academic leave guard is covered by automated production-route tests, not claimed as a native dirty-Back smoke. TalkBack, iOS/VoiceOver/Liquid Glass, live providers, authenticated relaunch/account switching, and SecureStore remain outside this synthetic evidence. Phase 11 was not started.
+
+## Phase 11 cross-platform quality inventory
+
+Phase 11 changes no route identifier or primary-navigation destination. It
+replaces the last reachable legacy YÖK and Summer School presentation slots and
+hardens system/focus/result boundaries across the existing map:
+
+```text
+Root stack
+├─ BootstrapLoading / BootstrapError / UnknownRoute
+├─ existing AuthFlow and AcademicOnboarding
+└─ existing four-tab authenticated shell
+   ├─ Home
+   ├─ Announcements
+   │  ├─ Announcements
+   │  ├─ AnnouncementDetail
+   │  ├─ YokAnnouncements → semantic FlatList
+   │  └─ SummerSchool → semantic SectionList
+   ├─ Calendar / CalendarEventDetail
+   └─ Profile and its four existing settings routes
+```
+
+| Surface or transition | Current Phase 11 hierarchy/state | Accessibility and adaptive boundary |
+|---|---|---|
+| Bootstrap loading | One labelled busy region → heading → supporting status | Semantic progressbar/busy state on light/dark tokens; headerless route announcement |
+| Bootstrap error | Fixed error summary → retry | Alert semantics, fixed/non-raw copy, 48-unit shared action, route announcement |
+| Unknown route | Non-echoing unavailable summary → authenticated Home or signed-out Login | Summary/header semantics; no unsafe path or query is repeated |
+| Auth/recovery/onboarding validation | Existing persistent labels and errors | Recovery email and password confirmation focus the first invalid native field; required academic selection can receive accessibility focus |
+| Native sheet/editor entry and exit | Heading → scrollable task content → actions | Sheet heading receives entry focus; dismiss returns focus to a supplied launcher; personal-exam date/time dismissal returns to the picker button |
+| Announcements results | Existing search → type/source filters → result summary → trusted rows | Filter/search changes announce the selected filters and exact visible count; Android uses a polite live region and iOS uses an explicit announcement |
+| Calendar results | Existing view selector → period controls → view heading → rows | Agenda/Week/Month and period changes announce the view, period where applicable, and exact result count; personal-exam operation feedback remains on Calendar/detail |
+| YÖK nested screen | Heading/count → refresh → retained availability → trusted official rows | One `FlatList`; loading, populated, empty, retained refresh, stale, partial, offline, and error states; in-app trusted detail before official handoff |
+| Summer School nested screen | Heading/context/count → refresh → availability → dates → requirements/trusted announcements → matching options | One `SectionList`; independent Calendar/content state, civil-date/range labels, explicit unavailable-link copy, `link` role only when an official URL exists, and safe controlled handoff |
+| Profile/Calendar/destructive results | Existing route-owned cards, editors, confirmations, and banners | Important success/error results are persistent semantic alerts on one active owning route; selection/status never relies on color alone |
+
+The deterministic layout matrix iterates 320, 360, 393, 430, and 853
+logical-unit widths at 130%, 150%, and 200% font scale. Auth, Home,
+Announcements/YÖK/Summer, Calendar, selectors, and Profile/settings retain one
+vertical reading order, compact gutters below 375, the existing 720-unit
+readable maximum, wrapping labels, and no required horizontal scrolling.
+Tablet-style width groups readable content and may select the existing Android
+rail without adding a second route model. Bottom sheets/forms remain scrollable
+and keyboard-safe where their owning routes opt in.
+
+All reachable extracted route surfaces use the semantic light/dark token
+system. Source/status/event identity remains text and/or icon plus color.
+Decorative icons and skeleton rows are hidden beneath a single meaningful busy
+region. Reduce Motion simplifies nonessential shared transitions, and Reduce
+Transparency selects opaque navigation/control chrome; feeds, forms, Calendar,
+settings, YÖK, Summer School, and long reading surfaces are always opaque.
+Unbounded product collections remain virtualized, with no Phase 11 speculative
+windowing/clipping change.
+
+The exact synthetic Android screenshots, hierarchies, settings, hashes, logs,
+and release measurements belong to the Phase 11 evidence index and report.
+They do not establish native iOS/VoiceOver/Dynamic Type/Liquid Glass, TalkBack
+traversal, API 33 notification permission, predictive Back, a physical
+tablet/foldable, live provider behavior, authenticated relaunch/account
+switching, or installed E2E. Mobile-native lint remains unavailable. Phase 12
+is not started.

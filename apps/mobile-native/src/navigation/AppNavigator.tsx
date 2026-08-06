@@ -5,6 +5,7 @@ import {
   createNavigationContainerRef,
   type NavigationState,
   type PartialState,
+  useFocusEffect,
   useNavigation,
   usePreventRemove,
   useScrollToTop,
@@ -17,6 +18,7 @@ import {
 } from "@react-navigation/native-stack";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -25,14 +27,17 @@ import {
   type ReactNode
 } from "react";
 import {
+  AccessibilityInfo,
   Alert,
   BackHandler,
+  findNodeHandle,
   Platform,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
   type ScrollView,
+  type Text as NativeText,
 } from "react-native";
 import {
   NavigationSurface,
@@ -48,6 +53,7 @@ import {
   resolveAppShellLayoutContract,
 } from "./app-shell";
 import { AdaptiveTopBar } from "./AdaptiveTopBar";
+import { resolveNavigationTheme } from "./navigation-theme";
 
 export type AppRootSurface =
   | "hydration_loading"
@@ -232,6 +238,18 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
     ? ["right", "bottom"] as const
     : ["left", "right"] as const;
 
+  useFocusEffect(
+    useCallback(() => {
+      if (hasAuthenticatedShell) return undefined;
+      const timer = setTimeout(() => {
+        AccessibilityInfo.announceForAccessibility(
+          `${routeAccessibilityTitle(route)} ekranı`,
+        );
+      }, 100);
+      return () => clearTimeout(timer);
+    }, [hasAuthenticatedShell, route]),
+  );
+
   if (isBootstrap) {
     return (
       <Screen centered>
@@ -242,6 +260,8 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
 
   if (route === "Home"
     || route === "Announcements"
+    || route === "SummerSchool"
+    || route === "YokAnnouncements"
     || route === "AnnouncementDetail"
     || route === "Calendar"
     || route === "CalendarEventDetail") {
@@ -309,10 +329,41 @@ function ShellStackHeader({
   const adaptation = usePlatformAdaptation();
   const theme = useTheme();
   const title = options.title ?? route.name;
+  const titleRef = useRef<NativeText | null>(null);
+  const titleTargetRef = useRef<number | null>(null);
+  const focusedRef = useRef(false);
+  const routeFocusedRef = useRef(false);
+  const focusTitle = useCallback((layoutTarget?: number) => {
+    const target = layoutTarget
+      ?? titleTargetRef.current
+      ?? findNodeHandle(titleRef.current);
+    if (typeof target !== "number" || target <= 0) return;
+    focusedRef.current = true;
+    AccessibilityInfo.setAccessibilityFocus(target);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      routeFocusedRef.current = true;
+      focusedRef.current = false;
+      const timer = setTimeout(() => {
+        if (!focusedRef.current) focusTitle();
+      }, 100);
+      return () => {
+        routeFocusedRef.current = false;
+        clearTimeout(timer);
+      };
+    }, [focusTitle, route.key, title]),
+  );
 
   return (
     <AdaptiveTopBar
       title={title}
+      titleRef={titleRef}
+      onTitleLayoutTarget={(target) => {
+        titleTargetRef.current = target;
+        if (routeFocusedRef.current && !focusedRef.current) focusTitle(target);
+      }}
       leadingAction={back ? {
         accessibilityHint: back.title
           ? `${back.title} ekran\u0131na d\u00f6ner.`
@@ -704,6 +755,7 @@ export function AppNavigator({
 }: AppNavigatorProps) {
   const reducedMotion = useReducedMotion();
   const theme = useTheme();
+  const navigationTheme = useMemo(() => resolveNavigationTheme(theme), [theme]);
   const [ready, setReady] = useState(false);
   const handledRequestKeyRef = useRef<string | null>(null);
   const lastControlledRouteRef = useRef<string | null>(null);
@@ -756,6 +808,7 @@ export function AppNavigator({
     <RouteContentContext.Provider value={contextValue}>
       <NavigationContainer
         ref={navigationRef}
+        theme={navigationTheme}
         onReady={() => {
           setReady(true);
           reportVisibleRoute();
@@ -868,6 +921,35 @@ function isAuthenticatedRoute(route: AppVisibleRoute): boolean {
     || route === "NotificationSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
+}
+
+const ROUTE_ACCESSIBILITY_TITLES: Readonly<Record<AppVisibleRoute, string>> = {
+  BootstrapLoading: "Uygulama hazırlanıyor",
+  BootstrapError: "Başlangıç tamamlanamadı",
+  Login: "Giriş",
+  Register: "Kayıt",
+  Verification: "E-posta doğrulama",
+  PasswordRecoveryRequest: "Şifre kurtarma",
+  PasswordRecoveryCode: "Şifre kurtarma kodu",
+  PasswordRecoveryConfirm: "Yeni şifre",
+  AcademicOnboarding: "Akademik profil",
+  Home: "Ana Sayfa",
+  Announcements: "Duyurular",
+  SummerSchool: "Yaz Okulu",
+  YokAnnouncements: "YÖK Duyuruları",
+  AnnouncementDetail: "Duyuru Ayrıntısı",
+  Calendar: "Takvim",
+  CalendarEventDetail: "Takvim Ayrıntısı",
+  Profile: "Profil",
+  AcademicProfileSettings: "Akademik Profil",
+  NotificationSettings: "Bildirimler",
+  GoogleCalendarSettings: "Google Takvim",
+  AccountDataSettings: "Hesap ve Veri",
+  UnknownRoute: "Sayfa bulunamadı",
+};
+
+function routeAccessibilityTitle(route: AppVisibleRoute): string {
+  return ROUTE_ACCESSIBILITY_TITLES[route];
 }
 
 const styles = StyleSheet.create({

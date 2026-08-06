@@ -2,7 +2,13 @@
 
 Historical baseline date: 29 July 2026. Severity reflects user trust, privacy, data integrity, accessibility, and release risk—not implementation effort.
 
-The baseline tables and dated Phase 1–8 dispositions below are checkpoint evidence. Their present-tense issue wording describes the named historical snapshot and must not be read as the current source state. The **Current Phase 1–8 remediation disposition — 4 August 2026** section at the end is authoritative when an older entry conflicts with it. In particular, Firestore database persistence and the six-tab phone shell are historical only: MongoDB is the sole runtime database and the authenticated phone shell has four destinations.
+The baseline tables and dated phase dispositions below are checkpoint evidence.
+Their present-tense issue wording describes the named historical snapshot and
+must not be read as the current source state. The latest applicable Phase 9,
+Phase 10, or Phase 11 disposition supersedes older wording when they conflict.
+In particular, Firestore database persistence and the six-tab phone shell are
+historical only: MongoDB is the sole runtime database and the authenticated
+phone shell has four destinations.
 
 ## P0 — trust, account ownership, or destructive-integrity risk
 
@@ -358,3 +364,47 @@ This section supersedes the Phase 1–9 statements that final Profile/settings a
 | MN-034 | Unchanged open provider limitation. | No live Google Calendar/FCM/APNs operation is claimed or permitted without an authorized non-production fixture. |
 
 Phase 10 changes no API contract, database schema, repository, authentication/session rule, recent-authentication security rule, notification registration/provider contract, Google lifecycle/storage contract, or production data. It uses synthetic local fixtures only. Automated validation passed: focused native 5 suites / 71 tests / 0 snapshots, focused root 5 files / 80 tests, complete native Jest 23 / 206 / 0, complete API 45 / 445, full root 72 / 841, both TypeScript checks, admin build 1,742 modules in 5.14 s, mobile-web build 1,755 modules in 7.92 s, and Android x86_64 assembly in 1 m 11 s with 268 tasks (7 executed, 261 up-to-date). The APK is 56,804,991 bytes with SHA-256 `57DC2F1BDCD7D7C3B02429EF260DF29A3EEEBCC374C55B90D34334793FEFAAFD`; the unchanged hash is expected because debug JavaScript is Metro-served, and only known SDK XML/location, Gradle deprecation, and `NODE_ENV` warnings were emitted. The reviewed evidence has 44 PNG/XML pairs and 88 integrity rows, phone light/dark, exact 320 dp / 200% font, a simulated tablet, same-process ordinary Back, reachable 48 dp controls, a clean filtered runtime log, and restored device settings. TalkBack, native iOS/VoiceOver/Liquid Glass, Android 13 permission, predictive Back, live providers/accounts/data, authenticated relaunch/account switching, SecureStore, and a native dirty-guard smoke remain unclaimed; the production dirty guard is covered automatically. `MOBILE_NATIVE_LINT: NOT AVAILABLE` remains exact. Phase 11 was not started.
+
+## Phase 11 disposition — cross-platform quality, 6 August 2026
+
+This section supersedes earlier wording that treated whole-app dark-mode,
+reachable YÖK/Summer School semantic presentation, complete responsive policy,
+and the final accessibility/focus audit as future Phase 11 implementation. It
+does not convert unavailable native platforms or providers into passes. The
+Phase 11 report and evidence index own the exact tests, builds, Android captures,
+settings, hashes, and performance measurements actually completed.
+
+| Issue/finding | Phase 11 disposition | Remaining evidence or architecture boundary |
+|---|---|---|
+| MN-009 | Resolved for the current routed product surfaces. Important operation results use semantic persistent alert banners on the one active owning route; Calendar create/edit/delete feedback and nested YÖK/Summer handoff or notification feedback no longer depend on the dormant top-of-scroll legacy message box. Filter/search and Calendar view/period results expose live count/context changes. | Assistive-technology delivery timing still requires TalkBack/VoiceOver runtime traversal. |
+| MN-010 | Further reduced, remains open. Bootstrap/error/fallback and the last reachable YÖK/Summer School bodies move to focused semantic modules; route slots use them instead of the historical legacy JSX. | `App.tsx` remains a substantial request/session/provider orchestrator and retains dormant compatibility JSX/styles. Broad decomposition or deletion is later architecture work, not a Phase 11 quality pretext. |
+| MN-012 | Resolved for all currently unbounded reachable product collections. Home, Announcements, Calendar, YÖK, Summer School, and long selectors use `FlatList`/`SectionList` ownership without nesting in the transitional route scroller. | Phase 11 deliberately ships no speculative windowing, clipping, or batch-size change. Future data families must pass the same virtualization gate. |
+| MN-013 | Resolved at the reachable implementation and automated-policy boundary. System appearance, semantic light/dark tokens, corrected text/control contrast, reduced-motion/transparency policies, opaque reading surfaces, and navigation-only Liquid Glass eligibility cover every current route slot. Raw palette literals under `apps/mobile-native/src` are confined to the token source. The Android native matrix also found and repaired a ripple-backed Button retaining its old fill during a warm mode change; final light/dark pixel checks pass. | Dormant raw styles in `App.tsx` remain MN-010 debt rather than a reachable second palette. Native iOS/VoiceOver/Dynamic Type/Liquid Glass and assistive-setting runtime acceptance remain unavailable. |
+| MN-019 | Semantic component/contract coverage expands to static-card roles, disabled light/dark state, sheet heading/return focus, invalid selector reachability, system states, route-title focus, filter/Calendar announcements, and semantic YÖK/Summer states. | No installed authenticated Maestro/Detox/Appium E2E runner or automated screenshot-regression workflow exists. Synthetic renderer/native evidence cannot prove real session, storage, or provider E2E. |
+| MN-020 | Unchanged: `MOBILE_NATIVE_LINT: NOT AVAILABLE`. | Jest/Vitest, TypeScript, builds, native inspection, whitespace, and targeted scans remain distinct gates and are not relabelled as lint. |
+| MN-021 | The local release harness now records build/runtime metadata, device display/density/font/animation settings, startup timing, fixture/trial/frame percentiles, frozen frames, thresholds, and exact restoration. | No approved shipped analytics, crash, or performance telemetry and no production-device distribution exist. Local emulator evidence cannot establish fleet performance. |
+| MN-024 | Unchanged supported limitation. Ordinary Back remains the accepted navigator behavior and operation locks still prevent unsafe abandonment. | Predictive Back stays disabled because the current navigator integration requires callback opt-out; API 24 cannot prove API 33+ callbacks or animations. |
+| MN-029 | Compact/large-text policy now covers 320, 360, 393, 430, and 853 widths at font scales 1.3, 1.5, and 2.0, with wrapping, readable maximums, scroll reachability, and explicit 48 dp Android targets. | TalkBack is unavailable on the authorized AVD; UIAutomator is not traversal evidence. Native iOS Dynamic Type/VoiceOver, bold-text runtime acceptance, and physical tablet/foldable acceptance remain unavailable. |
+| MN-032 | Semantic YÖK/Summer plus the existing Home/feed/Calendar/Profile preview boundaries support local synthetic presentation without production access. Trusted detail and official URLs retain fail-closed validation. | No authorized live authenticated backend/content fixture is claimed. Synthetic records do not prove deployed source health, session restoration, or account switching. |
+| MN-033 | Android Material/edge-to-edge/ordinary-Back behavior remains bounded to the existing API 24 x86_64 environment; iOS policy remains code/renderer verified only on Windows. | API 24 cannot prove Android 13 notification permission/channels or predictive Back. Windows cannot build/run iOS, VoiceOver, Dynamic Type, native swipe-back, or Liquid Glass. |
+| MN-034 | Provider lifecycle and ownership presentation remains unchanged and regression-protected. | No authorized non-production Google Calendar, FCM, or APNs account/configuration was used; live chooser, sync, mutation, managed removal, revoke, or delivery remains unclaimed. |
+| YÖK/Summer reachable legacy presentation | Resolved. YÖK uses a semantic virtualized trusted feed; Summer School uses a semantic virtualized section model for dates, requirements, trusted announcements, and matching options. Loading, retained refresh, populated, empty, stale, partial, offline, and error states are named without contradictions; official actions expose a link role only when a safe URL exists. | Date-only/range and trust/provider ownership contracts are intentionally unchanged; live source/provider acceptance remains MN-032/MN-034. |
+
+The contrast corrections do not weaken disabled-state distinction: light
+disabled text/on-disabled is `#526079`, light default/strong outlines are
+`#758197`/`#526079`, and dark default/strong outlines are
+`#94A3B8`/`#CBD5E1`. Automated checks require 4.5:1 normal text and 3:1
+meaningful non-text boundaries across supported semantic surfaces. Selection,
+status, event type, error, invalid, busy, and expanded meaning retain text,
+icon, shape, or accessibility state in addition to color.
+
+Phase 11 changes no API, database, repository, session/authentication,
+notification, Google Calendar, personal-exam persistence, or production-data
+contract. The authorized evidence uses synthetic local fixtures only. Physical
+iOS and tablet/foldable devices, VoiceOver, TalkBack, modern Android permission/
+predictive Back, live providers/accounts, installed authenticated E2E,
+automated screenshot regression, shipped observability, and mobile-native lint
+remain the exact open environment/tooling boundaries. Phase 12 is not started.
+The reviewed Android evidence is indexed at
+[`evidence/phase-11-native`](./evidence/phase-11-native/README.md): 32 paired
+screenshots/hierarchies plus runtime, integrity, and exact restoration records.

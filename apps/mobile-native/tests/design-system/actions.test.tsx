@@ -132,12 +132,24 @@ describe("accessible action primitives", () => {
 
     const chip = screen.getByRole("button", { name: "Kaydedilenler" });
     expect(chip).toBeSelected();
+    expect(screen.getByTestId(
+      "chip-selected-indicator",
+      { includeHiddenElements: true },
+    )).toBeTruthy();
     await userEvent.press(chip);
     expect(onChipPress).toHaveBeenCalledTimes(1);
 
     expect(screen.getByLabelText("Duyuru filtresi")).toBeVisible();
     expect(screen.getByRole("radio", { name: "Tümü" })).toBeSelected();
     expect(screen.getByRole("radio", { name: "Resmî" })).not.toBeSelected();
+    expect(screen.getByTestId(
+      "segment-selected-indicator-all",
+      { includeHiddenElements: true },
+    )).toBeTruthy();
+    expect(screen.queryByTestId(
+      "segment-selected-indicator-official",
+      { includeHiddenElements: true },
+    )).toBeNull();
     await userEvent.press(screen.getByRole("radio", { name: "Resmî" }));
     expect(onValueChange).toHaveBeenCalledWith("official");
   });

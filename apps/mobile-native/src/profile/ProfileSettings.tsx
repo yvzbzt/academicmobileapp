@@ -209,6 +209,7 @@ export function AcademicProfileSettingsScreen({
 }: AcademicProfileSettingsScreenProps) {
   const theme = useTheme();
   const layout = useProfileLayout();
+  const [validationAttempt, setValidationAttempt] = useState(0);
   const saving = saveState === "saving";
   const disabled = fieldProps.busy || saving;
 
@@ -236,7 +237,11 @@ export function AcademicProfileSettingsScreen({
         accessibilityState={{ busy: disabled }}
         style={{ gap: theme.spacing.md }}
       >
-        <AcademicProfileFieldGroup {...fieldProps} busy={disabled} />
+        <AcademicProfileFieldGroup
+          {...fieldProps}
+          busy={disabled}
+          validationAttempt={validationAttempt}
+        />
       </View>
 
       <View style={[styles.actionRow, layout.stackActions && styles.actionColumn, { gap: theme.spacing.sm }]}>
@@ -252,7 +257,10 @@ export function AcademicProfileSettingsScreen({
           fullWidth={layout.stackActions}
           label={saveState === "saved" ? "Kaydedildi" : "Değişiklikleri kaydet"}
           loading={saving}
-          onPress={onSave}
+          onPress={() => {
+            setValidationAttempt((current) => current + 1);
+            onSave();
+          }}
           status={saveState === "saved" ? "success" : saveState === "error" ? "error" : "idle"}
         />
       </View>
@@ -1062,7 +1070,7 @@ function SettingsSwitch({
         pointerEvents="none"
       >
         <Switch
-          disabled
+          disabled={disabled}
           ios_backgroundColor={theme.colors.action.disabled}
           thumbColor={value ? theme.colors.action.primary : theme.colors.text.disabled}
           trackColor={{ false: theme.colors.action.disabled, true: theme.colors.state.selected }}

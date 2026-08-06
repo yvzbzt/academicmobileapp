@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import {
   StyleSheet,
   Text,
   View,
   type StyleProp,
+  type Text as NativeText,
   type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -34,6 +35,8 @@ export interface AdaptiveTopBarProps {
   leadingAction?: AdaptiveTopBarAction;
   trailingActions?: readonly AdaptiveTopBarAction[];
   accessibilityLabel?: string;
+  titleRef?: Ref<NativeText>;
+  onTitleLayoutTarget?: (target: number) => void;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -52,6 +55,8 @@ export function AdaptiveTopBar({
   leadingAction,
   trailingActions = [],
   accessibilityLabel = `${title} üst gezinme çubuğu`,
+  titleRef,
+  onTitleLayoutTarget,
   style,
 }: AdaptiveTopBarProps) {
   const theme = useTheme();
@@ -94,6 +99,11 @@ export function AdaptiveTopBar({
                 accessibilityRole="header"
                 adjustsFontSizeToFit={false}
                 allowFontScaling
+                onLayout={(event) => {
+                  const target = Number(event.target);
+                  if (Number.isFinite(target)) onTitleLayoutTarget?.(target);
+                }}
+                ref={titleRef}
                 style={[
                   styles.wrappingText,
                   titleTypography,

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { useRef, useState, type ReactNode } from "react";
+import { Alert, ScrollView, StyleSheet, Text, View, useWindowDimensions, type View as NativeView } from "react-native";
 import {
   Banner,
   Button,
@@ -18,6 +18,7 @@ import {
 
 export interface CalendarEventDetailProps {
   item: CalendarItem | null;
+  feedback?: ReactNode;
   academicYear?: string;
   universityName?: string;
   facultyName?: string;
@@ -31,6 +32,7 @@ export interface CalendarEventDetailProps {
 
 export function CalendarEventDetail({
   item,
+  feedback,
   academicYear,
   universityName,
   facultyName,
@@ -43,6 +45,7 @@ export function CalendarEventDetail({
   const gutter = width < 375 ? 16 : 20;
   const [editing, setEditing] = useState(false);
   const [actionError, setActionError] = useState<string>();
+  const editExamRef = useRef<NativeView | null>(null);
 
   if (!item) {
     return (
@@ -95,6 +98,8 @@ export function CalendarEventDetail({
         showsVerticalScrollIndicator
         style={{ backgroundColor: theme.colors.background.canvas }}
       >
+        {feedback}
+
         {actionError ? (
           <Banner
             message={actionError}
@@ -149,6 +154,7 @@ export function CalendarEventDetail({
               fullWidth
               label="Kişisel sınavı düzenle"
               onPress={() => setEditing(true)}
+              ref={editExamRef}
               variant="secondary"
             />
             <Button
@@ -166,6 +172,7 @@ export function CalendarEventDetail({
           exam={{ id: item.id, title: item.title, examDate: item.startDate }}
           onDismiss={() => setEditing(false)}
           onSubmit={(input) => onUpdatePersonalExam(item.id, input)}
+          returnFocusRef={editExamRef}
           visible={editing}
         />
       ) : null}

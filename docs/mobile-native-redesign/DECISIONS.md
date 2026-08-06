@@ -1,10 +1,14 @@
 # Redesign Decisions
 
-Last updated: 4 August 2026
+Last updated: 6 August 2026
 
 ## Accepted decisions
 
-Decisions are append-only historical records. D-042 through D-046 record the current Phase 1–8 remediation boundary and supersede the earlier open/deferred wording in D-017, D-022, D-024, D-027, D-028, D-030, D-031, D-032, D-038, D-040, and D-041 where they conflict. The earlier text remains evidence of what was true at its checkpoint, not a description of the current source tree.
+Decisions are append-only historical records. D-051 records the current Phase
+11 cross-platform quality boundary. It supplements D-037 through D-050 and
+supersedes their earlier future-phase or incomplete-quality wording where they
+conflict. Earlier text remains evidence of what was true at its checkpoint, not
+a description of the current source tree.
 
 ### D-001 — Incremental redesign in the existing native app
 
@@ -390,3 +394,67 @@ Collection limits are not deletion evidence. After live Google verification, eve
 **Account decision:** Logout, delete app data, and delete account are distinct actions with distinct consequences. The two destructive operations use the existing purpose-bound, single-use recent-authentication proof and never share or expose proof material. Confirmation can be cancelled, focus returns to its launcher, busy state prevents duplicate submission, and user-facing errors remain fixed/non-raw. Profile and Account operation feedback is semantic and rendered only on the owning active route, preventing duplicate banners. No API, schema, repository, persistence, provider, or security-contract change is authorized by Phase 10.
 
 **Platform and evidence boundary:** Android uses Material 3-compatible opaque settings surfaces, ripple, sheets/dialogs, 48 dp targets, edge-to-edge ownership, and ordinary Back. iOS Liquid Glass remains navigation/control chrome only. Compact and large-text layouts stack and scroll required actions. Fresh automated evidence passes focused root policy/lifecycle coverage at 5 files / 80 tests, focused native presentation/navigation/selector/auth coverage at 5 suites / 71 tests / 0 snapshots, complete native Jest at 23 / 206 / 0, complete API at 45 / 445, full root regression at 72 / 841, both TypeScript checks, both web builds, and Android x86_64 assembly plus reinstall. The reviewed Android set records 44 PNG/XML pairs, 88 integrity-index rows, reachable 48 dp controls, exact 320 dp at font scale 2.0, light/dark and simulated-tablet layouts, ordinary Back in one process, a clean filtered runtime log, and restored device settings. The synthetic preview cannot prove authenticated relaunch/account switching, SecureStore, live provider operations, Android 13 permission, predictive Back, native iOS/Liquid Glass, or assistive-technology traversal; TalkBack was disabled. The dirty academic leave guard is accepted from automated production-route coverage and is not relabelled as a native dirty-Back smoke.
+
+### D-051 — Cross-platform quality is enforced at shared semantic boundaries
+
+**Decision:** Phase 11 keeps the established four-destination information
+architecture and feature contracts. It closes verified cross-platform quality
+defects at shared route, primitive, token, and presentation boundaries instead
+of adding platform-specific product logic. Bootstrap/error/fallback surfaces and
+the reachable nested YÖK and Summer School destinations now consume the same
+semantic light/dark system as the previously migrated routes. YÖK owns one
+`FlatList`; Summer School owns one `SectionList` across dates, requirements,
+trusted announcements, and matching options. Date-only/inclusive-range meaning,
+trusted detail navigation, controlled official-link handoff, and Phase 1–10
+ownership/lifecycle behavior are unchanged.
+
+**Contrast and state decision:** Normal semantic text combinations must meet at
+least 4.5:1 on every supported semantic surface, and meaningful control/focus/
+status/disabled boundaries must meet at least 3:1 in both themes. The corrected
+light disabled text/on-disabled value is `#526079`; light default/strong borders
+are `#758197`/`#526079`; dark default/strong borders are
+`#94A3B8`/`#CBD5E1`. Disabled controls retain a distinct fill, visible border,
+readable label, and disabled state. New route/component code under
+`apps/mobile-native/src` cannot introduce a screen-local raw palette; selection,
+classification, busy, expanded, invalid, error, and destructive meaning must
+also use text, icon, shape, or programmatic state.
+
+**Focus and result decision:** Focused authenticated routes target the real
+top-bar heading; headerless routes announce a fixed safe title. Modal sheets
+focus their heading and can return focus to the launcher. First-invalid focus is
+required for recovery, academic selection, and personal-exam entry; native
+date/time dismissal returns to the initiating control. Important mutation
+results stay on the one active owning route through semantic alert banners.
+Announcement filter/search results and Calendar view/period results announce
+their selected context and count through platform-appropriate live behavior.
+This programmatic contract does not by itself prove TalkBack or VoiceOver
+traversal.
+
+**Responsive, material, and effects decision:** Deterministic policy coverage
+spans widths 320, 360, 393, 430, and 853 at font scales 1.3, 1.5, and 2.0.
+Content remains vertically reachable, uses compact gutters and the existing
+720-unit readable maximum, and never creates a second navigation model.
+Android keeps Material 3-compatible tonal opaque content, ripple, 48 dp targets,
+edge-to-edge ownership, native dialogs/sheets, ordinary Back, and the existing
+wide-width rail. iOS keeps content opaque and restricts Liquid Glass to eligible
+navigation/control chrome; Reduce Transparency or unavailable runtime support
+uses the opaque fallback. Reduce Motion simplifies nonessential shared
+transitions. No continuous decorative animation or Three.js path is accepted.
+Long product collections remain virtualized; Phase 11 does not ship speculative
+windowing or clipping changes to improve one emulator result.
+
+Android ripple-backed Buttons remount their native view when semantic mode
+changes so the native fill and on-primary foreground cannot straddle different
+themes. This is a shared platform repair, not a persisted theme preference or a
+new product setting.
+
+**Compatibility and evidence boundary:** Phase 11 changes no API, schema,
+repository, authentication/session, notification, Google Calendar, SecureStore,
+theme-preference, provider, or production-data contract. The exact Android
+captures and release measurements live in the Phase 11 report/evidence index.
+Windows cannot establish native iOS, VoiceOver, Dynamic Type, swipe-back, or
+Liquid Glass; the authorized API 24 AVD cannot establish Android 13 notification
+permission or predictive Back, and TalkBack traversal is unavailable. A
+temporary tablet-style viewport is not physical tablet/foldable acceptance. No
+live provider/account result, installed authenticated E2E, automated screenshot
+regression, or mobile-native lint result is claimed. Phase 12 is not started.

@@ -40,10 +40,34 @@ export interface FeedPerformanceEvaluation {
   trials: FeedPerformanceTrialSummary[];
 }
 
+export interface AndroidActivityStartTiming {
+  thisTimeMs: number;
+  totalTimeMs: number;
+  waitTimeMs: number;
+}
+
 interface FramestatsColumns {
   flags: number;
   intendedVsync: number;
   frameCompleted: number;
+}
+
+/**
+ * Reads the three timing fields emitted by `adb shell am start -W`. Returning
+ * `null` keeps malformed or incomplete launch output from being presented as
+ * a real startup measurement.
+ */
+export function parseAndroidActivityStartTiming(
+  output: string,
+): AndroidActivityStartTiming | null {
+  const thisTimeMs = parseNonNegativeTimingField(output, "ThisTime");
+  const totalTimeMs = parseNonNegativeTimingField(output, "TotalTime");
+  const waitTimeMs = parseNonNegativeTimingField(output, "WaitTime");
+  if (thisTimeMs === null || totalTimeMs === null || waitTimeMs === null) {
+    return null;
+  }
+
+  return { thisTimeMs, totalTimeMs, waitTimeMs };
 }
 
 /**
@@ -211,4 +235,10 @@ function parseInteger(value: string | undefined): bigint | null {
 
 function validDurations(values: readonly number[]): number[] {
   return values.filter((value) => Number.isFinite(value) && value > 0);
+}
+
+function parseNonNegativeTimingField(output: string, field: string): number | null {
+  const match = output.match(new RegExp(`^${field}:\\s*(\\d+)\\s*$`, "mu"));
+  const value = Number(match?.[1]);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }

@@ -1,5 +1,6 @@
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Modal,
   Pressable,
@@ -7,6 +8,9 @@ import {
   StyleSheet,
   Text,
   View,
+  findNodeHandle,
+  type Text as NativeText,
+  type View as NativeView,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -31,6 +35,7 @@ export interface BottomSheetProps {
   dismissible?: boolean;
   loading?: boolean;
   scrollable?: boolean;
+  returnFocusRef?: RefObject<NativeView | null>;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
@@ -53,6 +58,7 @@ export function BottomSheet({
   dismissible = true,
   loading = false,
   scrollable = false,
+  returnFocusRef,
   style,
   testID = "bottom-sheet",
 }: BottomSheetProps) {
@@ -60,6 +66,8 @@ export function BottomSheet({
   const adaptation = usePlatformAdaptation();
   const minimumTouchTarget = Math.max(48, adaptation.minimumTouchTarget);
   const reducedMotion = useReducedMotion();
+  const headingRef = useRef<NativeText | null>(null);
+  const wasVisibleRef = useRef(visible);
   const mayDismiss = dismissible && !loading;
   const handleDismiss = useCallback(() => {
     if (mayDismiss) {
@@ -67,6 +75,26 @@ export function BottomSheet({
     }
   }, [mayDismiss, onDismiss]);
   const isWide = adaptation.navigationLayout === "navigation-rail";
+
+  useEffect(() => {
+    if (!visible) return;
+    const focusTimer = setTimeout(() => {
+      const target = findNodeHandle(headingRef.current);
+      if (target) AccessibilityInfo.setAccessibilityFocus(target);
+    }, 100);
+    return () => clearTimeout(focusTimer);
+  }, [visible]);
+
+  useEffect(() => {
+    const wasVisible = wasVisibleRef.current;
+    wasVisibleRef.current = visible;
+    if (!wasVisible || visible || !returnFocusRef) return;
+    const focusTimer = setTimeout(() => {
+      const target = findNodeHandle(returnFocusRef.current);
+      if (target) AccessibilityInfo.setAccessibilityFocus(target);
+    }, 0);
+    return () => clearTimeout(focusTimer);
+  }, [returnFocusRef, visible]);
 
   return (
     <Modal
@@ -144,6 +172,7 @@ export function BottomSheet({
               <View style={[styles.heading, { gap: theme.spacing.xxs }]}>
                 <Text
                   accessibilityRole="header"
+                  ref={headingRef}
                   style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}
                 >
                   {title}

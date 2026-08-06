@@ -1,5 +1,14 @@
 import { useMemo, type ReactNode } from "react";
-import { Alert, BackHandler, FlatList, Keyboard, KeyboardAvoidingView, Platform, Text } from "react-native";
+import {
+  AccessibilityInfo,
+  Alert,
+  BackHandler,
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Text,
+} from "react-native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
@@ -17,8 +26,10 @@ import {
   type AppVisibleRoute,
 } from "../../src/navigation/AppNavigator";
 import { ThemeProvider } from "../../src/design-system/theme";
+import { darkTheme, lightTheme } from "../../src/design-system/tokens";
 import { HomeDailyBrief } from "../../src/home/HomeDailyBrief";
 import type { TrustedMobileContentRecord } from "../../src/content/content-trust";
+import { resolveNavigationTheme } from "../../src/navigation/navigation-theme";
 
 const visibleRoutes: AppVisibleRoute[] = [
   "BootstrapLoading",
@@ -259,6 +270,79 @@ function captureKeyboardHandlers() {
 }
 
 describe("AppNavigator", () => {
+  it("maps both system appearances to semantic navigation surfaces", () => {
+    expect(resolveNavigationTheme(lightTheme)).toMatchObject({
+      dark: false,
+      colors: {
+        background: lightTheme.colors.background.canvas,
+        border: lightTheme.colors.border.default,
+        card: lightTheme.colors.background.surface,
+        notification: lightTheme.colors.status.error,
+        primary: lightTheme.colors.action.primary,
+        text: lightTheme.colors.text.primary,
+      },
+    });
+    expect(resolveNavigationTheme(darkTheme)).toMatchObject({
+      dark: true,
+      colors: {
+        background: darkTheme.colors.background.canvas,
+        border: darkTheme.colors.border.default,
+        card: darkTheme.colors.background.surface,
+        notification: darkTheme.colors.status.error,
+        primary: darkTheme.colors.action.primary,
+        text: darkTheme.colors.text.primary,
+      },
+    });
+  });
+
+  it("focuses the real authenticated route heading and announces headerless routes", async () => {
+    const focusSpy = jest
+      .spyOn(AccessibilityInfo, "setAccessibilityFocus")
+      .mockImplementation(() => undefined);
+    const announceSpy = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockImplementation(() => undefined);
+
+    try {
+      const authenticated = await renderNavigator({
+        activeRoute: "Home",
+        rootSurface: "authenticated",
+      });
+      await expectVisibleRoute("Home");
+      focusSpy.mockClear();
+
+      fireEvent(screen.getByRole("header", { name: "Ana Sayfa" }), "layout", {
+        nativeEvent: { layout: { height: 32, width: 160, x: 0, y: 0 } },
+        target: 501,
+      });
+      expect(focusSpy).toHaveBeenLastCalledWith(501);
+
+      await pressTab("Duyurular");
+      await expectVisibleRoute("Announcements");
+      focusSpy.mockClear();
+      fireEvent(screen.getByRole("header", { name: "Duyurular" }), "layout", {
+        nativeEvent: { layout: { height: 32, width: 160, x: 0, y: 0 } },
+        target: 502,
+      });
+      expect(focusSpy).toHaveBeenLastCalledWith(502);
+      expect(announceSpy).not.toHaveBeenCalled();
+
+      await authenticated.unmountAsync();
+      announceSpy.mockClear();
+      await renderNavigator({
+        activeRoute: "Login",
+        rootSurface: "auth",
+      });
+      await expectVisibleRoute("Login");
+      await waitFor(() => {
+        expect(announceSpy).toHaveBeenLastCalledWith("Giriş ekranı");
+      });
+    } finally {
+      focusSpy.mockRestore();
+      announceSpy.mockRestore();
+    }
+  });
+
   it("starts in login and honors a one-shot auth route request", async () => {
     const onRequestHandled = jest.fn();
     const onVisibleRouteChange = jest.fn();

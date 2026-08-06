@@ -38,6 +38,8 @@ export interface SelectFieldProps<Value extends string = string> {
   emptyLabel?: string;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  focusOnError?: boolean;
+  focusOnErrorKey?: string | number;
   onOpenChange?: (open: boolean) => void;
   containerStyle?: StyleProp<ViewStyle>;
   testID?: string;
@@ -60,6 +62,8 @@ export function SelectField<Value extends string = string>({
   emptyLabel = "Kullanılabilir seçenek yok.",
   accessibilityLabel,
   accessibilityHint,
+  focusOnError = false,
+  focusOnErrorKey,
   onOpenChange,
   containerStyle,
   testID,
@@ -105,6 +109,19 @@ export function SelectField<Value extends string = string>({
 
     return () => clearTimeout(focusTimer);
   }, [open]);
+
+  useEffect(() => {
+    if (!focusOnError) return;
+    const focusTimer = setTimeout(() => {
+      const trigger = triggerRef.current;
+      const reactTag = triggerNativeTagRef.current
+        ?? (trigger ? findNodeHandle(trigger) : null);
+      if (typeof reactTag === "number") {
+        AccessibilityInfo.setAccessibilityFocus(reactTag);
+      }
+    }, 0);
+    return () => clearTimeout(focusTimer);
+  }, [focusOnError, focusOnErrorKey]);
 
   function updateOpen(nextOpen: boolean) {
     setOpen(nextOpen);
@@ -166,6 +183,12 @@ export function SelectField<Value extends string = string>({
         disabled={interactionDisabled}
         onBlur={() => setFocused(false)}
         onFocus={() => setFocused(true)}
+        onLayout={(event) => {
+          const nativeTarget = Number(event.target);
+          if (Number.isFinite(nativeTarget) && nativeTarget > 0) {
+            triggerNativeTagRef.current = nativeTarget;
+          }
+        }}
         onPress={openOptions}
         style={({ pressed }) => [
           styles.field,
@@ -190,7 +213,6 @@ export function SelectField<Value extends string = string>({
         testID={testID}
       >
         <Text
-          numberOfLines={2}
           style={[
             theme.typography.body,
             styles.value,
@@ -331,16 +353,18 @@ export function SelectField<Value extends string = string>({
                       </Text>
                     ) : null}
                   </View>
-                  <Text
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                    style={[
-                      theme.typography.bodyStrong,
-                      { color: selected ? theme.colors.text.link : "transparent" },
-                    ]}
-                  >
-                    ✓
-                  </Text>
+                  {selected ? (
+                    <Text
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      style={[
+                        theme.typography.bodyStrong,
+                        { color: theme.colors.text.link },
+                      ]}
+                    >
+                      ✓
+                    </Text>
+                  ) : null}
                 </Pressable>
               );
           }}

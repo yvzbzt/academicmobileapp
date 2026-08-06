@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  AccessibilityInfo,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  findNodeHandle,
+  type TextInput,
+  type View as NativeView,
+} from "react-native";
 import {
   Banner,
   BottomSheet,
@@ -38,6 +48,7 @@ export interface PersonalExamEditorProps {
   busy?: boolean;
   onDismiss: () => void;
   onSubmit: (input: PersonalExamMutationInput) => PersonalExamMutationResult;
+  returnFocusRef?: RefObject<NativeView | null>;
 }
 
 export function PersonalExamEditor({
@@ -46,12 +57,16 @@ export function PersonalExamEditor({
   busy = false,
   onDismiss,
   onSubmit,
+  returnFocusRef,
 }: PersonalExamEditorProps) {
   const theme = useTheme();
   const [draft, setDraft] = useState<PersonalExamDraft>(emptyPersonalExamDraft);
   const [errors, setErrors] = useState<PersonalExamDraftErrors>({});
   const [formError, setFormError] = useState<string>();
   const [pickerMode, setPickerMode] = useState<"date" | "time" | null>(null);
+  const titleRef = useRef<TextInput | null>(null);
+  const dateButtonRef = useRef<NativeView | null>(null);
+  const timeButtonRef = useRef<NativeView | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -67,7 +82,17 @@ export function PersonalExamEditor({
     const nextErrors = validatePersonalExamDraft(draft);
     setErrors(nextErrors);
     setFormError(undefined);
-    if (Object.keys(nextErrors).length > 0) return;
+    if (Object.keys(nextErrors).length > 0) {
+      setTimeout(() => {
+        if (nextErrors.title) {
+          titleRef.current?.focus();
+          return;
+        }
+        const target = findNodeHandle(nextErrors.date ? dateButtonRef.current : timeButtonRef.current);
+        if (target) AccessibilityInfo.setAccessibilityFocus(target);
+      }, 0);
+      return;
+    }
     const examDate = composePersonalExamTimestamp(draft);
     if (!examDate) {
       setFormError("Tarih ve saat birlikte doğrulanamadı. Sistem seçicilerini yeniden kullan.");
@@ -87,6 +112,7 @@ export function PersonalExamEditor({
       dismissible={!busy}
       loading={busy}
       onDismiss={onDismiss}
+      returnFocusRef={returnFocusRef}
       title={exam ? "Kişisel sınavı düzenle" : "Kişisel sınav ekle"}
       visible={visible}
     >
@@ -120,6 +146,7 @@ export function PersonalExamEditor({
             setErrors((current) => ({ ...current, title: undefined }));
           }}
           placeholder="Örn. Lineer Cebir finali"
+          ref={titleRef}
           returnKeyType="done"
           value={draft.title}
         />
@@ -128,9 +155,11 @@ export function PersonalExamEditor({
           <Text style={[theme.typography.label, { color: theme.colors.text.primary }]}>Sınav tarihi</Text>
           <Button
             accessibilityHint="Cihazın sistem tarih seçicisini açar."
+            accessibilityLabel={`Sınav tarihi. ${formatSelectedDate(draft.date)}`}
             aria-invalid={Boolean(errors.date)}
             label={formatSelectedDate(draft.date)}
             onPress={() => setPickerMode("date")}
+            ref={dateButtonRef}
             variant="secondary"
           />
           {errors.date ? (
@@ -144,9 +173,11 @@ export function PersonalExamEditor({
           <Text style={[theme.typography.label, { color: theme.colors.text.primary }]}>Sınav saati</Text>
           <Button
             accessibilityHint="Cihazın sistem saat seçicisini açar."
+            accessibilityLabel={`Sınav saati. ${formatSelectedTime(draft.time)}`}
             aria-invalid={Boolean(errors.time)}
             label={formatSelectedTime(draft.time)}
             onPress={() => setPickerMode("time")}
+            ref={timeButtonRef}
             variant="secondary"
           />
           {errors.time ? (
@@ -170,7 +201,16 @@ export function PersonalExamEditor({
           >
             <NativeDateTimePicker
               mode={pickerMode}
-              onDismiss={() => setPickerMode(null)}
+              onDismiss={() => {
+                const closingMode = pickerMode;
+                setPickerMode(null);
+                setTimeout(() => {
+                  const target = findNodeHandle(
+                    closingMode === "date" ? dateButtonRef.current : timeButtonRef.current,
+                  );
+                  if (target) AccessibilityInfo.setAccessibilityFocus(target);
+                }, 0);
+              }}
               onSelect={(selected) => {
                 setDraft((current) => pickerMode === "date"
                   ? applyDateSelection(current, selected)
@@ -186,7 +226,16 @@ export function PersonalExamEditor({
               <Button
                 compact
                 label="Seçimi tamamla"
-                onPress={() => setPickerMode(null)}
+                onPress={() => {
+                  const closingMode = pickerMode;
+                  setPickerMode(null);
+                  setTimeout(() => {
+                    const target = findNodeHandle(
+                      closingMode === "date" ? dateButtonRef.current : timeButtonRef.current,
+                    );
+                    if (target) AccessibilityInfo.setAccessibilityFocus(target);
+                  }, 0);
+                }}
                 variant="ghost"
               />
             ) : null}

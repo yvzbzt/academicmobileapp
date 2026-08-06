@@ -1,0 +1,18 @@
+
+> mobile-native@1.0.0 start
+> expo start --localhost --clear
+
+Starting project at C:\Users\buyuk\academicmobileapp\apps\mobile-native
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android .\index.ts ▓▓░░░░░░░░░░░░░░ 14.1% ( 39/171)
+Android .\index.ts ▓▓▓▓▓░░░░░░░░░░░ 36.8% (199/328)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 80.4% (468/522)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.3% (623/647)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.7% (682/683)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (729/787)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (1152/1198)
+Android Bundled 26446ms index.ts (1292 modules)

@@ -1,12 +1,11 @@
 # Platform Adaptation Contract
 
-Last updated: 4 August 2026
+Last updated: 6 August 2026
 
-Current provenance: accepted Phase 8 baseline
-`7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`; remediation Packages 1-3
-`641d7bee8a1cd539179769069a22b5c3220e8a6d`,
-`5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and
-`2e3664546f628a19c6fa929b9ee9469e5322f9a8`.
+Current provenance: Phase 11 begins from the accepted Phase 10 baseline
+`8dbe5e1efdb0c5fab665345188228ff66a0f84f6`. Earlier phase sections remain
+historical checkpoint records where their wording is explicitly time-bound;
+the Phase 11 reconciliation at the end is the current cross-platform contract.
 
 ## Shared product semantics
 
@@ -116,7 +115,7 @@ Phase 5 presents the existing route mechanics through one centralized four-desti
 
 ## Predictive-back compatibility boundary
 
-React Native 0.81 exposes Android predictive-back plumbing, but the selected React Navigation 7 integration still documents predictive back as unsupported and requires `android:enableOnBackInvokedCallback="false"`. Phase 4 therefore deliberately retains `android.predictiveBackGestureEnabled: false`; the generated manifest has `android:enableOnBackInvokedCallback="false"`. This is the supported compatibility path, not a claim that a predictive animation ran. A pure immutable back-policy preview is tested so later enablement has one decision contract, while actual Android system-back and tab/stack history are tested independently. Enabling the OS predictive callback is gated on upstream navigator support plus API 33+ device validation in Phase 11.
+React Native 0.81 exposes Android predictive-back plumbing, but the selected React Navigation 7 integration still documents predictive back as unsupported and requires `android:enableOnBackInvokedCallback="false"`. Phase 4 therefore deliberately retains `android.predictiveBackGestureEnabled: false`; the generated manifest has `android:enableOnBackInvokedCallback="false"`. This is the supported compatibility path, not a claim that a predictive animation ran. A pure immutable back-policy preview is tested so later enablement has one decision contract, while actual Android system-back and tab/stack history are tested independently. Phase 11 does not override that compatibility requirement: enabling the OS predictive callback remains gated on upstream navigator support plus API 33+ device validation.
 
 ## Phase 6 authentication and onboarding adaptation
 
@@ -129,7 +128,7 @@ Authentication and onboarding share routes, validation, hierarchy, and accessibi
 - A width below 375 logical units selects compact gaps while retaining the same information order. At 200% font scale, fields, banners, review rows, and action groups grow or wrap; primary actions remain reachable by vertical scrolling. Navigation label caps from Phase 5 do not cap form or error text.
 - Selector search and option virtualization are shared. iOS may present the shared sheet with eligible control material; Android uses the opaque tonal Material fallback and Back dismissal. Loading, no-result, error/retry, selected, expanded, and explicit clear semantics are identical.
 
-## Remaining evidence and later-phase work
+## Phase 6 checkpoint evidence and later-phase work (historical)
 
 - iOS build/runtime and Liquid Glass screenshots remain unavailable on this Windows host; deterministic fallback selection is not native iOS visual acceptance.
 - The authorized Android AVD is API 24, so it can verify ordinary system Back but not predictive-back callbacks/animations.
@@ -195,3 +194,86 @@ those environments.
 - Accessibility state names selected, busy, expanded/collapsed, invalid, dirty, saved, disabled, and error conditions. Classification and status always include text and/or icon as well as semantic color. Profile uses authoritative `/me` identity and Account uses the same authoritative `/me` email, while operation feedback is rendered once on the owning active route with the correct semantic tone. Native screenshots and hierarchy dumps can support layout/label review, but do not replace TalkBack or VoiceOver traversal acceptance.
 - The Phase 10 preview is dual development-gated and synthetic. It may exercise profile, academic draft, notification truth combinations, Google lifecycle presentation, account danger expansion, confirmations, error, light/dark, compact, large-text, and tablet layouts; it must not call a live API, account, calendar, notification provider, SecureStore owner, or production dataset.
 - Automated platform-facing checks pass: the focused native Phase 10 group records 5 suites / 71 tests / 0 snapshots, complete native Jest records 23 / 206 / 0, native TypeScript passes, and Android x86_64 debug assembly passes in 1 m 11 s with 268 tasks (7 executed, 261 up-to-date). The 56,804,991-byte APK has SHA-256 `57DC2F1BDCD7D7C3B02429EF260DF29A3EEEBCC374C55B90D34334793FEFAAFD`; the unchanged hash is expected because debug JavaScript is Metro-served. Only the known SDK XML/location, Gradle deprecation, and `NODE_ENV` warnings were emitted. The reviewed native set contains 44 PNG/XML pairs and an 88-row integrity index covering phone light/dark, exact 320 dp at font scale 2.0, a simulated tablet, reachable 48 dp controls, and ordinary Back to Profile in the same process. Its filtered runtime scan has no fatal/AndroidRuntime/React Native `TypeError`, `ReferenceError`, invariant, unhandled, or unable-to-load match, and device size/density/font settings were restored. TalkBack was disabled; API 24 cannot prove Android 13 notification permission or predictive Back; native iOS/VoiceOver/Liquid Glass, live providers, authenticated relaunch/account switching, and SecureStore remain unclaimed.
+
+## Phase 11 cross-platform quality reconciliation
+
+Phase 11 keeps the same routes, data ownership, and four-destination
+information architecture. It reconciles semantic behavior at shared
+boundaries, so platform differences remain deliberate expression rather than
+duplicated feature logic.
+
+### Shared adaptive and accessibility behavior
+
+- The tested policy matrix covers widths 320, 360, 393, 430, and 853 at font
+  scales 1.3, 1.5, and 2.0. Forms, long text, feeds, Calendar content, and
+  settings remain vertically reachable with no horizontal-scroll dependency.
+  Phone layouts use compact or regular gutters; tablet-style content stays
+  within the 720-unit readable maximum. The existing Android rail is the only
+  alternate primary-navigation presentation.
+- Authenticated native-stack focus enters the real `AdaptiveTopBar` title.
+  Headerless auth/onboarding/bootstrap/fallback routes announce their fixed
+  route name. Shared sheets focus their title on entry and accept a launcher ref
+  for focus restoration; selectors and date/time controls return focus after
+  dismissal. Validation sends focus to the first invalid login/recovery,
+  academic-profile, or personal-exam control.
+- Operation banners remain persistent semantic alerts on one owning route.
+  Announcement filter/search counts and Calendar view/period changes use an
+  Android polite live region and an explicit iOS announcement. Selection,
+  checked, disabled, busy, expanded, invalid, error, and destructive states are
+  exposed programmatically and through text/icon shape, never color alone.
+- The reachable YÖK route now owns one semantic `FlatList`; Summer School owns
+  one semantic `SectionList` across dates, requirements, trusted announcements,
+  and matching university options. These routes use opaque semantic surfaces,
+  source-specific loading/retained/empty/stale/partial/offline/error states,
+  safe official-link handoff, and existing date-only/range semantics. Their
+  full-bleed route ownership prevents virtualized collections from being nested
+  in the transitional routed scroller.
+
+### Android expression
+
+- Android keeps Material 3-compatible tonal opaque content, native ripple,
+  48 dp minimum targets, native modal/date/time boundaries, edge-to-edge inset
+  ownership, and ordinary native-stack/tab Back. Corrected semantic outline and
+  disabled colors meet the shared non-text and text contrast contracts in light
+  and dark themes.
+- A runtime light/dark probe found that Android's ripple-backed primary Button
+  could retain its previous native fill while its label adopted the new theme.
+  The shared Button now remounts its native control on semantic mode changes;
+  final pixel evidence verifies light `#4338CA` and dark `#A5B4FC` fills with
+  their tested on-primary roles.
+- Compact and large-text decisions stack controls and allow vertical growth;
+  they do not truncate meaningful Turkish labels to preserve a one-row image.
+  Temporary display/density/font overrides on `AcademicPhase1Low` may provide
+  compact and tablet-style evidence, but they do not turn the phone AVD into a
+  physical tablet/foldable result.
+- The authorized image is Android 7 / API 24. It cannot establish Android 13
+  notification permission or API 33+ predictive Back. The navigator callback
+  therefore stays disabled under the supported compatibility policy.
+
+### iOS expression and reduced effects
+
+- iOS continues to use the 44 pt platform minimum where an iOS-specific target
+  is permitted; shared migrated controls retain the stricter 48-unit floor.
+  Forms, feeds, settings groups, Calendar cells/details, YÖK/Summer content,
+  alerts, and destructive surfaces stay opaque. Liquid Glass eligibility is
+  restricted to navigation/control `NavigationSurface` chrome.
+- Reduce Transparency or missing material support selects the same readable
+  opaque tonal chrome. Reduce Motion removes or simplifies nonessential shared
+  sheet and toast transitions; no continuous decorative animation or Three.js
+  path exists. These policy selections are deterministic, but Windows renderer
+  coverage is not a native iOS runtime result.
+
+### Current evidence limits
+
+The Phase 11 report and [native-evidence index](./evidence/phase-11-native/README.md)
+are authoritative for the exact
+Android settings, captures, hashes, and performance trials actually completed.
+This Windows environment cannot build or run iOS, VoiceOver, Dynamic Type,
+native swipe-back, or Liquid Glass. TalkBack traversal is unavailable on the
+authorized AVD; UIAutomator hierarchy output is not a screen reader. Bold-text
+and Reduce Transparency runtime behavior are not inferred where the platform or
+image exposes no controllable setting. No production or live Google Calendar,
+Firebase/APNs, account, calendar, provider, or content fixture is used. Installed
+authenticated E2E and automated native screenshot regression remain absent, and
+the repository still provides no mobile-native lint command/configuration.
+Phase 12 is not started.

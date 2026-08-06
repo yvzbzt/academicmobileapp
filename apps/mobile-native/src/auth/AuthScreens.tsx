@@ -455,10 +455,15 @@ export interface PasswordRecoveryRequestScreenProps {
 
 export function PasswordRecoveryRequestScreen(props: PasswordRecoveryRequestScreenProps) {
   const [attempted, setAttempted] = useState(false);
+  const emailRef = useRef<TextInput>(null);
   const validation = validateLoginForm({ email: props.email, password: "placeholder" });
   function submit() {
     setAttempted(true);
-    if (!validation.errors.email) props.onSubmit();
+    if (validation.errors.email) {
+      emailRef.current?.focus();
+      return;
+    }
+    props.onSubmit();
   }
   return (
     <AuthScaffold
@@ -478,6 +483,7 @@ export function PasswordRecoveryRequestScreen(props: PasswordRecoveryRequestScre
         onChangeText={props.onEmailChange}
         onSubmitEditing={submit}
         placeholder="ornek@universite.edu.tr"
+        ref={emailRef}
         returnKeyType="send"
         textContentType="emailAddress"
         value={props.email}
@@ -571,6 +577,7 @@ export interface PasswordRecoveryConfirmScreenProps {
 
 export function PasswordRecoveryConfirmScreen(props: PasswordRecoveryConfirmScreenProps) {
   const [attempted, setAttempted] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
   const confirmationRef = useRef<TextInput>(null);
   const validation = validatePasswordRecoveryConfirmation({
     code: props.code,
@@ -585,7 +592,15 @@ export function PasswordRecoveryConfirmScreen(props: PasswordRecoveryConfirmScre
     : undefined;
   function submit() {
     setAttempted(true);
-    if (validation.valid) props.onSubmit();
+    if (!validation.valid) {
+      if (props.newPassword.length < AUTH_PASSWORD_MIN_LENGTH) {
+        passwordRef.current?.focus();
+      } else {
+        confirmationRef.current?.focus();
+      }
+      return;
+    }
+    props.onSubmit();
   }
   return (
     <AuthScaffold
@@ -603,6 +618,7 @@ export function PasswordRecoveryConfirmScreen(props: PasswordRecoveryConfirmScre
         onChangeText={props.onNewPasswordChange}
         onSubmitEditing={() => confirmationRef.current?.focus()}
         placeholder={`En az ${AUTH_PASSWORD_MIN_LENGTH} karakter`}
+        ref={passwordRef}
         returnKeyType="next"
         submitBehavior="submit"
         textContentType="newPassword"
@@ -665,6 +681,7 @@ export interface AcademicOnboardingScreenProps {
 export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
   const theme = useTheme();
   const [attempted, setAttempted] = useState(false);
+  const [validationAttempt, setValidationAttempt] = useState(0);
   const passwordRef = useRef<TextInput>(null);
   const dirty = props.initialDraft.universityId !== props.draft.universityId
     || props.initialDraft.facultyId !== props.draft.facultyId
@@ -696,6 +713,7 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
 
   function save() {
     setAttempted(true);
+    setValidationAttempt((current) => current + 1);
     if (!props.draft.universityId) return;
     if (props.needsPassword && !props.password) {
       passwordRef.current?.focus();
@@ -740,6 +758,7 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         universitiesError={props.universitiesError}
         universitiesLoading={props.universitiesLoading}
         universityRequiredError={attempted && !props.draft.universityId ? "Üniversite seçimi zorunludur." : undefined}
+        validationAttempt={validationAttempt}
       />
 
       {props.needsPassword ? (

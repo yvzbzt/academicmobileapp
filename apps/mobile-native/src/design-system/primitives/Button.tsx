@@ -48,7 +48,7 @@ function resolveButtonPalette(
     return {
       background: theme.colors.action.disabled,
       foreground: theme.colors.action.onDisabled,
-      border: theme.colors.action.disabled,
+      border: theme.colors.border.default,
       pressedBackground: theme.colors.action.disabled,
     };
   }
@@ -129,6 +129,10 @@ export const Button = forwardRef<NativeView, ButtonProps>(function Button({
   return (
     <Pressable
       {...pressableProps}
+      // Android's native ripple drawable can retain the previous mode's
+      // background. Remount the native control so foreground/background
+      // tokens always change as one contrast-safe pair.
+      key={theme.mode}
       ref={ref}
       accessibilityLabel={accessibilityLabel ?? visibleLabel}
       accessibilityRole="button"

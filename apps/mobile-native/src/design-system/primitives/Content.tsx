@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useState, type ReactNode } from "react";
 import {
   Pressable,
@@ -5,6 +6,7 @@ import {
   Text,
   View,
   type AccessibilityRole,
+  type AccessibilityState,
   type GestureResponderEvent,
   type StyleProp,
   type ViewProps,
@@ -36,6 +38,8 @@ export function Card({
   busy = false,
   accessibilityLabel,
   accessibilityRole,
+  accessibilityState,
+  accessible,
   style,
   ...viewProps
 }: CardProps) {
@@ -59,6 +63,12 @@ export function Card({
       : null,
     style,
   ];
+  const resolvedAccessibilityState: AccessibilityState = {
+    ...accessibilityState,
+    busy: busy || accessibilityState?.busy,
+    disabled: disabled || accessibilityState?.disabled,
+    selected: selected || accessibilityState?.selected,
+  };
 
   if (onPress) {
     return (
@@ -66,7 +76,7 @@ export function Card({
         {...viewProps}
         accessibilityLabel={accessibilityLabel}
         accessibilityRole={accessibilityRole ?? "button"}
-        accessibilityState={{ busy, disabled, selected }}
+        accessibilityState={resolvedAccessibilityState}
         android_ripple={
           adaptation.pressFeedback === "ripple"
             ? { color: theme.colors.state.pressed, borderless: false }
@@ -92,10 +102,10 @@ export function Card({
   return (
     <View
       {...viewProps}
+      accessible={accessible ?? Boolean(accessibilityLabel || accessibilityRole)}
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={
-        busy || disabled || selected ? { busy, disabled, selected } : undefined
-      }
+      accessibilityRole={accessibilityRole}
+      accessibilityState={resolvedAccessibilityState}
       style={cardStyle}
     >
       {children}
@@ -265,6 +275,16 @@ export function Chip({
         style,
       ]}
     >
+      {selected ? (
+        <Ionicons
+          accessibilityElementsHidden
+          color={disabled ? theme.colors.text.disabled : theme.colors.text.link}
+          importantForAccessibility="no-hide-descendants"
+          name="checkmark"
+          size={18}
+          testID="chip-selected-indicator"
+        />
+      ) : null}
       <Text
         style={[
           theme.typography.label,
@@ -362,6 +382,18 @@ export function SegmentedControl<Value extends string = string>({
               },
             ]}
           >
+            {selected ? (
+              <Ionicons
+                accessibilityElementsHidden
+                color={optionDisabled
+                  ? theme.colors.text.disabled
+                  : theme.colors.text.primary}
+                importantForAccessibility="no-hide-descendants"
+                name="checkmark"
+                size={18}
+                testID={`segment-selected-indicator-${option.value}`}
+              />
+            ) : null}
             <Text
               style={[
                 theme.typography.label,
@@ -398,6 +430,8 @@ const styles = StyleSheet.create({
   chip: {
     alignItems: "center",
     borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
     justifyContent: "center",
   },
   segmentedControl: {
@@ -411,6 +445,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     flex: 1,
+    flexDirection: "row",
+    gap: 4,
     justifyContent: "center",
   },
   segmentVertical: {

@@ -875,3 +875,110 @@ This is the Phase 10 verification ledger. The automated results and bounded Andr
 The dual-gated synthetic preview and its focused tests cover the allowlisted complete/incomplete summary, academic editor, notification truth, Google lifecycle, account/danger, confirmation, and error scenarios without a live dependency. [`evidence/phase-10-native`](./evidence/phase-10-native/README.md) indexes 44 original-resolution PNGs and 44 basename-matched UIAutomator XML exports; [`integrity-index.csv`](./evidence/phase-10-native/raw/integrity-index.csv) records all 88 artifact rows with hashes and byte counts. Reviewed profiles are phone light, phone dark, exact 320 dp at font scale 2.0, and a temporary approximately 853 dp simulated tablet. Hierarchies establish nonzero reachable action bounds and measured 48 dp Back, Settings, and notification-switch targets. The ordinary Back smoke returned from Notifications to Profile in the same process, PID 11098. The 772-line, 78,370-byte app-process log has no match in the final fatal/AndroidRuntime/React Native `TypeError`, `ReferenceError`, invariant, unhandled, or unable-to-load filter, and the device size, density, and font scale were restored.
 
 TalkBack was disabled, so hierarchy exports are not traversal evidence. This synthetic/native presentation evidence cannot prove a live authenticated relaunch/account-switch flow, SecureStore persistence, an OS notification prompt on Android 13, FCM/APNs delivery, a real Google chooser/calendar mutation/revoke, native dirty-guard behavior, iOS/VoiceOver/Dynamic Type/Liquid Glass, or predictive Back. The production dirty leave guard is covered by automated renderer/navigation tests. The tablet is an emulator `wm` override, not a physical device. No production account, calendar, provider, credential, or data was used. Phase 11 was not started.
+
+## Phase 11 cross-platform quality evidence — 6 August 2026
+
+This ledger begins at the accepted Phase 10 baseline
+`8dbe5e1efdb0c5fab665345188228ff66a0f84f6`. Phase 11 implementation,
+automated/release-feed validation, final Android debug assembly, the
+installed-app screenshot/XML/log matrix, documentation consistency, and final
+hygiene scans are complete. The historical Phase 10 sentence above remains
+accurate only for its own checkpoint.
+
+### Phase 11 requirement matrix
+
+| Contract | Verified evidence and boundary |
+|---|---|
+| Accessibility and focus | Root and native renderer tests cover roles/labels; selected, checked, disabled, busy, expanded, invalid, and error states; route-title, sheet, invalid-field, save/result focus; live feed/Calendar/result announcements; switch labeling; decorative hiding; and non-color selection/classification. TalkBack/VoiceOver runtime acceptance is not claimed. |
+| Contrast and semantic color | Automated token checks require at least 4.5:1 for audited normal text and 3:1 for meaningful control/focus/status/disabled boundaries in light and dark. Raw colors under `apps/mobile-native/src` are confined to `tokens.ts`. Dormant raw compatibility styles in `App.tsx` remain documented MN-010 debt; the final diff scan must prove no new `App.tsx` palette. |
+| Responsive/large text | Deterministic policy and reviewed native evidence cover 320, 360, 393, 430, and approximately 853 dp at 100%, 130%, 150%, and 200% font: readable maximum widths, safe single-column collapse, stacked compact controls, no horizontal-scroll policy, reachable actions, 48 dp Android targets, and tablet gutters/adaptive navigation. |
+| Dark mode/platform adaptation | Reachable routes use semantic light/dark tokens and React Navigation theme mapping; system states and dark splash are covered. Android keeps opaque Material-compatible tonal surfaces and ordinary Back. iOS Liquid Glass remains navigation/control chrome only with opaque fallback; Windows provides code/renderer evidence only. |
+| Motion/reduced effects | Deterministic tests retain restrained motion, simplify nonessential sheet/result behavior for Reduce Motion, select opaque fallback for Reduce Transparency, and reject Three.js. Android native evidence covers all three animation scales at 0; native iOS Reduce Transparency remains unavailable. |
+| Virtualization and trust | Home, Announcements, Calendar, YÖK, Summer School, and long selectors use `FlatList`/`SectionList` boundaries without speculative clipping/batch tuning. Official links remain canonicalized before handoff; academic date-only/range semantics remain unchanged. |
+| Release feed performance | Fresh non-debuggable x86_64 Hermes/Fabric release build, deterministic 100-record fixture, one activity-start timing, five measured trials, exact device configuration/restoration, and explicit thresholds passed on the authorized API 24 AVD. This is not a release-timing distribution for unrelated screens or iOS. |
+| Contract/scope preservation | Complete API/native/root regression plus TypeScript/build gates preserve Phase 1–10 contracts. No endpoint, schema, repository, auth/session, notification/provider, Google ownership/lifecycle, personal-exam persistence, or production-data contract changed. Phase 12 was not started. |
+
+### Phase 11 automated validation ledger
+
+| Exact command or check | Final result | Evidence boundary |
+|---|---|---|
+| `npx.cmd vitest run tests/unit/mobile-native-cross-platform-quality.test.ts tests/unit/mobile-native-design-foundation.test.ts tests/unit/mobile-native-feed-performance.test.ts tests/unit/mobile-native-content-trust.test.ts tests/unit/mobile-native-notification-adapter.test.ts --configLoader runner` | PASS — 5 files / 77 tests | Contrast, responsive/font matrix, reduced effects, hard-coded color boundary, virtualization, semantic/focus and safe-link contracts |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand --runTestsByPath tests/quality/CrossPlatformQuality.test.tsx tests/design-system/actions.test.tsx tests/design-system/feedback.test.tsx tests/design-system/fields-content.test.tsx tests/design-system/selection-sheet.test.tsx tests/design-system/theme-surfaces.test.tsx tests/navigation/AdaptiveTopBar.test.tsx tests/navigation/AppNavigator.test.tsx tests/auth/AuthScreens.test.tsx tests/announcements/AnnouncementsFeed.test.tsx tests/announcements/SourceDestinationScreens.test.tsx tests/calendar/CalendarExperience.test.tsx tests/calendar/CalendarEventDetail.test.tsx tests/calendar/PersonalExamCancellation.test.tsx tests/profile/ProfileSettings.test.tsx` | PASS — final rerun: 15 suites / 155 tests / 0 snapshots | Focused Phase 11 renderer/interaction evidence; includes truthful Summer state/count and repeated validation-focus repairs; no native OS or assistive-technology claim |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | PASS — final rerun: 25 suites / 227 tests / 0 snapshots | Complete native Jest; increased from Phase 10's 23 suites / 206 tests |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | PASS — 45 files / 445 tests | Dedicated temporary `127.0.0.1` Mongo fixture only; stopped after the run; no remote service/data |
+| `npm.cmd test -- --configLoader runner` | PASS — 73 files / 854 tests | Full regression; increased from Phase 10's 72 files / 841 tests |
+| `npx.cmd vitest run tests/unit/mobile-native-auth-recovery.test.ts --configLoader runner` | PASS — 1 file / 20 tests | The first full run identified the obsolete inline-live-region static assertion; production behavior did not regress |
+| `npm.cmd test -- tests/unit/phase-1-8-documentation-consistency.test.ts --configLoader runner` | PASS — 1 file / 7 tests | Final documentation consistency |
+| `npx.cmd vitest run apps/api/tests/server-outbound-inventory.test.ts --configLoader runner` | PASS — 1 file / 2 tests | Approved server outbound boundary unchanged |
+| `npm.cmd run typecheck` | PASS | Workspace TypeScript |
+| `npm.cmd --prefix apps/mobile-native run typecheck` | PASS | Mobile-native TypeScript |
+| `npm.cmd run build:admin -- --configLoader runner` | PASS — final rerun: 1,742 modules; JS 250.51 kB / 73.89 kB gzip; 10.66 s | Web regression build, not native evidence |
+| `npm.cmd run build:mobile -- --configLoader runner` | PASS — final rerun: 1,755 modules; JS 349.76 kB / 104.37 kB gzip; 14.14 s | Mobile-web regression build, not native evidence |
+| `$env:FEED_PERFORMANCE_EPHEMERAL_DEVICE='1'; npm.cmd run measure:mobile-native:feed-release` | PASS — 430 Gradle tasks in 8 min 03 s; 29,525,380-byte APK; SHA-256 `6f32ed35453881073664c516792b69fae2a6af82e18109a7535fce92be2ede63` | Non-debuggable/no-Metro x86_64 Hermes/Fabric release harness on `AcademicPhase1Low`, API 24; the guard authorized replacing only the disposable local package |
+| `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` from `apps/mobile-native/android` | PASS — 43 s; 268 tasks (7 executed / 261 up-to-date); APK 56,804,991 bytes; SHA-256 `FA93D03F277DB169564B09CC4E389D146D0D0E6911C7CA0774372DFB8A0A1BCA` | Final x86_64 debug assembly; install `Success`; package version `0.1.1`, versionCode `12`, ABI x86_64 |
+| Android installed-app native matrix | PASS — 32 original-resolution PNGs + 32 basename-paired XML exports; 97 integrity rows; index SHA-256 `AD1F872742FCD8819A25B61CBC8EE22F90234EA03BAA44EB32C96D629F2AA419` | 320/360/393/430/~853 dp, 100/130/150/200% font, light/dark, keyboards, native date/time pickers, same-PID feed/Calendar Back, destructive reachability, reduced-motion scales 0, clean runtime/sensitive scan, and exact cleanup |
+| Documentation consistency and final hygiene/scope scans | PASS — `git diff --check`; 113 intended text artifacts with zero trailing-whitespace or NUL findings; zero prohibited credential, Firestore, TLS-bypass, fake-social, forbidden modifier/snapshot/empty/vacuous-test, screen-local raw-color, or Phase 12 implementation matches | The one existing SMTP warning states only that a recovery message was not sent and contains no secret/payload. Six semantic raw-color changes are confined to `tokens.ts`; no raw color was added to `App.tsx`. Ports 8081/27017 were clear and no ADB device remained attached. Phase 12 implementation scan: no Phase 12 implementation; `PHASE_12_NOT_STARTED`. |
+| Mobile-native lint inventory | `MOBILE_NATIVE_LINT: NOT AVAILABLE` | No applicable lint script, configuration, or dependency; TypeScript is not relabelled as lint |
+
+The first sandboxed admin/mobile-web attempts were blocked before compilation by
+restricted parent-config reads. Identical unchanged-source reruns with the
+required filesystem access passed. These are environment diagnostics, not
+product failures.
+
+### Release performance evidence
+
+The accepted run used `emulator-5554` / `AcademicPhase1Low`, Android 7.0 /
+API 24 / x86_64, 720 × 1280 at 320 dpi and font scale 1.0, host OpenGL,
+animation scales 1.0, Hermes, Fabric/new architecture, a non-debuggable APK, and
+no Metro. The single activity-start sample was ThisTime 630 ms, TotalTime 630
+ms, and WaitTime 660 ms; it is not a startup percentile.
+
+Each of five trials produced 120 valid frames (600 aggregate). Aggregate p90
+was 18.965375 ms, p95 was 19.595379 ms, and frozen frames were 0. Acceptance
+required at least 100 frames per trial, p90 <= 32 ms, p95 <= 50 ms, and no frame
+at or above 700 ms. The exact prior size/density/font/animation settings,
+pre-existing release artifact, and package state were restored; the benchmark
+package and alternate-entry APK were removed, and no ADB reverse was added.
+[`performance/release-evidence.json`](../../apps/mobile-native/performance/release-evidence.json)
+is the canonical machine-readable record.
+
+The harness measures one activity start and the synthetic 100-record
+Announcements feed. Shell, Home, Agenda/Week/Month, personal-exam editor,
+selectors, Profile, iOS, physical-device, and fleet timings remain unmeasured.
+
+### Native evidence and platform limitations
+
+[`evidence/phase-11-native`](./evidence/phase-11-native/README.md) indexes the 32
+PNG/XML pairs and raw build, package, device, Back, theme-transition, runtime,
+integrity, and cleanup records. The native matrix covers 320, 360, 393, 430, and
+approximately 853 dp; 100%, 130%, 150%, and 200% font; light/dark; keyboard-open
+forms; Agenda/Week/Month and native date/time pickers; Profile/settings and
+Google states; destructive reachability; and reduced motion with all three
+animation scales at 0.
+
+Ordinary Back returned from feed and Calendar details in their original
+processes. Native warm theme switching exposed a stale Android ripple-backed
+Button background; the shared Button now remounts its native control by semantic
+mode. Final pixel checks record `#4338CA` after the light transition and
+`#A5B4FC` after the dark transition.
+
+The final runtime scan found zero fatal/React errors and zero sensitive-value
+matches. Cleanup restored physical 720 x 1280, density 320, font scale 1.0, and
+the exact original `null` animation settings; removed the ADB reverse;
+uninstalled the debug package; verified ports 8081/27017 clear; and shut down
+the AVD. The index contains 97 rows and has SHA-256
+`AD1F872742FCD8819A25B61CBC8EE22F90234EA03BAA44EB32C96D629F2AA419`.
+
+Windows cannot build/run iOS, VoiceOver, Dynamic Type, bold text, native
+swipe-back, Liquid Glass, or Reduce Transparency; full two-platform native
+visual acceptance is therefore not claimed. TalkBack is unavailable on the
+authorized image, and UIAutomator is not screen-reader traversal. API 24 cannot
+prove Android 13 notification permission/channel behavior or modern predictive
+Back. The tablet profile is an emulator display override, portrait remains the
+declared orientation, and no physical tablet/foldable evidence exists.
+
+No authorized live Google Calendar, FCM, APNs, authenticated backend/content,
+production account, provider, calendar, credential, or data was accessed. No
+installed authenticated Maestro/Detox/Appium E2E, automated native screenshot
+regression, shipped observability, mobile-native lint, or production fleet
+performance evidence exists. Phase 12 was not started.

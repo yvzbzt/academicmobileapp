@@ -1,5 +1,5 @@
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, Switch } from "react-native";
 import {
   act,
   fireEvent,
@@ -177,6 +177,9 @@ describe("Phase 10 profile and settings presentation", () => {
     await waitFor(() => expect(openSettingsButton).toBeEnabled());
     const categorySwitch = screen.getByRole("switch", { name: "Sınavlar bildirimi" });
     expect(categorySwitch).toHaveStyle({ minHeight: 48, minWidth: 48 });
+    for (const nativeSwitch of screen.UNSAFE_getAllByType(Switch)) {
+      expect(nativeSwitch.props.disabled).toBe(false);
+    }
     fireEvent.press(categorySwitch);
     fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini kaydet" }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
@@ -233,6 +236,37 @@ describe("Phase 10 profile and settings presentation", () => {
     await waitFor(() => expect(screen.getByText("Cihaz ayarları açılamadı")).toBeVisible());
     expect(rejectOpenSettings).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/RAW_SETTINGS_FAILURE/u)).toBeNull();
+  });
+
+  it("keeps native switch disabled semantics aligned with the owning control", async () => {
+    const truth = resolveNotificationTruth({
+      permission: "granted",
+      preferenceEnabled: true,
+      registration: "registered",
+      saveState: "saving",
+    });
+    await renderAsync(tree(
+      <NotificationSettingsScreen
+        categories={[{ key: "exam", label: "Sınavlar", enabled: true }]}
+        dirty
+        mode="selected_fields"
+        onCategoryChange={jest.fn()}
+        onModeChange={jest.fn()}
+        onOpenSettings={jest.fn()}
+        onPreferenceEnabledChange={jest.fn()}
+        onSave={jest.fn()}
+        preferenceEnabled
+        saveState="saving"
+        truth={truth}
+      />,
+    ));
+
+    for (const control of screen.getAllByRole("switch")) {
+      expect(control).toBeDisabled();
+    }
+    for (const nativeSwitch of screen.UNSAFE_getAllByType(Switch)) {
+      expect(nativeSwitch.props.disabled).toBe(true);
+    }
   });
 
   it("keeps Google lifecycle controls compact and protects personal events in removal copy", async () => {

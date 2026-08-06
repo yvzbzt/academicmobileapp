@@ -33,6 +33,7 @@ export interface AcademicProfileFieldsProps {
   departmentsError?: string;
   busy: boolean;
   universityRequiredError?: string;
+  validationAttempt?: number;
   onUniversityChange: (value: string) => void;
   onFacultyChange: (value: string | null) => void;
   onDepartmentChange: (value: string | null) => void;
@@ -89,6 +90,7 @@ export function AcademicProfileFields({
         placeholder="Üniversiteni seç"
         query={universityQuery}
         requiredError={props.universityRequiredError}
+        validationAttempt={props.validationAttempt}
         selectorLabel="Üniversite"
         value={props.draft.universityId || null}
       />
@@ -191,6 +193,7 @@ interface SelectorSearchProps {
   loading: boolean;
   error?: string;
   requiredError?: string;
+  validationAttempt?: number;
   disabled?: boolean;
   onQueryChange: (value: string) => void;
   onValueChange: (value: string) => void;
@@ -213,6 +216,8 @@ function SelectorSearch(props: SelectorSearchProps) {
         disabled={props.disabled}
         emptyLabel={props.query ? "Aramana uygun sonuç bulunamadı." : "Kullanılabilir seçenek yok."}
         error={props.requiredError ?? props.error}
+        focusOnError={Boolean(props.requiredError)}
+        focusOnErrorKey={props.validationAttempt}
         label={props.selectorLabel}
         loading={props.loading}
         onValueChange={props.onValueChange}

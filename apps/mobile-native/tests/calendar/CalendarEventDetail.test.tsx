@@ -3,7 +3,7 @@ import {
   renderAsync,
   screen,
 } from "@testing-library/react-native";
-import { Alert } from "react-native";
+import { Alert, Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { CalendarEventDetail } from "../../src/calendar/CalendarEventDetail";
 import type { CalendarItem } from "../../src/calendar/calendar-model";
@@ -44,7 +44,7 @@ const personalItem: CalendarItem = {
 const onUpdate = jest.fn(() => ({ ok: true as const }));
 const onDelete = jest.fn(() => ({ ok: true as const }));
 
-async function renderDetail(item: CalendarItem | null) {
+async function renderDetail(item: CalendarItem | null, feedback?: React.ReactNode) {
   return renderAsync(
     <SafeAreaProvider>
       <ThemeProvider preference="light">
@@ -53,6 +53,7 @@ async function renderDetail(item: CalendarItem | null) {
           departmentName="Bilgisayar Mühendisliği"
           facultyName="Mühendislik Fakültesi"
           item={item}
+          feedback={feedback}
           onDeletePersonalExam={onDelete}
           onUpdatePersonalExam={onUpdate}
           universityName="Örnek Üniversitesi"
@@ -87,6 +88,14 @@ describe("Phase 9 Calendar detail", () => {
     fireEvent.changeText(screen.getByLabelText("Sınav adı"), "Lineer Cebir finali");
     fireEvent.press(screen.getByRole("button", { name: "Değişiklikleri kaydet" }));
     expect(onUpdate).toHaveBeenCalledWith("exam", expect.objectContaining({ title: "Lineer Cebir finali" }));
+  });
+
+  it("keeps update results reachable on the trusted detail route", async () => {
+    await renderDetail(
+      personalItem,
+      <Text accessibilityRole="alert">Kişisel sınav güncellendi</Text>,
+    );
+    expect(screen.getByRole("alert", { name: "Kişisel sınav güncellendi" })).toBeOnTheScreen();
   });
 
   it("requires a native destructive confirmation before delete", async () => {

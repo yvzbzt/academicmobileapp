@@ -6,7 +6,7 @@ import {
   renderAsync,
   screen,
 } from "@testing-library/react-native";
-import { StyleSheet } from "react-native";
+import { AccessibilityInfo, StyleSheet, Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   CalendarExperience,
@@ -86,10 +86,20 @@ function props(overrides: Partial<CalendarExperienceProps> = {}): CalendarExperi
   };
 }
 
-async function renderCalendar(input = props()) {
+async function renderCalendar(
+  input = props(),
+  platform: "android" | "ios" = "android",
+) {
   return renderAsync(
     <SafeAreaProvider>
-      <ThemeProvider preference="light">
+      <ThemeProvider
+        liquidGlassAvailable={platform === "ios"}
+        platform={platform}
+        preference="light"
+        reducedMotion
+        reducedTransparency={false}
+        windowWidth={320}
+      >
         <NavigationContainer>
           <CalendarExperience {...input} />
         </NavigationContainer>
@@ -119,6 +129,8 @@ describe("Phase 9 Calendar experience", () => {
       expect.objectContaining({ selected: true }),
     );
     expect(screen.getByText("Yaklaşan tarihler")).toBeOnTheScreen();
+    expect(screen.getByTestId("calendar-view-announcement").props.accessibilityLiveRegion)
+      .toBe("polite");
 
     fireEvent.press(screen.getByRole("radio", { name: "Hafta" }));
     expect(screen.getByRole("radio", { name: "Hafta" }).props.accessibilityState).toEqual(
@@ -133,6 +145,36 @@ describe("Phase 9 Calendar experience", () => {
     );
     expect(screen.getByLabelText("Aylık takvim özeti")).toBeOnTheScreen();
     expect(screen.getByText("Ağustos 2026")).toBeOnTheScreen();
+  });
+
+  it("announces committed iOS view and period changes without an initial announcement", async () => {
+    const announceSpy = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockImplementation(() => undefined);
+
+    try {
+      await renderCalendar(props(), "ios");
+      expect(announceSpy).not.toHaveBeenCalled();
+
+      fireEvent.press(screen.getByRole("radio", { name: "Hafta" }));
+      expect(announceSpy).toHaveBeenLastCalledWith(
+        screen.getByTestId("calendar-view-announcement").props.accessibilityLabel,
+      );
+      expect(announceSpy).toHaveBeenLastCalledWith(
+        "Hafta görünümü. 3 Ağu 2026 – 9 Ağu 2026. 1 kayıt.",
+      );
+
+      announceSpy.mockClear();
+      fireEvent.press(screen.getByRole("button", { name: "Sonraki hafta" }));
+      expect(announceSpy).toHaveBeenLastCalledWith(
+        screen.getByTestId("calendar-view-announcement").props.accessibilityLabel,
+      );
+      expect(announceSpy).toHaveBeenLastCalledWith(
+        "Hafta görünümü. 10 Ağu 2026 – 16 Ağu 2026. 2 kayıt.",
+      );
+    } finally {
+      announceSpy.mockRestore();
+    }
   });
 
   it("labels event type with icon-backed text and never invents a clock for date-only data", async () => {
@@ -203,6 +245,13 @@ describe("Phase 9 Calendar experience", () => {
     fireEvent.press(screen.getByRole("button", { name: "Google Takvim'i yönet" }));
     expect(callbacks.onSyncGoogle).toHaveBeenCalledTimes(1);
     expect(callbacks.onManageGoogle).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps route-scoped personal-exam results reachable in the virtualized header", async () => {
+    await renderCalendar(props({
+      feedback: <Text accessibilityRole="alert">Kişisel sınav eklendi</Text>,
+    }));
+    expect(screen.getByRole("alert", { name: "Kişisel sınav eklendi" })).toBeOnTheScreen();
   });
 
   it.each([

@@ -99,7 +99,9 @@ export function resolveElevationStyle(
 
   if (platform === "ios") {
     return {
-      shadowColor: theme.colors.background.inverse,
+      shadowColor: theme.isDark
+        ? theme.colors.state.scrim
+        : theme.colors.background.inverse,
       shadowOffset: token.ios.shadowOffset,
       shadowOpacity: token.ios.shadowOpacity,
       shadowRadius: token.ios.shadowRadius,

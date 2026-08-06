@@ -190,10 +190,13 @@ describe("mobile-native design foundation", () => {
     expect(resolveElevationStyle("medium", "android", lightTheme)).toEqual({ elevation: 3 });
     expect(resolveElevationStyle("none", "fallback", lightTheme)).toEqual({});
     expect(resolveElevationStyle("low", "ios", darkTheme)).toEqual({
-      shadowColor: darkTheme.colors.background.inverse,
+      shadowColor: darkTheme.colors.state.scrim,
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.12,
       shadowRadius: 2,
+    });
+    expect(resolveElevationStyle("low", "ios", lightTheme)).toMatchObject({
+      shadowColor: lightTheme.colors.background.inverse,
     });
   });
 });

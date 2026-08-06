@@ -22,6 +22,7 @@ import type {
   NotificationPermissionAdapter,
   NotificationTokenAdapter
 } from "./notification-lifecycle";
+import { lightTheme } from "../design-system/tokens";
 
 export const ACADEMIC_REMINDERS_CHANNEL_ID = "academic-reminders";
 export const ACADEMIC_UPDATES_CHANNEL_ID = "academic-updates";
@@ -210,7 +211,7 @@ export async function configureAndroidNotificationChannels(): Promise<void> {
     showBadge: true,
     sound: "default",
     enableLights: true,
-    lightColor: "#4F46E5",
+    lightColor: lightTheme.colors.action.primary,
     enableVibrate: true,
     vibrationPattern: [0, 250, 200, 250]
   });
@@ -222,7 +223,7 @@ export async function configureAndroidNotificationChannels(): Promise<void> {
     showBadge: true,
     sound: "default",
     enableLights: true,
-    lightColor: "#4F46E5",
+    lightColor: lightTheme.colors.action.primary,
     enableVibrate: true,
     vibrationPattern: [0, 200]
   });

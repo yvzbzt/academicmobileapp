@@ -1,23 +1,21 @@
 # Mobile Native Design System Contract
 
-Status: Phases 1-8 implemented and reconciled; later-phase work remains deferred.
-Last updated: 4 August 2026
+Status: Phases 1-11 implemented and reconciled; Phase 12 is not started.
+Last updated: 6 August 2026
 
 ## Current reconciliation
 
-The accepted Phase 8 baseline is `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`.
-The bounded remediation commits are Package 1
-`641d7bee8a1cd539179769069a22b5c3220e8a6d`, Package 2
-`5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and Package 3
-`2e3664546f628a19c6fa929b9ee9469e5322f9a8`. Sections that describe the
-scope of an earlier phase remain historical scope statements; this section and
-the later phase-specific contracts describe current behavior.
+Phase 11 starts from the accepted Phase 10 baseline
+`8dbe5e1efdb0c5fab665345188228ff66a0f84f6`. Sections that describe the scope
+of an earlier phase remain historical scope statements; this reconciliation
+and the later phase-specific contracts describe current behavior.
 
 Current native acceptance is bounded to the committed component/contract tests
-and an Android API 24 x86_64 AVD. Native iOS, VoiceOver, TalkBack, modern
-Android/predictive Back, live provider flows, tablet/rail, and installed E2E
-remain evidence limitations. Mobile-native lint is not claimed because the
-repository has no native lint command or configuration.
+and the synthetic Android API 24 x86_64 AVD evidence indexed by each phase.
+Native iOS, VoiceOver, TalkBack, modern Android notification permission and
+predictive Back, live provider flows, physical tablet/foldable hardware, and
+installed authenticated E2E remain evidence limitations. Mobile-native lint is
+not claimed because the repository has no native lint command or configuration.
 
 ## Principles
 
@@ -54,8 +52,9 @@ This indigo family is intentionally distinct from LinkedIn blue. Do not introduc
 | `background.subtle` | `#EEF1F7` | Grouping without nested cards |
 | `text.primary` | `#172033` | Normal text; 16.27:1 on white |
 | `text.secondary` | `#526079` | Metadata; 6.35:1 on white |
-| `text.disabled` | `#758197` | Only with a non-color disabled cue |
-| `border.default` | `#D7DEEA` | Dividers and component outlines |
+| `text.disabled` | `#526079` | Disabled text; always paired with disabled semantics and a non-color cue |
+| `border.default` | `#758197` | Dividers and control outlines; at least 3:1 on supported light surfaces |
+| `border.strong` | `#526079` | Strong control and grouping boundary |
 | `action.primary` | `#4338CA` | Primary button/focus action |
 | `action.primaryPressed` | `#3730A3` | Pressed state |
 | `action.focus` | `#6D5CE7` | Focus indicator; 4.84:1 on white |
@@ -73,7 +72,8 @@ This indigo family is intentionally distinct from LinkedIn blue. Do not introduc
 | `background.subtle` | `#1D263A` | Tonal grouping |
 | `text.primary` | `#F8FAFC` | Primary text |
 | `text.secondary` | `#CBD5E1` | Metadata |
-| `border.default` | `#344158` | Dividers/outlines |
+| `border.default` | `#94A3B8` | Dividers/control outlines with non-text contrast |
+| `border.strong` | `#CBD5E1` | Strong control and grouping boundary |
 | `action.primary` | `#A5B4FC` | Primary control; 8.90:1 with `#111827` content |
 | `action.onPrimary` | `#111827` | Text/icon on dark-mode primary |
 
@@ -315,3 +315,98 @@ controls, final trials, renderer, and cleanup proof live in
 - Android uses Material 3-compatible opaque tonal settings surfaces, native ripple, native dialogs/sheets, and the existing edge-to-edge ownership. Academic and Account routes opt into the shared keyboard-safe, vertically reachable form boundary. iOS Liquid Glass remains eligible only for navigation/control chrome; summary, list, form, integration, and danger content stays opaque on every platform.
 - `ProfileSettingsPreview` is synthetic development evidence only. It must be selected by both `__DEV__` and `EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW=1`, use reserved local identities, import no API, SecureStore, authentication, notification-provider, or Google-provider implementation, and be unreachable in production.
 - Fresh automated Phase 10 evidence passes the focused Profile/settings, preview, navigation, selection-sheet, and shared-auth paths at 5 suites / 71 tests / 0 snapshots; complete native Jest passes 23 / 206 / 0 and native TypeScript passes. The reviewed Android evidence in [`evidence/phase-10-native`](./evidence/phase-10-native/README.md) contains 44 original-resolution PNGs, 44 matching hierarchy exports, and an 88-row integrity index across phone light/dark, exact 320 dp at 200% font, and a simulated tablet layout. It confirms reachable 48 dp targets, ordinary Back in the same process, and a clean filtered runtime log. TalkBack was disabled, and no provider, authenticated-storage, or native iOS/Liquid Glass behavior is inferred.
+
+## Phase 11 cross-platform quality contract
+
+Phase 11 hardens the existing route and component system; it does not add a
+destination, product capability, theme preference, provider behavior, or data
+contract.
+
+### Contrast and semantic-color closure
+
+- Automated token checks evaluate every normal semantic text role against the
+  supported canvas, surface, raised-surface, and subtle backgrounds at a
+  minimum 4.5:1 ratio in both themes. Primary/on-primary, disabled text, and
+  status-container text are part of that matrix.
+- Meaningful control, focus, status, and disabled boundaries are checked at a
+  minimum 3:1 ratio. Light `text.disabled` and `action.onDisabled` are
+  `#526079`; light `border.default`/`border.strong` are
+  `#758197`/`#526079`; dark `border.default`/`border.strong` are
+  `#94A3B8`/`#CBD5E1`. Disabled buttons retain disabled semantics, a distinct
+  fill, a visible boundary, and readable text rather than opacity alone.
+- New reachable route and component source under `apps/mobile-native/src`
+  contains no screen-local raw color system; palette literals remain confined
+  to `design-system/tokens.ts`. `App.tsx` still contains dormant compatibility
+  JSX and historical styles, so this rule does not falsely close the broader
+  MN-010 orchestration/decomposition debt.
+
+### Accessibility and result ownership
+
+- A focused authenticated route moves accessibility focus to its real top-bar
+  title. Headerless auth, onboarding, bootstrap, and safe-fallback routes issue
+  a fixed route announcement. Opening a shared sheet focuses its heading;
+  dismissal can return focus to the supplied launcher.
+- Required academic selection, password-recovery email/password confirmation,
+  and personal-exam validation move focus to the first invalid field or picker
+  control. Closing the native date/time selection returns focus to its launcher.
+  Owning forms advance `SelectField.focusOnErrorKey` after every failed submit,
+  so an unchanged invalid selector can be focused again without moving form
+  validation state into the primitive. Existing destructive and provider flows
+  retain their purpose-specific focus restoration.
+- Important operation results use persistent semantic `Banner` alerts on the
+  one active owning route. Announcement filter/search result counts and Calendar
+  view/period results use Android live regions and an explicit iOS
+  accessibility announcement. Selected, checked, disabled, busy, expanded,
+  invalid, and error states remain programmatic; classification and status add
+  text and/or icon to color.
+- Static `Card` roles and caller-supplied accessibility state are preserved.
+  Decorative icons and skeleton groups remain hidden, while one labelled busy
+  region represents loading.
+
+### Responsive, source-destination, and effects contract
+
+- Deterministic policy coverage spans 320, 360, 393, 430, and 853 logical-unit
+  widths at font scales 1.3, 1.5, and 2.0. Forms and long collections stay one
+  column, avoid horizontal scrolling, use 16-unit compact gutters and the
+  existing 720-unit readable maximum, and keep required actions vertically
+  reachable. Tablet-style width uses grouped readable content and the existing
+  Android rail decision; it does not introduce another information model.
+- `YokAnnouncementsScreen` is a semantic `FlatList` for trusted records.
+  `SummerSchoolScreen` is a semantic `SectionList` for dates, requirements,
+  trusted announcements, and matching options. Both own loading, retained
+  refresh, populated, empty, stale, partial, offline, and error presentation,
+  use distinct truthful source titles, count every visible source section, use
+  safe official-link handoff, and preserve date-only/range meaning. They are
+  full-bleed route slots rather than long collections nested in a `ScrollView`.
+- Home, Announcements, Calendar, Summer School, YÖK, selectors, and other
+  unbounded product datasets retain virtualization. Phase 11 does not ship a
+  speculative batch/window/clipping adjustment merely to improve a local
+  benchmark.
+- System appearance continues to select the complete light/dark semantic
+  themes. iOS Liquid Glass remains eligible only for navigation/control chrome;
+  Reduce Transparency or missing runtime support selects an opaque tonal
+  fallback. Reduce Motion removes or simplifies nonessential sheet/toast
+  transitions. There is no decorative continuous animation and no Three.js
+  dependency.
+- Android ripple-backed `Button` controls remount their native view when the
+  semantic mode changes. This prevents the platform ripple drawable from
+  retaining the previous mode's fill while the label adopts the new mode. The
+  native warm-transition evidence verifies the complete primary/on-primary
+  pair in both directions.
+
+### Evidence boundary
+
+Renderer and pure-contract tests establish the semantic, contrast, responsive,
+dark-theme, focus, live-result, reduced-effect, virtualization, and safe-link
+policies. The reviewed [Phase 11 Android evidence](./evidence/phase-11-native/README.md)
+owns 32 PNG/XML pairs, runtime-theme pixel checks, ordinary Back, native
+pickers, compact/large-text/tablet profiles, reduced motion, runtime logs, and
+restoration; the Phase 11 report owns the exact tests and release measurements.
+This Windows/API 24 environment
+does not establish native iOS, VoiceOver, Dynamic Type, swipe-back, or Liquid
+Glass runtime acceptance; TalkBack traversal is unavailable; API 24 cannot
+prove Android 13 notification permission or modern predictive Back; a temporary
+tablet-style viewport is not physical tablet/foldable acceptance; and no live
+Google Calendar, Firebase/APNs, production account, provider, or data result is
+inferred. Mobile-native lint and installed authenticated E2E/screenshot
+automation remain unavailable. Phase 12 is not started.

@@ -46,6 +46,7 @@ export const APP_SHELL_COMPACT_WIDTH = 375;
 export const APP_SHELL_LABEL_MAX_FONT_SIZE_MULTIPLIER = 1.35;
 export const APP_SHELL_COMPACT_LARGE_TEXT_MAX_FONT_SIZE_MULTIPLIER = 1.2;
 export const APP_SHELL_ANDROID_BOTTOM_NAVIGATION_CONTENT_HEIGHT = 80;
+export const APP_SHELL_IOS_BOTTOM_NAVIGATION_CONTENT_HEIGHT = 64;
 
 export type ShellTopBarDensity = "compact" | "regular";
 export type ShellLargeTextFallback = "native-scaling" | "bounded-label-full-accessible-name";
@@ -56,7 +57,7 @@ export interface AppShellLayoutContract {
   navigationLabelLines: 1;
   navigationLabelMaxFontSizeMultiplier: number;
   largeTextFallback: ShellLargeTextFallback;
-  bottomNavigationContentHeight?: 80;
+  bottomNavigationContentHeight?: 64 | 80;
 }
 
 export function resolveAppShellLayoutContract(input: {
@@ -89,7 +90,9 @@ export function resolveAppShellLayoutContract(input: {
     bottomNavigationContentHeight:
       input.platform === "android"
         ? APP_SHELL_ANDROID_BOTTOM_NAVIGATION_CONTENT_HEIGHT
-        : undefined,
+        : input.platform === "ios"
+          ? APP_SHELL_IOS_BOTTOM_NAVIGATION_CONTENT_HEIGHT
+          : undefined,
   };
 }
 

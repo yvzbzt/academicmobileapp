@@ -224,6 +224,10 @@ describe("mobile authentication recovery contract", () => {
 
   it("keeps Phase 1 cleanup retry UI ahead of every auth and onboarding screen", () => {
     const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const feedbackSource = readFileSync(
+      new URL("../../apps/mobile-native/src/design-system/primitives/Feedback.tsx", import.meta.url),
+      "utf8"
+    );
     const cleanupRenderer = appSource.slice(
       appSource.indexOf("function renderCleanupIssue"),
       appSource.indexOf("function renderRoutedScreen")
@@ -238,14 +242,19 @@ describe("mobile authentication recovery contract", () => {
     );
 
     expect(cleanupRenderer).toContain("if (!cleanupIssue) return null;");
-    expect(cleanupRenderer).toContain('accessibilityLiveRegion="polite"');
-    expect(cleanupRenderer).toContain('accessibilityRole="button"');
-    expect(cleanupRenderer).toContain("onPress={() => void retryFailedCleanup()}");
+    expect(cleanupRenderer).toContain("<Banner");
+    expect(cleanupRenderer).toContain('title="Tamamlanamayan güvenli temizlik"');
+    expect(cleanupRenderer).toContain('tone="warning"');
+    expect(cleanupRenderer).toContain('actionLabel={hasRetryableTarget && !busy && !googleBusy ? "Temizliği tekrar dene" : undefined}');
+    expect(cleanupRenderer).toContain("onAction={hasRetryableTarget && !busy && !googleBusy ? () => void retryFailedCleanup() : undefined}");
+    expect(feedbackSource).toContain('accessibilityLiveRegion={tone === "error" ? "assertive" : "polite"}');
+    expect(feedbackSource).toContain('accessibilityRole="alert"');
+    expect(feedbackSource).toContain("<Button compact label={actionLabel} onPress={onAction}");
     expect(authAndOnboardingBoundary).toContain('AUTH_ROUTE_NAMES.has(route) || route === "AcademicOnboarding"');
     expect(authAndOnboardingBoundary.indexOf("{renderCleanupIssue()}"))
       .toBeLessThan(authAndOnboardingBoundary.indexOf("{renderAuthOnboardingScreen(route)}"));
     expect(routedScreens.match(/\{renderCleanupIssue\(\)\}/gu)).toHaveLength(2);
-    expect(appSource.match(/onPress=\{\(\) => void retryFailedCleanup\(\)\}/gu)).toHaveLength(1);
+    expect(cleanupRenderer.match(/retryFailedCleanup\(\)/gu)).toHaveLength(1);
   });
 
   it("preserves the disabled-account error before generic Google 401 recovery", () => {

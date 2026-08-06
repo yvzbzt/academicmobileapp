@@ -4,6 +4,7 @@ import {
   evaluateAndroidFrameStatsTrials,
   evaluateFeedPerformanceTrials,
   nearestRankPercentile,
+  parseAndroidActivityStartTiming,
   parseAndroidFrameStats,
   summarizeFrameDurations,
 } from "../../apps/mobile-native/src/performance/feed-performance";
@@ -41,6 +42,38 @@ describe("Android release feed framestats contract", () => {
     ].join("\r\n");
 
     expect(parseAndroidFrameStats(output)).toEqual([16, 32]);
+  });
+
+  it("parses complete am start -W activity timing without confusing similarly named fields", () => {
+    const output = [
+      "Starting: Intent { cmp=com.anssoft.akademiktakvim/.MainActivity }",
+      "Status: ok",
+      "LaunchState: COLD",
+      "Activity: com.anssoft.akademiktakvim/.MainActivity",
+      "ThisTime: 742",
+      "TotalTime: 781",
+      "WaitTime: 799",
+      "Complete",
+    ].join("\n");
+
+    expect(parseAndroidActivityStartTiming(output)).toEqual({
+      thisTimeMs: 742,
+      totalTimeMs: 781,
+      waitTimeMs: 799,
+    });
+  });
+
+  it("rejects incomplete, negative, malformed, and unsafe am start -W timing", () => {
+    expect(parseAndroidActivityStartTiming("ThisTime: 1\nTotalTime: 2")).toBeNull();
+    expect(parseAndroidActivityStartTiming(
+      "ThisTime: -1\nTotalTime: 2\nWaitTime: 3",
+    )).toBeNull();
+    expect(parseAndroidActivityStartTiming(
+      "ThisTime: fast\nTotalTime: 2\nWaitTime: 3",
+    )).toBeNull();
+    expect(parseAndroidActivityStartTiming(
+      "ThisTime: 9007199254740992\nTotalTime: 2\nWaitTime: 3",
+    )).toBeNull();
   });
 
   it("ignores flagged, malformed, incomplete, zero, and negative-duration rows", () => {

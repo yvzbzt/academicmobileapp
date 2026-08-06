@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   FlatList,
   StyleSheet,
@@ -155,6 +156,7 @@ export function AnnouncementsFeed({
     initialContentTypeFilter,
   );
   const [sourceFilter, setSourceFilter] = useState<FeedSourceFilter>(initialSourceFilter);
+  const resultAnnouncementRequestedRef = useRef(false);
 
   useEffect(() => {
     const timer = setTimeout(
@@ -225,8 +227,24 @@ export function AnnouncementsFeed({
   const selectedSourceLabel = SOURCE_FILTERS.find(
     (option) => option.value === sourceFilter,
   )?.label ?? "Tüm kaynaklar";
+  const resultAnnouncement = `Seçili filtreler: ${selectedContentLabel}, ${selectedSourceLabel}${searchActive ? ", arama etkin" : ""}. ${visibleItems.length} sonuç.`;
+
+  useEffect(() => {
+    if (!resultAnnouncementRequestedRef.current) return;
+    resultAnnouncementRequestedRef.current = false;
+    if (adaptation.platform === "ios") {
+      AccessibilityInfo.announceForAccessibility(resultAnnouncement);
+    }
+  }, [
+    adaptation.platform,
+    contentTypeFilter,
+    debouncedSearchText,
+    resultAnnouncement,
+    sourceFilter,
+  ]);
 
   const clearFilters = () => {
+    resultAnnouncementRequestedRef.current = true;
     setSearchText("");
     setDebouncedSearchText("");
     setContentTypeFilter("all");
@@ -255,8 +273,14 @@ export function AnnouncementsFeed({
         label="Duyurularda ara"
         placeholder="Başlık, özet veya kaynak ara"
         value={searchText}
-        onChangeText={setSearchText}
-        onClear={() => setDebouncedSearchText("")}
+        onChangeText={(value) => {
+          resultAnnouncementRequestedRef.current = true;
+          setSearchText(value);
+        }}
+        onClear={() => {
+          resultAnnouncementRequestedRef.current = true;
+          setDebouncedSearchText("");
+        }}
       />
 
       <FilterGroup title="İçerik türü">
@@ -266,7 +290,11 @@ export function AnnouncementsFeed({
             accessibilityLabel={`${option.label} içerik türü filtresi`}
             label={option.label}
             selected={contentTypeFilter === option.value}
-            onPress={() => setContentTypeFilter(option.value)}
+            onPress={() => {
+              if (contentTypeFilter === option.value) return;
+              resultAnnouncementRequestedRef.current = true;
+              setContentTypeFilter(option.value);
+            }}
             style={styles.filterChip}
           />
         ))}
@@ -279,7 +307,11 @@ export function AnnouncementsFeed({
             accessibilityLabel={`${option.label} kaynak filtresi`}
             label={option.label}
             selected={sourceFilter === option.value}
-            onPress={() => setSourceFilter(option.value)}
+            onPress={() => {
+              if (sourceFilter === option.value) return;
+              resultAnnouncementRequestedRef.current = true;
+              setSourceFilter(option.value);
+            }}
             style={styles.filterChip}
           />
         ))}
@@ -287,7 +319,8 @@ export function AnnouncementsFeed({
 
       <View
         accessible
-        accessibilityLabel={`Seçili filtreler: ${selectedContentLabel}, ${selectedSourceLabel}${searchActive ? ", arama etkin" : ""}. ${visibleItems.length} sonuç.`}
+        accessibilityLabel={resultAnnouncement}
+        accessibilityLiveRegion={adaptation.platform === "android" ? "polite" : undefined}
         style={[
           styles.filterSummary,
           {

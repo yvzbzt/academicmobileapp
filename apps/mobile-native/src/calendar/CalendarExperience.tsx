@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
 import { useNetworkState } from "expo-network";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   FlatList,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
   View,
   useWindowDimensions,
   type ListRenderItem,
+  type View as NativeView,
 } from "react-native";
 import {
   Banner,
@@ -75,6 +77,7 @@ export interface CalendarExperienceProps {
   partial?: boolean;
   offline?: boolean;
   google: CalendarGoogleStatus;
+  feedback?: ReactNode;
   initialView?: CalendarViewMode;
   initialAnchorDate?: string;
   now?: Date;
@@ -108,6 +111,7 @@ export function CalendarExperience({
   partial = false,
   offline,
   google,
+  feedback,
   initialView = "agenda",
   initialAnchorDate,
   now,
@@ -123,6 +127,8 @@ export function CalendarExperience({
   const networkState = useNetworkState();
   const { fontScale, width } = useWindowDimensions();
   const listRef = useRef<FlatList<CalendarListEntry> | null>(null);
+  const createExamRef = useRef<NativeView | null>(null);
+  const calendarAnnouncementRequestedRef = useRef(false);
   useScrollToTop(listRef);
   const [view, setView] = useState<CalendarViewMode>(initialView);
   const [anchorDate, setAnchorDate] = useState(initialAnchorDate ?? todayDateOnly(now));
@@ -163,6 +169,28 @@ export function CalendarExperience({
     () => view === "month" ? buildMonthSummary(allItems, anchorDate) : [],
     [allItems, anchorDate, view],
   );
+  const calendarAnnouncement = view === "agenda"
+    ? `Ajanda görünümü. ${entries.length} kayıt.`
+    : `${view === "week" ? "Hafta" : "Ay"} görünümü. ${period?.label ?? ""}. ${entries.length} kayıt.`;
+
+  useEffect(() => {
+    if (!calendarAnnouncementRequestedRef.current) return;
+    calendarAnnouncementRequestedRef.current = false;
+    if (adaptation.platform === "ios") {
+      AccessibilityInfo.announceForAccessibility(calendarAnnouncement);
+    }
+  }, [adaptation.platform, anchorDate, calendarAnnouncement, view]);
+
+  const changeView = (nextView: CalendarViewMode) => {
+    if (nextView === view) return;
+    calendarAnnouncementRequestedRef.current = true;
+    setView(nextView);
+  };
+  const changeAnchorDate = (nextDate: string) => {
+    if (nextDate === anchorDate) return;
+    calendarAnnouncementRequestedRef.current = true;
+    setAnchorDate(nextDate);
+  };
 
   const renderItem: ListRenderItem<CalendarListEntry> = ({ item: entry }) => (
     <View style={[styles.entry, { gap: theme.spacing.xs }]}>
@@ -180,6 +208,8 @@ export function CalendarExperience({
 
   const listHeader = (
     <View style={[styles.header, { gap: theme.spacing.lg, paddingTop: theme.spacing.md }]}>
+      {feedback}
+
       <View style={{ gap: theme.spacing.xs }}>
         <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Akademik planın</Text>
         <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>
@@ -190,7 +220,7 @@ export function CalendarExperience({
 
       <SegmentedControl
         label="Takvim görünümü"
-        onValueChange={setView}
+        onValueChange={changeView}
         options={CALENDAR_VIEW_OPTIONS}
         orientation={width <= 360 && fontScale >= 1.6 ? "vertical" : "horizontal"}
         value={view}
@@ -208,20 +238,20 @@ export function CalendarExperience({
             <Button
               compact
               label={view === "week" ? "Önceki hafta" : "Önceki ay"}
-              onPress={() => setAnchorDate((current) => moveCalendarAnchor(
+              onPress={() => changeAnchorDate(moveCalendarAnchor(
                 view === "week" ? "week" : "month",
-                current,
+                anchorDate,
                 -1,
               ))}
               variant="secondary"
             />
-            <Button compact label="Bugün" onPress={() => setAnchorDate(todayDateOnly(now))} variant="ghost" />
+            <Button compact label="Bugün" onPress={() => changeAnchorDate(todayDateOnly(now))} variant="ghost" />
             <Button
               compact
               label={view === "week" ? "Sonraki hafta" : "Sonraki ay"}
-              onPress={() => setAnchorDate((current) => moveCalendarAnchor(
+              onPress={() => changeAnchorDate(moveCalendarAnchor(
                 view === "week" ? "week" : "month",
-                current,
+                anchorDate,
                 1,
               ))}
               variant="secondary"
@@ -242,6 +272,7 @@ export function CalendarExperience({
           setEditorExam(null);
           setEditorVisible(true);
         }}
+        ref={createExamRef}
       />
 
       <GoogleStatusCard
@@ -256,11 +287,15 @@ export function CalendarExperience({
         state={state}
       />
 
-      {view === "agenda" ? (
-        <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>Yaklaşan tarihler</Text>
-      ) : (
-        <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>Bu dönemdeki tarihler</Text>
-      )}
+      <Text
+        accessibilityLabel={calendarAnnouncement}
+        accessibilityLiveRegion={adaptation.platform === "android" ? "polite" : undefined}
+        accessibilityRole="header"
+        style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}
+        testID="calendar-view-announcement"
+      >
+        {view === "agenda" ? "Yaklaşan tarihler" : "Bu dönemdeki tarihler"}
+      </Text>
     </View>
   );
 
@@ -310,6 +345,7 @@ export function CalendarExperience({
         onSubmit={(input) => editorExam
           ? onUpdatePersonalExam(editorExam.id, input)
           : onCreatePersonalExam(input)}
+        returnFocusRef={createExamRef}
         visible={editorVisible}
       />
     </>

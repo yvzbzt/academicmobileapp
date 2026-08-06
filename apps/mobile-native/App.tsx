@@ -32,6 +32,11 @@ import {
   type AppVisibleRoute
 } from "./src/navigation/AppNavigator";
 import { AppShellPreview } from "./src/navigation/AppShellPreview";
+import {
+  BootstrapErrorState,
+  BootstrapLoadingState,
+  UnknownRouteState,
+} from "./src/navigation/SystemStateScreens";
 import { useAppRouteRequest } from "./src/navigation/useAppRouteRequest";
 import {
   parseAcademicPulseRouteUrl,
@@ -219,6 +224,10 @@ import {
 } from "./src/home/HomeDailyBriefPreview";
 import { AnnouncementsFeed } from "./src/announcements/AnnouncementsFeed";
 import { AnnouncementDetail } from "./src/announcements/AnnouncementDetail";
+import {
+  SummerSchoolScreen,
+  YokAnnouncementsScreen,
+} from "./src/announcements/SourceDestinationScreens";
 import {
   CONTENT_FEED_INITIAL_LIMIT,
   CONTENT_FEED_MAX_LIMIT,
@@ -6074,26 +6083,10 @@ function MainApplication() {
   }
 
   const bootstrapLoading = (
-    <View style={styles.hydrationContainer} accessibilityLiveRegion="polite">
-      <ActivityIndicator size="large" color="#4338ca" />
-      <Text style={styles.hydrationTitle}>Uygulama hazırlanıyor</Text>
-      <Text style={styles.hydrationText}>Cihaz ve hesap bilgilerin güvenli biçimde yükleniyor.</Text>
-    </View>
+    <BootstrapLoadingState />
   );
   const bootstrapError = (
-    <View style={styles.hydrationContainer} accessibilityLiveRegion="polite">
-      <Ionicons name="warning-outline" size={34} color="#b45309" />
-      <Text style={styles.hydrationTitle}>Başlangıç tamamlanamadı</Text>
-      <Text style={styles.hydrationText}>{hydrationError}</Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Başlangıcı tekrar dene"
-        style={[styles.button, styles.primaryButton, styles.hydrationRetryButton]}
-        onPress={() => void hydrateApplication()}
-      >
-        <Text style={styles.primaryButtonText}>Tekrar Dene</Text>
-      </Pressable>
-    </View>
+    <BootstrapErrorState error={hydrationError ?? undefined} onRetry={() => void hydrateApplication()} />
   );
 
   function updateOnboardingDraft(nextDraft: AcademicOnboardingDraft): void {
@@ -6377,23 +6370,13 @@ function MainApplication() {
         && (target !== "device_registration" || Boolean(session))
     );
     return (
-      <View style={styles.cleanupIssueCard} accessibilityLiveRegion="polite">
-        <Text style={styles.cleanupIssueTitle}>Tamamlanamayan güvenli temizlik</Text>
-        <Text style={styles.cleanupIssueText}>
-          {cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
-        </Text>
-        {hasRetryableTarget ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Cihaz temizliğini tekrar dene"
-            style={[styles.button, styles.secondaryButton, (busy || googleBusy) && styles.buttonDisabled]}
-            onPress={() => void retryFailedCleanup()}
-            disabled={busy || googleBusy}
-          >
-            <Text style={styles.secondaryButtonText}>Temizliği Tekrar Dene</Text>
-          </Pressable>
-        ) : null}
-      </View>
+      <Banner
+        actionLabel={hasRetryableTarget && !busy && !googleBusy ? "Temizliği tekrar dene" : undefined}
+        message={cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
+        onAction={hasRetryableTarget && !busy && !googleBusy ? () => void retryFailedCleanup() : undefined}
+        title="Tamamlanamayan güvenli temizlik"
+        tone="warning"
+      />
     );
   }
 
@@ -7884,6 +7867,116 @@ function MainApplication() {
       onOpenSummerSchool={() => requestAppRoute("SummerSchool")}
     />
   ) : null;
+  const announcementDestinationActive = controlledActiveRoute === "SummerSchool"
+    || controlledActiveRoute === "YokAnnouncements";
+  const announcementDestinationFeedback = (
+    <>
+      {announcementDestinationActive && message ? (
+        <Banner
+          dismissAccessibilityLabel="İşlem mesajını kapat"
+          message={message.text}
+          onDismiss={() => setMessage(null)}
+          title={message.tone === "error"
+            ? "İşlem tamamlanamadı"
+            : message.tone === "success"
+              ? "İşlem tamamlandı"
+              : "Bilgi"}
+          tone={message.tone}
+        />
+      ) : null}
+      {announcementDestinationActive && session && notificationDestinationNotice ? (
+        <Banner
+          actionLabel={notificationDestinationNotice.status === "temporarily_unavailable"
+            ? "Hedefi tekrar doğrula"
+            : undefined}
+          dismissAccessibilityLabel="Bildirim hedefi mesajını kapat"
+          message={notificationDestinationNotice.status === "opened"
+            ? notificationDestinationNotice.title ?? "İstenen içerik güvenli biçimde açıldı."
+            : notificationDestinationNotice.status === "temporarily_unavailable"
+              ? "Bağlantı veya sunucu hatası nedeniyle hedef doğrulanamadı. Kayıt korundu; tekrar deneyebilirsin."
+              : "İçerik bu hesaba ait güncel ve güvenilir kaynaklarda bulunamadığı için başka bir kayıt açılmadı."}
+          onAction={notificationDestinationNotice.status === "temporarily_unavailable"
+            ? () => void retryPendingNotificationDestination()
+            : undefined}
+          onDismiss={() => setNotificationDestinationNotice(null)}
+          title={notificationDestinationNotice.status === "opened"
+            ? "Bildirim hedefi doğrulandı"
+            : notificationDestinationNotice.status === "temporarily_unavailable"
+              ? "Bildirim hedefi şu anda doğrulanamıyor"
+              : "Bildirim hedefi artık kullanılamıyor"}
+          tone={notificationDestinationNotice.status === "opened" ? "success" : "warning"}
+        />
+      ) : null}
+    </>
+  );
+  const summerSchoolScreen = session ? (
+    <SummerSchoolScreen
+      announcements={summerSchoolAnnouncements}
+      calendarAttempted={Boolean(calendar.attempted)}
+      calendarError={calendar.error}
+      calendarLoading={calendar.loading}
+      calendarStale={calendar.stale}
+      contentAttempted={Boolean(summerSchool.attempted)}
+      contentError={summerSchool.error}
+      contentLoading={summerSchool.loading}
+      contentStale={summerSchool.stale}
+      contentState={summerSchool.data?.contentState}
+      events={summerSchoolEvents}
+      feedback={announcementDestinationFeedback}
+      onOpenAnnouncement={(item) => {
+        const detailItem = contentFeedDetailItem(item, "summer-school");
+        if (!detailItem) {
+          setMessage({ text: "Bu içerik güvenilir ayrıntı sınırında doğrulanamadı.", tone: "error" });
+          return;
+        }
+        openContentFeedItem(detailItem);
+      }}
+      onOpenOfficialSource={(url) => openAnnouncement(url)}
+      onRefresh={() => void refreshSummerSchool()}
+      refreshDisabled={busy}
+      requirements={summerSchool.data?.requirements ?? []}
+      sameDepartmentOptions={summerSchool.data?.sameDepartmentOptions ?? []}
+      universityName={selectedUniversity?.name}
+      universitySelected={Boolean(registerUniversityId)}
+    />
+  ) : null;
+  const yokAnnouncementsScreen = session ? (
+    <YokAnnouncementsScreen
+      attempted={Boolean(yokAnnouncements.attempted)}
+      collectionState={yokAnnouncements.data?.state}
+      error={yokAnnouncements.error}
+      feedback={announcementDestinationFeedback}
+      items={yokAnnouncementItems}
+      loading={yokAnnouncements.loading}
+      onOpenItem={(item) => {
+        const detailItem = contentFeedDetailItem(item, "yok");
+        if (!detailItem) {
+          setMessage({ text: "Bu içerik güvenilir ayrıntı sınırında doğrulanamadı.", tone: "error" });
+          return;
+        }
+        openContentFeedItem(detailItem);
+      }}
+      onRefresh={() => void refreshContentFeed()}
+      refreshDisabled={busy}
+      stale={yokAnnouncements.stale}
+    />
+  ) : null;
+
+  const calendarRouteFeedback = (
+    (controlledActiveRoute === "Calendar" || controlledActiveRoute === "CalendarEventDetail") && message ? (
+      <Banner
+        dismissAccessibilityLabel="Takvim işlem mesajını kapat"
+        message={message.text}
+        onDismiss={() => setMessage(null)}
+        title={message.tone === "error"
+          ? "İşlem tamamlanamadı"
+          : message.tone === "success"
+            ? "İşlem tamamlandı"
+            : "Bilgi"}
+        tone={message.tone}
+      />
+    ) : null
+  );
 
   const calendarExperience = session ? (
     <CalendarExperience
@@ -7913,6 +8006,7 @@ function MainApplication() {
         busy: googleCalendarBusy,
         connected: googleCalendarLive
       }}
+      feedback={calendarRouteFeedback}
       onRefresh={() => void loadMyCalendar()}
       onOpenItem={openCalendarItem}
       onCreatePersonalExam={createPersonalExam}
@@ -7940,6 +8034,7 @@ function MainApplication() {
   const calendarTrustedDetail = (
     <CalendarEventDetail
       item={activeCalendarDetail}
+      feedback={calendarRouteFeedback}
       academicYear={calendar.data?.calendar.academicYear}
       universityName={selectedUniversity?.name}
       facultyName={selectedFaculty?.name}
@@ -7950,16 +8045,10 @@ function MainApplication() {
   );
 
   const unknownRoute = (
-    <Section title="Sayfa bulunamadı">
-      <Text style={styles.caption}>Bu bağlantı güvenli bir uygulama rotasıyla eşleşmedi.</Text>
-      <Pressable
-        accessibilityRole="button"
-        style={[styles.button, styles.secondaryButton]}
-        onPress={() => requestAppRoute(session ? "Home" : "Login")}
-      >
-        <Text style={styles.secondaryButtonText}>{session ? "Ana Sayfaya Dön" : "Girişe Dön"}</Text>
-      </Pressable>
-    </Section>
+    <UnknownRouteState
+      authenticated={Boolean(session)}
+      onReturn={() => requestAppRoute(session ? "Home" : "Login")}
+    />
   );
 
   const profileCleanupCanRetry = Boolean(cleanupIssue?.failedTargets.some(
@@ -8199,8 +8288,8 @@ function MainApplication() {
     AcademicOnboarding: renderRoutedScreen("AcademicOnboarding"),
     Home: homeDailyBrief,
     Announcements: announcementsContentFeed,
-    SummerSchool: renderRoutedScreen("SummerSchool"),
-    YokAnnouncements: renderRoutedScreen("YokAnnouncements"),
+    SummerSchool: summerSchoolScreen,
+    YokAnnouncements: yokAnnouncementsScreen,
     AnnouncementDetail: announcementDetail,
     Calendar: calendarExperience,
     CalendarEventDetail: calendarTrustedDetail,
