@@ -65,7 +65,7 @@ Transitive Jest packages inside the Expo dependency lockfile do not constitute a
 | 7 | `npm.cmd run build:mobile` (approved outside sandbox, unchanged source) | PASS, exit 0, 20.2 s | Vite 7.3.6; 1,754 modules; build reported 18.08 s; responsive web only |
 | 8 | `./node_modules/.bin/expo.cmd export --platform android --output-dir C:\tmp\academicmobileapp-phase0-android-export --max-workers 2` from `apps/mobile-native` | First sandbox attempt blocked, exit 1, 2.986 s | Environment-only `EPERM` creating the temp output directory |
 | 9 | Same Expo export command (approved outside sandbox, unchanged source) | PASS, exit 0, 93.916 s | Android/Hermes bundle; 671 modules; 21 files / 6,382,644 bytes in `C:\tmp`; no publish |
-| 10 | `C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe devices -l` | PASS, exit 0, 0.053 s | Device list empty |
+| 10 | `<ANDROID_SDK_ROOT>\platform-tools\adb.exe devices -l` | PASS, exit 0, 0.053 s | Device list empty |
 
 The sandbox-only esbuild/temporary-directory failures are execution-environment limitations, not product failures. Each relevant command passed without code changes when rerun with the required filesystem access.
 
@@ -97,7 +97,7 @@ The Phase 0 environment rows above are historical baseline evidence at `cbd0067`
 
 | Item | Configured/installed evidence | Effective runtime evidence | Closure state |
 |---|---|---|---|
-| Host/toolchain | Windows 11 Pro build 26200; i7-1165G7 4C/8T; Node `v22.14.0`; npm `10.9.2`; Temurin Java `21.0.7+6-LTS`; winget `v1.29.280`; SDK root `C:\Users\buyuk\AppData\Local\Android\Sdk` | Closure-time capacity while QA ran: 16,461,264 kB total / 1,623,144 kB free RAM; `C:` 510,655,012,864 total / 72,134,201,344 free bytes | RECORDED; values are post-install, not reconstructed pre-install capacity |
+| Host/toolchain | Windows 11 Pro build 26200; i7-1165G7 4C/8T; Node `v22.14.0`; npm `10.9.2`; Temurin Java `21.0.7+6-LTS`; winget `v1.29.280`; SDK root `<ANDROID_SDK_ROOT>` | Closure-time capacity while QA ran: 16,461,264 kB total / 1,623,144 kB free RAM; `C:` 510,655,012,864 total / 72,134,201,344 free bytes | RECORDED; values are post-install, not reconstructed pre-install capacity |
 | Android Studio | Official Google Android Studio Stable; winget `Google.AndroidStudio` version `2026.1.2.10`; product build `AI-261.25134.95.2612.15822958` | Installed; Android Studio is not kept open during command-line QA | PASS |
 | SDK tools | Platform-Tools/ADB `36.0.2`; command-line tools revision 22 at SDK-recognized `cmdline-tools/latest-2`; Emulator `36.6.11` | The `latest-2` directory causes a non-fatal inconsistent-location warning because the older directory already occupied `latest` | PASS with recorded warning |
 | System image | Exactly one Google APIs x86_64 image: API 24 revision 27; no Google Play, ARM, TV, Wear, or Automotive image | `ro.build.version.sdk=24`, ABI x86_64 | PASS |

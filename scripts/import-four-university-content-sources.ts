@@ -58,7 +58,7 @@ interface VerifiedAcademicUnitSource {
   [key: string]: unknown;
 }
 
-const defaultInput = "C:/Users/buyuk/.codex/attachments/ce2f8b9c-182a-4c2d-a520-bc32e9433079/pasted-text.txt";
+const defaultInput = "<SOURCE_ATTACHMENT_ROOT>/ce2f8b9c-182a-4c2d-a520-bc32e9433079/pasted-text.txt";
 const outputPath = "data/verified-four-university-content-sources.json";
 const universityRegistryPath = "apps/api/src/bootstrap/verified-university-sources.json";
 const academicUnitRegistryPath = "apps/api/src/bootstrap/verified-academic-unit-sources.json";

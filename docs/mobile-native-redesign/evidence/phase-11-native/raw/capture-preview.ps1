@@ -26,9 +26,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$repo = 'C:\Users\buyuk\academicmobileapp'
+$repo = '<REPO_ROOT>'
 $evidence = Join-Path $repo 'docs\mobile-native-redesign\evidence\phase-11-native'
-$adb = 'C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe'
+$adb = '<ANDROID_SDK_ROOT>\platform-tools\adb.exe'
 $package = 'com.anssoft.akademiktakvim'
 
 $previewConfiguration = @{

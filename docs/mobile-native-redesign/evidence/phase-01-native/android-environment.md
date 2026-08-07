@@ -21,7 +21,7 @@ Status: Environment, visible launch, build, install, activity startup, and requi
 
 | Item | Recorded value |
 |---|---|
-| Repository root | `C:\Users\buyuk\academicmobileapp` (`git rev-parse --show-toplevel` returned `C:/Users/buyuk/academicmobileapp`) |
+| Repository root | `<REPO_ROOT>` (`git rev-parse --show-toplevel` returned `<REPO_ROOT>`) |
 | Branch / closure-start HEAD | `agent/google-play-readiness-20260724` / `cbd0067b03c3cf7286270df25164a556c55b55b9` |
 | Five-entry closure-start log | `cbd0067 Add account deletion and Play readiness fixes`; `c599628 Fix standalone admin login`; `d399f22 Add academic information static pages data`; `0bb29ac Prepare clean mobile release`; `baec6c6 Add academic calendar platform updates` |
 | Windows / CPU | Microsoft Windows 11 Pro `10.0.26200` (build 26200); 11th Gen Intel Core i7-1165G7 @ 2.80 GHz, 4 physical / 8 logical processors |
@@ -30,7 +30,7 @@ Status: Environment, visible launch, build, install, activity startup, and requi
 | winget | `v1.29.280` |
 | Physical memory | 16,461,264 kB total; 1,623,144 kB free at the 2026-07-29 17:00 +03:00 closure inventory while the emulator and QA services were active |
 | System disk | `C:` 510,655,012,864 bytes total; 72,134,201,344 bytes free at the same post-install inventory |
-| Android SDK root | `C:\Users\buyuk\AppData\Local\Android\Sdk` |
+| Android SDK root | `<ANDROID_SDK_ROOT>` |
 | Effective Expo application config | Expo 54 / React Native 0.81.5; name `Akademik Takvim`; slug `academic-pulse-native`; scheme `academicpulse`; version `0.1.1`; portrait/light; New Architecture off; Hermes enabled by the existing Android Gradle properties; Android package `com.anssoft.akademiktakvim`, version code 12, edge-to-edge on, predictive Back off; plugin `expo-font` |
 | Supported repository commands | `npm.cmd --prefix apps/mobile-native run android` (`expo run:android`), `npm.cmd --prefix apps/mobile-native run start` (`expo start`), native Gradle wrapper from `apps/mobile-native/android`, and `npm.cmd --prefix apps/mobile-native run typecheck` |
 
@@ -41,7 +41,7 @@ The `latest-2` location produces a non-fatal inconsistent-location warning becau
 Official installation command:
 
 ```powershell
-& 'C:\Users\buyuk\AppData\Local\Microsoft\WindowsApps\winget.exe' install --id Google.AndroidStudio --exact --source winget --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+& '<WINGET_EXE>' install --id Google.AndroidStudio --exact --source winget --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
 ```
 
 Result: exit code 0, installed successfully. Discovery identified the official stable package `Google.AndroidStudio` version `2026.1.2.10`, publisher Google LLC.
@@ -51,7 +51,7 @@ Result: exit code 0, installed successfully. Discovery identified the official s
 Read-only inventory command (exit 0):
 
 ```powershell
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --sdk_root='C:\Users\buyuk\AppData\Local\Android\Sdk' --list_installed
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --sdk_root='<ANDROID_SDK_ROOT>' --list_installed
 ```
 
 | Package | Version | Closure disposition |
@@ -78,20 +78,20 @@ No Google Play, ARM, Wear OS, TV, Automotive, source, or documentation image/pac
 The primary closure session log preserves the exact package-mutation calls. The initial tool/image install was:
 
 ```powershell
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat' --install 'cmdline-tools;latest' 'emulator' 'system-images;android-36;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest\bin\sdkmanager.bat' --install 'cmdline-tools;latest' 'emulator' 'system-images;android-36;google_apis;x86_64'
 ```
 
 Stock Google APIs images were then tried sequentially. Each prior image was uninstalled before the next was installed:
 
 ```powershell
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --uninstall 'system-images;android-36;google_apis;x86_64'
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --install 'system-images;android-34;google_apis;x86_64'
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --uninstall 'system-images;android-34;google_apis;x86_64'
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --install 'system-images;android-30;google_apis;x86_64'
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --uninstall 'system-images;android-30;google_apis;x86_64'
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --install 'system-images;android-28;google_apis;x86_64'
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --uninstall 'system-images;android-28;google_apis;x86_64'
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\sdkmanager.bat' --install 'system-images;android-24;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --uninstall 'system-images;android-36;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --install 'system-images;android-34;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --uninstall 'system-images;android-34;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --install 'system-images;android-30;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --uninstall 'system-images;android-30;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --install 'system-images;android-28;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --uninstall 'system-images;android-28;google_apis;x86_64'
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\sdkmanager.bat' --install 'system-images;android-24;google_apis;x86_64'
 ```
 
 For each transition, the emulator was stopped and awaited, the same `AcademicPhase1Low` AVD was deleted with `avdmanager delete avd --name AcademicPhase1Low`, and then recreated for the next image. The first API 36 creation attempt with custom `--skin 720x1280` failed because that skin argument was unsupported; retry without the custom skin succeeded. No Phase 1 `sdkmanager --licenses` command ran: package installs showed no license prompt and used the SDK root's pre-existing accepted license files. This is an honest license-history statement, not a claim that the closure newly accepted licenses.
@@ -134,7 +134,7 @@ The heap/data deviations are system-image/emulator overrides, not deliberate ext
 Final AVD creation and immediate config-read command:
 
 ```powershell
-$sdk='C:\Users\buyuk\AppData\Local\Android\Sdk'; 'no' | & "$sdk\cmdline-tools\latest-2\bin\avdmanager.bat" create avd --name AcademicPhase1Low --package 'system-images;android-24;google_apis;x86_64' --device 'Nexus 4'; Get-Content -LiteralPath "$env:USERPROFILE\.android\avd\AcademicPhase1Low.avd\config.ini"
+$sdk='<ANDROID_SDK_ROOT>'; 'no' | & "$sdk\cmdline-tools\latest-2\bin\avdmanager.bat" create avd --name AcademicPhase1Low --package 'system-images;android-24;google_apis;x86_64' --device 'Nexus 4'; Get-Content -LiteralPath "$env:USERPROFILE\.android\avd\AcademicPhase1Low.avd\config.ini"
 ```
 
 Initial isolated cold-boot command:
@@ -156,12 +156,12 @@ Quick Boot completed in 4.5 seconds and ADB reported the device healthy. The vis
 ## Exact final read-only device checks
 
 ```powershell
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\emulator\emulator.exe' -accel-check
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\cmdline-tools\latest-2\bin\avdmanager.bat' list avd
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe' devices -l
+& '<ANDROID_SDK_ROOT>\emulator\emulator.exe' -accel-check
+& '<ANDROID_SDK_ROOT>\cmdline-tools\latest-2\bin\avdmanager.bat' list avd
+& '<ANDROID_SDK_ROOT>\platform-tools\adb.exe' devices -l
 ```
 
-The acceleration command returned exit 0 and `WHPX(10.0.26200) is installed and usable.` The AVD command listed only `AcademicPhase1Low`, Nexus 4, API 24 Google APIs, ABI x86_64, skin 720 × 1280, at `C:\Users\buyuk\.android\avd\AcademicPhase1Low.avd`. ADB returned:
+The acceleration command returned exit 0 and `WHPX(10.0.26200) is installed and usable.` The AVD command listed only `AcademicPhase1Low`, Nexus 4, API 24 Google APIs, ABI x86_64, skin 720 × 1280, at `<ANDROID_USER_HOME>\avd\AcademicPhase1Low.avd`. ADB returned:
 
 ```text
 List of devices attached
@@ -173,7 +173,7 @@ Read-only device properties returned API `24`, ABI `x86_64`, physical size `720x
 ## Current debug build
 
 ```powershell
-cd C:\Users\buyuk\academicmobileapp\apps\mobile-native\android
+cd <REPO_ROOT>\apps\mobile-native\android
 .\gradlew.bat --no-daemon app:assembleDebug -PreactNativeArchitectures=x86_64
 ```
 

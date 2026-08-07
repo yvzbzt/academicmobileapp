@@ -2,7 +2,7 @@
 > mobile-native@1.0.0 start
 > expo start --localhost --port 8081
 
-Starting project at C:\Users\buyuk\academicmobileapp\apps\mobile-native
+Starting project at <REPO_ROOT>\apps\mobile-native
 Starting Metro Bundler
 Waiting on http://localhost:8081
 Logs for your project will appear below.

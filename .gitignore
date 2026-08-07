@@ -40,6 +40,26 @@ expo-native*.log
 expo-native*.err.log
 *.tmp
 
+# Isolated test databases and temporary release evidence
+/.tmp-test-run/
+/.test-databases/
+/test-databases/
+/.mongo-test-data/
+/mongo-test-data/
+*.test.sqlite
+*.test.sqlite-*
+/.release-evidence/
+
+# Local Android SDK, AVD, and build caches
+/.android/
+/.android-sdk/
+/android-sdk/
+**/.gradle/
+**/.kotlin/
+**/local.properties
+**/.cxx/
+*.hprof
+
 # One-off raw/source files used during data cleanup
 YÖK Üniversiteler.txt
 svgviewer-png-output.png

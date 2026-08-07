@@ -7,7 +7,7 @@ Image type: Google APIs, not Google Play
 Read-only checks:
 
 ```powershell
-$adbExe = 'C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe'
+$adbExe = '<ANDROID_SDK_ROOT>\platform-tools\adb.exe'
 & $adbExe -s emulator-5554 shell pm list packages | Select-String -Pattern '(?i)talkback|accessibility'
 & $adbExe -s emulator-5554 shell settings get secure enabled_accessibility_services
 & $adbExe -s emulator-5554 shell settings get secure accessibility_enabled

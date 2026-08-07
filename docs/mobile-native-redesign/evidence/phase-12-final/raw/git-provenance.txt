@@ -1,6 +1,6 @@
 PHASE 12 ENTRY AND PROVENANCE RECORD
 Date: 2026-08-06 Europe/Istanbul
-Repository: C:\Users\buyuk\academicmobileapp
+Repository: <REPO_ROOT>
 Branch: agent/google-play-readiness-20260724
 Accepted Phase 11 baseline: f50a45bddcd7d476c4f1797bede77da65fc4c6fc
 Starting HEAD: f50a45bddcd7d476c4f1797bede77da65fc4c6fc

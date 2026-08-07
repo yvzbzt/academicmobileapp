@@ -192,8 +192,8 @@ Set-Location android
 The ordinary Android Back smoke used the final APK and these principal ADB commands:
 
 ```powershell
-$adb = 'C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe'
-$apk = 'C:\Users\buyuk\academicmobileapp\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk'
+$adb = '<ANDROID_SDK_ROOT>\platform-tools\adb.exe'
+$apk = '<REPO_ROOT>\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk'
 & $adb -s emulator-5554 install -r -t $apk
 & $adb -s emulator-5554 reverse tcp:8081 tcp:8081
 & $adb -s emulator-5554 shell am force-stop com.anssoft.akademiktakvim
@@ -211,7 +211,7 @@ The development-preview matrix used:
 & $adb -s emulator-5554 shell wm density 320
 & $adb -s emulator-5554 shell settings put system font_scale 1.0
 $env:EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW = '1'
-Set-Location C:\Users\buyuk\academicmobileapp\apps\mobile-native
+Set-Location <REPO_ROOT>\apps\mobile-native
 npx.cmd expo start --dev-client --localhost --port 8081
 & $adb -s emulator-5554 shell uiautomator dump /sdcard/phase4-preview-NAME.xml
 & $adb -s emulator-5554 shell screencap -p /sdcard/phase4-preview-NAME.png

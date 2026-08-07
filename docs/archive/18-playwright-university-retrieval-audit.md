@@ -1,3 +1,10 @@
+> [!WARNING]
+> **HISTORICAL AUDIT — SUPERSEDED.** This report records a dated Cloud Run and
+> source-retrieval snapshot from 2 July 2026. Use the current
+> [test strategy](../05-test-strategy.md),
+> [mobile-native test matrix](../mobile-native-redesign/TEST_MATRIX.md), and
+> source registries for current behavior.
+
 # Playwright University Retrieval Audit
 
 Date: 2026-07-02

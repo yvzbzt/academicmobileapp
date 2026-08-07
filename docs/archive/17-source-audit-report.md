@@ -1,3 +1,10 @@
+> [!WARNING]
+> **HISTORICAL AUDIT — SUPERSEDED.** This report records the source state and
+> deployment observations from 1 July 2026. Use the current
+> [architecture](../02-architecture.md), [security guidance](../04-security-hardening.md),
+> [deployment guidance](../08-devops-deployment.md), and source registries for
+> current behavior.
+
 # Source Audit Report - 2026-07-01
 
 ## PDF Calendar Row Issue

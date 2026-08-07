@@ -2,7 +2,7 @@
 > mobile-native@1.0.0 start
 > expo start --localhost --clear
 
-Starting project at C:\Users\buyuk\academicmobileapp\apps\mobile-native
+Starting project at <REPO_ROOT>\apps\mobile-native
 Starting Metro Bundler
 warning: Bundler cache is empty, rebuilding (this may take a minute)
 Waiting on http://localhost:8081

@@ -255,12 +255,12 @@ const academicUnitSourcePath = join(root, "apps/api/src/bootstrap/verified-acade
 const catalogPath = join(root, "apps/api/src/bootstrap/turkiye-catalog-seed.json");
 const facultyTreePath = join(root, "data/yok-university-faculty-tree.json");
 const defaultOutputDir = join(root, "artifacts/university-source-discovery");
-const promptPath = process.env.UNIVERSITY_DISCOVERY_PROMPT_PATH ?? "C:\\Users\\buyuk\\Downloads\\university-autonomous-discovery-verification-prompt.md";
-const manualExcludedInputPath = process.env.UNIVERSITY_MANUAL_INPUT_PATH ?? "C:\\Users\\buyuk\\Downloads\\üniversiteANS.txt";
+const promptPath = process.env.UNIVERSITY_DISCOVERY_PROMPT_PATH ?? "<USER_INPUT_ROOT>\\university-autonomous-discovery-verification-prompt.md";
+const manualExcludedInputPath = process.env.UNIVERSITY_MANUAL_INPUT_PATH ?? "<USER_INPUT_ROOT>\\üniversiteANS.txt";
 const akdenizInputPaths = (process.env.AKDENIZ_INPUT_PATHS ?? [
-  "C:\\Users\\buyuk\\.codex\\attachments\\970460d3-25e1-4f4a-8110-3a1b55aa2b20\\pasted-text.txt",
-  "C:\\Users\\buyuk\\.codex\\attachments\\db20dce0-ae33-4e58-9398-d6e59753ea67\\pasted-text.txt",
-  "C:\\Users\\buyuk\\.codex\\attachments\\6cc9e7ef-f44e-4458-9174-1fc2297e5cce\\pasted-text.txt"
+  "<SOURCE_ATTACHMENT_ROOT>\\970460d3-25e1-4f4a-8110-3a1b55aa2b20\\pasted-text.txt",
+  "<SOURCE_ATTACHMENT_ROOT>\\db20dce0-ae33-4e58-9398-d6e59753ea67\\pasted-text.txt",
+  "<SOURCE_ATTACHMENT_ROOT>\\6cc9e7ef-f44e-4458-9174-1fc2297e5cce\\pasted-text.txt"
 ].join(";")).split(";").filter(Boolean);
 
 const requiredUniversitySourceTypes = ["announcement", "news", "event", "academic_calendar"] as const;

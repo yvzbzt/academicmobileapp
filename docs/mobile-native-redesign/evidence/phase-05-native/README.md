@@ -55,9 +55,9 @@ The final filtered runtime log has eight lines: two log-section headers and six 
 ## Exact launch and capture commands
 
 ```powershell
-$adb = 'C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe'
-$emulator = 'C:\Users\buyuk\AppData\Local\Android\Sdk\emulator\emulator.exe'
-$apk = 'C:\Users\buyuk\academicmobileapp\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk'
+$adb = '<ANDROID_SDK_ROOT>\platform-tools\adb.exe'
+$emulator = '<ANDROID_SDK_ROOT>\emulator\emulator.exe'
+$apk = '<REPO_ROOT>\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk'
 
 & $emulator -avd AcademicPhase1Low -accel on -gpu host -memory 1536 `
   -cores 2 -partition-size 2047 -camera-back none -camera-front none `
@@ -74,7 +74,7 @@ $metroOut = 'C:\tmp\phase5-shell-20260731-1620\final\metro-light.stdout.log'
 $metroErr = 'C:\tmp\phase5-shell-20260731-1620\final\metro-light.stderr.log'
 Start-Process -FilePath (Get-Command npx.cmd).Source `
   -ArgumentList @('expo','start','--dev-client','--localhost','--port','8081','--clear') `
-  -WorkingDirectory 'C:\Users\buyuk\academicmobileapp\apps\mobile-native' `
+  -WorkingDirectory '<REPO_ROOT>\apps\mobile-native' `
   -RedirectStandardOutput $metroOut -RedirectStandardError $metroErr `
   -WindowStyle Hidden
 

@@ -109,18 +109,6 @@ npm run smoke:infra
 
 ## Documentation
 
-- [docs/01-product-analysis.md](docs/01-product-analysis.md)
-- [docs/02-architecture.md](docs/02-architecture.md)
-- [docs/03-mvp-backlog.md](docs/03-mvp-backlog.md)
-- [docs/04-security-hardening.md](docs/04-security-hardening.md)
-- [docs/05-test-strategy.md](docs/05-test-strategy.md)
-- [docs/06-data-model.md](docs/06-data-model.md)
-- [docs/07-cache-queue.md](docs/07-cache-queue.md)
-- [docs/08-devops-deployment.md](docs/08-devops-deployment.md)
-- [docs/09-section-approvals.md](docs/09-section-approvals.md)
-- [docs/10-ui-ux-product-readiness-report.md](docs/10-ui-ux-product-readiness-report.md)
-- [docs/11-ui-ux-implementation-roadmap.md](docs/11-ui-ux-implementation-roadmap.md)
-- [docs/12-ui-ux-optimization-scenarios.md](docs/12-ui-ux-optimization-scenarios.md)
-- [docs/13-pdf-ingestion-and-alarm-model.md](docs/13-pdf-ingestion-and-alarm-model.md)
-- [docs/14-announcement-scaling.md](docs/14-announcement-scaling.md)
-- [docs/15-firebase-deploy.md](docs/15-firebase-deploy.md)
+Use the [documentation index](docs/README.md) for architecture, API contracts,
+data model, security, deployment, mobile-native redesign, validation evidence,
+known issues, and historical reports.

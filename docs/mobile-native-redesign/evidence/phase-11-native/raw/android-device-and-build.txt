@@ -1,6 +1,6 @@
 ﻿SOURCE_BASELINE_HEAD=8dbe5e1efdb0c5fab665345188228ff66a0f84f6
 SOURCE_STATE=Phase 11 tracked working-tree diff; synthetic evidence captured before the required scoped commit
-APK_PATH=C:\Users\buyuk\academicmobileapp\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk
+APK_PATH=<REPO_ROOT>\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk
 APK_BYTES=56804991
 APK_SHA256=FA93D03F277DB169564B09CC4E389D146D0D0E6911C7CA0774372DFB8A0A1BCA
 APK_BUILD=debug x86_64

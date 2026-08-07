@@ -95,10 +95,10 @@ const fetchTimeoutMs = Number(process.env.URL_BATCH_FETCH_TIMEOUT_MS ?? 7000);
 const fetchConcurrency = Number(process.env.URL_BATCH_FETCH_CONCURRENCY ?? 12);
 
 const batches: UrlBatch[] = [
-  attachmentBatch("balikesir-universitesi", "BALIKESİR ÜNİVERSİTESİ", "https://www.balikesir.edu.tr/", ["balikesir.edu.tr"], "C:/Users/buyuk/.codex/attachments/ff82dbd7-a0d0-47ea-94d6-69bd8bd6c8eb/pasted-text.txt"),
-  attachmentBatch("baskent-universitesi-ankara", "BAŞKENT ÜNİVERSİTESİ", "https://www.baskent.edu.tr/tr/", ["baskent.edu.tr"], "C:/Users/buyuk/.codex/attachments/7ef99132-d4d0-43ce-bd16-5330c0d2d42b/pasted-text.txt"),
-  attachmentBatch("bayburt-universitesi", "BAYBURT ÜNİVERSİTESİ", "https://bayburt.edu.tr/tr", ["bayburt.edu.tr"], "C:/Users/buyuk/.codex/attachments/c826ed4b-6c3f-43d1-a76f-c06f095b5a89/pasted-text.txt"),
-  attachmentBatch("bitlis-eren-universitesi", "BİTLİS EREN ÜNİVERSİTESİ", "https://www.beu.edu.tr/", ["beu.edu.tr"], "C:/Users/buyuk/.codex/attachments/18b99570-9ef2-41a7-ae00-dc587c5bc9af/pasted-text.txt"),
+  attachmentBatch("balikesir-universitesi", "BALIKESİR ÜNİVERSİTESİ", "https://www.balikesir.edu.tr/", ["balikesir.edu.tr"], "<SOURCE_ATTACHMENT_ROOT>/ff82dbd7-a0d0-47ea-94d6-69bd8bd6c8eb/pasted-text.txt"),
+  attachmentBatch("baskent-universitesi-ankara", "BAŞKENT ÜNİVERSİTESİ", "https://www.baskent.edu.tr/tr/", ["baskent.edu.tr"], "<SOURCE_ATTACHMENT_ROOT>/7ef99132-d4d0-43ce-bd16-5330c0d2d42b/pasted-text.txt"),
+  attachmentBatch("bayburt-universitesi", "BAYBURT ÜNİVERSİTESİ", "https://bayburt.edu.tr/tr", ["bayburt.edu.tr"], "<SOURCE_ATTACHMENT_ROOT>/c826ed4b-6c3f-43d1-a76f-c06f095b5a89/pasted-text.txt"),
+  attachmentBatch("bitlis-eren-universitesi", "BİTLİS EREN ÜNİVERSİTESİ", "https://www.beu.edu.tr/", ["beu.edu.tr"], "<SOURCE_ATTACHMENT_ROOT>/18b99570-9ef2-41a7-ae00-dc587c5bc9af/pasted-text.txt"),
   {
     universityId: "bahcesehir-universitesi-istanbul",
     name: "BAHÇEŞEHİR ÜNİVERSİTESİ",

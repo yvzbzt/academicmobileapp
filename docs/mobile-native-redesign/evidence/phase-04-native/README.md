@@ -28,8 +28,8 @@ UIAutomator text/role probes matched the intended states. The filtered React Nat
 ## Exact preview capture commands
 
 ```powershell
-$adb = 'C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe'
-$apk = 'C:\Users\buyuk\academicmobileapp\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk'
+$adb = '<ANDROID_SDK_ROOT>\platform-tools\adb.exe'
+$apk = '<REPO_ROOT>\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk'
 & $adb -s emulator-5554 install -r -t $apk
 & $adb -s emulator-5554 shell wm size 640x1136
 & $adb -s emulator-5554 shell wm density 320
@@ -38,7 +38,7 @@ $apk = 'C:\Users\buyuk\academicmobileapp\apps\mobile-native\android\app\build\ou
 $env:EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW = '1'
 Start-Process -FilePath (Get-Command npx.cmd).Source `
   -ArgumentList @('expo','start','--dev-client','--localhost','--port','8081') `
-  -WorkingDirectory 'C:\Users\buyuk\academicmobileapp\apps\mobile-native' `
+  -WorkingDirectory '<REPO_ROOT>\apps\mobile-native' `
   -WindowStyle Hidden
 
 & $adb -s emulator-5554 reverse tcp:8081 tcp:8081

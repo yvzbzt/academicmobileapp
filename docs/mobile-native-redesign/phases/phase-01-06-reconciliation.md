@@ -37,7 +37,7 @@ Original scope: Git history, implementation, tests, evidence, and documentation 
 
 ## Repository state captured before reconciliation
 
-- Repository root: `C:/Users/buyuk/academicmobileapp`.
+- Repository root: `<REPO_ROOT>`.
 - Branch: `agent/google-play-readiness-20260724`.
 - HEAD: `f346d8556e19b95277b27f7ecfda3f162a8ad57f`.
 - Upstream relation: 11 commits ahead of `origin/agent/google-play-readiness-20260724`.

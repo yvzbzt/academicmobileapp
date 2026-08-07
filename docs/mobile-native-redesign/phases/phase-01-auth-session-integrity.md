@@ -458,7 +458,7 @@ No React Native component test stack was installed. The native-focused Vitest te
 | Closure CLI | Node `v22.14.0`; npm `10.9.2`; Eclipse Temurin OpenJDK `21.0.7+6-LTS`; winget `v1.29.280` |
 | Closure-time capacity snapshot | 1,623,144 kB free physical RAM and 72,134,201,344 free bytes on 510,655,012,864-byte `C:` while the emulator/QA services were active; not reconstructed as pre-install values |
 | Android Studio | Official Google LLC Stable at `C:\Program Files\Android\Android Studio`; winget package `Google.AndroidStudio` `2026.1.2.10`; product build `AI-261.25134.95.2612.15822958` |
-| SDK tools | SDK root `C:\Users\buyuk\AppData\Local\Android\Sdk`; Platform-Tools/ADB `36.0.2`; command-line tools revision 22 at SDK-recognized `cmdline-tools/latest-2`; Emulator `36.6.11` |
+| SDK tools | SDK root `<ANDROID_SDK_ROOT>`; Platform-Tools/ADB `36.0.2`; command-line tools revision 22 at SDK-recognized `cmdline-tools/latest-2`; Emulator `36.6.11` |
 | Project Android config | `com.anssoft.akademiktakvim`; min/compile/target SDK 24/36/36; Build-Tools 36; AGP 8.11; Gradle 8.14.3; existing NDK 27.1 |
 | Image/AVD | Exactly one Google APIs x86_64 API 24 revision 27 image and exactly one AVD, `AcademicPhase1Low` |
 | Requested/prelaunch AVD | 1,536 MB RAM, 2 cores, 720 × 1280, 320 dpi, 256 MB heap, 2,047 MB data, host GPU; cameras/audio/device frame off; hardware keyboard/Quick Boot on |
@@ -519,7 +519,7 @@ Earlier 28-file/220-test/build/export rows below predate the password-recovery c
 
 | Command | Final result |
 |---|---|
-| `& 'C:\Users\buyuk\AppData\Local\Microsoft\WindowsApps\winget.exe' install --id Google.AndroidStudio --exact --source winget --accept-package-agreements --accept-source-agreements --silent --disable-interactivity` | PASS, exit 0; official Google LLC Stable `2026.1.2.10` installed |
+| `& '<WINGET_EXE>' install --id Google.AndroidStudio --exact --source winget --accept-package-agreements --accept-source-agreements --silent --disable-interactivity` | PASS, exit 0; official Google LLC Stable `2026.1.2.10` installed |
 | Visible emulator launch with `-avd AcademicPhase1Low -accel on -gpu host -memory 1536 -cores 2 -partition-size 2047 -camera-back none -camera-front none -no-audio -no-boot-anim` | PASS; visible Quick Boot 4.5 seconds, ADB healthy |
 | `npm.cmd test -- apps/api/tests/password-recovery.test.ts apps/api/tests/auth-http-contract.integration.test.ts apps/api/tests/email-verification-sender.test.ts apps/api/tests/mongoose-schemas.test.ts apps/api/tests/database-indexes.test.ts --configLoader runner` | PASS, 24/24 tests |
 | `npm.cmd test -- apps/api/tests/password-recovery.test.ts --configLoader runner` | PASS, 9/9 tests |

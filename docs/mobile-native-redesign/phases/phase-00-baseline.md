@@ -18,7 +18,7 @@ Runnable type checks, all 171 Vitest tests, both current Vite web builds, and an
 
 | Item | Baseline |
 |---|---|
-| Repository | `C:\Users\buyuk\academicmobileapp` |
+| Repository | `<REPO_ROOT>` |
 | Branch | `agent/google-play-readiness-20260724` |
 | HEAD | `cbd0067b03c3cf7286270df25164a556c55b55b9` |
 | Upstream | `origin/agent/google-play-readiness-20260724`, ahead 0 / behind 0 at inspection |
@@ -167,7 +167,7 @@ None. Phase 0 documents the current absence of native component/flow tooling; fr
 | `npm.cmd run build:admin` | Approved non-publishing Vite build PASS; 1,742 modules; 9.86 s internal build |
 | `npm.cmd run build:mobile` | Initial sandbox esbuild access block; approved unchanged rerun PASS; 1,754 modules; 18.08 s internal build |
 | `apps/mobile-native/node_modules/.bin/expo.cmd export --platform android --output-dir C:\tmp\academicmobileapp-phase0-android-export --max-workers 2` | Initial sandbox temp-dir block; approved unchanged rerun PASS; 671 modules, 21 files, 6,382,644 bytes; no publish |
-| `C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe devices -l` | Exit 0; no attached devices |
+| `<ANDROID_SDK_ROOT>\platform-tools\adb.exe devices -l` | Exit 0; no attached devices |
 
 Vitest composition: 20 API files / 132 tests, two native helper files / 15 tests, two other root unit files / 24 tests. All passed. The sandbox failures happened before the relevant test/build could execute and are environmental, not product failures.
 

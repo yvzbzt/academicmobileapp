@@ -8,7 +8,7 @@ Source: current Phase 1 working tree on closure-start HEAD `cbd0067b03c3cf728627
 Read-only filter command:
 
 ```powershell
-& 'C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe' -s emulator-5554 logcat -d -v threadtime AndroidRuntime:E ReactNativeJS:E ReactNative:E SoLoader:E '*:S'
+& '<ANDROID_SDK_ROOT>\platform-tools\adb.exe' -s emulator-5554 logcat -d -v threadtime AndroidRuntime:E ReactNativeJS:E ReactNative:E SoLoader:E '*:S'
 ```
 
 Exact filtered output:

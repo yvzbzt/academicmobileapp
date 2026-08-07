@@ -1,4 +1,4 @@
-﻿RUNTIME_LOG=C:\Users\buyuk\academicmobileapp\docs\mobile-native-redesign\evidence\phase-11-native\raw\android-runtime.log
+﻿RUNTIME_LOG=<REPO_ROOT>\docs\mobile-native-redesign\evidence\phase-11-native\raw\android-runtime.log
 NOTE=Debug-level AndroidRuntime entries from adb shell command processes are not fatal exceptions.
 FATAL_OR_REACT_ERROR_MATCHES=0
 SENSITIVE_MATCHES=0

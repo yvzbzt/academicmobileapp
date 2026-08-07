@@ -29,7 +29,7 @@ The evidence run used the installed debug APK plus the repository-local Metro se
 
 ```powershell
 # Terminal A, from the native application root.
-Set-Location C:\Users\buyuk\academicmobileapp\apps\mobile-native
+Set-Location <REPO_ROOT>\apps\mobile-native
 $env:EXPO_OFFLINE='1'
 $env:EXPO_PUBLIC_PHASE6_AUTH_PREVIEW='1'
 $env:EXPO_PUBLIC_PHASE6_AUTH_PREVIEW_SCENARIO='login'
@@ -37,8 +37,8 @@ $env:EXPO_PUBLIC_PHASE6_AUTH_PREVIEW_THEME='light'
 npm.cmd run start -- --port 8081
 
 # Terminal B.
-Set-Location C:\Users\buyuk\academicmobileapp\apps\mobile-native
-$adb='C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe'
+Set-Location <REPO_ROOT>\apps\mobile-native
+$adb='<ANDROID_SDK_ROOT>\platform-tools\adb.exe'
 & $adb install -r -d .\android\app\build\outputs\apk\debug\app-debug.apk
 & $adb reverse tcp:8081 tcp:8081
 & $adb shell am start -n com.anssoft.akademiktakvim/.MainActivity
@@ -55,7 +55,7 @@ $adb='C:\Users\buyuk\AppData\Local\Android\Sdk\platform-tools\adb.exe'
 & $adb shell settings put system font_scale 2.0
 
 # One same-state accessibility/screenshot pair.
-$phase6EvidenceRoot='C:\Users\buyuk\academicmobileapp\docs\mobile-native-redesign\evidence\phase-06-native'
+$phase6EvidenceRoot='<REPO_ROOT>\docs\mobile-native-redesign\evidence\phase-06-native'
 $name='android-api24-360dp-light-font1x-login-default'
 & $adb shell uiautomator dump "/sdcard/$name.xml"
 & $adb pull "/sdcard/$name.xml" "$phase6EvidenceRoot\hierarchies\$name.xml"
