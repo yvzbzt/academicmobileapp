@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 import type { AuthUserRecord } from "../src/modules/auth/auth.types.js";
 import { AdminCalendarService } from "../src/modules/calendars/admin-calendar.service.js";
@@ -42,6 +43,28 @@ class TokenOutcomePushSender implements PushSender {
 }
 
 describe("NotificationsService", () => {
+  it.each([
+    "2026-10-01",
+    "2026-10-01T06:30:00",
+    "2026-02-30T06:30:00Z",
+    "2026-10-01T06:30:00+03"
+  ])("rejects an alarm scheduledFor value that is not an explicit valid instant: %s", async (scheduledFor) => {
+    const service = new NotificationsService(new InMemoryNotificationRepository());
+
+    await expect(service.createStudentAlarm(
+      { ...studentUser, universityId: "university-1" },
+      {
+        eventType: "announcement",
+        targetId: "announcement-1",
+        title: "Announcement",
+        scheduledFor,
+        trigger: "at_time",
+        amount: 0,
+        unit: "days"
+      }
+    )).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("registers, rotates and detaches a device without exposing token or raw device id", async () => {
     const repository = new InMemoryNotificationRepository();
     const service = new NotificationsService(repository);

@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AdminCalendarService } from "../src/modules/calendars/admin-calendar.service.js";
 import { InMemoryCalendarRepository } from "../src/modules/calendars/in-memory-calendar.repository.js";
 import { InMemoryPdfRepository } from "../src/modules/pdf/in-memory-pdf.repository.js";
@@ -35,6 +35,60 @@ async function createApprovedExtractedEvents() {
 }
 
 describe("AdminCalendarService", () => {
+  it.each([
+    ["ambiguous instant", { startDate: "2026-09-01T09:30:00", endDate: "2026-09-01T11:00:00+03:00" }],
+    ["reverse date range", { startDate: "2026-09-03", endDate: "2026-09-01" }],
+    ["reverse instant range", { startDate: "2026-09-03T11:00:00+03:00", endDate: "2026-09-03T10:59:59+03:00" }]
+  ])("rejects a manual calendar %s before creating its parent draft", async (_label, temporal) => {
+    const calendarRepository = new InMemoryCalendarRepository();
+    const createCalendar = vi.spyOn(calendarRepository, "createCalendar");
+    const service = new AdminCalendarService(calendarRepository, new InMemoryPdfRepository());
+
+    await expect(service.createManualDraft({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "Invalid temporal draft",
+      createdBy: "admin-1",
+      events: [{
+        title: "Invalid event",
+        category: "course_registration",
+        term: "fall",
+        ...temporal
+      }]
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(createCalendar).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid approved extracted range before creating its parent draft", async () => {
+    const { pdfRepository, source } = await createApprovedExtractedEvents();
+    const [approved] = await pdfRepository.listExtractedEvents({
+      pdfSourceId: source.id,
+      status: "approved",
+      limit: 10,
+      offset: 0
+    });
+    await pdfRepository.updateExtractedEvent(approved!.id, {
+      temporalKind: "date",
+      dateOnlyStart: "2026-09-03",
+      startDate: new Date("2026-09-03T00:00:00.000Z"),
+      endTemporalKind: "date",
+      dateOnlyEnd: "2026-09-01",
+      endDate: new Date("2026-09-01T23:59:59.999Z")
+    });
+    const calendarRepository = new InMemoryCalendarRepository();
+    const createCalendar = vi.spyOn(calendarRepository, "createCalendar");
+    const service = new AdminCalendarService(calendarRepository, pdfRepository);
+
+    await expect(service.createDraftFromApprovedExtractedEvents({
+      universityId: source.universityId,
+      academicYear: source.academicYear,
+      title: "Invalid extracted draft",
+      sourcePdfId: source.id,
+      createdBy: "admin-1"
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(createCalendar).not.toHaveBeenCalled();
+  });
+
   it("creates a draft calendar from approved extracted events", async () => {
     const { pdfRepository, source } = await createApprovedExtractedEvents();
     const calendarRepository = new InMemoryCalendarRepository();

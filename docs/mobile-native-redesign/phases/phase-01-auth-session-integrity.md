@@ -1,7 +1,7 @@
 # Phase 01 — Authentication, Session, Storage, and Academic-Profile Integrity
 
-Status date: 2026-08-06\
-Status: Reconciled current through the Phase 1 security repairs and the accepted Phase 2–11 descendants. The runtime remains MongoDB-only; the original Phase 1 milestone and evidence ledger are preserved below as historical provenance.
+Status date: 2026-08-07\
+Status: Reconciled current through Final Correctness Repair 1 and the accepted Phase 2–12 descendants. The runtime remains MongoDB-only; the original Phase 1 milestone and evidence ledger are preserved below as historical provenance.
 
 ## Reconciled current state — 2026-08-04
 
@@ -9,11 +9,13 @@ The accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` was rep
 
 **Phase 12 provenance correction — 2026-08-06.** The final direct Phase 1 blocker repair is `1dd36d1811949ba3ff166e982a8b72bda014c5ef` (`fix(api): close recent-auth and outbound-network gaps`). It completes the purpose-specific, digest-only, single-use recent-authentication boundary described here, including atomic consumption and the corresponding API/native contract coverage. The earlier `641d7bee8a1cd539179769069a22b5c3220e8a6d` repair remains part of the accepted lineage rather than being superseded or rewritten.
 
+**Final Correctness Repair 1 boundary — 2026-08-07.** The trusted-proxy contract now makes every accepted IPv6 prefix enforceable instead of treating only `/128` as matchable. This scoped correction leaves the accepted Phase 1 authentication, session, generation, recovery, recent-authentication, storage, and Mongo-only decisions unchanged.
+
 - Missing legacy credential generations still normalize to `0`. Access tokens, refresh records, and password-recovery records carry the current generation; protected access, refresh rotation, and recovery confirmation all reject a stale generation.
 - Password reset now uses a standalone-Mongo-compatible compare-and-set on the user document. The accepted token hash, expected generation, new password hash, completion operation key, and one-step generation advance form the durable security boundary. Hash failure performs no write; concurrent records cannot both commit; a response-loss retry with the same operation is deterministic; a different proposed password is not reported as a success. Generation advancement immediately invalidates older credentials even if best-effort physical cleanup later fails.
 - `POST /auth/recent-authentication` verifies the account's actual password or a fresh Google ID token and issues a five-minute proof bound to the owner, current credential generation, one explicit deletion purpose, and a cryptographically random `jti`. Mongo stores only the `jti` digest with owner/generation/purpose and creation/expiry/consumption times. `RecentAuthGuard` atomically consumes that record before `DELETE /me/data` or `DELETE /me` can run, so a proof is single-use, cannot cross endpoints, and admits only one concurrent request. The native destructive flows request a new purpose-specific proof for each operation instead of treating a client confirmation dialog as authentication. Because consumption precedes controller work, a later deletion failure leaves the proof consumed and the retry requires fresh reauthentication.
 - Password-recovery request responses now have the same production status and public fields for known, unknown, and cooldown cases. Each path performs comparable token, hash, lookup, and timing work; production applies a 350 ms public response floor. Eligible email delivery is scheduled asynchronously without being awaited by the public response, is wrapped by a 12-second delivery timeout, and uses bounded SMTP connection/greeting/socket timeouts.
-- Client IP resolution trusts only explicit `TRUSTED_PROXY_CIDRS`. The checked-in Hetzner/Caddy topology declares one trusted proxy network, uses only the right-most forwarded client value from that trusted peer, and ignores spoofed forwarding headers received directly or from an untrusted peer. Invalid CIDR configuration fails environment validation.
+- Client IP resolution trusts only explicit `TRUSTED_PROXY_CIDRS`. IPv4 behavior remains unchanged; IPv6 addresses and configured networks are normalized to 16 bytes and prefix-masked for every `/0` through `/128` boundary, including compressed/expanded and hexadecimal-case equivalents. IPv4-mapped IPv6 socket spellings resolve to normalized IPv4 client identity while trust matching accepts either the corresponding IPv4 CIDR or mapped-IPv6 CIDR. Invalid addresses, scoped addresses, and prefixes outside the family boundary fail environment validation, so configuration cannot silently accept an unenforceable range. The checked-in Hetzner/Caddy topology still declares exactly one trusted proxy hop, uses only the right-most forwarded client value from that trusted peer, and ignores spoofed forwarding headers received directly or from an untrusted peer. A duplicate header field or any malformed/empty chain entry fails closed to the direct socket peer rather than partially accepting the chain.
 - The legacy mobile-web Firebase `AIza...` fallback is removed. Firebase web configuration is environment-only and fails clearly without printing the key.
 - Firestore persistence remains removed from runtime composition. No Redis, BullMQ, Mongo replica-set requirement, production migration, deployment, or production-data access was introduced by the repair.
 
@@ -27,6 +29,13 @@ The accepted Phase 8 baseline `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9` was rep
 | Final Phase 1 blocker repair | `1dd36d1811949ba3ff166e982a8b72bda014c5ef` | Completes purpose-bound recent-auth proof issuance, digest persistence, atomic single-use consumption, and caller coverage |
 | Phase 2 repair descendant | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Preserves the repaired authentication boundary |
 | Phase 3 repair descendant | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Preserves the repaired authentication boundary through the mobile reconciliation |
+
+### Final Correctness Repair 1 scope and evidence boundary
+
+- IPv6 trusted-proxy CIDRs use normalized 16-byte comparison with whole-byte and remaining-bit masks. `/0`, `/32`, `/48`, `/64`, `/127`, and `/128` therefore have their actual prefix meaning; `/0` remains an intentionally broad deployment choice rather than a matcher exception.
+- Trust is granted from the direct socket peer only. The approved production shape remains one Caddy hop and one right-most forwarded client; the repair does not add recursive proxy walking or let an untrusted direct caller elevate a supplied `X-Forwarded-For` value.
+- Malformed forwarding data fails closed without salvaging a partial chain. A future multi-proxy topology requires a separately reviewed hop policy and configuration.
+- This repair changes runtime matching and validation only. It performs no migration, reconciliation, deployment, provider access, production MongoDB access, or existing-record mutation. Exact Repair 1 verification results belong to the appended authoritative ledger in `TEST_MATRIX.md`; none of the historical results below is rewritten as new evidence.
 
 ## Historical Phase 1 milestone record
 

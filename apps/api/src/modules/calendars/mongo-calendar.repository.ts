@@ -3,8 +3,8 @@ import { isValidObjectId } from "mongoose";
 import { academicCalendarSchema, academicEventSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
-import { istanbulCalendarDate } from "./calendar-temporal.js";
-import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, UpcomingEventFilters } from "./calendar.types.js";
+import { instantBoundaryForIstanbulCalendarDate, istanbulCalendarDate } from "./calendar-temporal.js";
+import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, CalendarTemporalFilterBoundary, UpcomingEventFilters } from "./calendar.types.js";
 
 @Injectable()
 export class MongoCalendarRepository implements CalendarRepository {
@@ -80,15 +80,8 @@ export class MongoCalendarRepository implements CalendarRepository {
     const conditions: Record<string, unknown>[] = [];
     const scopeQuery = buildScopeQuery(filters.facultyId, filters.departmentId);
     if (Object.keys(scopeQuery).length > 0) conditions.push(scopeQuery);
-    if (filters.startDate) {
-      conditions.push({
-        $or: [
-          { endDate: { $gte: filters.startDate } },
-          { endDate: { $exists: false }, startDate: { $gte: filters.startDate } }
-        ]
-      });
-    }
-    if (filters.endDate) conditions.push({ startDate: { $lte: filters.endDate } });
+    if (filters.startBoundary) conditions.push(buildEventEndOnOrAfterQuery(filters.startBoundary));
+    if (filters.endBoundary) conditions.push(buildEventStartOnOrBeforeQuery(filters.endBoundary));
     if (conditions.length > 0) query.$and = conditions;
     const documents = await (await this.model("AcademicEvent", academicEventSchema)).find(query).sort({ startDate: 1, _id: 1 }).skip(filters.offset).limit(filters.limit);
     return documents.map((document) => toDomainRecord<AcademicEventRecord>(document));
@@ -194,6 +187,61 @@ export function buildUpcomingTemporalQuery(fromDate: Date): Record<string, unkno
       }
     ]
   };
+}
+
+export function buildEventEndOnOrAfterQuery(boundary: CalendarTemporalFilterBoundary): Record<string, unknown> {
+  const calendarDate = boundaryCalendarDate(boundary);
+  const instant = boundary.temporalKind === "timestamp"
+    ? boundary.instant
+    : instantBoundaryForIstanbulCalendarDate(boundary.dateOnly);
+  return {
+    $or: [
+      { endTemporalKind: "date", dateOnlyEnd: { $gte: calendarDate } },
+      { endTemporalKind: "timestamp", endDate: { $gte: instant } },
+      {
+        temporalKind: "date",
+        endTemporalKind: { $exists: false },
+        $or: [
+          { dateOnlyEnd: { $gte: calendarDate } },
+          { dateOnlyEnd: { $exists: false }, dateOnlyStart: { $gte: calendarDate } }
+        ]
+      },
+      {
+        temporalKind: "timestamp",
+        endTemporalKind: { $exists: false },
+        $or: [
+          { endDate: { $gte: instant } },
+          { endDate: { $exists: false }, startDate: { $gte: instant } }
+        ]
+      },
+      {
+        temporalKind: { $exists: false },
+        endTemporalKind: { $exists: false },
+        $or: [
+          { endDate: { $gte: instant } },
+          { endDate: { $exists: false }, startDate: { $gte: instant } }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildEventStartOnOrBeforeQuery(boundary: CalendarTemporalFilterBoundary): Record<string, unknown> {
+  const calendarDate = boundaryCalendarDate(boundary);
+  const instant = boundary.temporalKind === "timestamp"
+    ? boundary.instant
+    : instantBoundaryForIstanbulCalendarDate(boundary.dateOnly, true);
+  return {
+    $or: [
+      { temporalKind: "date", dateOnlyStart: { $lte: calendarDate } },
+      { temporalKind: "timestamp", startDate: { $lte: instant } },
+      { temporalKind: { $exists: false }, startDate: { $lte: instant } }
+    ]
+  };
+}
+
+function boundaryCalendarDate(boundary: CalendarTemporalFilterBoundary): string {
+  return boundary.temporalKind === "date" ? boundary.dateOnly : istanbulCalendarDate(boundary.instant);
 }
 
 function buildScopeQuery(facultyId?: string, departmentId?: string): Record<string, unknown> {

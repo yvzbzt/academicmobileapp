@@ -1,7 +1,7 @@
 # Phase 02 — Content Correctness and Trust
 
-Status date: 2026-08-06
-Status: Reconciled current through the trusted-date, outbound-network, parser-invariant, and content-identity repairs and the accepted Phase 3–11 descendants. The original Phase 2 completion report remains below as historical provenance.
+Status date: 2026-08-07
+Status: Reconciled current through Final Correctness Repair 1, the trusted-date, outbound-network, parser-invariant, and content-identity repairs, and the accepted Phase 3–12 descendants. The original Phase 2 completion report remains below as historical provenance.
 
 ## Reconciled current state — 2026-08-04
 
@@ -9,7 +9,9 @@ The Phase 2 contract was revalidated from the accepted Phase 8 baseline `7b64c9c
 
 **Phase 12 provenance correction — 2026-08-06.** Commit `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` owns the trusted-date/range, parser, identity, and initial shared outbound boundary. The final outbound-network blocker repair is its descendant `1dd36d1811949ba3ff166e982a8b72bda014c5ef` (`fix(api): close recent-auth and outbound-network gaps`), which closes the remaining named server call sites and caller-specific fixed-authority policies while retaining mandatory TLS verification.
 
-- Academic dates now have an explicit date-only/timestamp temporal kind and preserve an optional inclusive range end through parser/PDF ingestion, Mongo persistence, shared API DTOs, Home/feed/detail rendering, Google Calendar transfer, and native-calendar mapping. A date-only value does not invent a clock time; timestamped records retain their real instant. The API-to-native regression exercises `Europe/Istanbul` so local academic dates do not shift across UTC day boundaries.
+**Final Correctness Repair 1 boundary — 2026-08-07.** The temporal contract now closes the remaining input-validation gap: real instants require an explicit offset, date-only values retain civil-date meaning, and every supported range rejects a reverse end. This validation-only correction does not reinterpret or rewrite stored content.
+
+- Academic dates have an explicit date-only/timestamp temporal kind and preserve an optional inclusive range end through parser/PDF ingestion, Mongo persistence, shared API DTOs, Home/feed/detail rendering, Google Calendar transfer, and native-calendar mapping. A date-only input is exactly a valid Gregorian `YYYY-MM-DD` value and remains that civil date without an invented time, offset, or day shift. A real instant requires seconds and explicit `Z` or numeric `+HH:mm`/`-HH:mm` offset syntax, with either no fraction or exactly three millisecond digits; timezone-less timestamps and invalid calendar/clock/offset values fail before `Date` construction. Inclusive date-only and timestamp ranges reject `end < start`. Existing date/instant and instant/date pairs keep both explicit temporal kinds and compare the instant's Europe/Istanbul civil date with the date-only endpoint rather than silently treating the date as UTC midnight. Real instants have the same meaning under UTC, Europe/Istanbul, and other host timezones because the input offset is authoritative.
 - Every server HTTP/PDF/OCR/source-discovery/provider transport uses the shared safe outbound request boundary. Every initial and redirect hop revalidates scheme, credentials, hostname, port, DNS answers, and the actual connected remote address; loopback, private, link-local, multicast, documentation, unspecified, mismatched, and rebound destinations fail closed. Method, headers, body, timeout, redirect count, and response size are bounded by the caller's policy. Google public APIs use fixed trusted authorities, while the non-configurable metadata endpoint has a separate exact-destination, required-header, no-redirect policy. TLS certificate validation is mandatory in every environment and no invalid-certificate flag or retry exists.
 - Source-specific YÖK and Ankara HTML adapters require their expected listing root and repeated valid row structure. One plausible link or card cannot make a changed/broken page layout healthy.
 - Trusted content identity now includes a normalized content fingerprint within academic scope. Persistence merges canonical URL aliases and retains source relationships, so URL churn does not duplicate the same normalized item or discard its canonical/source/scope provenance.
@@ -25,6 +27,14 @@ The Phase 2 contract was revalidated from the accepted Phase 8 baseline `7b64c9c
 | Phase 2 repair | `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25` | Date/range correctness, safe outbound networking, parser invariants, fingerprint identity, and notification lifecycle repair |
 | Final Phase 2 outbound repair | `1dd36d1811949ba3ff166e982a8b72bda014c5ef` | Completes named-call-site coverage, caller-specific outbound policies, fixed-authority handling, and fail-closed TLS behavior |
 | Phase 3 repair descendant | `2e3664546f628a19c6fa929b9ee9469e5322f9a8` | Preserves the repaired Phase 2 contract through the mobile reconciliation |
+
+### Final Correctness Repair 1 scope and evidence boundary
+
+- Strict syntax, calendar, clock, and offset validation precedes instant materialization. Date-only values retain authoritative civil-date fields, explicit-offset instants remain host-timezone independent, normalized UTC/Istanbul year overflow fails, and parsing failures surface as controlled Nest validation errors rather than raw exceptions.
+- Europe/Istanbul local source times use IANA history rather than fixed `+03:00`. A unique wall clock resolves; gap and overlap clocks fail; civil dates use their first and last representable instants, including offset changes that skip midnight.
+- All four typed range pairs remain supported and reject reverse order. Date/date compares civil values, instant/instant compares real instants, and mixed ordering compares the instant's Europe/Istanbul civil date; the persisted/API record retains `temporalKind` and `endTemporalKind`, equal endpoints remain valid, and no date endpoint silently becomes real UTC midnight.
+- PDF extraction, partial edits, approval, approved-event draft creation, manual drafts, and ATU ingestion validate before the relevant event or parent-calendar write. Public-search boundaries stay typed through controller and in-memory filtering; Mongo evidence verifies generated date/timestamp and missing-kind fallback predicate shapes only, not real-Mongo search execution.
+- Repair 1 defines no migration, backfill, or reconciliation, rewrites no existing database record, and accesses no production MongoDB or provider. If legacy ambiguous values are ever investigated, the first separately authorized step must be a non-mutating dry run; this repair infers no correction. Exact Repair 1 verification results belong to the appended authoritative ledger in `TEST_MATRIX.md`; no historical result below is relabelled.
 
 ## Historical Phase 2 milestone record
 

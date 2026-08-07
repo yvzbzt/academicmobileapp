@@ -10,8 +10,8 @@ import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityReco
 import type { CalendarScopeView } from "./calendar.dto.js";
 import { isProductionSecret } from "../../config/production-secret.js";
 import { CalendarIngestionService, isAcceptableAcademicYear, isUnitSpecificCalendarSource } from "./calendar-ingestion.service.js";
-import { compareEventStart, temporalStartValue } from "./calendar-temporal.js";
-import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
+import { compareEventStart, instantBoundaryForIstanbulCalendarDate, temporalStartValue } from "./calendar-temporal.js";
+import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository, CalendarTemporalFilterBoundary } from "./calendar.types.js";
 
 export interface CalendarWithEventsResponse {
   calendar: AcademicCalendarRecord;
@@ -185,11 +185,11 @@ export class CalendarService {
     return event;
   }
 
-  async searchEvents(input: { category?: AcademicEventCategory; startDate?: Date; endDate?: Date; limit?: number; offset?: number }): Promise<AcademicEventRecord[]> {
+  async searchEvents(input: { category?: AcademicEventCategory; startBoundary?: CalendarTemporalFilterBoundary; endBoundary?: CalendarTemporalFilterBoundary; limit?: number; offset?: number }): Promise<AcademicEventRecord[]> {
     return this.calendarRepository.listPublishedEvents({
       ...(input.category ? { category: input.category } : {}),
-      ...(input.startDate ? { startDate: input.startDate } : {}),
-      ...(input.endDate ? { endDate: input.endDate } : {}),
+      ...(input.startBoundary ? { startBoundary: input.startBoundary } : {}),
+      ...(input.endBoundary ? { endBoundary: input.endBoundary } : {}),
       limit: Math.min(Math.max(input.limit ?? 50, 1), 100),
       offset: Math.max(input.offset ?? 0, 0)
     });
@@ -704,11 +704,11 @@ function addCalendarDays(dateOnly: string, days: number): string {
 }
 
 function exclusiveIstanbulCalendarEnd(inclusiveEnd: string): Date {
-  return new Date(`${addCalendarDays(inclusiveEnd, 1)}T00:00:00.000+03:00`);
+  return instantBoundaryForIstanbulCalendarDate(addCalendarDays(inclusiveEnd, 1));
 }
 
 function istanbulCalendarStart(dateOnly: string): Date {
-  return new Date(`${dateOnly}T00:00:00.000+03:00`);
+  return instantBoundaryForIstanbulCalendarDate(dateOnly);
 }
 
 function escapeIcsText(value: string): string {

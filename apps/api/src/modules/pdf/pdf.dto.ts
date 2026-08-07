@@ -1,6 +1,7 @@
 import { Type } from "class-transformer";
-import { IsHexadecimal, IsIn, IsInt, IsOptional, IsString, IsUrl, Max, Min, MinLength } from "class-validator";
+import { IsHexadecimal, IsIn, IsInt, IsOptional, IsString, IsUrl, Max, Min, MinLength, ValidateIf } from "class-validator";
 import { academicEventCategories, type AcademicEventCategory } from "../../domain/academic-event.types.js";
+import { IsAcademicTemporalValue } from "../calendars/calendar-temporal.js";
 
 export class CreatePdfSourceDto {
   @IsString()
@@ -70,12 +71,12 @@ export class UpdateExtractedEventDto {
   @IsIn(academicEventCategories)
   normalizedCategory?: AcademicEventCategory;
 
-  @IsOptional()
-  @IsString()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsAcademicTemporalValue()
   startDate?: string;
 
-  @IsOptional()
-  @IsString()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsAcademicTemporalValue()
   endDate?: string;
 
   @IsOptional()

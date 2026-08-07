@@ -141,6 +141,40 @@ describe("PdfProcessingService", () => {
     expect(result.extractedEvents[1]?.startDate).toEqual(new Date("2027-01-05T07:00:00.000Z"));
   });
 
+  it("uses historical IANA Istanbul offsets for timed PDF rows", async () => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "historical-timed-calendar.pdf",
+      rawText: "Ders Kayitlari 01.01.2015 23:30"
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toHaveLength(1);
+    expect(result.extractedEvents[0]).toEqual(expect.objectContaining({
+      temporalKind: "timestamp",
+      startDate: new Date("2015-01-01T21:30:00.000Z"),
+      startTime: "23:30"
+    }));
+  });
+
+  it.each([
+    ["nonexistent", "Ders Kayitlari 29.03.2015 03:30"],
+    ["ambiguous", "Ders Kayitlari 08.11.2015 03:30"]
+  ])("drops a PDF row with a %s Istanbul wall-clock value", async (_case, rawText) => {
+    const service = createService();
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: `${_case}-timed-calendar.pdf`,
+      rawText
+    });
+
+    const result = await service.processPdfSource(source.id);
+
+    expect(result.extractedEvents).toEqual([]);
+  });
+
   it("extracts row-aligned dates from header mapped table cells", async () => {
     const service = createService();
     const source = await service.createPdfSource({
@@ -305,6 +339,30 @@ describe("PdfProcessingService", () => {
     expect(rejected.adminNote).toBe("Wrong row");
   });
 
+  it("rejects a reverse extracted range at the approval boundary", async () => {
+    const repository = new InMemoryPdfRepository();
+    const service = new PdfProcessingService(repository, {
+      async extractText() {
+        return null;
+      }
+    });
+    const source = await service.createPdfSource(validPdfInput);
+    const result = await service.processPdfSource(source.id);
+    const event = result.extractedEvents[0]!;
+    await repository.updateExtractedEvent(event.id, {
+      temporalKind: "date",
+      dateOnlyStart: "2026-09-03",
+      startDate: new Date("2026-09-03T00:00:00.000Z"),
+      endTemporalKind: "date",
+      dateOnlyEnd: "2026-09-01",
+      endDate: new Date("2026-09-01T23:59:59.999Z")
+    });
+
+    await expect(service.approveExtractedEvent(event.id, "admin-1"))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.getExtractedEvent(event.id)).resolves.toMatchObject({ status: "pending_review" });
+  });
+
   it("preserves an exact timestamp end on a range with a date-only start", async () => {
     const service = createService();
     const source = await service.createPdfSource({
@@ -360,5 +418,91 @@ describe("PdfProcessingService", () => {
     });
     expect(updated.dateOnlyStart).toBeUndefined();
     expect(updated.dateOnlyEnd).toBeUndefined();
+  });
+
+  it("validates partial admin temporal edits against the stored counterpart before writing", async () => {
+    const repository = new InMemoryPdfRepository();
+    const service = new PdfProcessingService(repository, {
+      async extractText() {
+        return null;
+      }
+    });
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "admin-invalid-temporal-edit.pdf",
+      rawText: "Ders Kayitlari 01.09.2026 - 03.09.2026"
+    });
+    const processed = await service.processPdfSource(source.id);
+    const original = processed.extractedEvents[0]!;
+
+    await expect(service.updateExtractedEvent(original.id, {
+      startDate: "2026-09-04"
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateExtractedEvent(original.id, {
+      startDate: "2026-09-01T09:30:00"
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateExtractedEvent(original.id, {
+      endDate: ""
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateExtractedEvent(original.id, {
+      endDate: null
+    } as unknown as { endDate?: string })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(await service.getExtractedEvent(original.id)).toMatchObject({
+      temporalKind: "date",
+      endTemporalKind: "date",
+      dateOnlyStart: "2026-09-01",
+      dateOnlyEnd: "2026-09-03"
+    });
+  });
+
+  it("preserves an untouched legacy date end and rejects inconsistent declared date metadata", async () => {
+    const repository = new InMemoryPdfRepository();
+    const service = new PdfProcessingService(repository, {
+      async extractText() {
+        return null;
+      }
+    });
+    const source = await service.createPdfSource(validPdfInput);
+    const processed = await service.processPdfSource(source.id);
+    const original = processed.extractedEvents[0]!;
+    await repository.updateExtractedEvent(original.id, {
+      endTemporalKind: undefined
+    } as unknown as Parameters<InMemoryPdfRepository["updateExtractedEvent"]>[1]);
+
+    const updated = await service.updateExtractedEvent(original.id, { startDate: "2026-09-16" });
+    expect(updated).toMatchObject({
+      temporalKind: "date",
+      dateOnlyStart: "2026-09-16",
+      endTemporalKind: "date",
+      dateOnlyEnd: "2026-09-19"
+    });
+
+    await repository.updateExtractedEvent(original.id, {
+      endTemporalKind: "date",
+      dateOnlyEnd: undefined
+    } as unknown as Parameters<InMemoryPdfRepository["updateExtractedEvent"]>[1]);
+    await expect(service.updateExtractedEvent(original.id, { startDate: "2026-09-17" }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.getExtractedEvent(original.id)).resolves.toMatchObject({ dateOnlyStart: "2026-09-16" });
+  });
+
+  it("rejects a reverse PDF-extracted range instead of persisting a candidate", async () => {
+    const repository = new InMemoryPdfRepository();
+    const service = new PdfProcessingService(repository, {
+      async extractText() {
+        return null;
+      }
+    });
+    const source = await service.createPdfSource({
+      ...validPdfInput,
+      fileName: "reverse-temporal-range.pdf",
+      rawText: "Ders Kayitlari 03.09.2026 - 01.09.2026"
+    });
+
+    const processed = await service.processPdfSource(source.id);
+
+    expect(processed.extractedEvents).toEqual([]);
+    expect(await repository.listExtractedEvents({ pdfSourceId: source.id, limit: 10, offset: 0 })).toEqual([]);
   });
 });

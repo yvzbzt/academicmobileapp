@@ -1,6 +1,7 @@
 import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength, ValidateNested } from "class-validator";
+import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength, ValidateIf, ValidateNested } from "class-validator";
 import { academicEventCategories, type AcademicEventCategory, type AcademicTerm } from "../../domain/academic-event.types.js";
+import { IsAcademicTemporalValue } from "./calendar-temporal.js";
 
 const terms: AcademicTerm[] = ["fall", "spring", "summer", "full_year", "unknown"];
 
@@ -50,11 +51,11 @@ class ManualCalendarEventDto {
   @IsEnum(terms)
   term!: AcademicTerm;
 
-  @IsDateString()
+  @IsAcademicTemporalValue()
   startDate!: string;
 
-  @IsOptional()
-  @IsDateString()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsAcademicTemporalValue()
   endDate?: string;
 
   @IsOptional()

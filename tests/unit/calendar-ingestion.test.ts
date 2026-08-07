@@ -202,6 +202,45 @@ describe("CalendarIngestionService", () => {
     });
   });
 
+  it("rejects a reverse ATU source range before creating a calendar", async () => {
+    const payload = {
+      d: [{
+        ID: 2,
+        DonemAciklama: "GÃ¼z DÃ¶nemi",
+        Aciklama: "Ters kaynak aralÄ±ÄŸÄ±",
+        BaslamaTarihi: `/Date(${Date.UTC(2025, 8, 4, 22)})/`,
+        BitisTarihi: `/Date(${Date.UTC(2025, 7, 31, 22)})/`,
+        AdTR: "Ders kayÄ±tlarÄ±",
+        Yil: 2025,
+        Durum: 1
+      }]
+    };
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+      requestHop: async (_url, pinnedAddress): Promise<SafeOutboundHopResponse> => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from(JSON.stringify(payload)),
+        remoteAddress: pinnedAddress.address
+      })
+    });
+    const calendarRepository = new FakeCalendarRepository();
+    const createCalendar = vi.spyOn(calendarRepository, "createCalendar");
+    const service = new CalendarIngestionService(
+      new FakeCatalogRepository(),
+      calendarRepository,
+      {} as PdfProcessingService,
+      {} as never
+    );
+
+    await expect(service.ingestUniversityCalendar("atu")).resolves.toMatchObject({
+      status: "failed",
+      eventCount: 0,
+      error: "endDate must not be before startDate."
+    });
+    expect(createCalendar).not.toHaveBeenCalled();
+  });
+
   it("selects ATU's current general undergraduate PDF from page content", () => {
     const html = `
       <a href="/Upload/2026-lisansustu.pdf">2026-2027 Lisansüstü Akademik Takvimi</a>

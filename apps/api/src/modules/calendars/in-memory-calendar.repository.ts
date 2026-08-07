@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { compareEventStart, eventIsCurrentOrFuture } from "./calendar-temporal.js";
+import { compareEventStart, eventIsCurrentOrFuture, eventMatchesTemporalFilters } from "./calendar-temporal.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, UpcomingEventFilters } from "./calendar.types.js";
 
 @Injectable()
@@ -102,8 +102,7 @@ export class InMemoryCalendarRepository implements CalendarRepository {
       .filter((event) => (filters.universityId ? event.universityId === filters.universityId : true))
       .filter((event) => matchesScope(event, filters.facultyId, filters.departmentId))
       .filter((event) => (filters.category ? event.category === filters.category : true))
-      .filter((event) => (filters.startDate ? (event.endDate ?? event.startDate) >= filters.startDate : true))
-      .filter((event) => (filters.endDate ? event.startDate <= filters.endDate : true))
+      .filter((event) => eventMatchesTemporalFilters(event, filters.startBoundary, filters.endBoundary))
       .sort(compareEventStart)
       .slice(filters.offset, filters.offset + filters.limit);
   }

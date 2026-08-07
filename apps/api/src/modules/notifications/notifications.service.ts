@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { createHash } from "node:crypto";
 import type { AcademicEventRecord, AcademicCalendarRecord } from "../calendars/calendar.types.js";
 import type { CalendarRepository } from "../calendars/calendar.types.js";
+import { parseExplicitOffsetTimestamp } from "../calendars/calendar-temporal.js";
 import type { AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementRepository, AnnouncementSourceRecord } from "../announcements/announcements.types.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { DeviceRegistrationDto, DeviceUnregistrationDto, NotificationPreferenceDto, StudentAlarmDto } from "../../../../../packages/shared/src/contracts.js";
@@ -405,9 +406,7 @@ function scheduledAtForCustomAlarm(date: Date, trigger: "before" | "at_time", am
 }
 
 function parseRequiredDate(value: string, field: string): Date {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new BadRequestException(`${field} must be a valid date.`);
-  return parsed;
+  return parseExplicitOffsetTimestamp(value, field);
 }
 
 function isExamEvent(event: AcademicEventRecord): boolean {

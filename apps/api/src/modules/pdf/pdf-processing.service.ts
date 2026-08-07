@@ -4,7 +4,7 @@ import { mapAcademicEventCategory } from "../../domain/category-mapper.js";
 import { calculateConfidenceScore } from "../../domain/confidence-score.js";
 import { normalizeAcademicDate } from "../../domain/date-normalizer.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
-import { academicTemporalFields, compatibilityDateForCalendarDay, istanbulTimestamp } from "../calendars/calendar-temporal.js";
+import { academicTemporalFields, academicTemporalFieldsFromRecord, istanbulTimestamp, storedAcademicTemporalEndValue, storedAcademicTemporalStartValue } from "../calendars/calendar-temporal.js";
 import type { CreatePdfSourceInput, ExtractedEventRecord, ExtractedEventStatus, PdfRepository, PdfSourceRecord } from "./pdf.types.js";
 import { PdfOcrService } from "./pdf-ocr.service.js";
 
@@ -150,17 +150,23 @@ export class PdfProcessingService {
   ): Promise<ExtractedEventRecord> {
     const current = await this.pdfRepository.findExtractedEventById(id);
     if (!current) throw new NotFoundException("Extracted event not found.");
-    const currentStart = current.temporalKind === "date" && current.dateOnlyStart
-      ? current.dateOnlyStart
-      : current.startDate?.toISOString();
-    const currentEnd = current.endTemporalKind === "date" && current.dateOnlyEnd
-      ? current.dateOnlyEnd
-      : current.endDate?.toISOString();
-    const requestedStart = input.startDate ?? currentStart;
-    const requestedEnd = input.endDate ?? currentEnd;
-    const temporal = requestedStart && (input.startDate || input.endDate)
-      ? academicTemporalFields(requestedStart, requestedEnd)
-      : {};
+    if (
+      (input.startDate !== undefined && typeof input.startDate !== "string")
+      || (input.endDate !== undefined && typeof input.endDate !== "string")
+    ) {
+      throw new BadRequestException("Calendar temporal values must be strings when provided.");
+    }
+    const temporalInputProvided = input.startDate !== undefined || input.endDate !== undefined;
+    let temporal: Partial<ReturnType<typeof academicTemporalFields>> = {};
+    if (temporalInputProvided) {
+      const requestedStart = input.startDate !== undefined
+        ? input.startDate
+        : storedAcademicTemporalStartValue(current);
+      const requestedEnd = input.endDate !== undefined
+        ? input.endDate
+        : storedAcademicTemporalEndValue(current);
+      temporal = academicTemporalFields(requestedStart, requestedEnd);
+    }
     const updated = await this.pdfRepository.updateExtractedEvent(id, {
       ...(input.normalizedTitle ? { normalizedTitle: input.normalizedTitle } : {}),
       ...(input.normalizedCategory ? { normalizedCategory: input.normalizedCategory } : {}),
@@ -175,6 +181,7 @@ export class PdfProcessingService {
     const event = await this.pdfRepository.findExtractedEventById(id);
     if (!event) throw new NotFoundException("Extracted event not found.");
     if (!event.startDate) throw new BadRequestException("Extracted event must have a start date before approval.");
+    academicTemporalFieldsFromRecord(event);
     const updated = await this.pdfRepository.updateExtractedEvent(id, {
       status: "approved",
       reviewedBy,
@@ -246,6 +253,14 @@ export class PdfProcessingService {
       sourcePageClarity: sourcePage > 0 ? 100 : 0
     });
     const includeEnd = Boolean(endDate && (endDate !== startDate || normalizedDate.endTime));
+    const temporal = startDate
+      ? extractedAcademicTemporalFields(
+          startDate,
+          normalizedDate.startTime,
+          includeEnd ? endDate : undefined,
+          normalizedDate.endTime
+        )
+      : undefined;
 
     return {
       pdfSourceId: source.id,
@@ -255,20 +270,7 @@ export class PdfProcessingService {
       originalDateText,
       normalizedTitle: title,
       normalizedCategory: category,
-      ...(startDate ? {
-        temporalKind: normalizedDate.startTime ? "timestamp" as const : "date" as const,
-        ...(normalizedDate.startTime ? {} : { dateOnlyStart: startDate }),
-        startDate: normalizedDate.startTime
-          ? istanbulTimestamp(startDate, normalizedDate.startTime)
-          : compatibilityDateForCalendarDay(startDate)
-      } : {}),
-      ...(includeEnd && endDate ? {
-        endTemporalKind: normalizedDate.endTime ? "timestamp" as const : "date" as const,
-        ...(normalizedDate.endTime ? {} : { dateOnlyEnd: endDate }),
-        endDate: normalizedDate.endTime
-          ? istanbulTimestamp(endDate, normalizedDate.endTime)
-          : compatibilityDateForCalendarDay(endDate, true)
-      } : {}),
+      ...(temporal ?? {}),
       ...(normalizedDate.startTime ? { startTime: normalizedDate.startTime } : {}),
       ...(normalizedDate.endTime ? { endTime: normalizedDate.endTime } : {}),
       ...(normalizedDate.hasExplicitTime ? { hasExplicitTime: true } : {}),
@@ -293,6 +295,25 @@ export class PdfProcessingService {
       .replace(/(?<=\p{L})1(?=\p{L})/gu, "i")
       .replace(/(?<=\p{L})0(?=\p{L})/gu, "o");
     return stripNavigationChrome(title);
+  }
+}
+
+function extractedAcademicTemporalFields(
+  startDate: string,
+  startTime: string | undefined,
+  endDate: string | undefined,
+  endTime: string | undefined
+): ReturnType<typeof academicTemporalFields> | undefined {
+  const temporalValue = (dateOnly: string, time: string | undefined): string =>
+    time ? istanbulTimestamp(dateOnly, time).toISOString() : dateOnly;
+  try {
+    return academicTemporalFields(
+      temporalValue(startDate, startTime),
+      endDate ? temporalValue(endDate, endTime) : undefined
+    );
+  } catch (error) {
+    if (error instanceof BadRequestException) return undefined;
+    throw error;
   }
 }
 

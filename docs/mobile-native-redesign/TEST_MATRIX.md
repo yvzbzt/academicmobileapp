@@ -3,7 +3,7 @@
 Historical baseline date: 29 July 2026
 Historical baseline branch/HEAD: `agent/google-play-readiness-20260724` / `cbd0067b03c3cf7286270df25164a556c55b55b9`
 
-The dated Phase 0–11 ledgers below are preserved historical evidence. Their counts and statements such as “next phase not started” apply only to the named checkpoint. The **Phase 12 final reconciliation ledger — 6 August 2026** at the end is authoritative for the current suite and supersedes conflicting current-state wording without rewriting the old results.
+The dated Phase 0–12 ledgers below are preserved historical evidence. Their counts and statements such as “next phase not started” apply only to the named checkpoint. The **Final Correctness Repair 1 ledger — 7 August 2026** at the end is authoritative for the IPv6 trusted-proxy and temporal-input boundaries and supersedes conflicting current-state wording without rewriting the old results.
 
 ## Evidence classes
 
@@ -1118,3 +1118,72 @@ live providers, a physical device/tablet, or installed authenticated E2E.
 
 The exact candidate classifications and cleanup record are preserved in
 [`evidence/phase-12-final/raw/security-hygiene.txt`](./evidence/phase-12-final/raw/security-hygiene.txt).
+
+## Final Correctness Repair 1 ledger — 7 August 2026
+
+Repair 1 started from `48268c3109034a2f8d4b33dbdc22b3dd9203388b` on
+`agent/google-play-readiness-20260724`. That required baseline was the starting
+HEAD, so there were no later commits to inspect. The tracked worktree and index
+were clean; unrelated untracked files were preserved. This repair changes only
+backend proxy/temporal validation, its tests, and the five required
+documentation records. No mobile UI or shared contract changed.
+
+### Repair 1 focused and complete verification
+
+The focused command below was run with `$env:TZ='UTC'` and again with
+`$env:TZ='Europe/Istanbul'`:
+
+```text
+npx.cmd vitest run apps/api/tests/trusted-proxy-rate-limit.test.ts apps/api/tests/calendar-temporal.test.ts apps/api/tests/query-dto-transform.test.ts apps/api/tests/admin-calendar-publish.test.ts apps/api/tests/pdf-processing.test.ts apps/api/tests/calendar.test.ts apps/api/tests/notifications.test.ts tests/unit/academic-temporal-contract.test.ts tests/unit/calendar-ingestion.test.ts tests/unit/google-calendar-sync.test.ts --configLoader runner
+```
+
+Both runs passed the same 10 files / 180 tests. The UTC run completed in
+21.66 s and the Europe/Istanbul run in 22.02 s. Coverage includes IPv4
+regression plus IPv6 `/0`, `/32`, `/48`, `/64`, `/127`, and `/128`; equivalent
+compressed/expanded/case/mixed-tail spellings and mapped-address dual-CIDR
+handling; invalid addresses and prefix boundaries; direct spoof rejection; one
+trusted hop; bounded multiple-hop selection; malformed-chain failure; strict
+DTO and runtime temporal parsing; valid UTC/positive-offset/negative-offset/
+millisecond instants; supported-year edges; impossible values and malformed
+offsets; exact date-only preservation; inclusive and reverse ranges; all four
+date/instant start/end kind pairs; IANA historical offsets, gap/overlap
+rejection, and first/last-representable civil-day boundaries across skipped
+midnight; notification instants; PDF extraction/edit/approval pre-write
+rejection; ATU and manual-calendar pre-parent validation; public-search
+controller and in-memory behavior; generated Mongo predicate shapes and legacy
+missing-kind fallback; ingestion; API-to-native presentation; and Google
+Calendar compatibility. This focused command did not behaviorally execute the
+generated search predicates against real Mongo.
+
+| Exact command or check | Repair 1 result | Boundary |
+|---|---|---|
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | Initial environment diagnostic: 45 files passed, 2 real-Mongo fixture suites could not start, 508 tests passed / 6 skipped; authoritative final rerun **PASS — 47 files / 538 tests**, 43.19 s | The first attempt found no listener at `127.0.0.1:27017`. The final rerun used only a freshly created disposable MongoDB 8.0 process bound to loopback; no environment URI, remote host, existing application database, or production data was used. |
+| `npm.cmd test -- --configLoader runner` | **PASS — 76 files / 949 tests**, 50.51 s | Complete final Vitest regression with the same temporary loopback fixture available for the two existing repository suites. One earlier pre-final run had an unrelated 5-second announcement-test timeout after 936/937 tests; its isolated 1-file/7-test rerun passed, and the final complete run passed without changing or weakening that test. |
+| `npx.cmd vitest run tests/unit/phase-1-8-documentation-consistency.test.ts --configLoader runner` | **PASS — 1 file / 7 tests** | Focused post-documentation reconciliation; the complete regression above ran before the final Repair 1 ledger was appended. |
+| `npm.cmd run typecheck` | **PASS** | Workspace TypeScript. |
+| `npm.cmd run typecheck:mobile:native` | **PASS** | Required mobile-native TypeScript regression; no native source changed. |
+| Admin/mobile-web builds | **NOT RUN — NOT REQUIRED** | No `packages/shared` contract, admin source, mobile-web source, package, lockfile, or build configuration changed. |
+
+The temporary Mongo process was the exact locally started PID, listened only on
+`127.0.0.1`, and was stopped after the final test. Its freshly created data
+directory was then removed and port `27017` was verified to have no remaining
+listener. The repository tests used process-specific test database names and
+their existing cleanup. This was ordinary completion of the current full-suite
+gate, not the separately scoped real-Mongo password-recovery concurrency phase.
+
+### Repair 1 hygiene and data-safety verification
+
+| Exact command or review | Result |
+|---|---|
+| `git diff --check` | **PASS**; no whitespace error (Git emitted only the repository's expected LF-to-CRLF checkout notices). |
+| `git grep -n -E "(console|logger)\.(log|warn|error|debug).*(password|accessToken|refreshToken|verificationCode|recoveryCode|deviceToken|contentBody)" -- apps/api/src apps/mobile-native apps/mobile/src` | **PASS — no match**. |
+| `git grep -n -E "AIza[0-9A-Za-z_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY" -- . ":!package-lock.json" ":!apps/mobile-native/package-lock.json"` | **PASS — no match**. |
+| `git grep -n -E "\.(skip|only|todo)\s*\(" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | **PASS — no match**. |
+| `git grep -n -E "toMatch(Snapshot|InlineSnapshot)" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"`; tracked `.snap` inventory | **PASS — no matcher and no tracked snapshot**. |
+| `git grep -n -E "expect\((true|false)\)\.toBe\((true|false)\)" -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"` | **PASS — no vacuous constant assertion**. |
+| Multiline `rg --pcre2` empty-test-callback scan plus manual review of every changed test callback | **PASS — no empty test callback and every changed case has behavioral assertions**. |
+
+Repair 1 performed no migration, backfill, reconciliation, deployment, push,
+publish, provider access, Hetzner access, production MongoDB access, or
+existing-record rewrite. It inferred no correction for legacy ambiguous
+timestamps and started no later repair prompt or product phase.

@@ -1,5 +1,6 @@
-import { Equals, IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsObject, IsOptional, IsString, IsUrl, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
+import { Equals, IsArray, IsBoolean, IsEnum, IsInt, IsObject, IsOptional, IsString, IsUrl, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
+import { IsExplicitOffsetTimestamp } from "../calendars/calendar-temporal.js";
 import { NOTIFICATION_DELIVERY_CONSENT_VERSION } from "./notification.types.js";
 import type { QuietHoursRecord, ReminderPreferenceRuleRecord } from "./notification.types.js";
 
@@ -99,7 +100,7 @@ export class CreateStudentAlarmDto {
   @MinLength(1)
   title?: string;
 
-  @IsDateString()
+  @IsExplicitOffsetTimestamp()
   scheduledFor!: string;
 
   @IsEnum(["at_time", "before"])

@@ -4,7 +4,7 @@ import { AuditService } from "../audit/audit.service.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
 import type { AcademicEventCategory, AcademicTerm } from "../../domain/academic-event.types.js";
-import { academicTemporalFields } from "./calendar-temporal.js";
+import { academicTemporalFields, academicTemporalFieldsFromRecord } from "./calendar-temporal.js";
 
 export interface CreateCalendarDraftInput {
   universityId: string;
@@ -49,6 +49,10 @@ export class AdminCalendarService {
       offset: 0
     });
     if (approvedExtractedEvents.length === 0) throw new BadRequestException("At least one approved extracted event is required to create a calendar draft.");
+    const validatedEvents = approvedExtractedEvents.map((event) => ({
+      event,
+      temporal: academicTemporalFieldsFromRecord(event)
+    }));
 
     const publishedCalendar = await this.calendarRepository.findPublishedCalendar(input.universityId, input.academicYear);
     const calendar = await this.calendarRepository.createCalendar({
@@ -63,7 +67,7 @@ export class AdminCalendarService {
     });
 
     const events = await this.calendarRepository.createEvents(
-      approvedExtractedEvents.map((event) => ({
+      validatedEvents.map(({ event, temporal }) => ({
         calendarId: calendar.id,
         universityId: event.universityId,
         ...(input.facultyId ? { facultyId: input.facultyId } : {}),
@@ -72,12 +76,7 @@ export class AdminCalendarService {
         term: event.term,
         category: event.normalizedCategory,
         title: event.normalizedTitle,
-        ...(event.temporalKind ? { temporalKind: event.temporalKind } : {}),
-        ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {}),
-        ...(event.dateOnlyStart ? { dateOnlyStart: event.dateOnlyStart } : {}),
-        ...(event.dateOnlyEnd ? { dateOnlyEnd: event.dateOnlyEnd } : {}),
-        startDate: event.startDate!,
-        ...(event.endDate ? { endDate: event.endDate } : {}),
+        ...temporal,
         timezone: event.timezone,
         originalDateText: event.originalDateText,
         originalText: event.rawText,
@@ -114,6 +113,10 @@ export class AdminCalendarService {
     }>;
   }): Promise<CalendarDraftResponse> {
     if (input.events.length === 0) throw new BadRequestException("At least one event is required.");
+    const validatedEvents = input.events.map((event) => ({
+      event,
+      temporal: academicTemporalFields(event.startDate, event.endDate)
+    }));
     const publishedCalendar = await this.calendarRepository.findPublishedCalendar(input.universityId, input.academicYear);
     const calendar = await this.calendarRepository.createCalendar({
       universityId: input.universityId,
@@ -125,8 +128,7 @@ export class AdminCalendarService {
     });
 
     const events = await this.calendarRepository.createEvents(
-      input.events.map((event) => {
-        const temporal = academicTemporalFields(event.startDate, event.endDate);
+      validatedEvents.map(({ event, temporal }) => {
         return {
           calendarId: calendar.id,
           universityId: input.universityId,

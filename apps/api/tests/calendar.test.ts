@@ -427,6 +427,23 @@ describe("CalendarService", () => {
         confidenceScore: 98,
         status: "published",
         notificationRules: []
+      },
+      {
+        calendarId: calendar!.id,
+        universityId: calendar!.universityId,
+        academicYear: calendar!.academicYear,
+        term: "fall",
+        category: "custom_event",
+        title: "Historical inverse mixed temporal range",
+        temporalKind: "date",
+        endTemporalKind: "timestamp",
+        dateOnlyStart: "1910-10-01",
+        startDate: new Date("1910-10-01T00:00:00.000Z"),
+        endDate: new Date("1910-10-01T12:00:00.000Z"),
+        timezone: "Europe/Istanbul",
+        confidenceScore: 98,
+        status: "published",
+        notificationRules: []
       }
     ]);
     const service = new CalendarService(calendarRepository, authRepository);
@@ -453,6 +470,7 @@ describe("CalendarService", () => {
     expect(feed.content).toContain("DTSTART:20261110T063000Z\r\nDTEND:20261110T080000Z");
     expect(feed.content).toContain("DTSTART:20260910T063000Z\r\nDTEND:20260912T210000Z");
     expect(feed.content).toContain("DTSTART:20260831T210000Z\r\nDTEND:20260903T140000Z");
+    expect(feed.content).toContain("DTSTART:19100930T220304Z\r\nDTEND:19101001T120000Z");
     expect(feed.content).not.toContain("Baska Bolum Ders Programi");
     expect(feed.content).not.toContain("Diger Fakulteler Ara Sinav Takvimi");
   });
@@ -465,6 +483,33 @@ describe("CalendarService", () => {
 
     expect(events.length).toBe(1);
     expect(events[0]?.category).toBe("final_exam");
+  });
+
+  it("validates public search ranges and preserves date-only query boundaries", async () => {
+    let captured: Parameters<CalendarService["searchEvents"]>[0] | undefined;
+    const service = {
+      async searchEvents(input: Parameters<CalendarService["searchEvents"]>[0]) {
+        captured = input;
+        return [];
+      }
+    } as unknown as CalendarService;
+    const controller = new CalendarController(service);
+
+    await expect(controller.searchEvents({
+      startDate: "2026-08-01",
+      endDate: "2026-08-07"
+    })).resolves.toEqual([]);
+    expect(captured).toMatchObject({
+      startBoundary: { temporalKind: "date", dateOnly: "2026-08-01" },
+      endBoundary: { temporalKind: "date", dateOnly: "2026-08-07" }
+    });
+    await expect(controller.searchEvents({
+      startDate: "2026-08-08",
+      endDate: "2026-08-07"
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(controller.searchEvents({
+      startDate: "2026-08-07T12:00:00"
+    })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("returns summer school requirements and same-department offerings from published calendars", async () => {

@@ -6,7 +6,7 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { CalendarService } from "./calendar.service.js";
-import { toAcademicEventDto } from "./calendar-temporal.js";
+import { academicTemporalFilterFields, toAcademicEventDto } from "./calendar-temporal.js";
 import { SearchEventsQueryDto, UniversityCalendarQueryDto, UpcomingEventsQueryDto } from "./calendar.dto.js";
 
 @Controller("calendar")
@@ -93,10 +93,10 @@ export class CalendarController {
 
   @Get("events")
   async searchEvents(@Query() query: SearchEventsQueryDto) {
+    const temporalFilters = academicTemporalFilterFields(query.startDate, query.endDate);
     return (await this.calendarService.searchEvents({
       ...(query.category ? { category: query.category } : {}),
-      ...(query.startDate ? { startDate: new Date(query.startDate) } : {}),
-      ...(query.endDate ? { endDate: new Date(query.endDate) } : {}),
+      ...temporalFilters,
       ...(query.limit ? { limit: query.limit } : {}),
       ...(query.offset !== undefined ? { offset: query.offset } : {})
     })).map(toAcademicEventDto);

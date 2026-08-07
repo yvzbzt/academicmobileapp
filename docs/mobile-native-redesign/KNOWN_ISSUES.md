@@ -5,7 +5,8 @@ Historical baseline date: 29 July 2026. Severity reflects user trust, privacy, d
 The baseline tables and dated phase dispositions below are checkpoint evidence.
 Their present-tense issue wording describes the named historical snapshot and
 must not be read as the current source state. The latest applicable Phase 9,
-Phase 10, Phase 11, or Phase 12 disposition supersedes older wording when they conflict.
+Phase 10, Phase 11, Phase 12, or Final Correctness Repair 1 disposition
+supersedes older wording when they conflict.
 In particular, Firestore database persistence and the six-tab phone shell are
 historical only: MongoDB is the sole runtime database and the authenticated
 phone shell has four destinations.
@@ -432,3 +433,17 @@ Android publication `NOT_READY`; iOS implementation `NOT_READY`; iOS
 publication `NOT_READY`; live providers `NOT_READY`; overall product readiness
 `NOT_READY`. The negative publication verdict preserves rather than contradicts
 the completed Phase 1–11 implementation contracts.
+
+## Final Correctness Repair 1 disposition — 7 August 2026
+
+This is the authoritative issue boundary only for IPv6 trusted-proxy CIDR
+enforcement and temporal input/range validation. It supersedes the narrower
+MN-027 and date-only/range statements in the dated Phase 1–8 disposition
+without rewriting those historical checkpoints. It starts no new product phase
+and changes no mobile UI, provider, deployment topology, or stored-data model.
+
+| ID/finding | Repair 1 disposition | Remaining boundary |
+|---|---|---|
+| MN-027 — IPv6 CIDRs were accepted by configuration but prefixes below `/128` were not enforceable | **Corrected in the Repair 1 source boundary.** IPv4 behavior remains unchanged. IPv6 peers and networks are normalized to 16 bytes and compared with prefix-bit masking for `/0` through `/128`, including non-byte-aligned prefixes and equivalent compressed, expanded, mixed-tail, and hexadecimal-case forms. Invalid addresses and prefixes fail environment validation. | The checked-in policy still trusts exactly one Caddy hop and only its right-most forwarded client. Untrusted direct callers cannot supply authority; duplicate or malformed forwarding chains fail closed to the socket peer. `/0` is enforceable but intentionally broad. Any topology change still requires deployment-specific revalidation. |
+| Temporal instant and range boundary — timezone-less instants and reverse ranges could be accepted | **Corrected in the Repair 1 source boundary.** Date-only input is a strict Gregorian `YYYY-MM-DD` civil date in the supported four-digit year domain. Instants require seconds plus `Z` or an explicit numeric offset; invalid dates, clocks, offsets, normalized year overflow, and `null` optionals fail with controlled errors. All four typed range pairs reject `end < start`. Europe/Istanbul local source times use IANA rules: nonexistent and ambiguous wall clocks fail, while civil-day queries use the first and last representable instants across offset changes and skipped midnight. PDF extraction/edit/approval and ATU/manual ingestion validate before the affected event or parent-calendar write. | Public search preserves typed boundaries through controller and in-memory behavior. Mongo coverage proves generated date/timestamp and legacy missing-kind predicate shapes, not real-Mongo search execution. A separately authorized legacy investigation must begin with a non-mutating dry run and infer no historical correction here. |
+| Existing-data safety | Repair 1 validates new input and runtime interpretation only. It defines no migration, backfill, or reconciliation and rewrites no existing database record. No production MongoDB or deployed provider is contacted. | Any future stored-record audit or correction requires separate authorization, an explicit dry-run plan, and its own evidence. |

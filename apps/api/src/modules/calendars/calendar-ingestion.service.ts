@@ -10,7 +10,7 @@ import { buildHomepageCandidates, isLikelyUniversityHomepage } from "../announce
 import { cleanText, fetchText } from "../announcements/announcement-parser.js";
 import { isOfficialContentUrl } from "../announcements/announcement-content-trust.js";
 import { AdminCalendarService } from "./admin-calendar.service.js";
-import { compatibilityDateForCalendarDay, istanbulCalendarDate } from "./calendar-temporal.js";
+import { academicTemporalFields, istanbulCalendarDate } from "./calendar-temporal.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
 import { PdfProcessingService } from "../pdf/pdf-processing.service.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
@@ -72,6 +72,7 @@ const academicCalendarPaths = [
 ];
 
 type AcademicEventInput = Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">;
+type PreparedAcademicEventInput = Omit<AcademicEventInput, "calendarId">;
 
 export interface AtuCalendarRow {
   ID?: number;
@@ -437,6 +438,12 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     if (rows.length === 0) return { universityId: university.id, universityName: university.name, status: "no_events", academicYear: `${selectedStartYear}-${selectedStartYear + 1}`, sourceUrl, eventCount: 0 };
 
     const academicYear = `${selectedStartYear}-${selectedStartYear + 1}`;
+    const preparedEventInputs = rows
+      .map((row) => toAtuAcademicEvent(row, university.id, academicYear, sourceUrl))
+      .filter((event): event is PreparedAcademicEventInput => Boolean(event));
+    if (preparedEventInputs.length === 0) {
+      return { universityId: university.id, universityName: university.name, status: "no_events", academicYear, sourceUrl, eventCount: 0 };
+    }
     const existing = await this.calendarRepository.findPublishedCalendar(university.id, academicYear);
     const calendar = await this.calendarRepository.createCalendar({
       universityId: university.id,
@@ -448,9 +455,7 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
       createdBy: "system-calendar-ingestion"
     });
 
-    const eventInputs = rows
-      .map((row) => toAtuAcademicEvent(row, calendar.id, university.id, academicYear, sourceUrl))
-      .filter((event): event is AcademicEventInput => Boolean(event));
+    const eventInputs = preparedEventInputs.map((event) => ({ ...event, calendarId: calendar.id }));
     const events = await this.calendarRepository.createEvents(eventInputs);
     if (events.length === 0) {
       await this.calendarRepository.updateCalendar(calendar.id, { status: "archived" });
@@ -666,28 +671,24 @@ export async function discoverAcademicCalendarPdfFromHomepages(
   return null;
 }
 
-function toAtuAcademicEvent(row: AtuCalendarRow, calendarId: string, universityId: string, academicYear: string, sourceUrl: string): AcademicEventInput | null {
+function toAtuAcademicEvent(row: AtuCalendarRow, universityId: string, academicYear: string, sourceUrl: string): PreparedAcademicEventInput | null {
   const startDate = parseODataDate(row.BaslamaTarihi);
   if (!startDate) return null;
   const endDate = parseODataDate(row.BitisTarihi);
   const dateOnlyStart = istanbulCalendarDate(startDate);
   const dateOnlyEnd = endDate ? istanbulCalendarDate(endDate) : undefined;
+  const temporal = academicTemporalFields(
+    dateOnlyStart,
+    dateOnlyEnd && dateOnlyEnd !== dateOnlyStart ? dateOnlyEnd : undefined
+  );
   const title = cleanText(row.AdTR?.replace(/\r?\n/g, " ")) || cleanText(row.Aciklama) || "Akademik Takvim Etkinliği";
   return {
-    calendarId,
     universityId,
     academicYear,
     term: mapTerm(row.DonemAciklama ?? row.Aciklama ?? title),
     category: mapAcademicEventCategory(`${title} ${row.Aciklama ?? ""}`),
     title,
-    temporalKind: "date",
-    dateOnlyStart,
-    startDate: compatibilityDateForCalendarDay(dateOnlyStart),
-    ...(dateOnlyEnd && dateOnlyEnd !== dateOnlyStart ? {
-      endTemporalKind: "date" as const,
-      dateOnlyEnd,
-      endDate: compatibilityDateForCalendarDay(dateOnlyEnd, true)
-    } : {}),
+    ...temporal,
     timezone: "Europe/Istanbul",
     originalDateText: `${dateOnlyStart}${dateOnlyEnd ? ` - ${dateOnlyEnd}` : ""}`,
     originalText: `${title} ${row.Aciklama ?? ""}`.trim(),

@@ -59,14 +59,18 @@ export interface AcademicEventRecord {
   updatedAt: Date;
 }
 
+export type CalendarTemporalFilterBoundary =
+  | { temporalKind: "date"; dateOnly: string }
+  | { temporalKind: "timestamp"; instant: Date };
+
 export interface CalendarEventFilters {
   calendarId?: string;
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
   category?: AcademicEventCategory;
-  startDate?: Date;
-  endDate?: Date;
+  startBoundary?: CalendarTemporalFilterBoundary;
+  endBoundary?: CalendarTemporalFilterBoundary;
   limit: number;
   offset: number;
 }

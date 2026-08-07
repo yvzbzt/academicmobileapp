@@ -53,8 +53,8 @@ export class AdminPdfController {
     return this.pdfProcessingService.updateExtractedEvent(id, {
       ...(body.normalizedTitle ? { normalizedTitle: body.normalizedTitle } : {}),
       ...(body.normalizedCategory ? { normalizedCategory: body.normalizedCategory } : {}),
-      ...(body.startDate ? { startDate: body.startDate } : {}),
-      ...(body.endDate ? { endDate: body.endDate } : {}),
+      ...(body.startDate !== undefined ? { startDate: body.startDate } : {}),
+      ...(body.endDate !== undefined ? { endDate: body.endDate } : {}),
       ...(body.adminNote ? { adminNote: body.adminNote } : {})
     });
   }
