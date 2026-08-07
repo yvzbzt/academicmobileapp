@@ -41,6 +41,8 @@ jobs:
         run: npm ci
 
       - name: Validate application
+        env:
+          MONGODB_TEST_URI: mongodb://127.0.0.1:27017/academic_recovery_concurrency_test_${{ github.run_id }}_${{ github.run_attempt }}
         run: npm run validate
 
       - name: Smoke infrastructure adapters
