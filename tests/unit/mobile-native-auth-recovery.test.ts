@@ -128,7 +128,7 @@ describe("mobile authentication recovery contract", () => {
     expect(authHandler).not.toContain("passwordConfirmation: password");
   });
 
-  it("keeps verification separate from session creation and saves onboarding once for the current owner", () => {
+  it("keeps verification separate from session creation and admits onboarding only for the current owner", () => {
     const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
     const verificationHandler = appSource.slice(
       appSource.indexOf("async function handleVerifyEmail"),
@@ -142,25 +142,37 @@ describe("mobile authentication recovery contract", () => {
       appSource.indexOf("const navigatorRootSurface"),
       appSource.indexOf("const googleCalendarLive")
     );
+    const authenticatedInvalidation = appSource.slice(
+      appSource.indexOf("function invalidateAuthenticatedWork"),
+      appSource.indexOf("async function activateSession")
+    );
+    const authenticatedMemoryClear = appSource.slice(
+      appSource.indexOf("function clearAuthenticatedMemory"),
+      appSource.indexOf("function reportCleanupResult")
+    );
 
     expect(verificationHandler).toContain("AUTH_ENDPOINTS.verifyEmail");
     expect(verificationHandler).not.toContain("AUTH_ENDPOINTS.login");
     expect(verificationHandler).not.toContain('"/me/university"');
-    expect(verificationHandler).toContain('setAuthStage("academic_onboarding")');
+    expect(verificationHandler).toContain('setAuthMode("login")');
+    expect(verificationHandler).toContain('setAuthStage("auth")');
+    expect(verificationHandler).not.toContain('setAuthStage("academic_onboarding")');
 
-    const conditionalLogin = onboardingHandler.indexOf("if (!activeSession)");
-    const loginRequest = onboardingHandler.indexOf("AUTH_ENDPOINTS.login");
-    const sessionActivation = onboardingHandler.indexOf("snapshot = await activateSession(activeSession)");
-    const ownerCheck = onboardingHandler.indexOf("if (!snapshot || !accountGuardRef.current.isCurrent(snapshot))");
+    const sessionCheck = onboardingHandler.indexOf("!activeSession");
+    const draftOwnerCheck = onboardingHandler.indexOf("!draftOwner");
+    const ownerGenerationCheck = onboardingHandler.indexOf("draftOwner.generation !== snapshot.generation");
+    const payloadBuild = onboardingHandler.indexOf("buildAcademicSelectionPayload(academicOnboardingDraft)");
     const universityPatch = onboardingHandler.indexOf('"/me/university"');
     const contextBootstrap = onboardingHandler.indexOf("await bootstrapAuthenticatedContext(activeSession.accessToken, snapshot)");
     const contextGateRelease = onboardingHandler.indexOf("setAuthenticatedContextPending(false)");
     const returnToAuth = onboardingHandler.indexOf('setAuthStage("auth")');
-    expect(conditionalLogin).toBeGreaterThan(-1);
-    expect(loginRequest).toBeGreaterThan(conditionalLogin);
-    expect(sessionActivation).toBeGreaterThan(loginRequest);
-    expect(ownerCheck).toBeGreaterThan(sessionActivation);
-    expect(universityPatch).toBeGreaterThan(ownerCheck);
+    expect(sessionCheck).toBeGreaterThan(-1);
+    expect(draftOwnerCheck).toBeGreaterThan(sessionCheck);
+    expect(ownerGenerationCheck).toBeGreaterThan(draftOwnerCheck);
+    expect(payloadBuild).toBeGreaterThan(ownerGenerationCheck);
+    expect(onboardingHandler).not.toContain("AUTH_ENDPOINTS.login");
+    expect(onboardingHandler).not.toContain("activateSession(activeSession)");
+    expect(universityPatch).toBeGreaterThan(payloadBuild);
     expect(contextBootstrap).toBeGreaterThan(universityPatch);
     expect(contextGateRelease).toBeGreaterThan(contextBootstrap);
     expect(returnToAuth).toBeGreaterThan(contextGateRelease);
@@ -168,10 +180,16 @@ describe("mobile authentication recovery contract", () => {
     expect(onboardingHandler).toContain('method: "PATCH"');
     expect(onboardingHandler).toContain("body: JSON.stringify(payload)");
     expect(onboardingHandler).toContain("{ ownerSnapshot: snapshot }");
+    expect(onboardingHandler).toContain("const onboardingAttempt = ++onboardingSaveAttemptRef.current");
+    expect(onboardingHandler).toContain("onboardingSaveAttemptRef.current !== onboardingAttempt");
+    expect(authenticatedInvalidation).toContain("onboardingOwnerRef.current = null");
+    expect(authenticatedInvalidation).toContain("onboardingSaveAttemptRef.current += 1");
+    expect(authenticatedMemoryClear).toContain("authOperationInProgressRef.current = false");
 
-    expect(rootSurfaceRouting.indexOf('authStage === "academic_onboarding"'))
-      .toBeLessThan(rootSurfaceRouting.indexOf(": session"));
-    expect(rootSurfaceRouting).toContain('? "onboarding"');
+    expect(appSource).toContain("const rootRouteResolution = resolveRootRoute({");
+    expect(appSource).toContain("sessionOwner: session ? sessionOwner : null");
+    expect(appSource).toContain("currentOwner: currentRouteOwner");
+    expect(rootSurfaceRouting).toContain('rootRouteResolution.surface === "onboarding"');
   });
 
   it("gates protected continuation until the activated owner context is ready", () => {
@@ -192,7 +210,7 @@ describe("mobile authentication recovery contract", () => {
       appSource.indexOf("const navigatorRootSurface"),
       appSource.indexOf("const googleCalendarLive")
     );
-    const requestEffectStart = navigatorSource.indexOf("if (!ready || !request || !navigationRef.isReady()) return;");
+    const requestEffectStart = navigatorSource.indexOf("if (!request) {");
     const requestEffect = navigatorSource.slice(
       requestEffectStart,
       navigatorSource.indexOf("useEffect(() => {", requestEffectStart)
@@ -214,12 +232,15 @@ describe("mobile authentication recovery contract", () => {
     expect(loginBootstrap).toBeGreaterThan(loginActivation);
     expect(loginGateRelease).toBeGreaterThan(loginBootstrap);
 
-    expect(rootSurfaceRouting.indexOf("authenticatedContextPending"))
-      .toBeLessThan(rootSurfaceRouting.indexOf(": session"));
+    expect(appSource.indexOf("const rootRouteResolution = resolveRootRoute({"))
+      .toBeLessThan(appSource.indexOf("const navigatorRootSurface"));
+    expect(rootSurfaceRouting).toContain("authenticatedContextPending");
     expect(rootSurfaceRouting).toContain('? "hydration_loading"');
     expect(requestRootMatching).toContain('return surface === "authenticated";');
-    expect(requestEffect.indexOf("if (!requestMatchesRootSurface(request.route, rootSurface)) return;"))
-      .toBeLessThan(requestEffect.indexOf("onRequestHandled?.(request.key)"));
+    expect(requestEffect).toContain("!requestMatchesRootSurface(request.route, rootSurface)");
+    expect(requestEffect).toContain("pendingRequestRef.current = { key: request.key, expectedLeaf }");
+    expect(requestEffect).not.toContain("onRequestHandled?.(request.key)");
+    expect(navigatorSource).toContain("acknowledgeVisibleRequest(leaf)");
   });
 
   it("keeps Phase 1 cleanup retry UI ahead of every auth and onboarding screen", () => {

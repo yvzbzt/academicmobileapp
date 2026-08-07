@@ -238,3 +238,28 @@ After the single scoped Phase 5 commit is recorded, a separately authorized Phas
 At the pre-commit gate, branch `agent/google-play-readiness-20260724` still had HEAD `abbf1b721fc632f75e6ce5cad91b20434f6af2bf`, exactly the required start. The index contained exactly 44 reviewed Phase 5 paths, no intended path was unstaged, cached-diff/scan checks passed, and unrelated untracked files remained outside the index. No push is authorized or performed.
 
 One local scoped commit is created after those checks. Its SHA and post-commit status belong in the terminal handoff because a commit cannot contain its own SHA. The commit is not amended or pushed.
+
+## Final Correctness Repair 2 reconciliation — 7 August 2026
+
+The mounted navigator lifecycle now carries a synthetic protected notification
+or deep link through hydration, signed-out authentication, required academic
+onboarding, authenticated data readiness, the exact safe leaf, and one visible-
+leaf acknowledgement. This is navigator-level mounted coverage using the
+production `resolveRootRoute`, `RouteIntentCoordinator`, and `AppNavigator`; it
+is not a live-provider or installed authenticated E2E claim.
+
+Owner-bound intents are invalidated on logout, owner switch, or generation
+change. An ownerless signed-out deep link may bind only to the first exact owner
+that completes the gates; a notification remains restricted to its declared
+recipient. Semantic duplicate delivery does not navigate or acknowledge twice,
+and the newest duplicate durable notification record remains pending until the
+already-requested safe leaf is visible. Malformed and unapproved destinations
+wait through sign-in before `UnknownRoute`. Safe detail navigation creates the
+Announcements or Calendar parent stack, so ordinary Android Back returns to
+that parent. Locked onboarding cannot expose protected content.
+
+The focused `AppNavigator.test.tsx` gate passes 25 tests / 0 snapshots,
+including announcement, Calendar, malformed, unknown, signed-out, onboarding,
+logout, account-switch, prior-owner, duplicate, one-time acknowledgement,
+locked navigation, and Android Back scenarios. No fifth tab, shell redesign,
+FCM/Google dependency, provider access, or production fixture was added.

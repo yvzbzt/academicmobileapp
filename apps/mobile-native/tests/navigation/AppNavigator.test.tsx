@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
   Alert,
@@ -30,6 +30,13 @@ import { darkTheme, lightTheme } from "../../src/design-system/tokens";
 import { HomeDailyBrief } from "../../src/home/HomeDailyBrief";
 import type { TrustedMobileContentRecord } from "../../src/content/content-trust";
 import { resolveNavigationTheme } from "../../src/navigation/navigation-theme";
+import {
+  parseAcademicPulseRouteUrl,
+  RouteIntentCoordinator,
+  resolveRootRoute,
+  type AppRouteIntent,
+  type RouteOwner,
+} from "../../src/navigation";
 
 const visibleRoutes: AppVisibleRoute[] = [
   "BootstrapLoading",
@@ -148,6 +155,8 @@ function createTabBarEvidenceScreens(): AppScreenSlots {
 }
 
 function trustedHomeItem(id: string, title: string, publishedAt: string): TrustedMobileContentRecord {
+  const canonicalUrl = `https://example.edu.tr/duyuru/${id}`;
+  const officialSourceUrl = "https://example.edu.tr/duyurular";
   return {
     id,
     sourceId: "trusted-student-affairs",
@@ -157,11 +166,22 @@ function trustedHomeItem(id: string, title: string, publishedAt: string): Truste
     contentType: "announcement",
     title,
     summary: "Doğrulanmış akademik içerik özeti.",
-    link: `https://example.edu.tr/duyuru/${id}`,
-    canonicalUrl: `https://example.edu.tr/duyuru/${id}`,
+    link: canonicalUrl,
+    canonicalUrl,
+    officialSourceUrl,
+    sourceRelationships: [{
+      sourceId: "trusted-student-affairs",
+      sourceName: "Öğrenci İşleri Daire Başkanlığı",
+      officialSourceUrl,
+      scopeType: "university",
+      scopeId: "university-1",
+      canonicalUrl,
+    }],
     publicationKind: "timestamp",
     publishedAt,
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
   };
 }
 
@@ -198,6 +218,148 @@ function NavigatorHarness({ safeAreaMetrics, screens: screenSlots, ...props }: N
       </ThemeProvider>
     </SafeAreaProvider>
   );
+}
+
+interface ProductionRoutingHarnessProps {
+  hydrationStatus: "loading" | "ready" | "error";
+  sessionOwner: RouteOwner | null;
+  currentOwner: RouteOwner | null;
+  authStage?: "auth" | "academic_onboarding";
+  contextReady?: boolean;
+  delivery?: { token: string; intent: AppRouteIntent; recipientOwnerId?: string } | null;
+  navigationLocked?: boolean;
+  onAcknowledged: (key: string) => void;
+}
+
+function ProductionRoutingHarness({
+  hydrationStatus,
+  sessionOwner,
+  currentOwner,
+  authStage = "auth",
+  contextReady = true,
+  delivery,
+  navigationLocked = false,
+  onAcknowledged,
+}: ProductionRoutingHarnessProps) {
+  const coordinatorRef = useRef(new RouteIntentCoordinator());
+  const unclaimedIntentRef = useRef<ProductionRoutingHarnessProps["delivery"]>(null);
+  const previousExactOwnerRef = useRef<RouteOwner | null>(null);
+  const [request, setRequest] = useState<AppNavigationRequest | null>(null);
+  const [activeRoute, setActiveRoute] = useState<AppVisibleRoute>("BootstrapLoading");
+  const resolution = resolveRootRoute({
+    hydrationStatus,
+    sessionOwner,
+    currentOwner,
+    authMode: "login",
+    authStage,
+    hasPendingVerification: false,
+    hasPendingPasswordRecovery: false,
+  });
+  const exactOwner = sessionOwner
+    && currentOwner
+    && sessionOwner.ownerId === currentOwner.ownerId
+    && sessionOwner.generation === currentOwner.generation
+    ? currentOwner
+    : null;
+  const rootSurface = resolution.surface === "hydration"
+    ? hydrationStatus === "error" ? "hydration_error" : "hydration_loading"
+    : !contextReady && (resolution.surface === "authenticated" || resolution.surface === "onboarding")
+      ? "hydration_loading"
+      : resolution.surface === "authenticated"
+        ? "authenticated"
+        : resolution.surface === "onboarding"
+          ? "onboarding"
+          : "auth";
+  const baseRoute: AppVisibleRoute = rootSurface === "hydration_loading"
+    ? "BootstrapLoading"
+    : rootSurface === "hydration_error"
+      ? "BootstrapError"
+      : rootSurface === "authenticated"
+        ? "Home"
+        : rootSurface === "onboarding"
+          ? "AcademicOnboarding"
+          : "Login";
+
+  useEffect(() => {
+    const previousOwner = previousExactOwnerRef.current;
+    if (
+      previousOwner
+      && (!exactOwner
+        || previousOwner.ownerId !== exactOwner.ownerId
+        || previousOwner.generation !== exactOwner.generation)
+    ) {
+      coordinatorRef.current.invalidate(previousOwner.ownerId, previousOwner.generation);
+      unclaimedIntentRef.current = null;
+      setRequest(null);
+    }
+    previousExactOwnerRef.current = exactOwner;
+  }, [exactOwner?.ownerId, exactOwner?.generation]);
+
+  useEffect(() => {
+    if (!delivery) return;
+    if (!exactOwner) {
+      unclaimedIntentRef.current = delivery;
+      return;
+    }
+    if (delivery.recipientOwnerId && delivery.recipientOwnerId !== exactOwner.ownerId) {
+      unclaimedIntentRef.current = null;
+      return;
+    }
+    coordinatorRef.current.enqueue(delivery.intent, exactOwner);
+  }, [delivery?.token]);
+
+  useEffect(() => {
+    if (!exactOwner) return;
+    const unclaimed = unclaimedIntentRef.current;
+    if (unclaimed) {
+      unclaimedIntentRef.current = null;
+      if (!unclaimed.recipientOwnerId || unclaimed.recipientOwnerId === exactOwner.ownerId) {
+        coordinatorRef.current.enqueue(unclaimed.intent, exactOwner);
+      }
+    }
+    if (rootSurface !== "authenticated") return;
+    const selected = coordinatorRef.current.consumeFor(exactOwner.ownerId, exactOwner.generation);
+    if (!selected) return;
+    setRequest(navigationRequestForIntent(selected, `intent:${delivery?.token ?? "resumed"}`));
+  }, [delivery?.token, exactOwner?.ownerId, exactOwner?.generation, rootSurface]);
+
+  return (
+    <NavigatorHarness
+      activeRoute={rootSurface === "authenticated" && isProtectedVisibleRoute(activeRoute)
+        ? activeRoute
+        : baseRoute}
+      navigationLocked={navigationLocked}
+      onRequestHandled={(key) => {
+        onAcknowledged(key);
+        setRequest(null);
+      }}
+      onVisibleRouteChange={setActiveRoute}
+      request={request}
+      rootSurface={rootSurface}
+      screens={screens}
+    />
+  );
+}
+
+function navigationRequestForIntent(intent: AppRouteIntent, key: string): AppNavigationRequest {
+  switch (intent.route.name) {
+    case "AnnouncementDetail":
+      return { key, route: "AnnouncementDetail", params: { announcementId: intent.route.params.announcementId } };
+    case "CalendarEventDetail":
+      return { key, route: "CalendarEventDetail", params: { eventId: intent.route.params.eventId } };
+    case "Unknown":
+      return { key, route: "UnknownRoute" };
+    default:
+      return { key, route: intent.route.name };
+  }
+}
+
+function isProtectedVisibleRoute(route: AppVisibleRoute): boolean {
+  return ![
+    "BootstrapLoading", "BootstrapError", "Login", "Register", "Verification",
+    "PasswordRecoveryRequest", "PasswordRecoveryCode", "PasswordRecoveryConfirm",
+    "AcademicOnboarding", "UnknownRoute",
+  ].includes(route);
 }
 
 async function renderNavigator(
@@ -343,9 +505,10 @@ describe("AppNavigator", () => {
     }
   });
 
-  it("starts in login and honors a one-shot auth route request", async () => {
-    const onRequestHandled = jest.fn();
-    const onVisibleRouteChange = jest.fn();
+  it("acknowledges a visible auth route once even after an intervening request", async () => {
+    const lifecycle: string[] = [];
+    const onRequestHandled = jest.fn((key: string) => lifecycle.push(`handled:${key}`));
+    const onVisibleRouteChange = jest.fn((route: AppVisibleRoute) => lifecycle.push(`visible:${route}`));
     const request: AppNavigationRequest = {
       key: "open-register",
       route: "Register",
@@ -358,6 +521,7 @@ describe("AppNavigator", () => {
       rootSurface: "auth",
     });
     await expectVisibleRoute("Login");
+    lifecycle.length = 0;
 
     await view.rerenderAsync(
       <NavigatorHarness
@@ -374,6 +538,25 @@ describe("AppNavigator", () => {
     expect(onRequestHandled).toHaveBeenCalledTimes(1);
     expect(onRequestHandled).toHaveBeenCalledWith("open-register");
     expect(onVisibleRouteChange).toHaveBeenCalledWith("Register");
+    expect(lifecycle.indexOf("visible:Register")).toBeGreaterThanOrEqual(0);
+    expect(lifecycle.indexOf("handled:open-register"))
+      .toBeGreaterThan(lifecycle.indexOf("visible:Register"));
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Login"
+        onRequestHandled={onRequestHandled}
+        onVisibleRouteChange={onVisibleRouteChange}
+        request={{ key: "return-login", route: "Login" }}
+        rootSurface="auth"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("Login");
+    expect(onRequestHandled.mock.calls).toEqual([
+      ["open-register"],
+      ["return-login"],
+    ]);
 
     await view.rerenderAsync(
       <NavigatorHarness
@@ -385,7 +568,11 @@ describe("AppNavigator", () => {
         screens={screens}
       />,
     );
-    expect(onRequestHandled).toHaveBeenCalledTimes(1);
+    await expectVisibleRoute("Login");
+    expect(onRequestHandled.mock.calls).toEqual([
+      ["open-register"],
+      ["return-login"],
+    ]);
   });
 
   it("registers the recovery code step and academic onboarding stack", async () => {
@@ -981,20 +1168,41 @@ describe("AppNavigator", () => {
   });
 
   it("fails a malformed detail identifier closed to the unknown route", async () => {
-    const onRequestHandled = jest.fn();
-    await renderNavigator({
+    const lifecycle: string[] = [];
+    const onRequestHandled = jest.fn((key: string) => lifecycle.push(`handled:${key}`));
+    const onVisibleRouteChange = jest.fn((route: AppVisibleRoute) => lifecycle.push(`visible:${route}`));
+    const malformedRequest: AppNavigationRequest = {
+      key: "malformed-detail",
+      params: { announcementId: "../unsafe" },
+      route: "AnnouncementDetail",
+    };
+    const view = await renderNavigator({
       activeRoute: "Announcements",
       onRequestHandled,
-      request: {
-        key: "malformed-detail",
-        params: { announcementId: "../unsafe" },
-        route: "AnnouncementDetail",
-      },
+      onVisibleRouteChange,
+      request: malformedRequest,
       rootSurface: "authenticated",
     });
 
     await expectVisibleRoute("UnknownRoute");
+    expect(onRequestHandled).toHaveBeenCalledTimes(1);
     expect(onRequestHandled).toHaveBeenCalledWith("malformed-detail");
+    expect(lifecycle.indexOf("visible:UnknownRoute")).toBeGreaterThanOrEqual(0);
+    expect(lifecycle.indexOf("handled:malformed-detail"))
+      .toBeGreaterThan(lifecycle.indexOf("visible:UnknownRoute"));
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Announcements"
+        onRequestHandled={onRequestHandled}
+        onVisibleRouteChange={onVisibleRouteChange}
+        request={{ ...malformedRequest }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+    await expectVisibleRoute("UnknownRoute");
+    expect(onRequestHandled).toHaveBeenCalledTimes(1);
   });
 
   it("defers protected work through hydration, auth, and onboarding, then handles it once", async () => {
@@ -1063,5 +1271,258 @@ describe("AppNavigator", () => {
     );
     await expectVisibleRoute("CalendarEventDetail");
     expect(onRequestHandled).toHaveBeenCalledTimes(1);
+  });
+
+  it("mounts the production resolver, intent coordinator, and navigator through announcement readiness exactly once", async () => {
+    const hardwareBackHandlers = captureHardwareBackHandlers();
+    const owner = { ownerId: "owner-a", generation: 7 };
+    const onAcknowledged = jest.fn();
+    const delivery = {
+      token: "announcement-delivery-1",
+      recipientOwnerId: owner.ownerId,
+      intent: {
+        source: "notification" as const,
+        verified: true as const,
+        route: { name: "AnnouncementDetail" as const, params: { announcementId: "announcement-42" } },
+      },
+    };
+    const view = await renderAsync(
+      <ProductionRoutingHarness
+        contextReady={false}
+        currentOwner={null}
+        delivery={delivery}
+        hydrationStatus="loading"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={null}
+      />,
+    );
+
+    await expectVisibleRoute("BootstrapLoading");
+    expect(onAcknowledged).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        currentOwner={null}
+        delivery={delivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={null}
+      />,
+    );
+    await expectVisibleRoute("Login");
+    expect(onAcknowledged).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        authStage="academic_onboarding"
+        contextReady
+        currentOwner={owner}
+        delivery={delivery}
+        hydrationStatus="ready"
+        navigationLocked
+        onAcknowledged={onAcknowledged}
+        sessionOwner={owner}
+      />,
+    );
+    await expectVisibleRoute("AcademicOnboarding");
+    expect(screen.queryByRole("header", { name: "SCREEN:AnnouncementDetail" })).toBeNull();
+    expect(onAcknowledged).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        contextReady
+        currentOwner={owner}
+        delivery={delivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={owner}
+      />,
+    );
+    await expectVisibleRoute("AnnouncementDetail");
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+    expect(onAcknowledged).toHaveBeenCalledWith("intent:announcement-delivery-1");
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        contextReady
+        currentOwner={owner}
+        delivery={{ ...delivery, token: "announcement-delivery-duplicate" }}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={owner}
+      />,
+    );
+    await expectVisibleRoute("AnnouncementDetail");
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+
+    expect(hardwareBackHandlers).toHaveLength(1);
+    await act(async () => {
+      expect(hardwareBackHandlers[0]()).toBe(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+    await expectVisibleRoute("Announcements");
+  });
+
+  it("invalidates an owner-bound protected intent when logout occurs before onboarding readiness", async () => {
+    const owner = { ownerId: "owner-a", generation: 9 };
+    const onAcknowledged = jest.fn();
+    const delivery = {
+      token: "logout-before-ready",
+      recipientOwnerId: owner.ownerId,
+      intent: {
+        source: "notification" as const,
+        verified: true as const,
+        route: { name: "AnnouncementDetail" as const, params: { announcementId: "owner-a-pending" } },
+      },
+    };
+    const view = await renderAsync(
+      <ProductionRoutingHarness
+        authStage="academic_onboarding"
+        currentOwner={owner}
+        delivery={delivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={owner}
+      />,
+    );
+
+    await expectVisibleRoute("AcademicOnboarding");
+    expect(onAcknowledged).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        currentOwner={null}
+        delivery={delivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={null}
+      />,
+    );
+    await expectVisibleRoute("Login");
+    expect(onAcknowledged).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        currentOwner={owner}
+        delivery={delivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={owner}
+      />,
+    );
+    await expectVisibleRoute("Home");
+    expect(screen.queryByRole("header", { name: "SCREEN:AnnouncementDetail" })).toBeNull();
+    expect(onAcknowledged).not.toHaveBeenCalled();
+  });
+
+  it("resumes a signed-out calendar link and drops prior-owner work on account switch", async () => {
+    const ownerA = { ownerId: "owner-a", generation: 11 };
+    const ownerB = { ownerId: "owner-b", generation: 12 };
+    const onAcknowledged = jest.fn();
+    const calendarDelivery = {
+      token: "calendar-signed-out",
+      intent: {
+        source: "deep_link" as const,
+        route: { name: "CalendarEventDetail" as const, params: { eventId: "event-17" } },
+      },
+    };
+    const view = await renderAsync(
+      <ProductionRoutingHarness
+        currentOwner={null}
+        delivery={calendarDelivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={null}
+      />,
+    );
+
+    await expectVisibleRoute("Login");
+    expect(onAcknowledged).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        currentOwner={ownerA}
+        delivery={calendarDelivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={ownerA}
+      />,
+    );
+    await expectVisibleRoute("CalendarEventDetail");
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+
+    const priorOwnerDelivery = {
+      token: "prior-owner-notification",
+      recipientOwnerId: ownerA.ownerId,
+      intent: {
+        source: "notification" as const,
+        verified: true as const,
+        route: { name: "AnnouncementDetail" as const, params: { announcementId: "owner-a-only" } },
+      },
+    };
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        authStage="academic_onboarding"
+        currentOwner={ownerA}
+        delivery={priorOwnerDelivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={ownerA}
+      />,
+    );
+    await expectVisibleRoute("AcademicOnboarding");
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        currentOwner={ownerB}
+        delivery={priorOwnerDelivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={ownerB}
+      />,
+    );
+    await expectVisibleRoute("Home");
+    expect(screen.queryByRole("header", { name: "SCREEN:AnnouncementDetail" })).toBeNull();
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["malformed", "academicpulse://tab/home?token=secret-value"],
+    ["unknown", "academicpulse://settings/not-approved"],
+  ])("defers a %s destination through sign-in before showing the safe fallback", async (_kind, url) => {
+    const resolution = parseAcademicPulseRouteUrl(url);
+    expect(resolution).toEqual({ kind: "unknown", route: { name: "Unknown" } });
+    if (resolution.kind !== "unknown") throw new Error("Expected a fail-closed route.");
+    const owner = { ownerId: "owner-safe-fallback", generation: 4 };
+    const onAcknowledged = jest.fn();
+    const delivery = {
+      token: `${_kind}-link`,
+      intent: { source: "deep_link" as const, route: resolution.route },
+    };
+    const view = await renderAsync(
+      <ProductionRoutingHarness
+        currentOwner={null}
+        delivery={delivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={null}
+      />,
+    );
+
+    await expectVisibleRoute("Login");
+    expect(onAcknowledged).not.toHaveBeenCalled();
+
+    await view.rerenderAsync(
+      <ProductionRoutingHarness
+        currentOwner={owner}
+        delivery={delivery}
+        hydrationStatus="ready"
+        onAcknowledged={onAcknowledged}
+        sessionOwner={owner}
+      />,
+    );
+    await expectVisibleRoute("UnknownRoute");
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+    expect(onAcknowledged).toHaveBeenCalledWith(`intent:${_kind}-link`);
   });
 });

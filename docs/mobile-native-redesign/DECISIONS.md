@@ -1,14 +1,14 @@
 # Redesign Decisions
 
-Last updated: 6 August 2026
+Last updated: 7 August 2026
 
 ## Accepted decisions
 
-Decisions are append-only historical records. D-051 records the current Phase
-11 cross-platform quality boundary. It supplements D-037 through D-050 and
-supersedes their earlier future-phase or incomplete-quality wording where they
-conflict. Earlier text remains evidence of what was true at its checkpoint, not
-a description of the current source tree.
+Decisions are append-only historical records. D-053 records the current Repair
+2 routing and native trusted-content boundary. It supplements the Phase 11/12
+readiness decisions and supersedes conflicting parts of D-028, D-035, D-039,
+and D-041. Earlier text remains evidence of what was true at its checkpoint,
+not a description of the current source tree.
 
 ### D-001 — Incremental redesign in the existing native app
 
@@ -504,3 +504,53 @@ reconciles their integrity index and records current Android build/performance
 artifacts. API 24 is not evidence for Android 13 notification permission,
 predictive Back, or TalkBack. No iOS, live provider, Play Console, production
 account, calendar, notification token, credential, or user-data claim is made.
+
+### D-053 — Routing and trusted content fail closed on exact owner and source identity
+
+**Root and onboarding decision:** The production root order is hydration
+success, valid authenticated session, valid current owner, exact session/owner
+match, exact credential generation, academic-onboarding decision, and only then
+a protected destination. Missing, invalid, or mismatched identity resolves to
+authentication; ownerless onboarding is prohibited. Onboarding drafts and save
+settlements belong to one owner generation and become inert after logout,
+account switch, data reset, or credential-generation change. This supersedes
+the narrower Phase 4 statement that `resolveRootRoute` and
+`RouteIntentCoordinator` were policy models only and the ownerless post-
+verification path described by D-039.
+
+**Protected-intent decision:** Deep links and verified notifications enter the
+mounted production resolver, owner-bound intent coordinator, and
+`AppNavigator`. They wait through hydration, signed-out authentication,
+required onboarding, and authenticated data readiness. Malformed and unknown
+destinations wait for the same identity gates before the non-echoing safe
+fallback. Semantic duplicates do not navigate again. A successful durable
+notification remains pending until the expected safe leaf is visibly mounted
+and acknowledged once. Detail requests establish their Announcements or
+Calendar parent stack so ordinary Android Back returns to that parent. Logout,
+owner switch, or generation change invalidates old pending work.
+
+**Native trust decision:** One predicate, `admitTrustedContentRecord`, governs
+Home, feed candidates, detail, and content handoff. Trusted API normalization
+materializes the server-proven trusted item and active/trusted source boundary;
+any contradictory supplied status fails closed. Admission also requires a
+normalized source ID and scope, a non-generic source name, safe official and
+canonical academic URLs with matching authority, and consistent source
+relationships. Rejected, quarantined, source-less, cross-scope, unsafe, or
+generic-attribution records cannot reach a renderer.
+
+**Identity and pagination decision:** A stored record ID continues to identify
+one persisted document and is never rewritten by presentation deduplication.
+Logical duplicate identity is source identity plus normalized academic scope
+plus a valid server fingerprint. A legacy or malformed fingerprint falls back
+to the same source and scope plus the scoped canonical URL. Canonical URL is an
+official location, not cross-source identity. The backend and native client use
+the same contract, with collision-safe tuple encoding and stable React keys.
+Pagination resolves `hasMore` from a nonblank server `nextCursor`, then a
+server boolean, then a valid explicit raw count, then raw page cardinality
+captured before trust filtering or deduplication. Accepted-item count is never
+pagination authority, and the controlled 20→40→60→80→100 ceiling remains.
+
+**Scope and data boundary:** Repair 2 adds no endpoint, schema, migration,
+backfill, reconciliation, stored-ID rewrite, screen redesign, tab, provider,
+analytics, or social feature. It accesses no production account, provider, or
+database and performs no deployment, publication, or push.

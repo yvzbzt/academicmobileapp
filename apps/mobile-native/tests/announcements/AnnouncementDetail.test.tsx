@@ -29,7 +29,7 @@ jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
 function record(
   overrides: Partial<TrustedMobileContentRecord> = {},
 ): TrustedMobileContentRecord {
-  return {
+  const candidate = {
     id: "detail-record",
     sourceId: "student-affairs",
     sourceName: "Örnek Üniversitesi Öğrenci İşleri",
@@ -45,8 +45,21 @@ function record(
     sourceUpdatedAt: "2026-08-02T09:00:00.000Z",
     freshness: "fresh",
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
     ...overrides,
   };
+  return {
+    ...candidate,
+    sourceRelationships: candidate.sourceRelationships ?? [{
+      sourceId: candidate.sourceId,
+      sourceName: candidate.sourceName,
+      officialSourceUrl: candidate.officialSourceUrl ?? "",
+      scopeType: candidate.scopeType,
+      scopeId: candidate.scopeId,
+      canonicalUrl: candidate.canonicalUrl ?? candidate.link,
+    }],
+  } as TrustedMobileContentRecord;
 }
 
 function item(
@@ -123,12 +136,12 @@ describe("Phase 8 announcement detail", () => {
     callbacks.onOpenOfficialSource.mockResolvedValue(true);
   });
 
-  it("renders normalized trusted detail, source identity, both source dates, and domain disclosure", async () => {
+  it("renders an admitted normalized detail, source identity, both source dates, and domain disclosure", async () => {
     await renderDetail(detailProps({
       item: item({
-        sourceName: "<b>Örnek Üniversitesi</b> &amp; Öğrenci İşleri",
-        title: "<strong>Ders kayıtları &amp; danışman onayı</strong>",
-        summary: "<p>Güvenli &amp; kısa <em>özet</em>.</p>",
+        sourceName: "Örnek Üniversitesi & Öğrenci İşleri",
+        title: "Ders kayıtları & danışman onayı",
+        summary: "Güvenli & kısa özet.",
       }),
     }));
 
@@ -169,9 +182,9 @@ describe("Phase 8 announcement detail", () => {
     });
     await renderDetail(detailProps({
       item: item({
-        canonicalUrl: "https://example.edu.tr/duyurular/detail-record?a=1&utm_source=test",
-        link: "https://example.edu.tr/duyurular/detail-record?a=1&utm_source=test",
-        title: "<b>Ders kayıt takvimi</b>",
+        canonicalUrl: "https://example.edu.tr/duyurular/detail-record?a=1",
+        link: "https://example.edu.tr/duyurular/detail-record?a=1",
+        title: "Ders kayıt takvimi",
       }),
       onShareResult: callbacks.onShareResult,
     }));
@@ -233,12 +246,41 @@ describe("Phase 8 announcement detail", () => {
       detailItem: item({ officialSourceUrl: "https://other.edu.tr/duyurular" }),
     },
     {
+      name: "missing official source URL",
+      detailItem: item({ officialSourceUrl: undefined as unknown as string }),
+    },
+    {
       name: "missing explicit source",
       detailItem: item({ sourceId: "" }),
     },
     {
       name: "untrusted record",
       detailItem: item({ trustStatus: "quarantined" as "trusted" }),
+    },
+    {
+      name: "generic substituted source name",
+      detailItem: item({ sourceName: "Resmî akademik kaynak" }),
+    },
+    {
+      name: "inactive source",
+      detailItem: item({ sourceStatus: "inactive" as "active" }),
+    },
+    {
+      name: "rejected source",
+      detailItem: item({ sourceTrustStatus: "rejected" as "trusted" }),
+    },
+    {
+      name: "cross-scope relationship",
+      detailItem: item({
+        sourceRelationships: [{
+          sourceId: "student-affairs",
+          sourceName: "Örnek Üniversitesi Öğrenci İşleri",
+          officialSourceUrl: "https://example.edu.tr/duyurular",
+          scopeType: "faculty",
+          scopeId: "faculty-2",
+          canonicalUrl: "https://example.edu.tr/duyurular/detail-record",
+        }],
+      }),
     },
   ])("fails closed for $name", async ({ detailItem }) => {
     await renderDetail(detailProps({ item: detailItem }));

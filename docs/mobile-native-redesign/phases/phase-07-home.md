@@ -106,3 +106,20 @@ Phase 8 was not started. The Announcements feed, Calendar design, and Profile sc
 ## Historical acceptance reconciliation — 2 August 2026
 
 The acceptance audit started from `ffde279964dfd67689eef469cbd3c7c1c755a00e` with the Phase 6 and candidate commits reachable and tracked/index state clean. It found and repaired three narrow Phase 7 gaps: explicit trust is now required again at the Home renderer boundary; date-only and multi-day academic periods are selected by the device local calendar day; and the initial-loading skeletons are truly decorative beneath one accessible busy region. The synthetic preview gained the missing loading fixture and reviewed Android PNG/XML evidence. No endpoint, DTO, schema, repository, persistence, authentication, integration lifecycle, production data, or Phase 8 feed file changed.
+
+## Final Correctness Repair 2 reconciliation — 7 August 2026
+
+`HomeDailyBrief` now admits every announcement through
+`admitTrustedContentRecord`, the same production predicate used by the feed and
+detail. A record marked trusted is insufficient by itself: Home rejects a
+missing official source URL, generic substituted source name, missing source
+ID, inactive or rejected source, rejected or quarantined item, unsafe or
+mismatched authority, cross-scope relationship, and source-less record. The
+positive production-shaped set covers university, faculty, department, YÖK,
+and Summer School sources.
+
+The focused native Home suite (13 tests) and shared native trust suite (35
+tests) preserve the existing Phase 7 information hierarchy, timestamp meaning,
+daily-brief priority, state exclusivity, virtualization, accessibility, and
+platform adaptation. This repair changes no Home visual design, endpoint,
+database record, migration, provider, analytics, or social behavior.

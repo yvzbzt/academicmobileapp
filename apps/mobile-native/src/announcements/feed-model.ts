@@ -1,5 +1,6 @@
 import {
-  canonicalizeOfficialAcademicUrl,
+  admitTrustedContentRecord,
+  logicalContentIdentityKey,
   normalizeDisplayText,
   type ContentCollectionState,
   type TrustedMobileContentRecord,
@@ -102,6 +103,14 @@ export interface ContentFeedLoadableState<T> {
   error?: string;
   attempted?: boolean;
   stale?: boolean;
+}
+
+export interface ContentFeedPaginationEvidence {
+  requestedLimit: number;
+  nextCursor?: string;
+  hasMore?: boolean;
+  explicitRawCount?: number;
+  rawItemCount: number;
 }
 
 interface FeedCandidate {
@@ -253,13 +262,29 @@ export function nextContentFeedLimit(currentLimit: number): number {
   return CONTENT_FEED_LIMITS.find((limit) => limit > currentLimit) ?? CONTENT_FEED_MAX_LIMIT;
 }
 
+export function resolveContentFeedHasMore(input: ContentFeedPaginationEvidence): boolean {
+  if (!Number.isSafeInteger(input.requestedLimit)) return false;
+  if (input.requestedLimit < CONTENT_FEED_INITIAL_LIMIT || input.requestedLimit >= CONTENT_FEED_MAX_LIMIT) return false;
+  if (typeof input.nextCursor === "string" && input.nextCursor.trim()) return true;
+  if (typeof input.hasMore === "boolean") return input.hasMore;
+  const explicitRawCount = typeof input.explicitRawCount === "number"
+    && Number.isSafeInteger(input.explicitRawCount)
+    && input.explicitRawCount >= 0
+    ? input.explicitRawCount
+    : undefined;
+  const rawCount = explicitRawCount ?? input.rawItemCount;
+  return Number.isSafeInteger(rawCount) && rawCount >= input.requestedLimit;
+}
+
+/** Compatibility wrapper for older call sites; raw cardinality remains last in precedence. */
 export function inferContentFeedHasMore(input: {
   requestedLimit: number;
   receivedCount: number;
 }): boolean {
-  if (!Number.isFinite(input.requestedLimit) || !Number.isFinite(input.receivedCount)) return false;
-  if (input.requestedLimit < CONTENT_FEED_INITIAL_LIMIT || input.requestedLimit >= CONTENT_FEED_MAX_LIMIT) return false;
-  return input.receivedCount >= input.requestedLimit;
+  return resolveContentFeedHasMore({
+    requestedLimit: input.requestedLimit,
+    rawItemCount: input.receivedCount
+  });
 }
 
 /** Settles a locally invalidated request without discarding retained trusted data or status. */
@@ -319,9 +344,11 @@ function toFeedCandidate(
   record: TrustedMobileContentRecord,
   family: ContentFeedSourceFamily,
 ): FeedCandidate | null {
-  if (!isStrictTrustedFeedRecord(record)) return null;
+  const admittedRecord = admitTrustedContentRecord(record);
+  const logicalKey = admittedRecord ? logicalContentIdentityKey(admittedRecord) : null;
+  if (!admittedRecord || !logicalKey) return null;
+  record = admittedRecord;
 
-  const canonicalUrl = canonicalizeOfficialAcademicUrl(record.canonicalUrl)!;
   const publishedDate = record.publicationKind === "date" ? trustedDateOnly(record.publishedDate) : null;
   const publishedTimestamp = publishedDate?.sortValue ?? trustedTimestamp(record.publishedAt);
   const updatedTimestamp = trustedTimestamp(record.sourceUpdatedAt);
@@ -339,9 +366,7 @@ function toFeedCandidate(
       : null;
 
   return {
-    key: record.contentFingerprint
-      ? `feed:${record.scopeType}:${record.scopeId}:${record.contentFingerprint}`
-      : canonicalFeedKey(canonicalUrl),
+    key: logicalKey,
     record,
     contentType: record.contentType ?? "announcement",
     family,
@@ -350,46 +375,6 @@ function toFeedCandidate(
     displayTimestampValue: publishedTimestamp ?? updatedTimestamp ?? Number.NEGATIVE_INFINITY,
     sourceUpdatedTimestampValue: updatedTimestamp ?? Number.NEGATIVE_INFINITY,
   };
-}
-
-function isStrictTrustedFeedRecord(record: TrustedMobileContentRecord): boolean {
-  if (record.trustStatus !== "trusted") return false;
-  if (![record.id, record.sourceId, record.scopeId].every(isNonBlankIdentifier)) return false;
-  const normalizedSourceName = normalizeDisplayText(record.sourceName);
-  const normalizedTitle = normalizeDisplayText(record.title);
-  const normalizedSummary = normalizeDisplayText(record.summary);
-  if (
-    !isExplicitSourceName(record.sourceName)
-    || !normalizedTitle
-    || normalizedSourceName !== record.sourceName
-    || normalizedTitle !== record.title
-    || (record.summary !== undefined && normalizedSummary !== record.summary)
-  ) return false;
-  if (!academicSourceFamily(record.scopeType)) return false;
-  if (record.contentType !== undefined && !isContentType(record.contentType)) return false;
-
-  const canonicalUrl = canonicalizeOfficialAcademicUrl(record.canonicalUrl);
-  const link = canonicalizeOfficialAcademicUrl(record.link);
-  const officialSourceUrl = canonicalizeOfficialAcademicUrl(record.officialSourceUrl);
-  if (!canonicalUrl || !link || !officialSourceUrl) return false;
-  if (canonicalUrl !== record.canonicalUrl || link !== record.link || officialSourceUrl !== record.officialSourceUrl) {
-    return false;
-  }
-  if (canonicalFeedKey(canonicalUrl) !== canonicalFeedKey(link)) return false;
-  return officialAuthority(canonicalUrl) === officialAuthority(officialSourceUrl);
-}
-
-function isNonBlankIdentifier(value: string): boolean {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function isExplicitSourceName(value: string): boolean {
-  const sourceName = normalizeDisplayText(value);
-  return Boolean(sourceName) && foldContentFeedSearchText(sourceName) !== "resmi kaynak";
-}
-
-function isContentType(value: string): value is Exclude<FeedContentTypeFilter, "all"> {
-  return value === "announcement" || value === "news" || value === "event";
 }
 
 function academicSourceFamily(value: string): Extract<ContentFeedSourceFamily, "university" | "faculty" | "department"> | null {
@@ -475,17 +460,6 @@ function trustedDateOnly(value: string | undefined): { value: string; sortValue:
 function trustedPublicationTimestamp(record: TrustedMobileContentRecord): number | null {
   const dateOnly = record.publicationKind === "date" ? trustedDateOnly(record.publishedDate) : null;
   return dateOnly?.sortValue ?? trustedTimestamp(record.publishedAt);
-}
-
-function officialAuthority(value: string): string | null {
-  const hostname = new URL(value).hostname.replace(/^www\./u, "");
-  const labels = hostname.split(".");
-  return labels.length >= 3 ? labels.slice(-3).join(".") : null;
-}
-
-function canonicalFeedKey(value: string): string {
-  const url = new URL(value);
-  return `feed:${url.hostname.replace(/^www\./u, "")}${url.port ? `:${url.port}` : ""}${url.pathname}${url.search}${url.hash}`;
 }
 
 function compareStableText(left: string, right: string): number {

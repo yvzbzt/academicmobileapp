@@ -17,6 +17,7 @@ import {
   useTheme,
 } from "../design-system";
 import {
+  admitTrustedContentRecord,
   canonicalizeOfficialAcademicUrl,
   contentTimestampLabel,
   normalizeDisplayText,
@@ -323,8 +324,9 @@ interface NormalizedDetail {
 }
 
 function normalizeDetail(item: ContentFeedItem | null): NormalizedDetail | null {
-  if (!item || item.record.trustStatus !== "trusted") return null;
-  const record = item.record;
+  if (!item) return null;
+  const record = admitTrustedContentRecord(item.record);
+  if (!record) return null;
   const sourceId = typeof record.sourceId === "string" ? record.sourceId.trim() : "";
   const sourceName = normalizeDetailText(record.sourceName);
   const title = normalizeDetailText(record.title);

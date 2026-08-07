@@ -22,7 +22,7 @@ const callbacks = {
 };
 
 function content(overrides: Partial<TrustedMobileContentRecord> = {}): TrustedMobileContentRecord {
-  return {
+  const candidate = {
     id: "announcement-1",
     sourceId: "source-1",
     sourceName: "Öğrenci İşleri Daire Başkanlığı",
@@ -32,10 +32,24 @@ function content(overrides: Partial<TrustedMobileContentRecord> = {}): TrustedMo
     summary: "Kayıt tarihleri ve öğrenci işlemleri için kısa bilgilendirme.",
     link: "https://example.edu.tr/duyuru/kayit",
     canonicalUrl: "https://example.edu.tr/duyuru/kayit",
+    officialSourceUrl: "https://example.edu.tr/duyurular",
     publishedAt: "2026-08-01T07:00:00.000Z",
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
     ...overrides,
   };
+  return {
+    ...candidate,
+    sourceRelationships: candidate.sourceRelationships ?? [{
+      sourceId: candidate.sourceId,
+      sourceName: candidate.sourceName,
+      officialSourceUrl: candidate.officialSourceUrl ?? "",
+      scopeType: candidate.scopeType,
+      scopeId: candidate.scopeId,
+      canonicalUrl: candidate.canonicalUrl ?? candidate.link,
+    }],
+  } as TrustedMobileContentRecord;
 }
 
 function props(overrides: Partial<HomeDailyBriefProps> = {}): HomeDailyBriefProps {
@@ -152,10 +166,42 @@ describe("Phase 7 Home daily brief", () => {
       link: "https://example.edu.tr/trust-missing",
       trustStatus: undefined as unknown as "trusted",
     });
-    await renderHome(props({ announcements: [...props().announcements, rejected, sourceLess, trustMissing] }));
+    const genericSource = content({
+      id: "generic-source",
+      sourceName: "Resmî akademik kaynak",
+      title: "Genel kaynak adlı içerik görünmemeli",
+      canonicalUrl: "https://example.edu.tr/generic-source",
+      link: "https://example.edu.tr/generic-source",
+    });
+    const inactiveSource = content({
+      id: "inactive-source",
+      title: "Etkin olmayan kaynak içeriği görünmemeli",
+      canonicalUrl: "https://example.edu.tr/inactive-source",
+      link: "https://example.edu.tr/inactive-source",
+      sourceStatus: "inactive" as "active",
+    });
+    const rejectedSource = content({
+      id: "rejected-source",
+      title: "Reddedilmiş kaynak içeriği görünmemeli",
+      canonicalUrl: "https://example.edu.tr/rejected-source",
+      link: "https://example.edu.tr/rejected-source",
+      sourceTrustStatus: "rejected" as "trusted",
+    });
+    await renderHome(props({ announcements: [
+      ...props().announcements,
+      rejected,
+      sourceLess,
+      trustMissing,
+      genericSource,
+      inactiveSource,
+      rejectedSource,
+    ] }));
     expect(screen.queryByText("Bu reddedilmiş içerik görünmemeli")).not.toBeOnTheScreen();
     expect(screen.queryByText("Kaynağı olmayan içerik görünmemeli")).not.toBeOnTheScreen();
     expect(screen.queryByText("Güven durumu olmayan içerik görünmemeli")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Genel kaynak adlı içerik görünmemeli")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Etkin olmayan kaynak içeriği görünmemeli")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Reddedilmiş kaynak içeriği görünmemeli")).not.toBeOnTheScreen();
     expect(screen.getByText(/Yayınlandı/)).toBeOnTheScreen();
     expect(screen.getByText(/Güncellendi/)).toBeOnTheScreen();
   });

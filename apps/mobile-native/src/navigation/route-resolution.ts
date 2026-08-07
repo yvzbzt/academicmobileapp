@@ -30,6 +30,12 @@ export type RootRouteSurface =
 export type RootRouteReason =
   | "hydration_loading"
   | "hydration_error"
+  | "session_missing"
+  | "session_invalid"
+  | "current_owner_missing"
+  | "current_owner_invalid"
+  | "session_owner_mismatch"
+  | "credential_generation_mismatch"
   | "signed_in_default"
   | "signed_in_requested"
   | "signed_in_public_guard"
@@ -43,7 +49,8 @@ export type RootRouteReason =
 
 export interface RootRouteState {
   hydrationStatus: "loading" | "ready" | "error";
-  owner: RouteOwner | null;
+  sessionOwner: RouteOwner | null;
+  currentOwner: RouteOwner | null;
   authMode: RouteAuthMode;
   authStage: RouteAuthStage;
   hasPendingVerification: boolean;
@@ -74,40 +81,58 @@ export function resolveRootRoute(state: RootRouteState): RootRouteResolution {
     };
   }
 
-  const owner = isValidRouteOwner(state.owner?.ownerId, state.owner?.generation)
-    ? state.owner
-    : null;
   const requestedRoute = state.requestedRoute === undefined || state.requestedRoute === null
     ? null
     : isAppRoute(state.requestedRoute)
       ? state.requestedRoute
       : appRoutes.unknown();
 
+  if (!state.sessionOwner) {
+    return resolveMissingSessionRoute(state, requestedRoute);
+  }
+  if (!isValidRouteOwner(state.sessionOwner.ownerId, state.sessionOwner.generation)) {
+    return failClosedIdentityResolution("session_invalid");
+  }
+  if (!state.currentOwner) {
+    return failClosedIdentityResolution("current_owner_missing");
+  }
+  if (!isValidRouteOwner(state.currentOwner.ownerId, state.currentOwner.generation)) {
+    return failClosedIdentityResolution("current_owner_invalid");
+  }
+  if (state.sessionOwner.ownerId !== state.currentOwner.ownerId) {
+    return failClosedIdentityResolution("session_owner_mismatch");
+  }
+  if (state.sessionOwner.generation !== state.currentOwner.generation) {
+    return failClosedIdentityResolution("credential_generation_mismatch");
+  }
+
   if (state.authStage === "academic_onboarding") {
     return academicOnboardingResolution(requestedRoute);
   }
 
-  if (owner) return resolveSignedInRoute(requestedRoute, owner);
+  return resolveSignedInRoute(requestedRoute, state.currentOwner);
+}
 
+function resolveMissingSessionRoute(
+  state: RootRouteState,
+  requestedRoute: AppRoute | null
+): RootRouteResolution {
   const authResolution = resolveSignedOutAuthRoute(state);
-  if (state.authStage !== "auth") {
-    return authResolution;
-  }
+  if (state.authStage !== "auth") return authResolution;
   if (!requestedRoute) return authResolution;
 
-  if (requestedRoute.name === "Unknown") {
-    return {
-      surface: "unknown",
-      route: appRoutes.unknown(),
-      redirected: false,
-      reason: "unknown_destination"
-    };
-  }
-  if (isProtectedRoute(requestedRoute) || requestedRoute.name === "Hydration") {
+  if (
+    requestedRoute.name === "Unknown"
+    || isProtectedRoute(requestedRoute)
+    || isOnboardingRoute(requestedRoute)
+    || requestedRoute.name === "Hydration"
+  ) {
     return {
       ...authResolution,
       redirected: true,
-      reason: "signed_out_protected_guard"
+      reason: requestedRoute.name === "AcademicOnboarding"
+        ? "session_missing"
+        : "signed_out_protected_guard"
     };
   }
   if (requestedRoute.name === "Verification" && !state.hasPendingVerification) {
@@ -132,7 +157,7 @@ export function resolveRootRoute(state: RootRouteState): RootRouteResolution {
   }
 
   return {
-    surface: isOnboardingRoute(requestedRoute) ? "onboarding" : "auth",
+    surface: "auth",
     route: requestedRoute,
     redirected: false,
     reason: "signed_out_requested"
@@ -152,7 +177,7 @@ export function resolveSignedOutAuthRoute(
       }
       return authResolution(appRoutes.verification());
     case "academic_onboarding":
-      return academicOnboardingResolution();
+      return authResolution(appRoutes.login(), true, "session_missing");
     case "password_recovery_request":
       return authResolution(appRoutes.passwordRecoveryRequest());
     case "password_recovery_code":
@@ -178,6 +203,19 @@ export function resolveSignedOutAuthRoute(
         state.authMode === "register" ? appRoutes.register() : appRoutes.login()
       );
   }
+}
+
+function failClosedIdentityResolution(
+  reason: Extract<
+    RootRouteReason,
+    | "session_invalid"
+    | "current_owner_missing"
+    | "current_owner_invalid"
+    | "session_owner_mismatch"
+    | "credential_generation_mismatch"
+  >
+): RootRouteResolution {
+  return authResolution(appRoutes.login(), true, reason);
 }
 
 function academicOnboardingResolution(

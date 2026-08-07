@@ -572,6 +572,15 @@ describe("CalendarService", () => {
       priority: 20,
       status: "active"
     });
+    const ownSecondarySource = await announcementRepository.upsertSource({
+      scopeType: "university",
+      scopeId: "sample-university-1",
+      sourceName: "Ornek Universitesi Haberler",
+      sourceUrl: "https://ornek.edu.tr/haberler",
+      parser: "auto",
+      priority: 10,
+      status: "active"
+    });
     const otherSource = await announcementRepository.upsertSource({
       scopeType: "university",
       scopeId: "sample-university-2",
@@ -615,6 +624,16 @@ describe("CalendarService", () => {
         trustStatus: "quarantined"
       }
     ]);
+    await announcementRepository.replaceItemsForSource(ownSecondarySource, [{
+      id: "own-secondary-source-summer-announcement",
+      sourceId: ownSecondarySource.id,
+      sourceName: ownSecondarySource.sourceName,
+      scopeType: "university",
+      scopeId: "sample-university-1",
+      title: "Yaz Okulu basvuru duyurusu",
+      link: "https://ornek.edu.tr/duyuru/yaz-okulu?utm_source=secondary",
+      fetchedAt
+    }]);
     await announcementRepository.replaceItemsForSource(otherSource, [
       {
         id: "other-same-department-summer-announcement",
@@ -699,16 +718,18 @@ describe("CalendarService", () => {
     expect(response.requirements.some((item) => item.message.includes("Yaz Okulu"))).toBe(true);
     expect(response.ownAnnouncements).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "own-summer-announcement" })
+        expect.objectContaining({ id: "own-summer-announcement", sourceId: ownSource.id }),
+        expect.objectContaining({ id: "own-secondary-source-summer-announcement", sourceId: ownSecondarySource.id })
       ])
     );
+    expect(response.ownAnnouncements.filter((item) => item.title === "Yaz Okulu basvuru duyurusu")).toHaveLength(2);
     expect(response.sameDepartmentAnnouncements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "other-same-department-summer-announcement" })
       ])
     );
     expect(response.sameDepartmentAnnouncements.some((item) => item.id === "other-different-department-summer-announcement")).toBe(false);
-    expect(response.announcementStatus).toEqual({ state: "partial", sourceCount: 2, failedSourceCount: 1 });
+    expect(response.announcementStatus).toEqual({ state: "partial", sourceCount: 3, failedSourceCount: 1 });
     expect(JSON.stringify(response)).not.toContain("forged-summer-announcement");
     expect(JSON.stringify(response)).not.toContain("quarantined-summer-announcement");
     expect(JSON.stringify(response)).not.toContain("legacy-summer-announcement");

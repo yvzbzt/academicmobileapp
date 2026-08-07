@@ -49,7 +49,7 @@ function record(
   overrides: Partial<TrustedMobileContentRecord> = {},
 ): TrustedMobileContentRecord {
   const canonicalUrl = `https://example.edu.tr/duyurular/${id}`;
-  return {
+  const candidate = {
     id,
     sourceId: `source-${id}`,
     sourceName: "Örnek Üniversitesi Öğrenci İşleri",
@@ -64,8 +64,21 @@ function record(
     publishedAt: "2026-08-01T07:00:00.000Z",
     freshness: "fresh",
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
     ...overrides,
   };
+  return {
+    ...candidate,
+    sourceRelationships: candidate.sourceRelationships ?? [{
+      sourceId: candidate.sourceId,
+      sourceName: candidate.sourceName,
+      officialSourceUrl: candidate.officialSourceUrl ?? "",
+      scopeType: candidate.scopeType,
+      scopeId: candidate.scopeId,
+      canonicalUrl: candidate.canonicalUrl ?? candidate.link,
+    }],
+  } as TrustedMobileContentRecord;
 }
 
 const academicItems = [
@@ -208,8 +221,28 @@ describe("Phase 8 Announcements feed", () => {
       canonicalUrl: "javascript:alert(1)",
       link: "javascript:alert(1)",
     });
+    const genericSource = record("generic-source", {
+      sourceName: "Resmî akademik kaynak",
+      title: "Genel kaynak görünmemeli",
+    });
+    const inactiveSource = record("inactive-source", {
+      sourceStatus: "inactive" as "active",
+      title: "Etkin olmayan kaynak görünmemeli",
+    });
+    const rejectedSource = record("rejected-source", {
+      sourceTrustStatus: "rejected" as "trusted",
+      title: "Reddedilmiş kaynak görünmemeli",
+    });
     const view = await renderFeed(feedProps({
-      academicItems: [...academicItems, rejected, sourceLess, unsafe],
+      academicItems: [
+        ...academicItems,
+        rejected,
+        sourceLess,
+        unsafe,
+        genericSource,
+        inactiveSource,
+        rejectedSource,
+      ],
     }));
 
     expect(view.UNSAFE_getAllByType(FlatList)).toHaveLength(1);
@@ -226,6 +259,9 @@ describe("Phase 8 Announcements feed", () => {
     expect(screen.queryByText("Reddedilen içerik görünmemeli")).not.toBeOnTheScreen();
     expect(screen.queryByText("Kaynaksız içerik görünmemeli")).not.toBeOnTheScreen();
     expect(screen.queryByText("Güvensiz bağlantı görünmemeli")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Genel kaynak görünmemeli")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Etkin olmayan kaynak görünmemeli")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Reddedilmiş kaynak görünmemeli")).not.toBeOnTheScreen();
     expect(screen.getAllByText(/Yayınlandı/iu).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Güncellendi/iu)).toBeOnTheScreen();
   });

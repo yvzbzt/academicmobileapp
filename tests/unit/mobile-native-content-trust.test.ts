@@ -6,7 +6,9 @@ import {
   contentTimestampLabel,
   decodeHtmlEntities,
   isNavigationContentTitle,
+  logicalContentIdentityKey,
   normalizeDisplayText,
+  normalizeTrustedApiContentEnvelope,
   normalizeTrustedContentCollection,
   normalizeTrustedContentEnvelope,
   type MobileContentRecordInput
@@ -48,20 +50,20 @@ describe("mobile native content trust", () => {
 
   it("removes a pagination prefix from a trusted compatibility record", () => {
     const result = normalizeTrustedContentCollection([
-      {
+      record({
         id: "pagination-prefix",
         sourceName: "Ankara Üniversitesi",
         title: "6 of 10 -- Burs Başvurusu",
         link: "https://www.ankara.edu.tr/duyurular/burs",
         officialSourceUrl: "https://www.ankara.edu.tr/duyurular"
-      },
-      {
+      }),
+      record({
         id: "academic-year",
         sourceName: "Ankara Üniversitesi",
         title: "2026/2027 Eğitim-Öğretim Yılı Duyurusu",
         link: "https://www.ankara.edu.tr/duyurular/akademik-yil",
         officialSourceUrl: "https://www.ankara.edu.tr/duyurular"
-      }
+      })
     ]);
 
     expect(result.items).toHaveLength(2);
@@ -243,6 +245,103 @@ describe("mobile native content trust", () => {
     expect(collection.state).toBe("partial");
     expect(emptyFailedCollection).toEqual(expect.objectContaining({ items: [], state: "partial" }));
   });
+
+  it("uses one strict trust predicate for item, active source, attribution, scope, and official authority", () => {
+    const crossScope = scopedRecord("cross-scope");
+    const candidates = [
+      scopedRecord("valid"),
+      scopedRecord("missing-official", { officialSourceUrl: undefined }),
+      scopedRecord("generic-source", { sourceName: "Resmî akademik kaynak" }),
+      scopedRecord("missing-source-id", { sourceId: "" }),
+      scopedRecord("inactive-source", { sourceStatus: "inactive" }),
+      scopedRecord("rejected-source", { sourceTrustStatus: "rejected" }),
+      scopedRecord("rejected-item", { trustStatus: "rejected" }),
+      scopedRecord("quarantined-item", { trustStatus: "quarantined" }),
+      scopedRecord("wrong-authority", { officialSourceUrl: "https://www.yok.gov.tr" }),
+      scopedRecord("unsafe-url", { link: "http://127.0.0.1/private", canonicalUrl: "http://127.0.0.1/private" }),
+      {
+        ...crossScope,
+        sourceRelationships: [{
+          sourceId: crossScope.sourceId,
+          sourceName: crossScope.sourceName,
+          officialSourceUrl: crossScope.officialSourceUrl!,
+          scopeType: "faculty" as const,
+          scopeId: "faculty-other",
+          canonicalUrl: crossScope.canonicalUrl ?? crossScope.link
+        }]
+      }
+    ];
+
+    const collection = normalizeTrustedContentCollection(candidates);
+
+    expect(collection.items.map((item) => item.id)).toEqual(["valid"]);
+    expect(collection.omittedCount).toBe(10);
+  });
+
+  it("admits production-shaped university, faculty, department, YÖK, and Summer sources", () => {
+    const positives = [
+      scopedRecord("university"),
+      scopedRecord("faculty", { sourceId: "faculty-source", sourceName: "Mühendislik Fakültesi", scopeType: "faculty", scopeId: "faculty-1" }),
+      scopedRecord("department", { sourceId: "department-source", sourceName: "Bilgisayar Mühendisliği Bölümü", scopeType: "department", scopeId: "department-1" }),
+      scopedRecord("yok", {
+        sourceId: "yok-source",
+        sourceName: "Yükseköğretim Kurulu",
+        link: "https://www.yok.gov.tr/duyurular/yok",
+        canonicalUrl: "https://www.yok.gov.tr/duyurular/yok",
+        officialSourceUrl: "https://www.yok.gov.tr/duyurular"
+      }),
+      scopedRecord("summer", { sourceId: "summer-source", sourceName: "Örnek Üniversitesi Yaz Okulu" })
+    ];
+
+    expect(normalizeTrustedContentCollection(positives).items.map((item) => item.id))
+      .toEqual(["university", "faculty", "department", "yok", "summer"]);
+  });
+
+  it("keeps stored ids separate from collision-safe source-and-scope logical identity", () => {
+    const fingerprint = "a".repeat(64);
+    const sameIdentity = normalizeTrustedContentCollection([
+      scopedRecord("stored-a", { contentFingerprint: fingerprint, link: "https://example.edu.tr/duyuru/a", canonicalUrl: "https://example.edu.tr/duyuru/a" }),
+      scopedRecord("stored-b", { contentFingerprint: fingerprint, link: "https://www.example.edu.tr/duyuru/b", canonicalUrl: "https://www.example.edu.tr/duyuru/b" })
+    ]);
+    const distinct = normalizeTrustedContentCollection([
+      scopedRecord("source-a", { contentFingerprint: fingerprint }),
+      scopedRecord("source-b", { sourceId: "source-2", contentFingerprint: fingerprint }),
+      scopedRecord("scope-b", { scopeType: "faculty", scopeId: "faculty-1", contentFingerprint: fingerprint }),
+      scopedRecord("fingerprint-b", { contentFingerprint: "b".repeat(64) })
+    ]);
+    const legacy = normalizeTrustedContentCollection([
+      scopedRecord("legacy-a", { contentFingerprint: "MALFORMED", link: "https://example.edu.tr/duyuru/legacy?utm_source=a", canonicalUrl: "https://example.edu.tr/duyuru/legacy?utm_source=a" }),
+      scopedRecord("legacy-b", { link: "https://www.example.edu.tr/duyuru/legacy", canonicalUrl: "https://www.example.edu.tr/duyuru/legacy" })
+    ]);
+
+    expect(sameIdentity.items).toHaveLength(1);
+    expect(sameIdentity.duplicateCount).toBe(1);
+    expect(distinct.items).toHaveLength(4);
+    expect(legacy.items).toHaveLength(1);
+    expect(logicalContentIdentityKey(scopedRecord("tuple", { sourceId: "a\u0000b", scopeId: "c" })))
+      .toBeNull();
+    expect(logicalContentIdentityKey(scopedRecord("tuple-safe", { sourceId: "a", scopeId: "b\u0000c" })))
+      .toBeNull();
+  });
+
+  it("preserves raw pagination evidence before filtering or deduplication", () => {
+    const rawItems = Array.from({ length: 20 }, (_, index) => scopedRecord(`raw-${index}`, {
+      ...(index >= 12 ? { trustStatus: "rejected" as const } : {}),
+      ...(index < 12 ? { sourceId: `source-${index}` } : {})
+    }));
+    const envelope = normalizeTrustedApiContentEnvelope({
+      items: rawItems,
+      rawCount: 20,
+      hasMore: true,
+      nextCursor: "page-2"
+    });
+
+    expect(envelope.items).toHaveLength(12);
+    expect(envelope.rawItemCount).toBe(20);
+    expect(envelope.explicitRawCount).toBe(20);
+    expect(envelope.hasMore).toBe(true);
+    expect(envelope.nextCursor).toBe("page-2");
+  });
 });
 
 describe("mobile native content-state wiring", () => {
@@ -291,7 +390,7 @@ describe("mobile native content-state wiring", () => {
     expect(appSource).toContain("Promise.allSettled([loadMyCalendar(), loadUpcoming(), refreshContentFeed()])");
     expect(appSource).not.toContain("onPress={() => void loadYokAnnouncements()}");
     expect(appSource).toContain("Mevcut doğrulanmış kayıtlar korunuyor.");
-    expect(appSource).toContain("normalizeTrustedContentEnvelope");
+    expect(appSource).toContain("normalizeTrustedApiContentEnvelope");
   });
 
   it("binds protected announcement detail routes to the requested trusted identifier", () => {
@@ -324,7 +423,7 @@ describe("mobile native content-state wiring", () => {
 });
 
 function record(overrides: Partial<MobileContentRecordInput> = {}): MobileContentRecordInput {
-  return {
+  const candidate: MobileContentRecordInput = {
     id: "content-1",
     sourceId: "source-1",
     sourceName: "Örnek &amp; Üniversitesi",
@@ -333,6 +432,33 @@ function record(overrides: Partial<MobileContentRecordInput> = {}): MobileConten
     scopeId: "university-1",
     title: "Öğrenci kayıt duyurusu",
     link: "https://example.edu.tr/duyuru/1",
+    officialSourceUrl: "https://example.edu.tr/duyurular",
+    trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
     ...overrides
   };
+  return {
+    ...candidate,
+    sourceRelationships: candidate.sourceRelationships ?? [{
+      sourceId: candidate.sourceId,
+      sourceName: candidate.sourceName,
+      officialSourceUrl: candidate.officialSourceUrl ?? "",
+      scopeType: candidate.scopeType,
+      scopeId: candidate.scopeId,
+      canonicalUrl: candidate.canonicalUrl ?? candidate.link
+    }]
+  };
+}
+
+function scopedRecord(
+  id: string,
+  overrides: Partial<MobileContentRecordInput> = {}
+): MobileContentRecordInput {
+  return record({
+    id,
+    link: `https://example.edu.tr/duyuru/${id}`,
+    canonicalUrl: `https://example.edu.tr/duyuru/${id}`,
+    ...overrides
+  });
 }

@@ -39,8 +39,14 @@ import {
 } from "./src/navigation/SystemStateScreens";
 import { useAppRouteRequest } from "./src/navigation/useAppRouteRequest";
 import {
+  RouteIntentCoordinator,
+  createVerifiedNotificationIntent,
   parseAcademicPulseRouteUrl,
+  resolveRootRoute,
+  type AppRoute,
+  type AppRouteIntent,
   type ProtectedAppRoute,
+  type RouteOwner,
   type UnknownRoute
 } from "./src/navigation";
 import { Banner, DesignSystemPreview, ListItem, ThemeProvider } from "./src/design-system";
@@ -97,7 +103,6 @@ import {
   getVerificationTiming,
   isValidPasswordRecoveryEmail,
   parsePendingVerificationRecord,
-  rootSurfaceForHydration,
   validatePasswordRecoveryConfirmation,
   validatePasswordRecoveryRequest,
   type HydrationStatus,
@@ -182,8 +187,9 @@ import {
   contentTimestampLabel,
   isNavigationContentTitle,
   normalizeDisplayText,
+  normalizeTrustedApiContentCollection,
+  normalizeTrustedApiContentEnvelope,
   normalizeTrustedContentCollection,
-  normalizeTrustedContentEnvelope,
   type ContentCollectionState,
   type MobileContentCollectionInput,
   type MobileContentRecordInput,
@@ -234,6 +240,7 @@ import {
   buildContentFeed,
   createContentFeedRequestCoordinator,
   nextContentFeedLimit,
+  resolveContentFeedHasMore,
   settleContentFeedLoading,
   type ContentFeedItem
 } from "./src/announcements/feed-model";
@@ -253,6 +260,11 @@ type AuthStage =
   | "password_recovery_request"
   | "password_recovery_code"
   | "password_recovery_confirm";
+
+type PendingDeepLinkRoute = {
+  route: ProtectedAppRoute | UnknownRoute;
+  owner: RouteOwner | null;
+};
 
 const AUTH_ROUTE_NAMES = new Set<AppVisibleRoute>([
   "Login",
@@ -356,6 +368,14 @@ function navigationTargetForProtectedRoute(route: ProtectedAppRoute): {
     case "AccountDataSettings":
       return { route: route.name, legacyTab: "profile" };
   }
+}
+
+function visibleRouteForResolvedRoot(route: AppRoute): AppVisibleRoute {
+  if (route.name === "Hydration") {
+    return route.params.status === "loading" ? "BootstrapLoading" : "BootstrapError";
+  }
+  if (route.name === "Unknown") return "UnknownRoute";
+  return route.name;
 }
 
 type SessionPayload = {
@@ -899,8 +919,8 @@ function normalizeCalendarPayloadForDisplay(payload: CalendarPayload): CalendarP
 }
 
 function normalizeSummerSchoolPayloadForDisplay(payload: SummerSchoolApiPayload): SummerSchoolPayload {
-  const ownAnnouncements = normalizeTrustedContentCollection(payload.ownAnnouncements);
-  const sameDepartmentAnnouncements = normalizeTrustedContentCollection(payload.sameDepartmentAnnouncements);
+  const ownAnnouncements = normalizeTrustedApiContentCollection(payload.ownAnnouncements);
+  const sameDepartmentAnnouncements = normalizeTrustedApiContentCollection(payload.sameDepartmentAnnouncements);
   let omittedContentCount = 0;
 
   const requirements = payload.requirements.flatMap((requirement) => {
@@ -977,6 +997,35 @@ function contentAvailabilityMessage(state: ContentCollectionState | undefined, r
   if (state === "partial") return "Bazı kaynaklar doğrulanamadı. Kullanılabilir resmî içerik gösteriliyor.";
   if (state === "stale") return "Kaynakların son doğrulanmış içeriği gösteriliyor.";
   return null;
+}
+
+function trustedContentCollectionHasMore(
+  collection: TrustedContentCollection | undefined,
+  requestedLimit: number
+): boolean {
+  return Boolean(collection && resolveContentFeedHasMore({
+    requestedLimit,
+    nextCursor: collection.nextCursor,
+    hasMore: collection.hasMore,
+    explicitRawCount: collection.explicitRawCount,
+    rawItemCount: collection.rawItemCount
+  }));
+}
+
+function appendTrustedContentItems(
+  collection: TrustedContentCollection | undefined,
+  items: readonly TrustedMobileContentRecord[]
+): TrustedContentCollection {
+  const merged = normalizeTrustedContentCollection([...(collection?.items ?? []), ...items]);
+  if (!collection) return merged;
+  return {
+    ...merged,
+    state: collection.state,
+    rawItemCount: collection.rawItemCount,
+    ...(collection.explicitRawCount === undefined ? {} : { explicitRawCount: collection.explicitRawCount }),
+    ...(collection.nextCursor ? { nextCursor: collection.nextCursor } : {}),
+    ...(typeof collection.hasMore === "boolean" ? { hasMore: collection.hasMore } : {})
+  };
 }
 
 function contentFeedDetailItem(
@@ -1140,7 +1189,7 @@ function MainApplication() {
     requestAppRoute,
     setActiveRoute
   } = useAppRouteRequest("BootstrapLoading");
-  const pendingDeepLinkRouteRef = useRef<ProtectedAppRoute | UnknownRoute | null>(null);
+  const pendingDeepLinkRouteRef = useRef<PendingDeepLinkRoute | null>(null);
   const apiBaseUrl = useMemo(() => resolveApiBaseUrl(), []);
 
   const [fullName, setFullName] = useState("");
@@ -1179,6 +1228,7 @@ function MainApplication() {
   const [facultySearch, setFacultySearch] = useState("");
   const [departmentSearch, setDepartmentSearch] = useState("");
   const [session, setSession] = useState<SessionPayload | null>(null);
+  const [sessionOwner, setSessionOwner] = useState<AccountGenerationSnapshot | null>(null);
   const [deviceId, setDeviceId] = useState("");
 
   const [universities, setUniversities] = useState<Loadable<UniversityRecord[]>>({ loading: false });
@@ -1268,6 +1318,9 @@ function MainApplication() {
   const refreshSessionPromiseRef = useRef<Promise<SessionPayload | null> | null>(null);
   const academicSelectionPendingRef = useRef<AcademicSelectionLevel | null>(null);
   const accountGuardRef = useRef(new AccountGenerationGuard());
+  const onboardingOwnerRef = useRef<AccountGenerationSnapshot | null>(null);
+  const onboardingSaveAttemptRef = useRef(0);
+  const routeIntentCoordinatorRef = useRef(new RouteIntentCoordinator());
   const announcementDetailRequestGenerationRef = useRef(0);
   const contentFeedRequestCoordinatorRef = useRef(createContentFeedRequestCoordinator());
   const contentFeedAbortControllerRef = useRef<AbortController | null>(null);
@@ -1358,10 +1411,8 @@ function MainApplication() {
   const contentFeedHasRetainedData = announcementFeed.length > 0
     || yokAnnouncementItems.length > 0
     || summerSchoolAnnouncements.length > 0;
-  const contentFeedHasMore = contentFeedLimit < CONTENT_FEED_MAX_LIMIT && (
-    announcementFeed.length >= contentFeedLimit
-    || yokAnnouncementItems.length >= contentFeedLimit
-  );
+  const contentFeedHasMore = trustedContentCollectionHasMore(announcements.data, contentFeedLimit)
+    || trustedContentCollectionHasMore(yokAnnouncements.data, contentFeedLimit);
   const contentFeedSourceErrors = [announcements.error, yokAnnouncements.error, summerSchool.error]
     .filter((value): value is string => Boolean(value));
   const contentFeedError = contentFeedSourceErrors.join(" ") || undefined;
@@ -1534,25 +1585,35 @@ function MainApplication() {
   });
   const passwordRecoveryConfirmReady = passwordRecoveryConfirmationValidation.valid
     && !passwordRecoveryTiming?.expired;
-  const rootSurface = rootSurfaceForHydration(hydrationStatus, Boolean(session));
-  const navigatorRootSurface: AppRootSurface = rootSurface === "hydration_loading"
-    ? "hydration_loading"
-    : rootSurface === "hydration_error"
+  const currentRouteOwner = accountGuardRef.current.capture();
+  const rootRouteResolution = resolveRootRoute({
+    hydrationStatus,
+    sessionOwner: session ? sessionOwner : null,
+    currentOwner: currentRouteOwner,
+    authMode,
+    authStage,
+    hasPendingVerification: Boolean(pendingVerification),
+    hasPendingPasswordRecovery: Boolean(pendingPasswordRecovery)
+  });
+  const navigatorRootSurface: AppRootSurface = rootRouteResolution.surface === "hydration"
+    ? rootRouteResolution.route.name === "Hydration" && rootRouteResolution.route.params.status === "error"
       ? "hydration_error"
-      : authStage === "academic_onboarding"
-        ? "onboarding"
-        : authenticatedContextPending
-          ? "hydration_loading"
-          : session
-            ? "authenticated"
-            : "auth";
+      : "hydration_loading"
+    : authenticatedContextPending
+      && (rootRouteResolution.surface === "authenticated" || rootRouteResolution.surface === "onboarding")
+      ? "hydration_loading"
+      : rootRouteResolution.surface === "authenticated"
+        ? "authenticated"
+        : rootRouteResolution.surface === "onboarding"
+          ? "onboarding"
+          : "auth";
   const expectedBaseRoute: AppVisibleRoute = navigatorRootSurface === "hydration_loading"
     ? "BootstrapLoading"
     : navigatorRootSurface === "hydration_error"
       ? "BootstrapError"
       : navigatorRootSurface === "authenticated"
         ? routeForLegacyTab(activeTab)
-        : routeForAuthState(authStage, authMode);
+        : visibleRouteForResolvedRoot(rootRouteResolution.route);
   const controlledActiveRoute = navigatorRootSurface === "authenticated"
     ? (AUTHENTICATED_ROUTE_NAMES.has(activeRoute) ? activeRoute : expectedBaseRoute)
     : navigatorRootSurface === "auth"
@@ -1771,7 +1832,7 @@ function MainApplication() {
           if (error instanceof ApiRequestError && error.status === 404) return false;
           throw error;
         }
-        const normalized = normalizeTrustedContentCollection([payload]);
+        const normalized = normalizeTrustedApiContentCollection([payload]);
         const match = normalized.items.find((item) => item.id === destination.id);
         if (match) {
           destinationTitle = match.title;
@@ -1779,10 +1840,7 @@ function MainApplication() {
         }
         setAnnouncements((previous) => ({
           loading: false,
-          data: normalizeTrustedContentCollection([
-            ...(previous.data?.items ?? []),
-            ...normalized.items
-          ]),
+          data: appendTrustedContentItems(previous.data, normalized.items),
           attempted: true,
           stale: false
         }));
@@ -1813,9 +1871,31 @@ function MainApplication() {
     if (resolution.status === "open") {
       if (!await pendingNotificationDestinationIsCurrent(record).catch(() => false)) return;
       if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
-      const targetRoute = resolution.destination.type === "announcement"
-        ? "AnnouncementDetail"
-        : "CalendarEventDetail";
+      const notificationIntent = createVerifiedNotificationIntent(resolution.destination);
+      const enqueueResult = routeIntentCoordinatorRef.current.enqueue(notificationIntent, ownerSnapshot);
+      if (enqueueResult !== "enqueued" && enqueueResult !== "promoted") {
+        const inFlightRequest = notificationNavigationRequestRef.current;
+        if (
+          enqueueResult === "deduplicated"
+          && inFlightRequest
+          && accountGuardRef.current.isCurrent(inFlightRequest.ownerSnapshot)
+          && inFlightRequest.record.destination.type === record.destination.type
+          && inFlightRequest.record.destination.id === record.destination.id
+        ) {
+          // The newest duplicate replaced the durable record. Keep it until the
+          // already-mounted semantic destination acknowledges its visible leaf.
+          notificationNavigationRequestRef.current = { ...inFlightRequest, record };
+          return;
+        }
+        await clearPendingNotificationDestinationIfCurrent(record).catch(() => false);
+        return;
+      }
+      const selectedIntent = routeIntentCoordinatorRef.current.consumeFor(
+        ownerSnapshot.ownerId,
+        ownerSnapshot.generation
+      );
+      if (!selectedIntent || selectedIntent.source !== "notification") return;
+      const target = navigationTargetForProtectedRoute(selectedIntent.route);
       if (resolution.destination.type === "announcement") {
         announcementDetailRequestGenerationRef.current += 1;
         setActiveTrustedDetail((previous) => previous?.type === "announcement" ? null : previous);
@@ -1852,10 +1932,8 @@ function MainApplication() {
         setActiveCalendarDetail(detailItem ?? null);
       }
       const requestKey = requestAppRoute(
-        targetRoute,
-        resolution.destination.type === "announcement"
-          ? { announcementId: resolution.destination.id }
-          : { eventId: resolution.destination.id }
+        target.route,
+        target.params
       );
       notificationNavigationRequestRef.current = { requestKey, record, ownerSnapshot };
       setNotificationDestinationNotice({
@@ -1863,7 +1941,7 @@ function MainApplication() {
         destination: resolution.destination,
         ...(destinationTitle ? { title: destinationTitle } : {})
       });
-      setActiveTab(resolution.destination.type === "announcement" ? "announcements" : "calendar");
+      setActiveTab(target.legacyTab);
     }
   }
 
@@ -1982,7 +2060,7 @@ function MainApplication() {
         requestGeneration !== announcementDetailRequestGenerationRef.current
         || !accountGuardRef.current.isCurrent(ownerSnapshot)
       ) return;
-      const record = normalizeTrustedContentCollection([payload]).items
+      const record = normalizeTrustedApiContentCollection([payload]).items
         .find((item) => item.id === announcementId);
       const detailItem = record ? contentFeedDetailItem(record, "academic") : null;
       if (!detailItem) {
@@ -2025,6 +2103,26 @@ function MainApplication() {
     requestAppRoute(target.route, target.params);
   }
 
+  function dispatchProtectedRouteIntent(
+    intent: AppRouteIntent,
+    ownerSnapshot: AccountGenerationSnapshot
+  ): boolean {
+    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
+    const result = routeIntentCoordinatorRef.current.enqueue(intent, ownerSnapshot);
+    if (result !== "enqueued" && result !== "promoted") return false;
+    const selected = routeIntentCoordinatorRef.current.consumeFor(
+      ownerSnapshot.ownerId,
+      ownerSnapshot.generation
+    );
+    if (!selected) return false;
+    if (selected.route.name === "Unknown") {
+      requestAppRoute("UnknownRoute");
+      return true;
+    }
+    openProtectedAppRoute(selected.route);
+    return true;
+  }
+
   function receiveAcademicPulseUrl(url: unknown): void {
     const resolution = parseAcademicPulseRouteUrl(url);
     if (resolution.kind === "notification") {
@@ -2032,40 +2130,45 @@ function MainApplication() {
       return;
     }
 
-    if (hydrationStatusRef.current !== "ready") {
-      pendingDeepLinkRouteRef.current = resolution.route;
-      return;
-    }
-    if (resolution.kind === "unknown") {
-      pendingDeepLinkRouteRef.current = null;
-      requestAppRoute("UnknownRoute");
-      return;
-    }
-
     const currentSession = sessionRef.current;
     const ownerSnapshot = accountGuardRef.current.capture();
-    if (!currentSession || !ownerSnapshot || currentSession.user.id !== ownerSnapshot.ownerId) {
-      pendingDeepLinkRouteRef.current = resolution.route;
+    const exactOwner = currentSession && ownerSnapshot && currentSession.user.id === ownerSnapshot.ownerId
+      ? ownerSnapshot
+      : null;
+    if (
+      hydrationStatusRef.current !== "ready"
+      || navigatorRootSurface !== "authenticated"
+      || authOperationInProgressRef.current
+      || busy
+      || !exactOwner
+    ) {
+      pendingDeepLinkRouteRef.current = { route: resolution.route, owner: exactOwner };
       return;
     }
     pendingDeepLinkRouteRef.current = null;
-    openProtectedAppRoute(resolution.route);
+    dispatchProtectedRouteIntent({ source: "deep_link", route: resolution.route }, exactOwner);
   }
 
   function resumePendingDeepLinkIfEligible(): void {
-    const pendingRoute = pendingDeepLinkRouteRef.current;
-    if (!pendingRoute || hydrationStatusRef.current !== "ready") return;
+    const pending = pendingDeepLinkRouteRef.current;
+    if (!pending || hydrationStatusRef.current !== "ready") return;
     if (navigatorRootSurface !== "authenticated" || authOperationInProgressRef.current || busy) return;
-    if (pendingRoute.name === "Unknown") {
-      pendingDeepLinkRouteRef.current = null;
-      requestAppRoute("UnknownRoute");
-      return;
-    }
     const currentSession = sessionRef.current;
     const ownerSnapshot = accountGuardRef.current.capture();
     if (!currentSession || !ownerSnapshot || currentSession.user.id !== ownerSnapshot.ownerId) return;
+    if (
+      pending.owner
+      && (
+        pending.owner.ownerId !== ownerSnapshot.ownerId
+        || pending.owner.generation !== ownerSnapshot.generation
+      )
+    ) {
+      pendingDeepLinkRouteRef.current = null;
+      return;
+    }
+    pendingDeepLinkRouteRef.current = { ...pending, owner: ownerSnapshot };
     pendingDeepLinkRouteRef.current = null;
-    openProtectedAppRoute(pendingRoute);
+    dispatchProtectedRouteIntent({ source: "deep_link", route: pending.route }, ownerSnapshot);
   }
 
   async function restorePendingNotificationForSession(
@@ -2289,6 +2392,7 @@ function MainApplication() {
       if (restoredSession) {
         const storedSession = restoredSession;
         const snapshot = accountGuardRef.current.activate(storedSession.user.id);
+        setSessionOwner(snapshot);
         googleLifecycleGuardRef.current.activate(storedSession.user.id);
         try {
           const refreshedSession = await apiRequest<SessionPayload>(
@@ -2362,6 +2466,7 @@ function MainApplication() {
         }
       } else {
         accountGuardRef.current.invalidate();
+        setSessionOwner(null);
         personalExamRuntime.reset();
         try {
           await restoreGoogleCalendarConnection();
@@ -2410,6 +2515,7 @@ function MainApplication() {
     } catch {
       abortAuthenticatedRequests();
       accountGuardRef.current.invalidate();
+      setSessionOwner(null);
       sessionRef.current = null;
       notificationCoordinatorOwnerTokenRef.current = null;
       setSession(null);
@@ -2765,7 +2871,20 @@ function MainApplication() {
     activationAttemptRef.current += 1;
     googleSdkEpochRef.current += 1;
     googleLifecycleGuardRef.current.invalidate();
+    const previousOwner = accountGuardRef.current.capture();
     accountGuardRef.current.invalidate();
+    setSessionOwner(null);
+    onboardingOwnerRef.current = null;
+    onboardingSaveAttemptRef.current += 1;
+    routeIntentCoordinatorRef.current.invalidate();
+    if (
+      previousOwner
+      && pendingDeepLinkRouteRef.current?.owner
+      && pendingDeepLinkRouteRef.current.owner.ownerId === previousOwner.ownerId
+      && pendingDeepLinkRouteRef.current.owner.generation === previousOwner.generation
+    ) {
+      pendingDeepLinkRouteRef.current = null;
+    }
     abortAuthenticatedRequests();
     refreshSessionPromiseRef.current = null;
     notificationNavigationRequestRef.current = null;
@@ -2825,6 +2944,7 @@ function MainApplication() {
     notificationCoordinatorOwnerTokenRef.current = nextSession;
     setAccountAuthProvider(normalizeAccountAuthProvider(nextSession.user.authProvider));
     setSession(nextSession);
+    setSessionOwner(snapshot);
     setActiveTab("home");
     setActiveRoute("Home");
     await restorePendingNotificationForSession(nextSession, snapshot).catch(() => {
@@ -3145,6 +3265,7 @@ function MainApplication() {
     setRegisterDepartmentId(profile.departmentId ?? "");
     setRegisterClassLevel(profile.classLevel ?? null);
     setOnboardingInitialDraft(profileDraftFromServer(profile));
+    onboardingOwnerRef.current = profileUniversityId ? null : ownerSnapshot;
     setAcademicProfileSaveState("idle");
     setAcademicProfileSaveError(undefined);
     if (!profileUniversityId) {
@@ -3476,8 +3597,9 @@ function MainApplication() {
       setRegisterDepartmentId("");
       setRegisterClassLevel(null);
       setOnboardingInitialDraft(EMPTY_ACADEMIC_ONBOARDING_DRAFT);
-      setAuthStage("academic_onboarding");
-      setMessage({ text: "E-posta doğrulandı. Son adımda akademik profilini tamamla.", tone: "success" });
+      setAuthMode("login");
+      setAuthStage("auth");
+      setMessage({ text: "E-posta doğrulandı. Giriş yaptıktan sonra akademik profilini tamamlayabilirsin.", tone: "success" });
     } catch (error) {
       setMessage({
         text: userMessageFromError(error, "E-posta doğrulanamadı"),
@@ -3491,49 +3613,32 @@ function MainApplication() {
 
   async function saveAcademicOnboarding(): Promise<void> {
     if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
+    const activeSession = sessionRef.current;
+    const snapshot = accountGuardRef.current.capture();
+    const draftOwner = onboardingOwnerRef.current;
+    if (
+      !activeSession
+      || !snapshot
+      || !draftOwner
+      || activeSession.user.id !== snapshot.ownerId
+      || draftOwner.ownerId !== snapshot.ownerId
+      || draftOwner.generation !== snapshot.generation
+      || !accountGuardRef.current.isCurrent(draftOwner)
+    ) {
+      setMessage({ text: "Akademik profil yalnızca doğrulanmış etkin oturum için kaydedilebilir.", tone: "error" });
+      return;
+    }
     const payload = buildAcademicSelectionPayload(academicOnboardingDraft);
     if (!payload) {
       setMessage({ text: "Devam etmek için üniversiteni seç.", tone: "error" });
       return;
     }
-    if (!session && password.length === 0) {
-      setMessage({ text: "Akademik seçimini kaydetmek için hesap şifreni gir.", tone: "error" });
-      return;
-    }
-    if (!deviceIdRef.current) {
-      setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
-      return;
-    }
 
+    const onboardingAttempt = ++onboardingSaveAttemptRef.current;
     authOperationInProgressRef.current = true;
     try {
       setBusy(true);
       setMessage(null);
-      let activeSession = session;
-      let snapshot = accountGuardRef.current.capture();
-      if (!activeSession) {
-        activeSession = await apiRequest<SessionPayload>(
-          AUTH_ENDPOINTS.login,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              email: email.trim().toLowerCase(),
-              password,
-              deviceId: deviceIdRef.current
-            })
-          },
-          undefined,
-          { authOperation: "login" }
-        );
-        snapshot = await activateSession(activeSession);
-        // Session activation intentionally clears all prior owner data. Restore only
-        // this reviewed draft before the single complete-replacement mutation.
-        setRegisterUniversityId(payload.universityId);
-        setRegisterFacultyId(payload.facultyId ?? "");
-        setRegisterDepartmentId(payload.departmentId ?? "");
-        setRegisterClassLevel(payload.classLevel ?? null);
-      }
-      if (!snapshot || !accountGuardRef.current.isCurrent(snapshot)) throw new StaleAccountRequestError();
       await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
         "/me/university",
         {
@@ -3565,14 +3670,17 @@ function MainApplication() {
       setAuthStage("auth");
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
+      if (onboardingSaveAttemptRef.current !== onboardingAttempt) return;
       setMessage({
         text: userMessageFromError(error, "Akademik profil kaydedilemedi. Bilgilerini kontrol edip tekrar dene."),
         tone: "error"
       });
     } finally {
-      authOperationInProgressRef.current = false;
-      setAuthenticatedContextPending(false);
-      setBusy(false);
+      if (onboardingSaveAttemptRef.current === onboardingAttempt) {
+        authOperationInProgressRef.current = false;
+        setAuthenticatedContextPending(false);
+        setBusy(false);
+      }
     }
   }
 
@@ -4006,6 +4114,7 @@ function MainApplication() {
     setRegisterDepartmentId("");
     setRegisterClassLevel(null);
     setOnboardingInitialDraft(EMPTY_ACADEMIC_ONBOARDING_DRAFT);
+    onboardingOwnerRef.current = null;
     setRegisterPicker("none");
     setFaculties({ loading: false, data: [] });
     setDepartments({ loading: false, data: [] });
@@ -4045,6 +4154,7 @@ function MainApplication() {
   }
 
   function clearAuthenticatedMemory(): void {
+    authOperationInProgressRef.current = false;
     sessionRef.current = null;
     notificationCoordinatorOwnerTokenRef.current = null;
     setAccountAuthProvider(undefined);
@@ -4054,6 +4164,7 @@ function MainApplication() {
     setRecentAuthBusy(false);
     setRecentAuthError(undefined);
     setSession(null);
+    setSessionOwner(null);
     setAuthenticatedContextPending(false);
     setAuthMode("login");
     setAuthStage("auth");
@@ -4342,7 +4453,10 @@ function MainApplication() {
       invalidateAuthenticatedWork();
       resetUserScopedState();
       setPendingVerification(null);
-      accountGuardRef.current.activate(currentSession.user.id);
+      const replacementOwner = accountGuardRef.current.activate(currentSession.user.id);
+      setSessionOwner(replacementOwner);
+      onboardingOwnerRef.current = replacementOwner;
+      setAuthStage("academic_onboarding");
       googleLifecycleGuardRef.current.activate(currentSession.user.id);
       const result = await runObservableAccountCleanup([
         {
@@ -4780,7 +4894,7 @@ function MainApplication() {
         token,
         { ownerSnapshot }
       )
-        .then(normalizeTrustedContentEnvelope),
+        .then(normalizeTrustedApiContentEnvelope),
       ownerSnapshot,
       preserveDataOnRefresh,
       () => contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)
@@ -4803,7 +4917,7 @@ function MainApplication() {
         undefined,
         { ownerSnapshot }
       )
-        .then(normalizeTrustedContentEnvelope),
+        .then(normalizeTrustedApiContentEnvelope),
       ownerSnapshot,
       preserveDataOnRefresh,
       () => contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)
@@ -4895,7 +5009,7 @@ function MainApplication() {
       kind: "academic" | "yok";
       promise: Promise<TrustedContentCollection>;
     }> = [];
-    if ((announcements.data?.items.length ?? 0) >= contentFeedLimit) {
+    if (trustedContentCollectionHasMore(announcements.data, contentFeedLimit)) {
       requests.push({
         kind: "academic",
         promise: apiRequest<AnnouncementCollectionApiPayload>(
@@ -4903,10 +5017,10 @@ function MainApplication() {
           { signal: requestController.signal },
           token,
           { ownerSnapshot }
-        ).then(normalizeTrustedContentEnvelope)
+        ).then(normalizeTrustedApiContentEnvelope)
       });
     }
-    if ((yokAnnouncements.data?.items.length ?? 0) >= contentFeedLimit) {
+    if (trustedContentCollectionHasMore(yokAnnouncements.data, contentFeedLimit)) {
       requests.push({
         kind: "yok",
         promise: apiRequest<AnnouncementCollectionApiPayload>(
@@ -4914,7 +5028,7 @@ function MainApplication() {
           { signal: requestController.signal },
           undefined,
           { ownerSnapshot }
-        ).then(normalizeTrustedContentEnvelope)
+        ).then(normalizeTrustedApiContentEnvelope)
       });
     }
     if (requests.length === 0) {
@@ -5194,7 +5308,7 @@ function MainApplication() {
         : null;
       const calendarEvents = normalizedCalendar?.events ?? [];
       const trustedAnnouncements = announcementResult.status === "fulfilled"
-        ? normalizeTrustedContentEnvelope(announcementResult.value)
+        ? normalizeTrustedApiContentEnvelope(announcementResult.value)
         : null;
       const announcementItems = trustedAnnouncements?.items ?? [];
       const deletionCandidateSourceTypes = googleCalendarDeletionCandidateSourceTypes({
@@ -5375,7 +5489,7 @@ function MainApplication() {
           deletionBlockedSourceTypes.add(lookup.sourceType);
           continue;
         }
-        const normalized = normalizeTrustedContentCollection([lookup.announcement]).items[0];
+        const normalized = normalizeTrustedApiContentCollection([lookup.announcement]).items[0];
         if (normalized && !reconciledAnnouncementItems.some((item) => item.id === normalized.id)) {
           reconciledAnnouncementItems.push(normalized);
         }

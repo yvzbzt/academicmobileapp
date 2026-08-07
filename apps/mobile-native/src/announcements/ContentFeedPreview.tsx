@@ -418,9 +418,19 @@ function previewRecord({
     link: officialUrl,
     canonicalUrl: officialUrl,
     officialSourceUrl: officialUrl,
+    sourceRelationships: [{
+      sourceId,
+      sourceName,
+      officialSourceUrl: officialUrl,
+      scopeType,
+      scopeId,
+      canonicalUrl: officialUrl,
+    }],
     ...(publishedAt ? { publishedAt } : {}),
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
     freshness: "fresh",
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
   };
 }

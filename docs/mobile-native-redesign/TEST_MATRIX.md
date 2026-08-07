@@ -3,7 +3,7 @@
 Historical baseline date: 29 July 2026
 Historical baseline branch/HEAD: `agent/google-play-readiness-20260724` / `cbd0067b03c3cf7286270df25164a556c55b55b9`
 
-The dated Phase 0–12 ledgers below are preserved historical evidence. Their counts and statements such as “next phase not started” apply only to the named checkpoint. The **Final Correctness Repair 1 ledger — 7 August 2026** at the end is authoritative for the IPv6 trusted-proxy and temporal-input boundaries and supersedes conflicting current-state wording without rewriting the old results.
+The dated Phase 0–12 ledgers below are preserved historical evidence. Their counts and statements such as “next phase not started” apply only to the named checkpoint. The **Final Correctness Repair 2 ledger — 7 August 2026** at the end is authoritative for routing, native content trust, feed identity, pagination, and protected intents. Repair 1 remains authoritative for IPv6 trusted-proxy and temporal-input boundaries; neither ledger rewrites older results.
 
 ## Evidence classes
 
@@ -1187,3 +1187,109 @@ Repair 1 performed no migration, backfill, reconciliation, deployment, push,
 publish, provider access, Hetzner access, production MongoDB access, or
 existing-record rewrite. It inferred no correction for legacy ambiguous
 timestamps and started no later repair prompt or product phase.
+
+## Final Correctness Repair 2 ledger — 7 August 2026
+
+Repair 2 started from `79a45c9cc8744412cfde5dfce74817a55b889c05` on
+`agent/google-play-readiness-20260724`. The required SHA was the exact starting
+HEAD, and the tracked worktree and index were clean. The pre-existing untracked
+logo files, missing-link CSV/report files, and `prompts/` directory were
+preserved without staging, modification, cleanup, or deletion. The bounded
+audit-repair loop used exactly two cycles and did not start Repair 3, Repair 4,
+or another product phase.
+
+### Repair 2 focused proof
+
+Cycle 1 mapped the root decision order, mounted intent lifecycle, trust
+admission, logical identity, and pagination evidence to production symbols and
+focused tests. Its combined Vitest command covered
+`mobile-native-content-feed`, `mobile-native-content-trust`,
+`mobile-native-auth-recovery`, `mobile-native-route-foundation`,
+`announcement-date-only-api-native`, `announcement-content-identity`, and
+`calendar`: **PASS — 7 files / 149 tests**. Cycle 2 inspected owner transition,
+duplicate acknowledgement, Android Back, same-location/different-fingerprint
+identity, and pagination-race residuals, then stopped after the affected gates
+were green.
+
+| Exact command or focused boundary | Final result | Proven behavior |
+|---|---|---|
+| `npx.cmd vitest run tests/unit/mobile-native-route-foundation.test.ts tests/unit/mobile-native-auth-recovery.test.ts --configLoader runner` | **PASS — 2 files / 55 tests** | Hydration incomplete/error, missing session/owner, owner and generation mismatch, onboarding eligibility, logout/switch invalidation, and stale-owner settlement |
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand tests/navigation/AppNavigator.test.tsx` | **PASS — 1 suite / 25 tests / 0 snapshots** | Mounted production resolver/coordinator/navigator flow for signed-out and onboarding-held announcement/Calendar destinations, malformed/unknown fallback, logout and account switch, prior-owner rejection, semantic duplicate consumption, visible-leaf acknowledgement once, locked onboarding, and Android Back |
+| `npx.cmd vitest run apps/api/tests/announcement-content-trust.test.ts apps/api/tests/announcement-content-identity.test.ts apps/api/tests/announcements-ingestion.test.ts apps/api/tests/calendar.test.ts --configLoader runner` | **PASS — 4 files / 73 tests** | Backend trust, source/scope/fingerprint identity, ingestion deduplication, exact detail provenance, and Calendar event identity |
+| Native Home/feed/detail focused Jest boundary | **PASS — 4 suites / 74 tests / 0 snapshots** | One strict predicate admits valid university, faculty, department, YÖK, and Summer School content and rejects missing/generic/unsafe/inactive/rejected/quarantined/cross-scope evidence consistently |
+| `npx.cmd vitest run apps/api/tests/announcement-content-identity.test.ts --configLoader runner` | **PASS — 1 file / 7 tests** | Final strict-TypeScript reconciliation retained collision-safe fingerprint identity and canonical legacy fallback |
+
+The root route order is now: successful hydration; valid authenticated session;
+current owner; exact session/current-owner match; current credential generation;
+academic-onboarding requirement; protected destination. Unknown and malformed
+protected work is held behind the same identity gates and reaches only the
+authenticated safe fallback. Owner-bound drafts, saves, deep links, and
+notification records cannot settle after logout, data deletion, or an account
+generation change.
+
+`admitTrustedContentRecord` is the shared Home, feed, detail, and relevant
+handoff predicate. Trusted API normalization supplies only contract-permitted
+server defaults; explicit contradictory trust state fails closed. Admission
+requires item/source trust, active source state, valid source/scope identity,
+non-generic attribution, safe official and canonical URLs, matching authority,
+and consistent source relationships, with no rejection or quarantine state.
+
+Stored IDs remain document identity. Logical duplicate identity is the
+collision-safe tuple of source identity, normalized academic scope, and a valid
+server fingerprint. A missing or malformed fingerprint falls back to the same
+source/scope plus scoped canonical URL. Canonical URL remains official location,
+not cross-source identity; no stored ID was rewritten. Pagination authority is,
+in order, `nextCursor`, server `hasMore`, valid explicit raw count, then raw
+pre-filter page cardinality. Accepted count is never authority. Page/refresh/
+scope/owner generations fence late responses, retained data survives a page
+failure, and the controlled 20→40→60→80→100 cap remains.
+
+### Repair 2 complete verification
+
+| Exact command or check | Final result | Boundary |
+|---|---|---|
+| `npm.cmd --prefix apps/mobile-native run test:native -- --runInBand` | **PASS — 25 suites / 237 tests / 0 snapshots**, 60.017 s | Complete native Jest; increased from the prior 25 / 227 and did not decrease |
+| `npx.cmd vitest run --configLoader runner` | **PASS — 76 files / 960 tests**, authoritative final run 35.37 s | Complete post-fix regression using only a fresh disposable MongoDB 8.0 process bound to `127.0.0.1` |
+| `npx.cmd vitest run apps/api/tests --configLoader runner` | **PASS — 47 files / 540 tests**, authoritative final run 32.81 s | Complete API/shared-contract slice using that same disposable loopback fixture |
+| `npm.cmd run typecheck` | **PASS** | Workspace TypeScript |
+| `npm.cmd run typecheck:mobile:native` | **PASS** | Mobile-native TypeScript |
+| `.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon` from `apps/mobile-native/android` | **PASS — 2 m 10 s; 268 tasks (13 executed / 255 up-to-date)** | Required x86_64 debug assembly; local SDK-location/XML and path-length notices were non-fatal |
+| `npx.cmd vitest run tests/unit/phase-1-8-documentation-consistency.test.ts --configLoader runner` | **PASS — 1 file / 7 tests** | Focused post-ledger documentation reconciliation |
+
+One pre-final complete Vitest attempt passed 75 files and 959 tests but retained
+one stale `announcements-api` expectation that still encoded URL-only merging.
+The assertion was corrected to require both materially different fingerprints,
+its focused 1-file/7-test rerun passed, and the authoritative complete rerun
+above passed 76/960. The first workspace TypeScript attempt then exposed an
+`exactOptionalPropertyTypes` mismatch at the logical-identity URL boundary; the
+helper contract was aligned with the existing optional canonical URL plus
+required link fallback, the focused identity test passed, and both final
+TypeScript gates passed. The first sandboxed Android attempt could not read the
+configured user SDK or write Gradle's report; the unchanged elevated rerun
+accessed that local SDK and produced the successful build above.
+
+The temporary Mongo processes were the exact locally started PIDs, listened
+only on `127.0.0.1`, and were stopped after their suites. Their validated fresh
+workspace data directories were removed and port `27017` was verified to have
+no listener. No environment URI, remote host, SSH tunnel, existing application
+database, or production data was used. This ordinary regression fixture was
+not the separately scoped Repair 3 concurrency verification.
+
+### Repair 2 hygiene, scope, and data-safety verification
+
+| Exact command or review | Result |
+|---|---|
+| `git diff --check`; changed-text NUL scan | **PASS — no whitespace error and no NUL finding** |
+| Sensitive-log and credential scans | **PASS — zero match** |
+| Runtime Firestore and native fake-social scans | **PASS — zero match** |
+| Forbidden `.skip`/`.only`/`.todo`, snapshot matcher/file, empty callback, and vacuous constant-assertion scans | **PASS — zero match** |
+| `phase[ -]?13` production-source scan and changed-file scope review | **PASS — zero later-phase source match; changes are limited to the Repair 2 API/native production symbols, tests, and seven authorized documentation files** |
+| Disposable fixture/process/port cleanup | **PASS — exact directories removed, task-owned Mongo PIDs absent, and `127.0.0.1:27017` clear** |
+
+Repair 2 performed no migration, backfill, reconciliation, production-data
+read or write, provider access, deployment, publication, push, stored-record ID
+rewrite, visual redesign, tab change, analytics/social feature, or unrelated
+phase work. Real FCM and Google flows, iOS/VoiceOver/Dynamic Type, TalkBack,
+predictive Back, installed authenticated E2E, live providers, Play/App Store
+acceptance, and physical-device evidence remain the already documented external
+limitations and were not retried.

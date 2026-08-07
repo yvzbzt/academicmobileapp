@@ -13,12 +13,14 @@ import {
   inferContentFeedHasMore,
   nextContentFeedLimit,
   resolveContentFeedLayout,
+  resolveContentFeedHasMore,
   resolveContentFeedState,
   settleContentFeedLoading,
   type ContentFeedBuildInput,
   type ContentFeedStateInput,
 } from "../../apps/mobile-native/src/announcements/feed-model";
 import {
+  logicalContentIdentityKey,
   normalizeTrustedContentCollection,
   type MobileContentRecordInput,
   type TrustedMobileContentRecord,
@@ -48,12 +50,12 @@ describe("Phase 8 trusted academic content feed", () => {
     expect(items[0]?.record.trustStatus).toBe("trusted");
   });
 
-  it("rejects a source-less record even when the Phase 2 compatibility normalizer supplied its generic fallback", () => {
+  it("rejects a source-less record at the shared normalizer before any feed handoff", () => {
     const normalized = normalizeTrustedContentCollection([
       rawRecord({ sourceName: "", officialSourceUrl: "https://example.edu.tr" }),
     ]);
 
-    expect(normalized.items[0]?.sourceName).toBe("Resmî kaynak");
+    expect(normalized.items).toEqual([]);
     expect(buildContentFeed(feedInput({ academic: normalized.items }))).toEqual([]);
   });
 
@@ -120,10 +122,28 @@ describe("Phase 8 trusted academic content feed", () => {
 
     expect(items).toHaveLength(1);
     expect(items[0]).toEqual(expect.objectContaining({
-      key: "feed:example.edu.tr/ortak/ilan",
+      key: logicalContentIdentityKey(yok),
       sourceFamilies: ["university", "yok", "summer-school"],
     }));
     expect(items[0]?.record.id).toBe("yok-copy");
+  });
+
+  it("never treats a canonical URL as cross-source identity", () => {
+    const canonicalUrl = "https://example.edu.tr/ortak/ilan";
+    const first = record({ id: "source-a", sourceId: "source-a", canonicalUrl, link: canonicalUrl });
+    const second = record({ id: "source-b", sourceId: "source-b", canonicalUrl, link: canonicalUrl });
+    const fingerprintVariant = record({
+      id: "fingerprint-b",
+      sourceId: "source-a",
+      canonicalUrl,
+      link: canonicalUrl,
+      contentFingerprint: "b".repeat(64),
+    });
+
+    const items = buildContentFeed({ academic: [first, second, fingerprintVariant], yok: [], summerSchool: [] });
+
+    expect(items).toHaveLength(3);
+    expect(new Set(items.map((item) => item.key)).size).toBe(3);
   });
 
   it("uses canonical identity for stable unique keys when distinct records repeat the same API id", () => {
@@ -139,7 +159,10 @@ describe("Phase 8 trusted academic content feed", () => {
     const secondKeys = buildContentFeed(secondInput).map((item) => item.key);
 
     expect(new Set(firstKeys).size).toBe(2);
-    expect(firstKeys).toEqual(["feed:example.edu.tr/duyuru/a", "feed:example.edu.tr/duyuru/b"]);
+    expect(firstKeys).toEqual([
+      logicalContentIdentityKey(firstInput.academic[0]!),
+      logicalContentIdentityKey(firstInput.academic[1]!),
+    ]);
     expect(secondKeys).toEqual(firstKeys);
   });
 
@@ -182,7 +205,7 @@ describe("Phase 8 trusted academic content feed", () => {
 
     expect(items.slice(0, 2).map((item) => item.record.id)).toEqual(["a", "b"]);
     expect(items.every((item) => item.displayTimestamp === null)).toBe(true);
-    expect(items.find((item) => item.key.endsWith("/duplicate"))?.record.id).toBe("lexically-earlier");
+    expect(items.find((item) => item.record.canonicalUrl.includes("/duplicate"))?.record.id).toBe("lexically-earlier");
   });
 });
 
@@ -365,6 +388,45 @@ describe("Phase 8 controlled incremental loading and responsive policy", () => {
     expect(inferContentFeedHasMore({ requestedLimit: 0, receivedCount: 100 })).toBe(false);
   });
 
+  it("uses cursor, server boolean, explicit raw count, then raw cardinality in strict order", () => {
+    expect(resolveContentFeedHasMore({
+      requestedLimit: 20,
+      nextCursor: "cursor-2",
+      hasMore: false,
+      explicitRawCount: 0,
+      rawItemCount: 0,
+    })).toBe(true);
+    expect(resolveContentFeedHasMore({
+      requestedLimit: 20,
+      hasMore: false,
+      explicitRawCount: 20,
+      rawItemCount: 20,
+    })).toBe(false);
+    expect(resolveContentFeedHasMore({
+      requestedLimit: 20,
+      explicitRawCount: 20,
+      rawItemCount: 3,
+    })).toBe(true);
+    expect(resolveContentFeedHasMore({ requestedLimit: 20, rawItemCount: 20 })).toBe(true);
+    expect(resolveContentFeedHasMore({ requestedLimit: 20, rawItemCount: 19 })).toBe(false);
+    expect(resolveContentFeedHasMore({ requestedLimit: 20, rawItemCount: 20 })).toBe(true); // all filtered
+    expect(resolveContentFeedHasMore({ requestedLimit: 20, rawItemCount: 20 })).toBe(true); // all duplicate
+    expect(resolveContentFeedHasMore({ requestedLimit: 100, nextCursor: "ignored-at-cap", rawItemCount: 100 })).toBe(false);
+  });
+
+  it("retains a successful page when a later page fails and rejects its late settlement after refresh", () => {
+    const requests = createContentFeedRequestCoordinator();
+    const retained = { loading: false, data: ["page-1"], attempted: true, stale: false };
+    const failedPage = requests.beginPagination()!;
+    requests.finish(failedPage);
+    expect(retained).toEqual({ loading: false, data: ["page-1"], attempted: true, stale: false });
+
+    const latePage = requests.beginPagination()!;
+    const refresh = requests.beginRefresh()!;
+    expect(requests.isCurrent(latePage)).toBe(false);
+    expect(requests.isCurrent(refresh)).toBe(true);
+  });
+
   it("stays single-column and unclipped at 320 dp and 200% font scale", () => {
     expect(resolveContentFeedLayout(320, 2)).toEqual({
       gutter: 16,
@@ -408,7 +470,7 @@ function feedInput(overrides: Partial<ContentFeedBuildInput> = {}): ContentFeedB
 }
 
 function record(overrides: Partial<TrustedMobileContentRecord> = {}): TrustedMobileContentRecord {
-  return {
+  const candidate = {
     id: "content-1",
     sourceId: "source-1",
     sourceName: "Örnek Üniversitesi",
@@ -421,12 +483,25 @@ function record(overrides: Partial<TrustedMobileContentRecord> = {}): TrustedMob
     canonicalUrl: "https://example.edu.tr/duyuru/1",
     officialSourceUrl: "https://example.edu.tr/",
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
     ...overrides,
   };
+  return {
+    ...candidate,
+    sourceRelationships: candidate.sourceRelationships ?? [{
+      sourceId: candidate.sourceId,
+      sourceName: candidate.sourceName,
+      officialSourceUrl: candidate.officialSourceUrl ?? "",
+      scopeType: candidate.scopeType,
+      scopeId: candidate.scopeId,
+      canonicalUrl: candidate.canonicalUrl ?? candidate.link,
+    }],
+  } as TrustedMobileContentRecord;
 }
 
 function rawRecord(overrides: Partial<MobileContentRecordInput> = {}): MobileContentRecordInput {
-  return {
+  const candidate: MobileContentRecordInput = {
     id: "content-1",
     sourceId: "source-1",
     sourceName: "Örnek Üniversitesi",
@@ -435,7 +510,21 @@ function rawRecord(overrides: Partial<MobileContentRecordInput> = {}): MobileCon
     scopeId: "university-1",
     title: "Öğrenci kayıt duyurusu",
     link: "https://example.edu.tr/duyuru/1",
+    officialSourceUrl: "https://example.edu.tr/",
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
     ...overrides,
+  };
+  return {
+    ...candidate,
+    sourceRelationships: candidate.sourceRelationships ?? [{
+      sourceId: candidate.sourceId,
+      sourceName: candidate.sourceName,
+      officialSourceUrl: candidate.officialSourceUrl ?? "",
+      scopeType: candidate.scopeType,
+      scopeId: candidate.scopeId,
+      canonicalUrl: candidate.canonicalUrl ?? candidate.link,
+    }],
   };
 }

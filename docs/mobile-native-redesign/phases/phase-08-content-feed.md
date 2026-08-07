@@ -174,3 +174,37 @@ Persistent platform limitations are exact: `accessibility_enabled=0` and TalkBac
 ## Current handoff
 
 Implementation commit `7b64c9c364b1b3b85e3a7b881894b3ea9e8ba7b9`, cross-phase repair `5a6ac1a48101569b4a9061f995b0bdd4ba77dd25`, and mobile/performance reconciliation `2e3664546f628a19c6fa929b9ee9469e5322f9a8` are complete. The historical Android debug presentation review remains valid within its stated boundary; release performance acceptance is the separate 4 August harness record above. Phase 9 was not started: Calendar/manual-exam design, event detail, CRUD, native date interaction, and integration redesign remain Phase 9 scope.
+
+## Final Correctness Repair 2 reconciliation — 7 August 2026
+
+This addendum supersedes canonical-URL-only duplicate identity and any wording
+that inferred continuation from accepted rows. Stored record ID remains the
+identity of one persisted document. `logicalContentIdentityKey` on native and
+`academicContentLogicalIdentityKey` on the API define presentation identity as
+source identity + normalized academic scope + valid server fingerprint. A
+legacy or malformed fingerprint falls back to source + scope + the scoped
+canonical URL. Collision-safe tuple encoding prevents ambiguous concatenation;
+different universities, academic scopes, sources, and material fingerprints
+remain distinct, while tracking-only URL variants and equivalent logical
+content remain stable across pagination. React keys use this logical identity.
+
+Home, feed candidates, detail, and relevant handoffs re-use the shared strict
+predicate described in the Phase 7 addendum. API-trusted ingress materializes
+the server-proven active/trusted source boundary and rejects contradictory
+status evidence. Safe official/canonical authority, explicit attribution, and
+consistent source relationships remain mandatory.
+
+Pagination authority is, in order: nonblank `nextCursor`, server `hasMore`, a
+valid explicit raw server count, then raw page cardinality captured before
+trust filtering or deduplication. Thus a raw 20-row page with 12 accepted rows,
+or even zero newly accepted rows because of filtering/duplicates, remains
+pageable when the raw evidence says so. Short pages stop; explicit booleans and
+cursors take precedence; the cumulative 20→40→60→80→100 ceiling remains.
+Refresh invalidates pagination, and scope/owner reset invalidates both request
+kinds, so late responses cannot overwrite newer retained data.
+
+Focused Repair 2 coverage passes the native trust/feed model gates (35 and 34
+tests), the mounted feed/detail presentation gates, and the API trust/identity/
+ingestion/Calendar identity gate (4 files / 73 tests). No endpoint, schema,
+migration, reconciliation, stored-ID rewrite, production-data access, feed
+redesign, new action, provider change, or later phase was introduced.

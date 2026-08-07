@@ -123,6 +123,8 @@ function previewProps(scenario: HomeDailyBriefPreviewScenario): HomeDailyBriefPr
 }
 
 function previewAnnouncement(id: string, title: string, publishedAt: string): TrustedMobileContentRecord {
+  const canonicalUrl = `https://preview.edu.tr/duyurular/${id}`;
+  const officialSourceUrl = "https://preview.edu.tr/duyurular";
   return {
     id,
     sourceId: "preview-source",
@@ -131,9 +133,20 @@ function previewAnnouncement(id: string, title: string, publishedAt: string): Tr
     scopeId: "preview-university",
     title,
     summary: "Öğrencilerin işlem tarihlerini kaçırmaması için yayımlanan sentetik bilgilendirme özeti.",
-    link: `https://preview.edu.tr/duyurular/${id}`,
-    canonicalUrl: `https://preview.edu.tr/duyurular/${id}`,
+    link: canonicalUrl,
+    canonicalUrl,
+    officialSourceUrl,
+    sourceRelationships: [{
+      sourceId: "preview-source",
+      sourceName: "Örnek Üniversitesi Öğrenci İşleri",
+      officialSourceUrl,
+      scopeType: "university",
+      scopeId: "preview-university",
+      canonicalUrl,
+    }],
     publishedAt,
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
   };
 }

@@ -100,7 +100,9 @@ describe("deterministic hydration, auth, and route guards", () => {
   it("keeps loading and recoverable error hydration above sessions and requested routes", () => {
     expect(resolveRootRoute(rootState({
       hydrationStatus: "loading",
-      owner: ownerA,
+      sessionOwner: ownerA,
+      currentOwner: { ownerId: "owner-b", generation: ownerA.generation },
+      authStage: "academic_onboarding",
       requestedRoute: appRoutes.notificationSettings()
     }))).toEqual({
       surface: "hydration",
@@ -108,7 +110,12 @@ describe("deterministic hydration, auth, and route guards", () => {
       redirected: true,
       reason: "hydration_loading"
     });
-    expect(resolveRootRoute(rootState({ hydrationStatus: "error", owner: ownerA }))).toMatchObject({
+    expect(resolveRootRoute(rootState({
+      hydrationStatus: "error",
+      sessionOwner: ownerA,
+      currentOwner: { ownerId: ownerA.ownerId, generation: ownerA.generation + 1 },
+      authStage: "academic_onboarding"
+    }))).toMatchObject({
       surface: "hydration",
       route: { name: "Hydration", params: { status: "error" } },
       reason: "hydration_error"
@@ -146,8 +153,27 @@ describe("deterministic hydration, auth, and route guards", () => {
     });
   });
 
-  it("preserves academic onboarding outside the tab shell", () => {
+  it("requires an exact authenticated owner before opening academic onboarding", () => {
     expect(resolveRootRoute(rootState({ authStage: "academic_onboarding" }))).toEqual({
+      surface: "auth",
+      route: { name: "Login" },
+      redirected: true,
+      reason: "session_missing"
+    });
+    expect(resolveRootRoute(rootState({
+      sessionOwner: ownerA,
+      authStage: "academic_onboarding"
+    }))).toEqual({
+      surface: "auth",
+      route: { name: "Login" },
+      redirected: true,
+      reason: "current_owner_missing"
+    });
+    expect(resolveRootRoute(rootState({
+      sessionOwner: ownerA,
+      currentOwner: ownerA,
+      authStage: "academic_onboarding"
+    }))).toEqual({
       surface: "onboarding",
       route: { name: "AcademicOnboarding" },
       redirected: false,
@@ -187,7 +213,8 @@ describe("deterministic hydration, auth, and route guards", () => {
   it("keeps an activated owner in academic onboarding and defers protected work", () => {
     const requestedRoute = appRoutes.calendar();
     expect(resolveRootRoute(rootState({
-      owner: ownerA,
+      sessionOwner: ownerA,
+      currentOwner: ownerA,
       authStage: "academic_onboarding",
       requestedRoute
     }))).toEqual({
@@ -198,7 +225,8 @@ describe("deterministic hydration, auth, and route guards", () => {
     });
 
     expect(resolveRootRoute(rootState({
-      owner: ownerA,
+      sessionOwner: ownerA,
+      currentOwner: ownerA,
       authStage: "auth",
       requestedRoute
     }))).toEqual({
@@ -229,7 +257,8 @@ describe("deterministic hydration, auth, and route guards", () => {
 
   it("opens a protected requested route for the exact signed-in owner", () => {
     expect(resolveRootRoute(rootState({
-      owner: ownerA,
+      sessionOwner: ownerA,
+      currentOwner: ownerA,
       requestedRoute: appRoutes.announcementDetail("announcement-42")
     }))).toEqual({
       surface: "authenticated",
@@ -241,7 +270,8 @@ describe("deterministic hydration, auth, and route guards", () => {
 
   it("redirects auth/onboarding routes away from an existing session", () => {
     expect(resolveRootRoute(rootState({
-      owner: ownerA,
+      sessionOwner: ownerA,
+      currentOwner: ownerA,
       requestedRoute: appRoutes.register()
     }))).toEqual({
       surface: "authenticated",
@@ -250,7 +280,8 @@ describe("deterministic hydration, auth, and route guards", () => {
       reason: "signed_in_public_guard"
     });
     expect(resolveRootRoute(rootState({
-      owner: ownerA,
+      sessionOwner: ownerA,
+      currentOwner: ownerA,
       authStage: "auth",
       requestedRoute: appRoutes.academicOnboarding()
     }))).toEqual({
@@ -266,13 +297,54 @@ describe("deterministic hydration, auth, and route guards", () => {
     });
   });
 
-  it("fails an invalid owner generation closed as signed out", () => {
+  it("fails invalid session and current-owner records closed to authentication", () => {
     expect(resolveRootRoute(rootState({
-      owner: { ownerId: "owner-a", generation: -1 },
+      sessionOwner: { ownerId: "owner-a", generation: -1 },
+      currentOwner: ownerA,
       requestedRoute: appRoutes.profile()
-    }))).toMatchObject({
+    }))).toEqual({
+      surface: "auth",
       route: { name: "Login" },
-      reason: "signed_out_protected_guard"
+      redirected: true,
+      reason: "session_invalid"
+    });
+    expect(resolveRootRoute(rootState({
+      sessionOwner: ownerA,
+      currentOwner: { ownerId: "../invalid", generation: 4 },
+      requestedRoute: appRoutes.profile()
+    }))).toEqual({
+      surface: "auth",
+      route: { name: "Login" },
+      redirected: true,
+      reason: "current_owner_invalid"
+    });
+  });
+
+  it("fails a session/current-owner identity mismatch closed before onboarding or content", () => {
+    expect(resolveRootRoute(rootState({
+      sessionOwner: ownerA,
+      currentOwner: { ownerId: "owner-b", generation: ownerA.generation },
+      authStage: "academic_onboarding",
+      requestedRoute: appRoutes.calendar()
+    }))).toEqual({
+      surface: "auth",
+      route: { name: "Login" },
+      redirected: true,
+      reason: "session_owner_mismatch"
+    });
+  });
+
+  it("fails a credential-generation mismatch closed before onboarding or content", () => {
+    expect(resolveRootRoute(rootState({
+      sessionOwner: ownerA,
+      currentOwner: { ownerId: ownerA.ownerId, generation: ownerA.generation + 1 },
+      authStage: "academic_onboarding",
+      requestedRoute: appRoutes.announcementDetail("announcement-42")
+    }))).toEqual({
+      surface: "auth",
+      route: { name: "Login" },
+      redirected: true,
+      reason: "credential_generation_mismatch"
     });
   });
 });
@@ -349,12 +421,17 @@ describe("strict academicpulse route and notification resolution", () => {
     expect(JSON.stringify(parseAcademicPulseRouteUrl(malicious))).not.toContain("secret-value");
   });
 
-  it("keeps Unknown safe on either side of the session guard", () => {
+  it("defers Unknown behind identity validation and then uses the safe fallback", () => {
     expect(resolveRootRoute(rootState({ requestedRoute: appRoutes.unknown() }))).toMatchObject({
-      surface: "unknown",
-      route: { name: "Unknown" }
+      surface: "auth",
+      route: { name: "Login" },
+      reason: "signed_out_protected_guard"
     });
-    expect(resolveRootRoute(rootState({ owner: ownerA, requestedRoute: appRoutes.unknown() }))).toMatchObject({
+    expect(resolveRootRoute(rootState({
+      sessionOwner: ownerA,
+      currentOwner: ownerA,
+      requestedRoute: appRoutes.unknown()
+    }))).toMatchObject({
       surface: "unknown",
       route: { name: "Unknown" }
     });
@@ -609,7 +686,8 @@ describe("tab history and platform back policy", () => {
 function rootState(overrides: Partial<RootRouteState> = {}): RootRouteState {
   return {
     hydrationStatus: "ready",
-    owner: null,
+    sessionOwner: null,
+    currentOwner: null,
     authMode: "login",
     authStage: "auth",
     hasPendingVerification: false,

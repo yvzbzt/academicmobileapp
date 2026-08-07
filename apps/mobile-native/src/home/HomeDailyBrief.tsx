@@ -13,8 +13,8 @@ import {
 } from "react-native";
 import { Banner, Button, Card, Skeleton, usePlatformAdaptation, useTheme } from "../design-system";
 import {
+  admitTrustedContentRecord,
   contentTimestampLabel,
-  normalizeTrustedContentCollection,
   type ContentCollectionState,
   type TrustedMobileContentRecord,
 } from "../content/content-trust";
@@ -96,11 +96,10 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
     [clock, props.events, props.manualExams]
   );
   const trustedAnnouncements = useMemo(
-    () => normalizeTrustedContentCollection(
-      props.announcements.filter((item) => item.trustStatus === "trusted")
-    ).items.filter(
-      (item) => Boolean(item.sourceId.trim() && item.sourceName.trim())
-    ),
+    () => props.announcements.flatMap((item) => {
+      const admitted = admitTrustedContentRecord(item);
+      return admitted ? [admitted] : [];
+    }),
     [props.announcements]
   );
   const importantAnnouncement = useMemo(

@@ -295,12 +295,39 @@ export function createNormalizedContentFingerprint(input: {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
-export function scopedContentFingerprintKey(input: {
+/**
+ * Presentation identity is deliberately separate from the stored document ID.
+ * A source-issued fingerprint identifies equivalent content only inside the
+ * same source and academic scope. Legacy or malformed fingerprints fall back
+ * to that same source/scope plus the canonical official location.
+ *
+ * JSON tuple encoding keeps field boundaries collision-safe even when one
+ * identifier contains text that resembles another tuple segment.
+ */
+export function academicContentLogicalIdentityKey(input: {
+  sourceId: string;
   scopeType: AnnouncementItem["scopeType"];
   scopeId: string;
-  contentFingerprint: string;
-}): string {
-  return `${input.scopeType}\u0000${input.scopeId}\u0000${input.contentFingerprint}`;
+  contentFingerprint?: string;
+  canonicalUrl?: string;
+  link?: string;
+}): string | null {
+  const sourceId = normalizeIdentitySegment(input.sourceId);
+  const scopeId = normalizeIdentitySegment(input.scopeId);
+  if (!sourceId || !scopeId || !["university", "faculty", "department"].includes(input.scopeType)) return null;
+
+  const fingerprint = typeof input.contentFingerprint === "string" && /^[a-f\d]{64}$/u.test(input.contentFingerprint)
+    ? input.contentFingerprint
+    : null;
+  if (fingerprint) {
+    return JSON.stringify(["academic-content-v1", "fingerprint", sourceId, input.scopeType, scopeId, fingerprint]);
+  }
+
+  const contentUrl = input.canonicalUrl ?? input.link;
+  const canonicalKey = typeof contentUrl === "string" ? canonicalContentKey(contentUrl) : null;
+  return canonicalKey
+    ? JSON.stringify(["academic-content-v1", "canonical", sourceId, input.scopeType, scopeId, canonicalKey])
+    : null;
 }
 
 export function evaluateContentTrust(input: {
@@ -462,13 +489,15 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
       trustReasonCodes: [],
       dedupeKey: decision.dedupeKey
     };
-    const existing = unique.get(contentFingerprint);
+    const logicalKey = academicContentLogicalIdentityKey(normalized);
+    if (!logicalKey) continue;
+    const existing = unique.get(logicalKey);
     if (!existing) {
-      unique.set(contentFingerprint, normalized);
+      unique.set(logicalKey, normalized);
       continue;
     }
     const preferred = compareAcademicContentDuplicateRecency(normalized, existing) > 0 ? normalized : existing;
-    unique.set(contentFingerprint, {
+    unique.set(logicalKey, {
       ...preferred,
       canonicalUrlAliases: normalizeCanonicalUrlAliases(
         [...(existing.canonicalUrlAliases ?? []), ...(normalized.canonicalUrlAliases ?? [])],
@@ -476,25 +505,7 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
       )
     });
   }
-  const canonicalUnique = new Map<string, AnnouncementItem>();
-  for (const normalized of unique.values()) {
-    const key = canonicalContentKey(normalized.canonicalUrl ?? normalized.link);
-    if (!key) continue;
-    const existing = canonicalUnique.get(key);
-    if (!existing) {
-      canonicalUnique.set(key, normalized);
-      continue;
-    }
-    const preferred = compareAcademicContentDuplicateRecency(normalized, existing) > 0 ? normalized : existing;
-    canonicalUnique.set(key, {
-      ...preferred,
-      canonicalUrlAliases: normalizeCanonicalUrlAliases(
-        [...(existing.canonicalUrlAliases ?? []), ...(normalized.canonicalUrlAliases ?? [])],
-        officialSourceUrl
-      )
-    });
-  }
-  return [...canonicalUnique.values()];
+  return [...unique.values()];
 }
 
 export function toIsoString(value: string | Date | undefined): string | undefined {
@@ -577,6 +588,12 @@ function operationalContentTimestamp(item: Pick<AnnouncementItem, "discoveredAt"
   return Math.max(...[item.discoveredAt, item.fetchedAt]
     .map((value) => value ? Date.parse(value) : 0)
     .filter(Number.isFinite), 0);
+}
+
+function normalizeIdentitySegment(value: string): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.normalize("NFKC").trim();
+  return normalized && !/[\u0000-\u001F\u007F]/u.test(normalized) ? normalized : null;
 }
 
 function foldTurkish(value: string): string {

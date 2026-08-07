@@ -3,7 +3,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException, Optional, U
 import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
 import { findVerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
-import { canonicalContentKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, isOfficialContentUrl, normalizeDisplayText, toTrustedAcademicContentDto } from "../announcements/announcement-content-trust.js";
+import { academicContentLogicalIdentityKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, isOfficialContentUrl, normalizeDisplayText, toTrustedAcademicContentDto } from "../announcements/announcement-content-trust.js";
 import type { AnnouncementRepository, AnnouncementSourceRecord } from "../announcements/announcements.types.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
@@ -812,7 +812,8 @@ function isSelectedUniversityAnnouncementScope(item: Pick<TrustedAcademicContent
 function dedupeAnnouncementItems(items: TrustedAcademicContentDto[]): TrustedAcademicContentDto[] {
   const unique = new Map<string, TrustedAcademicContentDto>();
   for (const item of items) {
-    const key = canonicalContentKey(item.canonicalUrl) ?? item.canonicalUrl;
+    const key = academicContentLogicalIdentityKey(item);
+    if (!key) continue;
     const existing = unique.get(key);
     if (!existing || compareAcademicContentDuplicateRecency(item, existing) > 0) unique.set(key, item);
   }

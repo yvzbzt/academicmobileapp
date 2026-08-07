@@ -8,7 +8,7 @@ import type { AnnouncementSourceRecord } from "../../apps/api/src/modules/announ
 import { buildContentFeed } from "../../apps/mobile-native/src/announcements/feed-model";
 import {
   contentTimestampLabel,
-  normalizeTrustedContentCollection
+  normalizeTrustedApiContentCollection
 } from "../../apps/mobile-native/src/content/content-trust";
 
 describe("announcement date-only API-to-native semantics", () => {
@@ -38,7 +38,7 @@ describe("announcement date-only API-to-native semantics", () => {
     }));
     expect(dto).not.toHaveProperty("publishedAt");
 
-    const [native] = normalizeTrustedContentCollection([dto!]).items;
+    const [native] = normalizeTrustedApiContentCollection([dto!]).items;
     const [feedItem] = buildContentFeed({ academic: [native!], yok: [], summerSchool: [] });
     const detailLabel = contentTimestampLabel(native!);
     expect(feedItem).toEqual(expect.objectContaining({

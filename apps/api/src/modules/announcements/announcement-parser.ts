@@ -3,6 +3,7 @@ import tls from "node:tls";
 import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import {
+  academicContentLogicalIdentityKey,
   canonicalContentKey,
   canonicalizeContentUrl,
   compareAcademicContentDuplicateRecency,
@@ -152,13 +153,14 @@ export function dedupeAnnouncements(items: AnnouncementItem[]): AnnouncementItem
   const unique = new Map<string, AnnouncementItem>();
   for (const item of items) {
     const contentFingerprint = createNormalizedContentFingerprint(item);
-    const key = `${item.scopeType}\u0000${item.scopeId}\u0000${contentFingerprint}`;
     const normalized = {
       ...item,
       contentFingerprint,
       canonicalUrlAliases: [...new Set([item.canonicalUrl ?? item.link, ...(item.canonicalUrlAliases ?? [])])]
         .sort((left, right) => left.localeCompare(right, "en-US"))
     };
+    const key = academicContentLogicalIdentityKey(normalized);
+    if (!key) continue;
     if (!unique.has(key)) {
       unique.set(key, normalized);
       continue;

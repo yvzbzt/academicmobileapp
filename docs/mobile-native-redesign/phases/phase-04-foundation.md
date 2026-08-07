@@ -287,3 +287,26 @@ The following 17 pre-existing unrelated untracked status entries were preserved 
 - `prompts/`.
 
 One local scoped commit is created only after all required checks and cached-diff scans pass. Its SHA and post-commit status are reported in the terminal handoff because a commit cannot contain its own SHA. The commit is not amended or pushed.
+
+## Final Correctness Repair 2 reconciliation — 7 August 2026
+
+This addendum supersedes only the historical runtime-ownership sentence that
+described route resolution and intent coordination as deterministic models.
+`resolveRootRoute` and `RouteIntentCoordinator` are now mounted production
+boundaries in `App.tsx` and `AppNavigator`.
+
+The root decision order is hydration success → valid session → valid current
+owner → exact owner match → current credential generation → onboarding need →
+protected destination. Loading and controlled hydration error remain above
+every other surface. Missing, invalid, or mismatched identity returns to Login;
+ownerless onboarding cannot render. The onboarding draft and save attempt carry
+the exact owner generation, and logout, account switch, data reset, or a stale
+completion invalidates the draft and settlement. Malformed and unknown
+destinations remain deferred until those identity gates pass, then use the
+approved non-echoing fallback.
+
+Focused Repair 2 coverage passes
+`mobile-native-route-foundation.test.ts` (35 tests) and
+`mobile-native-auth-recovery.test.ts` (20 tests). The mounted navigator coverage
+is recorded in the Phase 5 addendum. No persisted session envelope, database
+record, migration, provider, tab, or visual foundation changed.

@@ -669,6 +669,17 @@ function getLeafRouteName(
   return getLeafRouteName(route.state) ?? route.name;
 }
 
+function expectedSafeRequestLeaf(request: AppNavigationRequest): AppVisibleRoute {
+  const params = request.params ?? {};
+  if (request.route === "AnnouncementDetail" && !isSafeRouteIdentifier(params.announcementId)) {
+    return "UnknownRoute";
+  }
+  if (request.route === "CalendarEventDetail" && !isSafeRouteIdentifier(params.eventId)) {
+    return "UnknownRoute";
+  }
+  return request.route;
+}
+
 function requestAction(request: AppNavigationRequest) {
   const params = request.params ?? {};
   switch (request.route) {
@@ -691,27 +702,29 @@ function requestAction(request: AppNavigationRequest) {
         params: { screen: request.route }
       });
     case "AnnouncementDetail":
-      if (!isSafeRouteIdentifier(params.announcementId)) {
+      if (expectedSafeRequestLeaf(request) === "UnknownRoute") {
         return CommonActions.navigate("UnknownRoute");
       }
       return CommonActions.navigate("Authenticated", {
         screen: "AnnouncementsTab",
         params: {
           screen: "AnnouncementDetail",
-          params: { announcementId: params.announcementId }
+          params: { announcementId: params.announcementId },
+          initial: false
         }
       });
     case "Calendar":
       return CommonActions.navigate("Authenticated", { screen: "CalendarTab", params: { screen: "Calendar" } });
     case "CalendarEventDetail":
-      if (!isSafeRouteIdentifier(params.eventId)) {
+      if (expectedSafeRequestLeaf(request) === "UnknownRoute") {
         return CommonActions.navigate("UnknownRoute");
       }
       return CommonActions.navigate("Authenticated", {
         screen: "CalendarTab",
         params: {
           screen: "CalendarEventDetail",
-          params: { eventId: params.eventId }
+          params: { eventId: params.eventId },
+          initial: false
         }
       });
     case "Profile":
@@ -757,7 +770,8 @@ export function AppNavigator({
   const theme = useTheme();
   const navigationTheme = useMemo(() => resolveNavigationTheme(theme), [theme]);
   const [ready, setReady] = useState(false);
-  const handledRequestKeyRef = useRef<string | null>(null);
+  const handledRequestKeysRef = useRef(new Set<string>());
+  const pendingRequestRef = useRef<{ key: string; expectedLeaf: AppVisibleRoute } | null>(null);
   const lastControlledRouteRef = useRef<string | null>(null);
   const contextValue = useMemo<RouteContentValue>(() => ({
     screens,
@@ -765,6 +779,27 @@ export function AppNavigator({
     navigationLocked,
     routeLeaveGuard,
   }), [globalFeedback, navigationLocked, routeLeaveGuard, screens]);
+
+  const acknowledgeVisibleRequest = useCallback((leaf: string | undefined): void => {
+    if (!leaf || !request || !requestMatchesRootSurface(request.route, rootSurface)) return;
+    const pending = pendingRequestRef.current;
+    if (
+      !pending
+      || pending.key !== request.key
+      || pending.expectedLeaf !== leaf
+      || handledRequestKeysRef.current.has(request.key)
+    ) return;
+    handledRequestKeysRef.current.add(request.key);
+    pendingRequestRef.current = null;
+    onRequestHandled?.(request.key);
+  }, [onRequestHandled, request, rootSurface]);
+
+  const reportVisibleRoute = useCallback(() => {
+    const leaf = getLeafRouteName(navigationRef.getRootState());
+    if (!leaf || !isVisibleRoute(leaf)) return;
+    onVisibleRouteChange?.(leaf);
+    acknowledgeVisibleRequest(leaf);
+  }, [acknowledgeVisibleRequest, onVisibleRouteChange]);
 
   useEffect(() => {
     if (!ready || !navigationRef.isReady()) return;
@@ -777,9 +812,20 @@ export function AppNavigator({
   }, [activeRoute, ready, rootSurface]);
 
   useEffect(() => {
-    if (!ready || !request || !navigationRef.isReady()) return;
-    if (!requestMatchesRootSurface(request.route, rootSurface)) return;
-    if (handledRequestKeyRef.current === request.key) return;
+    if (!request) {
+      pendingRequestRef.current = null;
+      return;
+    }
+    if (!ready || !navigationRef.isReady()) return;
+    if (
+      !requestMatchesRootSurface(request.route, rootSurface)
+      || handledRequestKeysRef.current.has(request.key)
+    ) {
+      if (pendingRequestRef.current?.key === request.key) pendingRequestRef.current = null;
+      return;
+    }
+    const expectedLeaf = expectedSafeRequestLeaf(request);
+    pendingRequestRef.current = { key: request.key, expectedLeaf };
     const visibleRoute = getLeafRouteName(navigationRef.getRootState());
     if (request.route === "Profile" && isNestedProfileSettingsRoute(visibleRoute)) {
       navigationRef.goBack();
@@ -788,21 +834,16 @@ export function AppNavigator({
       || visibleRoute !== request.route
     ) {
       navigationRef.dispatch(requestAction(request));
+    } else {
+      acknowledgeVisibleRequest(visibleRoute);
     }
-    handledRequestKeyRef.current = request.key;
-    onRequestHandled?.(request.key);
-  }, [onRequestHandled, ready, request, rootSurface]);
+  }, [acknowledgeVisibleRequest, ready, request, rootSurface]);
 
   useEffect(() => {
     if (!navigationLocked || Platform.OS !== "android") return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
     return () => subscription.remove();
   }, [navigationLocked]);
-
-  const reportVisibleRoute = () => {
-    const leaf = getLeafRouteName(navigationRef.getRootState());
-    if (leaf && isVisibleRoute(leaf)) onVisibleRouteChange?.(leaf);
-  };
 
   return (
     <RouteContentContext.Provider value={contextValue}>
@@ -872,7 +913,7 @@ function isNestedProfileSettingsRoute(route: string | undefined): boolean {
 }
 
 function requestMatchesRootSurface(route: AppVisibleRoute, surface: AppRootSurface): boolean {
-  if (route === "UnknownRoute") return true;
+  if (route === "UnknownRoute") return surface === "authenticated";
   if (route === "BootstrapLoading") return surface === "hydration_loading";
   if (route === "BootstrapError") return surface === "hydration_error";
   if (route === "AcademicOnboarding") return surface === "onboarding";

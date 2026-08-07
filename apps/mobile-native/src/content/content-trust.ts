@@ -1,5 +1,6 @@
 export type ContentFreshness = "fresh" | "stale";
 export type ContentTrustStatus = "trusted" | "rejected" | "quarantined";
+export type ContentSourceStatus = "active" | "inactive";
 export type ContentCollectionState = "fresh" | "stale" | "partial";
 
 export interface MobileContentRecordInput {
@@ -25,6 +26,8 @@ export interface MobileContentRecordInput {
   summary?: string;
   freshness?: ContentFreshness;
   trustStatus?: ContentTrustStatus;
+  sourceStatus?: ContentSourceStatus;
+  sourceTrustStatus?: ContentTrustStatus;
 }
 
 export interface MobileContentSourceRelationship {
@@ -39,9 +42,13 @@ export interface MobileContentSourceRelationship {
 export interface TrustedMobileContentRecord extends MobileContentRecordInput {
   canonicalUrl: string;
   link: string;
+  officialSourceUrl: string;
+  sourceRelationships: MobileContentSourceRelationship[];
   sourceName: string;
   title: string;
   trustStatus: "trusted";
+  sourceStatus: "active";
+  sourceTrustStatus: "trusted";
 }
 
 export interface TrustedContentCollection {
@@ -49,6 +56,10 @@ export interface TrustedContentCollection {
   state: ContentCollectionState;
   omittedCount: number;
   duplicateCount: number;
+  rawItemCount: number;
+  explicitRawCount?: number;
+  nextCursor?: string;
+  hasMore?: boolean;
 }
 
 export interface MobileContentCollectionInput {
@@ -56,7 +67,13 @@ export interface MobileContentCollectionInput {
   state?: ContentCollectionState;
   sourceCount?: number;
   failedSourceCount?: number;
+  rawCount?: number;
+  rawItemCount?: number;
+  nextCursor?: string | null;
+  hasMore?: boolean;
 }
+
+type ContentAdmissionOrigin = "explicit" | "trusted_api";
 
 const namedEntities: Record<string, string> = {
   Aacute: "Á",
@@ -238,20 +255,86 @@ export function isNavigationContentTitle(value: string): boolean {
 export function normalizeTrustedContentCollection(
   records: readonly MobileContentRecordInput[]
 ): TrustedContentCollection {
+  return normalizeContentCollection(records, "explicit");
+}
+
+/**
+ * Admits records returned by a trusted-content API boundary. The server has
+ * already proved active/trusted item and source status; any contradictory
+ * status that is nevertheless present on the wire still fails closed.
+ */
+export function normalizeTrustedApiContentCollection(
+  records: readonly MobileContentRecordInput[]
+): TrustedContentCollection {
+  return normalizeContentCollection(records, "trusted_api");
+}
+
+/** Re-validates one record at every native render or navigation handoff. */
+export function admitTrustedContentRecord(
+  record: MobileContentRecordInput
+): TrustedMobileContentRecord | null {
+  const normalized = normalizeTrustedContentRecord(record, "explicit");
+  if (!normalized) return null;
+  if (
+    normalized.id !== record.id
+    || normalized.sourceId !== record.sourceId
+    || normalized.scopeId !== record.scopeId
+    || normalized.sourceName !== record.sourceName
+    || normalized.title !== record.title
+    || normalized.canonicalUrl !== record.canonicalUrl
+    || normalized.link !== record.link
+    || normalized.officialSourceUrl !== record.officialSourceUrl
+    || (record.summary !== undefined && normalized.summary !== record.summary)
+  ) return null;
+  return normalized;
+}
+
+/**
+ * Record ids are storage identity only. Logical identity is source + scope +
+ * a valid fingerprint, with a scoped canonical-url fallback for legacy rows.
+ */
+export function logicalContentIdentityKey(
+  record: Pick<MobileContentRecordInput, "sourceId" | "scopeType" | "scopeId" | "contentFingerprint" | "canonicalUrl" | "link">
+): string | null {
+  const sourceId = normalizeIdentifier(record.sourceId);
+  const scopeId = normalizeIdentifier(record.scopeId);
+  if (!sourceId || !scopeId || !isAcademicScope(record.scopeType)) return null;
+  const fingerprint = validContentFingerprint(record.contentFingerprint);
+  if (fingerprint) {
+    return JSON.stringify(["content-v1", "fingerprint", sourceId, record.scopeType, scopeId, fingerprint]);
+  }
+  const canonicalUrl = canonicalizeOfficialAcademicUrl(record.canonicalUrl ?? record.link);
+  if (!canonicalUrl) return null;
+  return JSON.stringify([
+    "content-v1",
+    "canonical",
+    sourceId,
+    record.scopeType,
+    scopeId,
+    canonicalContentKey(canonicalUrl)
+  ]);
+}
+
+function normalizeContentCollection(
+  records: readonly MobileContentRecordInput[],
+  origin: ContentAdmissionOrigin
+): TrustedContentCollection {
   const unique = new Map<string, TrustedMobileContentRecord>();
   let omittedCount = 0;
   let duplicateCount = 0;
 
   for (const record of records) {
-    const normalized = normalizeTrustedContentRecord(record);
+    const normalized = normalizeTrustedContentRecord(record, origin);
     if (!normalized) {
       omittedCount += 1;
       continue;
     }
 
-    const canonicalKey = normalized.contentFingerprint
-      ? `${normalized.scopeType}\u0000${normalized.scopeId}\u0000${normalized.contentFingerprint}`
-      : `${normalized.scopeType}\u0000${normalized.scopeId}\u0000${canonicalContentKey(normalized.canonicalUrl)}`;
+    const canonicalKey = logicalContentIdentityKey(normalized);
+    if (!canonicalKey) {
+      omittedCount += 1;
+      continue;
+    }
     const existing = unique.get(canonicalKey);
     if (!existing) {
       unique.set(canonicalKey, normalized);
@@ -280,13 +363,26 @@ export function normalizeTrustedContentCollection(
       ? "stale"
       : "fresh";
 
-  return { items, state, omittedCount, duplicateCount };
+  return { items, state, omittedCount, duplicateCount, rawItemCount: records.length };
 }
 
 export function normalizeTrustedContentEnvelope(
   collection: MobileContentCollectionInput
 ): TrustedContentCollection {
-  const normalized = normalizeTrustedContentCollection(collection.items);
+  return normalizeContentEnvelope(collection, "explicit");
+}
+
+export function normalizeTrustedApiContentEnvelope(
+  collection: MobileContentCollectionInput
+): TrustedContentCollection {
+  return normalizeContentEnvelope(collection, "trusted_api");
+}
+
+function normalizeContentEnvelope(
+  collection: MobileContentCollectionInput,
+  origin: ContentAdmissionOrigin
+): TrustedContentCollection {
+  const normalized = normalizeContentCollection(collection.items, origin);
   const sourceState = collection.failedSourceCount !== undefined && collection.failedSourceCount > 0
     ? "partial"
     : collection.state;
@@ -295,7 +391,17 @@ export function normalizeTrustedContentEnvelope(
     : normalized.state === "stale" || sourceState === "stale"
       ? "stale"
       : "fresh";
-  return { ...normalized, state };
+  const nextCursor = typeof collection.nextCursor === "string" && collection.nextCursor.trim()
+    ? collection.nextCursor.trim()
+    : undefined;
+  const explicitRawCount = validRawCount(collection.rawCount) ?? validRawCount(collection.rawItemCount);
+  return {
+    ...normalized,
+    state,
+    ...(explicitRawCount === undefined ? {} : { explicitRawCount }),
+    ...(nextCursor ? { nextCursor } : {}),
+    ...(typeof collection.hasMore === "boolean" ? { hasMore: collection.hasMore } : {})
+  };
 }
 
 export function contentTimestampLabel(
@@ -313,24 +419,33 @@ export function contentTimestampLabel(
   return "Yayın tarihi belirtilmemiş";
 }
 
-function normalizeTrustedContentRecord(record: MobileContentRecordInput): TrustedMobileContentRecord | null {
-  if (record.trustStatus === "rejected" || record.trustStatus === "quarantined") return null;
+function normalizeTrustedContentRecord(
+  record: MobileContentRecordInput,
+  origin: ContentAdmissionOrigin
+): TrustedMobileContentRecord | null {
+  if (!hasTrustedAdmissionEvidence(record, origin)) return null;
+
+  const id = normalizeIdentifier(record.id);
+  const sourceId = normalizeIdentifier(record.sourceId);
+  const scopeId = normalizeIdentifier(record.scopeId);
+  if (!id || !sourceId || !scopeId || !isAcademicScope(record.scopeType)) return null;
+  if (record.contentType !== undefined && !isAcademicContentType(record.contentType)) return null;
 
   const canonicalUrl = canonicalizeOfficialAcademicUrl(record.canonicalUrl ?? record.link);
   if (!canonicalUrl) return null;
   const candidateOfficialDomain = officialDomainForUrl(canonicalUrl)!;
-  const officialSourceUrl = record.officialSourceUrl === undefined
-    ? undefined
-    : canonicalizeOfficialAcademicUrl(record.officialSourceUrl);
-  if (record.officialSourceUrl !== undefined && !officialSourceUrl) return null;
-  if (officialSourceUrl && officialDomainForUrl(officialSourceUrl) !== candidateOfficialDomain) return null;
+  const link = canonicalizeOfficialAcademicUrl(record.link);
+  const officialSourceUrl = canonicalizeOfficialAcademicUrl(record.officialSourceUrl);
+  if (!link || canonicalContentKey(link) !== canonicalContentKey(canonicalUrl)) return null;
+  if (!officialSourceUrl || officialDomainForUrl(officialSourceUrl) !== candidateOfficialDomain) return null;
 
   const title = normalizeDisplayText(record.title)
     .replace(/^\s*(?:\d{1,4}\s*of\s*\d{1,4}|\d{1,3}\s*\/\s*\d{1,4})\s*(?:[-–—:|>»]+\s*)?/iu, "")
     .trim();
   if (!title || isNavigationContentTitle(title) || !hasUsableDisplayTitle(title)) return null;
 
-  const sourceName = normalizeDisplayText(record.sourceName) || "Resmî kaynak";
+  const sourceName = normalizeDisplayText(record.sourceName);
+  if (!isExplicitAcademicSourceName(sourceName)) return null;
   const summary = normalizeDisplayText(record.summary);
   const publishedDate = record.publicationKind === "date" ? validDateOnly(record.publishedDate) : undefined;
   const publishedAt = record.publicationKind === "date" ? undefined : validIsoTimestamp(record.publishedAt);
@@ -349,38 +464,45 @@ function normalizeTrustedContentRecord(record: MobileContentRecordInput): Truste
     publishedDate: _publishedDate,
     publishedAt: _publishedAt,
     sourceRelationships: _sourceRelationships,
+    sourceStatus: _sourceStatus,
+    sourceTrustStatus: _sourceTrustStatus,
     sourceUpdatedAt: _sourceUpdatedAt,
     summary: _summary,
     trustStatus: _trustStatus,
     ...baseRecord
   } = record;
-  const contentFingerprint = typeof record.contentFingerprint === "string" && /^[a-f\d]{64}$/u.test(record.contentFingerprint)
-    ? record.contentFingerprint
-    : undefined;
+  const contentFingerprint = validContentFingerprint(record.contentFingerprint);
   const canonicalUrlAliases = normalizeCanonicalAliases(record.canonicalUrlAliases, canonicalUrl, candidateOfficialDomain);
-  const sourceRelationships = normalizeSourceRelationships([
-    ...(record.sourceRelationships ?? []),
-    ...(officialSourceUrl ? [{
-      sourceId: record.sourceId,
-      sourceName,
-      officialSourceUrl,
-      scopeType: record.scopeType,
-      scopeId: record.scopeId,
-      canonicalUrl
-    }] : [])
-  ]);
+  const sourceRelationships = normalizeSourceRelationships(record.sourceRelationships);
+  if (
+    sourceRelationships.length === 0
+    || sourceRelationships.length !== (record.sourceRelationships?.length ?? 0)
+    || sourceRelationships.some((relationship) => (
+      relationship.sourceId !== sourceId
+      || relationship.sourceName !== sourceName
+      || relationship.scopeType !== record.scopeType
+      || relationship.scopeId !== scopeId
+      || officialDomainForUrl(relationship.officialSourceUrl) !== candidateOfficialDomain
+      || officialDomainForUrl(relationship.canonicalUrl) !== candidateOfficialDomain
+    ))
+  ) return null;
 
   return {
     ...baseRecord,
+    id,
+    sourceId,
+    scopeId,
     sourceName,
     title,
     link: canonicalUrl,
     canonicalUrl,
     canonicalUrlAliases,
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
+    officialSourceUrl,
+    sourceRelationships,
     ...(contentFingerprint ? { contentFingerprint } : {}),
-    ...(sourceRelationships.length > 0 ? { sourceRelationships } : {}),
-    ...(officialSourceUrl ? { officialSourceUrl } : {}),
     ...(summary ? { summary } : {}),
     ...(publicationKind === "date" && publishedDate ? { publicationKind, publishedDate } : {}),
     ...(publicationKind === "timestamp" && publishedAt ? { publicationKind, publishedAt } : {}),
@@ -412,6 +534,62 @@ function foldForTrust(value: string): string {
 
 function hasUsableDisplayTitle(value: string): boolean {
   return (value.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 3;
+}
+
+function hasTrustedAdmissionEvidence(
+  record: MobileContentRecordInput,
+  origin: ContentAdmissionOrigin
+): boolean {
+  if (record.trustStatus !== undefined && record.trustStatus !== "trusted") return false;
+  if (record.sourceStatus !== undefined && record.sourceStatus !== "active") return false;
+  if (record.sourceTrustStatus !== undefined && record.sourceTrustStatus !== "trusted") return false;
+  return origin === "trusted_api" || (
+    record.trustStatus === "trusted"
+    && record.sourceStatus === "active"
+    && record.sourceTrustStatus === "trusted"
+  );
+}
+
+function normalizeIdentifier(value: string | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.normalize("NFKC").trim();
+  if (
+    !normalized
+    || normalized !== value
+    || normalized.length > 512
+    || /[\u0000-\u001F\u007F-\u009F]/u.test(normalized)
+  ) return null;
+  return normalized;
+}
+
+function isAcademicScope(value: string): value is MobileContentRecordInput["scopeType"] {
+  return value === "university" || value === "faculty" || value === "department";
+}
+
+function isAcademicContentType(value: string): value is NonNullable<MobileContentRecordInput["contentType"]> {
+  return value === "announcement" || value === "news" || value === "event";
+}
+
+function isExplicitAcademicSourceName(value: string): boolean {
+  const folded = foldForTrust(value);
+  return Boolean(folded) && !new Set([
+    "kaynak",
+    "akademik kaynak",
+    "resmi kaynak",
+    "resmi akademik kaynak",
+    "official source",
+    "official academic source"
+  ]).has(folded);
+}
+
+function validContentFingerprint(value: string | undefined): string | undefined {
+  return typeof value === "string" && /^[a-f\d]{64}$/u.test(value) ? value : undefined;
+}
+
+function validRawCount(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
 }
 
 function validDateOnly(value: string | undefined): string | undefined {
@@ -492,19 +670,21 @@ function normalizeSourceRelationships(
   relationships: readonly MobileContentSourceRelationship[] | undefined
 ): MobileContentSourceRelationship[] {
   const normalized = (relationships ?? []).flatMap((relationship): MobileContentSourceRelationship[] => {
+    const sourceId = normalizeIdentifier(relationship.sourceId);
+    const scopeId = normalizeIdentifier(relationship.scopeId);
     const sourceName = normalizeDisplayText(relationship.sourceName);
     const officialSourceUrl = canonicalizeOfficialAcademicUrl(relationship.officialSourceUrl);
     const canonicalUrl = canonicalizeOfficialAcademicUrl(relationship.canonicalUrl);
     if (
-      !relationship.sourceId?.trim()
-      || !relationship.scopeId?.trim()
-      || !sourceName
+      !sourceId
+      || !scopeId
+      || !isExplicitAcademicSourceName(sourceName)
       || !officialSourceUrl
       || !canonicalUrl
-      || !["university", "faculty", "department"].includes(relationship.scopeType)
+      || !isAcademicScope(relationship.scopeType)
       || officialDomainForUrl(officialSourceUrl) !== officialDomainForUrl(canonicalUrl)
     ) return [];
-    return [{ ...relationship, sourceName, officialSourceUrl, canonicalUrl }];
+    return [{ ...relationship, sourceId, scopeId, sourceName, officialSourceUrl, canonicalUrl }];
   });
   return [...new Map(normalized.map((relationship) => [
     [relationship.scopeType, relationship.scopeId, relationship.sourceId, relationship.canonicalUrl].join("\u0000"),

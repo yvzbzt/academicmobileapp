@@ -104,7 +104,7 @@ describe("trusted announcement API contract", () => {
     const query = Object.assign(new MyAnnouncementsQueryDto(), { limit: 10 });
     const body = await controller.getMyAnnouncements({ id: "student-1", role: "student" } as AuthenticatedUser, query);
 
-    expect(body).toHaveLength(3);
+    expect(body).toHaveLength(4);
     expect(body.find((item) => item.id === "trusted")).toEqual(expect.objectContaining({
       sourceName: "Ankara & Üniversitesi",
       title: "Araştırma & Geliştirme Duyurusu",
@@ -115,8 +115,8 @@ describe("trusted announcement API contract", () => {
       fetchedAt
     }));
     expect(body.find((item) => item.id === "crawl-only")).not.toHaveProperty("publishedAt");
-    expect(body.find((item) => item.canonicalUrl === "https://ankara.edu.tr/duyuru/duplicate")?.id)
-      .toBe("duplicate-newer-update");
+    expect(body.filter((item) => item.canonicalUrl.includes("/duyuru/duplicate")).map((item) => item.id))
+      .toEqual(expect.arrayContaining(["duplicate-later-publication", "duplicate-newer-update"]));
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain("rawTitle");
     expect(serialized).not.toContain("trustStatus");

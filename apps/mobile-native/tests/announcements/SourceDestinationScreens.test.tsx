@@ -32,7 +32,7 @@ function record(
   overrides: Partial<TrustedMobileContentRecord> = {},
 ): TrustedMobileContentRecord {
   const canonicalUrl = `https://example.edu.tr/duyurular/${id}`;
-  return {
+  const candidate = {
     id,
     sourceId: `source-${id}`,
     sourceName: "Örnek Üniversitesi Öğrenci İşleri",
@@ -48,8 +48,21 @@ function record(
     publishedDate: "2026-08-01",
     freshness: "fresh",
     trustStatus: "trusted",
+    sourceStatus: "active",
+    sourceTrustStatus: "trusted",
     ...overrides,
   };
+  return {
+    ...candidate,
+    sourceRelationships: candidate.sourceRelationships ?? [{
+      sourceId: candidate.sourceId,
+      sourceName: candidate.sourceName,
+      officialSourceUrl: candidate.officialSourceUrl ?? "",
+      scopeType: candidate.scopeType,
+      scopeId: candidate.scopeId,
+      canonicalUrl: candidate.canonicalUrl ?? candidate.link,
+    }],
+  } as TrustedMobileContentRecord;
 }
 
 const yokRecord = record("yok", {

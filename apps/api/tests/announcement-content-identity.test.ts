@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthRepository, AuthUserRecord } from "../src/modules/auth/auth.types.js";
+import { academicContentLogicalIdentityKey } from "../src/modules/announcements/announcement-content-trust.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
 import { AnnouncementsService } from "../src/modules/announcements/announcements.service.js";
 import type { AnnouncementContentType, AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementSourceRecord } from "../src/modules/announcements/announcements.types.js";
@@ -8,7 +9,7 @@ import * as announcementParser from "../src/modules/announcements/announcement-p
 describe("announcement logical content identity", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("unions same-scope source/URL relationships, keeps cross-scope identity, and preserves detail provenance", async () => {
+  it("keeps source and scope identity separate while preserving exact detail provenance", async () => {
     const repository = new InMemoryAnnouncementRepository();
     const universityA = await createSource(repository, "university", "university-1", "a", "announcement");
     const universityB = await createSource(repository, "university", "university-1", "b", "announcement");
@@ -23,30 +24,84 @@ describe("announcement logical content identity", () => {
 
     const service = new AnnouncementsService(authRepository(), repository);
     const collection = await service.getMyAnnouncements("student-1", 20);
-    expect(collection).toHaveLength(3);
+    expect(collection).toHaveLength(4);
 
-    const logicalUniversity = collection.find((item) =>
-      item.scopeType === "university" && item.contentType === "announcement");
-    expect(logicalUniversity?.canonicalUrlAliases).toEqual([
-      "https://www.example.edu.tr/duyuru/bir",
-      "https://www.example.edu.tr/duyuru/iki"
+    const logicalUniversityA = collection.find((item) => item.sourceId === universityA.id);
+    const logicalUniversityB = collection.find((item) => item.sourceId === universityB.id);
+    expect(logicalUniversityA?.canonicalUrlAliases).toEqual(["https://www.example.edu.tr/duyuru/bir"]);
+    expect(logicalUniversityB?.canonicalUrlAliases).toEqual(["https://www.example.edu.tr/duyuru/iki"]);
+    expect(logicalUniversityA?.sourceRelationships).toEqual([
+      expect.objectContaining({ sourceId: universityA.id, scopeType: "university", scopeId: "university-1" })
     ]);
-    expect(logicalUniversity?.sourceRelationships).toHaveLength(2);
-    expect(new Set(logicalUniversity?.sourceRelationships?.map((relationship) => relationship.sourceId))).toEqual(
-      new Set([universityA.id, universityB.id])
-    );
+    expect(logicalUniversityB?.sourceRelationships).toEqual([
+      expect.objectContaining({ sourceId: universityB.id, scopeType: "university", scopeId: "university-1" })
+    ]);
+    expect(logicalUniversityA?.contentFingerprint).toBe(logicalUniversityB?.contentFingerprint);
 
     const facultyLogical = collection.find((item) => item.scopeType === "faculty");
-    expect(facultyLogical?.contentFingerprint).toBe(logicalUniversity?.contentFingerprint);
+    expect(facultyLogical?.contentFingerprint).toBe(logicalUniversityA?.contentFingerprint);
     expect(facultyLogical?.sourceRelationships).toHaveLength(1);
     expect(collection.find((item) => item.contentType === "event")?.contentFingerprint)
-      .not.toBe(logicalUniversity?.contentFingerprint);
+      .not.toBe(logicalUniversityA?.contentFingerprint);
 
     const detail = await service.getMyTrustedAnnouncement("student-1", "university-b");
     expect(detail.id).toBe("university-b");
-    expect(detail.contentFingerprint).toBe(logicalUniversity?.contentFingerprint);
-    expect(detail.canonicalUrlAliases).toEqual(logicalUniversity?.canonicalUrlAliases);
-    expect(detail.sourceRelationships).toHaveLength(2);
+    expect(detail.contentFingerprint).toBe(logicalUniversityB?.contentFingerprint);
+    expect(detail.canonicalUrlAliases).toEqual(["https://www.example.edu.tr/duyuru/iki"]);
+    expect(detail.sourceRelationships).toEqual([
+      expect.objectContaining({ sourceId: universityB.id, scopeType: "university", scopeId: "university-1" })
+    ]);
+  });
+
+  it("uses a collision-safe source/scope fingerprint identity with canonical legacy fallback", () => {
+    const fingerprint = "a".repeat(64);
+    const otherFingerprint = "b".repeat(64);
+    const base = {
+      sourceId: "source-1",
+      scopeType: "university" as const,
+      scopeId: "university-1",
+      canonicalUrl: "https://www.example.edu.tr/duyuru/kayit?utm_source=feed"
+    };
+    const logical = academicContentLogicalIdentityKey({ ...base, contentFingerprint: fingerprint });
+
+    expect(logical).toBe(academicContentLogicalIdentityKey({
+      ...base,
+      canonicalUrl: "https://example.edu.tr/duyuru/another-location",
+      contentFingerprint: fingerprint
+    }));
+    expect(logical).not.toBe(academicContentLogicalIdentityKey({
+      ...base,
+      sourceId: "source-2",
+      contentFingerprint: fingerprint
+    }));
+    expect(logical).not.toBe(academicContentLogicalIdentityKey({
+      ...base,
+      scopeType: "faculty",
+      scopeId: "faculty-1",
+      contentFingerprint: fingerprint
+    }));
+    expect(logical).not.toBe(academicContentLogicalIdentityKey({
+      ...base,
+      contentFingerprint: otherFingerprint
+    }));
+
+    const legacy = academicContentLogicalIdentityKey(base);
+    expect(legacy).toBe(academicContentLogicalIdentityKey({
+      ...base,
+      canonicalUrl: "https://example.edu.tr/duyuru/kayit#content",
+      contentFingerprint: "malformed"
+    }));
+    expect(legacy).not.toBe(academicContentLogicalIdentityKey({
+      ...base,
+      sourceId: 'source-1","university","university-1',
+      scopeId: "scope",
+      canonicalUrl: "https://example.edu.tr/duyuru/kayit"
+    }));
+    expect(academicContentLogicalIdentityKey({
+      ...base,
+      sourceId: "source-1\u0000university",
+      contentFingerprint: fingerprint
+    })).toBeNull();
   });
 
   it("returns the stable persisted refresh ID used by detail and notification delta after an alias update", async () => {

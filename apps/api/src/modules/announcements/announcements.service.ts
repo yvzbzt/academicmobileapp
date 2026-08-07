@@ -3,7 +3,7 @@ import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } f
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
-import { canonicalContentKey, compareAcademicContentDuplicateRecency, isOfficialContentUrl, scopedContentFingerprintKey, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
+import { academicContentLogicalIdentityKey, compareAcademicContentDuplicateRecency, isOfficialContentUrl, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
 import { fetchSourceItems, toAnnouncementItems, type ParsedAnnouncementItem } from "./announcement-parser.js";
 import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
@@ -94,10 +94,11 @@ export class AnnouncementsService {
       ...presentationScope,
       limit: 1_000
     });
-    const logical = presentTrustedItems(scopedItems, sources).find((item) =>
-      item.scopeType === trustedPresentation.scopeType
-      && item.scopeId === trustedPresentation.scopeId
-      && item.contentFingerprint === trustedPresentation.contentFingerprint);
+    const trustedPresentationIdentity = academicContentLogicalIdentityKey(trustedPresentation);
+    const logical = trustedPresentationIdentity
+      ? presentTrustedItems(scopedItems, sources).find((item) =>
+        academicContentLogicalIdentityKey(item) === trustedPresentationIdentity)
+      : undefined;
     return logical ? {
       ...trustedPresentation,
       ...(logical.canonicalUrlAliases ? { canonicalUrlAliases: logical.canonicalUrlAliases } : {}),
@@ -260,13 +261,8 @@ function presentTrustedItems(items: AnnouncementItem[], sources: AnnouncementSou
   for (const item of items) {
     const presented = toTrustedAcademicContentDto(item, sourcesById.get(item.sourceId));
     if (!presented) continue;
-    const key = presented.contentFingerprint
-      ? scopedContentFingerprintKey({
-        scopeType: presented.scopeType,
-        scopeId: presented.scopeId,
-        contentFingerprint: presented.contentFingerprint
-      })
-      : `${presented.scopeType}\u0000${presented.scopeId}\u0000${canonicalContentKey(presented.canonicalUrl) ?? ""}`;
+    const key = academicContentLogicalIdentityKey(presented);
+    if (!key) continue;
     const existing = unique.get(key);
     if (!existing) {
       unique.set(key, presented);

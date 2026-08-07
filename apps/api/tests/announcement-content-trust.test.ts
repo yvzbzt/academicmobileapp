@@ -8,6 +8,7 @@ import {
   isOfficialContentUrl,
   normalizeContentTitle,
   normalizeDisplayText,
+  normalizeTrustedItemsForSource,
   toIsoString,
   toTrustedAcademicContentDto
 } from "../src/modules/announcements/announcement-content-trust.js";
@@ -150,12 +151,16 @@ describe("mobile announcement API presentation", () => {
         id: "duplicate",
         sourceId: source.id,
         sourceName: source.sourceName,
+        contentType: "announcement",
         scopeType: "university",
         scopeId: source.scopeId,
-        title: "Aynı duyuru",
+        title: "&raquo; Araştırma &amp; Geliştirme Duyurusu",
         link: "https://ankara.edu.tr/duyuru/1",
+        publishedAt: "2026-07-28T07:00:00.000Z",
+        publicationTimeSource: "source",
         discoveredAt: "2026-07-20T10:00:00.000Z",
-        fetchedAt
+        fetchedAt,
+        summary: "<p>Başvurular&nbsp;açıldı.</p>"
       },
       {
         id: "crawl-time-only",
@@ -264,6 +269,41 @@ describe("mobile announcement API presentation", () => {
     expect(toTrustedAcademicContentDto(trusted, { ...source, trustStatus: "quarantined" })).toBeNull();
     expect(toTrustedAcademicContentDto({ ...base, trustStatus: "rejected" }, source)).toBeNull();
     expect(toTrustedAcademicContentDto({ ...base, trustStatus: "quarantined" }, source)).toBeNull();
+  });
+
+  it("does not collapse different valid fingerprints merely because their canonical URL matches", () => {
+    const source: AnnouncementSourceRecord = {
+      id: "source-one",
+      scopeType: "university",
+      scopeId: "university-one",
+      sourceName: "Örnek Üniversitesi",
+      sourceUrl: "https://example.edu.tr/duyurular",
+      canonicalUrl: "https://example.edu.tr/duyurular",
+      parser: "auto",
+      priority: 10,
+      status: "active",
+      trustStatus: "trusted",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    const shared = {
+      sourceId: source.id,
+      sourceName: source.sourceName,
+      scopeType: source.scopeType,
+      scopeId: source.scopeId,
+      link: "https://example.edu.tr/duyurular/shared-location",
+      canonicalUrl: "https://example.edu.tr/duyurular/shared-location",
+      officialSourceUrl: source.sourceUrl,
+      trustStatus: "trusted" as const
+    };
+
+    const normalized = normalizeTrustedItemsForSource(source, [
+      { ...shared, id: "stored-a", title: "Birinci akademik duyuru" },
+      { ...shared, id: "stored-b", title: "İkinci akademik duyuru" }
+    ]);
+
+    expect(normalized).toHaveLength(2);
+    expect(new Set(normalized.map((item) => item.contentFingerprint)).size).toBe(2);
   });
 
   it("rejects item-owned provenance that conflicts with the authoritative source", () => {
