@@ -208,6 +208,11 @@ describe("Phase 8 Announcements feed", () => {
   });
 
   it("uses one virtualized list, registers scroll-to-top, and orders trusted records chronologically", async () => {
+    // This case does not exercise debounce timing. Real timers let React's async
+    // render settle instead of holding its effect timer behind Jest's fake clock.
+    jest.useRealTimers();
+    fakeTimersActive = false;
+
     const rejected = record("rejected", {
       title: "Reddedilen içerik görünmemeli",
       trustStatus: "rejected" as "trusted",
