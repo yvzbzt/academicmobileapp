@@ -1,5 +1,5 @@
 import { useNetworkState } from "expo-network";
-import { NavigationContainer, useScrollToTop } from "@react-navigation/native";
+import { useScrollToTop } from "@react-navigation/native";
 import {
   act,
   fireEvent,
@@ -27,10 +27,7 @@ jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
   default: () => mockWindowDimensions(),
 }));
 
-jest.mock("@react-navigation/native", () => {
-  const actual = jest.requireActual("@react-navigation/native");
-  return { ...actual, useScrollToTop: jest.fn() };
-});
+jest.mock("@react-navigation/native", () => ({ useScrollToTop: jest.fn() }));
 
 const callbacks = {
   onLoadMore: jest.fn(),
@@ -167,9 +164,7 @@ async function renderFeed(
         reducedTransparency={false}
         windowWidth={320}
       >
-        <NavigationContainer>
-          <AnnouncementsFeed {...props} />
-        </NavigationContainer>
+        <AnnouncementsFeed {...props} />
       </ThemeProvider>
     </SafeAreaProvider>,
   );
@@ -208,11 +203,6 @@ describe("Phase 8 Announcements feed", () => {
   });
 
   it("uses one virtualized list, registers scroll-to-top, and orders trusted records chronologically", async () => {
-    // This case does not exercise debounce timing. Real timers let React's async
-    // render settle instead of holding its effect timer behind Jest's fake clock.
-    jest.useRealTimers();
-    fakeTimersActive = false;
-
     const rejected = record("rejected", {
       title: "Reddedilen içerik görünmemeli",
       trustStatus: "rejected" as "trusted",
@@ -473,12 +463,10 @@ describe("Phase 8 Announcements feed", () => {
     await view.rerenderAsync(
       <SafeAreaProvider>
         <ThemeProvider platform="android" preference="light" reducedMotion windowWidth={320}>
-          <NavigationContainer>
-            <AnnouncementsFeed {...feedProps({
-              hasMore: true,
-              paginationError: "Daha fazla içerik yüklenemedi",
-            })} />
-          </NavigationContainer>
+          <AnnouncementsFeed {...feedProps({
+            hasMore: true,
+            paginationError: "Daha fazla içerik yüklenemedi",
+          })} />
         </ThemeProvider>
       </SafeAreaProvider>,
     );
