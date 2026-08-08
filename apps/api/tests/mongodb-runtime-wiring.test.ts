@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { BootstrapSeedService } from "../src/bootstrap/bootstrap-seed.service.js";
 import type { TurkiyeCatalogSeed } from "../src/bootstrap/yok-atlas-catalog-importer.js";
-import { MongoConnectionService } from "../src/database/mongo-connection.service.js";
+import { MongoConnectionService, shouldAutoIndexMongo } from "../src/database/mongo-connection.service.js";
 import { MongoAnnouncementRepository } from "../src/modules/announcements/mongo-announcement.repository.js";
 import { MongoAuditRepository } from "../src/modules/audit/mongo-audit.repository.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
@@ -62,6 +62,15 @@ describe("MongoDB-only runtime repository wiring", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["production default", { NODE_ENV: "production" }, false],
+    ["production opt-in", { NODE_ENV: "production", MONGODB_AUTO_INDEX: "true" }, true],
+    ["test default", { NODE_ENV: "test" }, true],
+    ["test opt-out", { NODE_ENV: "test", MONGODB_AUTO_INDEX: "false" }, false]
+  ] as const)("sets controlled Mongo index creation for %s", (_label, environment, expected) => {
+    expect(shouldAutoIndexMongo(environment)).toBe(expected);
   });
 
   it.each([
