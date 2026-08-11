@@ -5,6 +5,7 @@ import {
   isDateOnlyValue,
   type AcademicTemporalKind,
 } from "../temporal/academic-temporal";
+import { DEFAULT_ACADEMIC_EVENT_TIMEZONE } from "./calendar-time";
 
 export type CalendarViewMode = "day" | "agenda" | "week" | "month";
 
@@ -121,6 +122,19 @@ const REGISTRATION_CATEGORIES = new Set([
   "summer_school_registration",
 ]);
 
+const MILLISECONDS_PER_HOUR = 60 * 60 * 1000;
+const TIMEZONE_TRANSITION_SEARCH_HOURS = 48;
+const personalExamDateTimeFormatter = new Intl.DateTimeFormat("en-GB-u-ca-gregory", {
+  timeZone: DEFAULT_ACADEMIC_EVENT_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
 export const CALENDAR_VIEW_OPTIONS = [
   { value: "agenda", label: "Ajanda" },
   { value: "week", label: "Hafta" },
@@ -206,6 +220,7 @@ export function buildCalendarItems(input: {
       sourceLabel: "Kişisel planın",
       startDate: exam.examDate,
       temporalKind: "timestamp",
+      timezone: DEFAULT_ACADEMIC_EVENT_TIMEZONE,
       ...(location ? { location } : {}),
     }];
   });
@@ -270,7 +285,7 @@ export function resolveCalendarPresentationState(input: {
 }
 
 export function todayDateOnly(now = new Date()): string {
-  return formatDateParts(now, "Europe/Istanbul");
+  return formatDateParts(now, DEFAULT_ACADEMIC_EVENT_TIMEZONE);
 }
 
 export function calendarPeriod(view: Exclude<CalendarViewMode, "agenda">, anchorDate: string): CalendarPeriod {
@@ -362,7 +377,9 @@ export function calendarItemStartDateOnly(item: CalendarItem): string {
     return validDateOnly(item.startDate) ?? todayDateOnly();
   }
   const parsed = new Date(item.startDate);
-  return Number.isNaN(parsed.getTime()) ? todayDateOnly() : formatDateParts(parsed, "Europe/Istanbul");
+  return Number.isNaN(parsed.getTime())
+    ? todayDateOnly()
+    : formatDateParts(parsed, DEFAULT_ACADEMIC_EVENT_TIMEZONE);
 }
 
 export function formatCalendarDayHeading(date: string): string {
@@ -393,10 +410,11 @@ export function personalExamDraftFromRecord(exam: CalendarPersonalExam): Persona
   if (Number.isNaN(date.getTime())) {
     return { title: exam.title, date: null, time: null, locationNote: exam.locationNote ?? "" };
   }
+  const parts = personalExamDateTimeParts(date);
   return {
     title: exam.title,
-    date: localDateOnly(date),
-    time: `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`,
+    date: `${padDateTimePart(parts.year, 4)}-${padDateTimePart(parts.month)}-${padDateTimePart(parts.day)}`,
+    time: `${padDateTimePart(parts.hour)}:${padDateTimePart(parts.minute)}`,
     locationNote: exam.locationNote ?? "",
   };
 }
@@ -416,13 +434,27 @@ export function composePersonalExamTimestamp(draft: PersonalExamDraft): string |
   const parts = dateOnlyParts(draft.date!);
   const [hours, minutes] = draft.time!.split(":").map(Number);
   if (!parts) return null;
-  const value = new Date(parts.year, parts.month - 1, parts.day, hours, minutes, 0, 0);
-  if (value.getFullYear() !== parts.year
-    || value.getMonth() !== parts.month - 1
-    || value.getDate() !== parts.day
-    || value.getHours() !== hours
-    || value.getMinutes() !== minutes) return null;
-  return value.toISOString();
+  const desired = { ...parts, hour: hours, minute: minutes, second: 0 };
+  const localAsUtc = utcMilliseconds(desired);
+
+  try {
+    const possibleOffsets = new Set<number>();
+    for (
+      let offsetHours = -TIMEZONE_TRANSITION_SEARCH_HOURS;
+      offsetHours <= TIMEZONE_TRANSITION_SEARCH_HOURS;
+      offsetHours += 6
+    ) {
+      possibleOffsets.add(personalExamTimezoneOffset(
+        new Date(localAsUtc + offsetHours * MILLISECONDS_PER_HOUR),
+      ));
+    }
+    const matchingInstants = [...possibleOffsets]
+      .map((offset) => new Date(localAsUtc - offset))
+      .filter((instant) => matchesPersonalExamDateTime(instant, desired));
+    return matchingInstants.length === 1 ? matchingInstants[0].toISOString() : null;
+  } catch {
+    return null;
+  }
 }
 
 export function selectionDateFromDraft(draft: PersonalExamDraft, fallback = new Date()): Date {
@@ -544,6 +576,68 @@ function formatDateParts(value: Date, timeZone: string): string {
   }).formatToParts(value);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+interface PersonalExamDateTimeParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+function personalExamDateTimeParts(value: Date): PersonalExamDateTimeParts {
+  const parts = personalExamDateTimeFormatter.formatToParts(value);
+  const numberPart = (type: Intl.DateTimeFormatPartTypes): number => {
+    const part = parts.find((entry) => entry.type === type)?.value;
+    if (part === undefined) throw new Error(`Missing ${type} date-time part`);
+    return Number(part);
+  };
+  return {
+    year: numberPart("year"),
+    month: numberPart("month"),
+    day: numberPart("day"),
+    hour: numberPart("hour"),
+    minute: numberPart("minute"),
+    second: numberPart("second"),
+  };
+}
+
+function personalExamTimezoneOffset(value: Date): number {
+  const representedAsUtc = utcMilliseconds(personalExamDateTimeParts(value));
+  const instantAtWholeSecond = Math.floor(value.getTime() / 1000) * 1000;
+  return representedAsUtc - instantAtWholeSecond;
+}
+
+function matchesPersonalExamDateTime(
+  value: Date,
+  desired: PersonalExamDateTimeParts,
+): boolean {
+  const actual = personalExamDateTimeParts(value);
+  return actual.year === desired.year
+    && actual.month === desired.month
+    && actual.day === desired.day
+    && actual.hour === desired.hour
+    && actual.minute === desired.minute
+    && actual.second === desired.second
+    && value.getUTCMilliseconds() === 0;
+}
+
+function utcMilliseconds(parts: PersonalExamDateTimeParts): number {
+  return Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    0,
+  );
+}
+
+function padDateTimePart(value: number, length = 2): string {
+  return value.toString().padStart(length, "0");
 }
 
 function localDateOnly(value: Date): string {

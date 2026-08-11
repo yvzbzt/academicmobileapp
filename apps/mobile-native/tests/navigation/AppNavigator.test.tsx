@@ -788,6 +788,9 @@ describe("AppNavigator", () => {
     await expectVisibleRoute("NotificationSettings");
     expect(screen.queryByRole("header", { name: "Bildirim tercihleri" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Geri dön" })).toBeNull();
+    expect(screen.UNSAFE_getAllByType(SafeAreaView).some((view) => (
+      view.props.edges?.includes("top") && view.props.edges?.includes("bottom")
+    ))).toBe(true);
     expectPrimaryTabsHidden();
     expect(onRequestHandled).toHaveBeenCalledWith("open-notification-settings");
   });

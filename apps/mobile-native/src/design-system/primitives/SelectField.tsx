@@ -300,14 +300,15 @@ export function SelectField<Value extends string = string>({
           {helpText}
         </Text>
       ) : null}
-      <BottomSheet
-        accessibilityLabel={`${label} seçenekleri`}
-        dismissAccessibilityLabel={`${label} seçeneklerini kapat`}
-        onDismiss={dismissOptions}
-        title={sheetTitle ?? label}
-        description={sheetDescription}
-        visible={open}
-      >
+      {open ? (
+        <BottomSheet
+          accessibilityLabel={`${label} seçenekleri`}
+          dismissAccessibilityLabel={`${label} seçeneklerini kapat`}
+          onDismiss={dismissOptions}
+          title={sheetTitle ?? label}
+          description={sheetDescription}
+          visible
+        >
         {onSearchValueChange ? (
           <View
             style={[
@@ -438,7 +439,8 @@ export function SelectField<Value extends string = string>({
           style={styles.optionList}
           windowSize={7}
         />
-      </BottomSheet>
+        </BottomSheet>
+      ) : null}
     </View>
   );
 }

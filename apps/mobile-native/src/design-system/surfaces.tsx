@@ -59,6 +59,7 @@ export function Screen({
   const maxWidth = resolveReadableWidth(readableWidth, theme.readableWidths);
   const adaptiveContentStyle: StyleProp<ViewStyle> = [
     styles.content,
+    scroll ? styles.scrollBody : styles.fill,
     {
       maxWidth,
       paddingHorizontal: fullBleed ? 0 : adaptation.screenGutter,
@@ -199,8 +200,13 @@ const styles = StyleSheet.create({
   },
   content: {
     alignSelf: "center",
-    flex: 1,
     width: "100%",
+  },
+  fill: {
+    flex: 1,
+  },
+  scrollBody: {
+    flexGrow: 1,
   },
   centered: {
     alignItems: "center",

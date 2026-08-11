@@ -20,7 +20,7 @@ const auditedWidths = [320, 360, 393, 430, 853] as const;
 const auditedFontScales = [1.3, 1.5, 2] as const;
 
 function source(relativePath: string): string {
-  return readFileSync(resolve(repositoryRoot, relativePath), "utf8");
+  return readFileSync(resolve(repositoryRoot, relativePath), "utf8").replace(/\r\n?/gu, "\n");
 }
 
 function sourceFiles(directory: string): string[] {

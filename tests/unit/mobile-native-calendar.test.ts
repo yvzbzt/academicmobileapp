@@ -67,6 +67,7 @@ describe("Phase 9 calendar and personal-exam model", () => {
       { id: "personal-1", label: "Kişisel sınav", icon: "school-outline" },
       { id: "timestamped-orientation", label: "Etkinlik", icon: "calendar-outline" },
     ]);
+    expect(items.find((item) => item.id === "personal-1")?.timezone).toBe("Europe/Istanbul");
     expect(items[0]).toMatchObject({
       startDate: "2026-08-03",
       endDate: "2026-08-07",
@@ -211,9 +212,7 @@ describe("Phase 9 calendar and personal-exam model", () => {
     expect(draft.date).toBe("2024-02-29");
     expect(validatePersonalExamDraft(draft)).toEqual({});
     const timestamp = composePersonalExamTimestamp(draft);
-    expect(timestamp).not.toBeNull();
-    const selected = new Date(timestamp!);
-    expect([selected.getFullYear(), selected.getMonth() + 1, selected.getDate()]).toEqual([2024, 2, 29]);
+    expect(timestamp).toBe("2024-02-29T11:20:00.000Z");
   });
 
   it("keeps date-only February 29 stable and an inclusive Feb 28–Mar 1 range on every day", () => {
@@ -301,15 +300,14 @@ describe("Phase 9 calendar and personal-exam model", () => {
     expect(composePersonalExamTimestamp(dated)).toBeNull();
     const complete = applyTimeSelection(dated, new Date(2026, 7, 1, 13, 45));
     expect(validatePersonalExamDraft(complete)).toEqual({});
-    expect(new Date(composePersonalExamTimestamp(complete)!).getHours()).toBe(13);
-    expect(new Date(composePersonalExamTimestamp(complete)!).getMinutes()).toBe(45);
+    expect(composePersonalExamTimestamp(complete)).toBe("2026-08-14T10:45:00.000Z");
   });
 
-  it("round-trips an existing exam into an editable local date/time draft", () => {
+  it("round-trips an existing exam in Europe/Istanbul independently of the device timezone", () => {
     const draft = personalExamDraftFromRecord({
       id: "exam",
       title: "Fizik",
-      examDate: new Date(2026, 8, 1, 9, 20).toISOString(),
+      examDate: "2026-09-01T06:20:00.000Z",
     });
     expect(draft).toEqual({
       title: "Fizik",

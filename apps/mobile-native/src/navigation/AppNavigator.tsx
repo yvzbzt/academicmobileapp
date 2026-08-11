@@ -231,7 +231,7 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
           onPress: () => {
             leaveAlertVisibleRef.current = false;
             routeLeaveGuard.onDiscard();
-            navigation.dispatch(data.action);
+            setTimeout(() => navigation.dispatch(data.action), 0);
           },
         },
       ],
@@ -249,9 +249,13 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   const hasFormLayout = isAuthOrOnboardingRoute(route)
     || route === "AcademicProfileSettings"
     || route === "AccountDataSettings";
+  const authenticatedContentOwnsBottomChrome = hasAuthenticatedShell
+    && !isPrimaryTabRootRoute(route);
   const authenticatedEdges = adaptation.navigationLayout === "navigation-rail"
     ? ["right", "bottom"] as const
-    : ["left", "right"] as const;
+    : authenticatedContentOwnsBottomChrome
+      ? ["left", "right", "bottom"] as const
+      : ["left", "right"] as const;
   const authenticatedScreenEdges: readonly Edge[] = hasStackHeader
     ? authenticatedEdges
     : ["top", ...authenticatedEdges];

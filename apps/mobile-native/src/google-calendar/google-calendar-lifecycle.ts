@@ -30,6 +30,14 @@ export type GoogleCalendarConnectionRecordV3 = {
   mappings: GoogleCalendarEventMapping[];
 };
 
+export function settledGoogleCalendarLifecycleState(
+  previousState?: GoogleCalendarLifecycleState,
+): GoogleCalendarLifecycleState {
+  return previousState === "checking" || previousState === "syncing" || !previousState
+    ? "disconnected"
+    : previousState;
+}
+
 export type GoogleCalendarMappingDuplicates = {
   sourceKeys: string[];
   googleEventIds: string[];

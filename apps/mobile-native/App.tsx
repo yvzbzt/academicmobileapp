@@ -76,6 +76,7 @@ import {
   planGoogleCalendarExactMappingLookups,
   planGoogleCalendarLifecycle,
   readGoogleCalendarConnectionRecordV3,
+  settledGoogleCalendarLifecycleState,
   type GoogleCalendarConnectionRecordV3,
   type GoogleCalendarLifecycleState
 } from "./src/google-calendar/google-calendar-lifecycle";
@@ -2693,7 +2694,7 @@ function MainApplication() {
       }
 
       if (restoredSession) {
-        await loadUniversities();
+        void loadUniversities();
         const snapshot = accountGuardRef.current.capture();
         if (snapshot) {
           const contextReady = await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
@@ -3421,6 +3422,37 @@ function MainApplication() {
     }
   }
 
+  function warmAuthenticatedContext(
+    token: string,
+    profileUniversityId: string,
+    ownerSnapshot: AccountGenerationSnapshot
+  ): void {
+    const preferenceWarmup = async () => {
+      const loadedPreferences = await loadPreferences(token, ownerSnapshot);
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      const coordinator = notificationCoordinatorRef.current;
+      const notificationSession = sessionRef.current;
+      if (coordinator && loadedPreferences && notificationSession?.user.id === ownerSnapshot.ownerId) {
+        await coordinator.activateOwner(ownerSnapshot.ownerId, loadedPreferences.enabled);
+        await reconcileNotificationDelivery(
+          { ...notificationSession, accessToken: token },
+          coordinator,
+          loadedPreferences,
+          ownerSnapshot
+        );
+      }
+    };
+    const contentWarmups = profileUniversityId
+      ? [
+          loadMyCalendar(token, ownerSnapshot),
+          loadUpcoming(token, ownerSnapshot),
+          loadAnnouncements(token, profileUniversityId, ownerSnapshot)
+        ]
+      : [loadAnnouncements(token, "", ownerSnapshot)];
+
+    void Promise.allSettled([preferenceWarmup(), ...contentWarmups]);
+  }
+
   async function bootstrapAuthenticatedContext(
     token: string,
     ownerSnapshot = accountGuardRef.current.capture()
@@ -3443,20 +3475,6 @@ function MainApplication() {
       await clearExpiredSession("Bu hesap artık kullanılamıyor. Lütfen farklı bir hesapla giriş yap.");
       return false;
     }
-    const loadedPreferences = await loadPreferences(token, ownerSnapshot);
-    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
-    const coordinator = notificationCoordinatorRef.current;
-    const notificationSession = sessionRef.current;
-    if (coordinator && loadedPreferences && notificationSession?.user.id === profile.id) {
-      await coordinator.activateOwner(profile.id, loadedPreferences.enabled);
-      await reconcileNotificationDelivery(
-        { ...notificationSession, accessToken: token },
-        coordinator,
-        loadedPreferences,
-        ownerSnapshot
-      );
-    }
-    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
     const profileUniversityId = profile.universityId ?? "";
     setFullName(profile.fullName);
     setEmail(profile.email);
@@ -3470,14 +3488,8 @@ function MainApplication() {
     onboardingOwnerRef.current = profileUniversityId ? null : ownerSnapshot;
     setAcademicProfileSaveState("idle");
     setAcademicProfileSaveError(undefined);
-    if (!profileUniversityId) {
-      setAuthStage("academic_onboarding");
-    }
-    if (profileUniversityId) {
-      await loadMyCalendar(token, ownerSnapshot);
-      await loadUpcoming(token, ownerSnapshot);
-    }
-    await loadAnnouncements(token, profileUniversityId, ownerSnapshot);
+    setAuthStage(profileUniversityId ? "auth" : "academic_onboarding");
+    warmAuthenticatedContext(token, profileUniversityId, ownerSnapshot);
     return accountGuardRef.current.isCurrent(ownerSnapshot);
   }
 
@@ -3841,7 +3853,7 @@ function MainApplication() {
     try {
       setBusy(true);
       setMessage(null);
-      await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
+      const savedProfile = await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
         "/me/university",
         {
           method: "PATCH",
@@ -3851,25 +3863,28 @@ function MainApplication() {
         { ownerSnapshot: snapshot }
       ));
       if (!accountGuardRef.current.isCurrent(snapshot)) throw new StaleAccountRequestError();
-      setSelectedUniversityId(payload.universityId);
-      setRegisterUniversityId(payload.universityId);
-      setRegisterFacultyId(payload.facultyId ?? "");
-      setRegisterDepartmentId(payload.departmentId ?? "");
-      setRegisterClassLevel(payload.classLevel ?? null);
-      setOnboardingInitialDraft({
-        universityId: payload.universityId,
-        facultyId: payload.facultyId ?? "",
-        departmentId: payload.departmentId ?? "",
-        classLevel: payload.classLevel ?? null
-      });
+      const authoritativeDraft = profileDraftFromServer(savedProfile);
+      if (!authoritativeDraft.universityId) {
+        throw new Error("ACADEMIC_PROFILE_CONFIRMATION_FAILED");
+      }
+      setSelectedUniversityId(authoritativeDraft.universityId);
+      setRegisterUniversityId(authoritativeDraft.universityId);
+      setRegisterFacultyId(authoritativeDraft.facultyId);
+      setRegisterDepartmentId(authoritativeDraft.departmentId);
+      setRegisterClassLevel(authoritativeDraft.classLevel);
+      setOnboardingInitialDraft(authoritativeDraft);
+      setFullName(savedProfile.fullName);
+      setEmail(savedProfile.email);
+      setAccountAuthProvider(normalizeAccountAuthProvider(savedProfile.authProvider));
       setPassword("");
       setVerificationToken("");
-      const contextReady = await bootstrapAuthenticatedContext(activeSession.accessToken, snapshot);
-      if (!contextReady) return;
-      if (!accountGuardRef.current.isCurrent(snapshot)) throw new StaleAccountRequestError();
+      onboardingOwnerRef.current = null;
       setMessage(null);
       setAuthenticatedContextPending(false);
+      setActiveTab("home");
+      setActiveRoute("Home");
       setAuthStage("auth");
+      warmAuthenticatedContext(activeSession.accessToken, authoritativeDraft.universityId, snapshot);
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
       if (onboardingSaveAttemptRef.current !== onboardingAttempt) return;
@@ -5495,6 +5510,9 @@ function MainApplication() {
     const expectedGoogleAccountId = googleCalendarIntegration?.ownerId === currentSession.user.id
       ? googleCalendarIntegration.googleAccountId
       : null;
+    const authorizationInterruptionState = settledGoogleCalendarLifecycleState(
+      googleCalendarIntegration?.state,
+    );
 
     setGoogleCalendarError(null);
     setMessage(null);
@@ -5587,7 +5605,7 @@ function MainApplication() {
 
       if (networkResult.status === "rejected") {
         setGoogleCalendarError("Ağ durumu doğrulanamadı. Google hesap izni istenmedi.");
-        setGoogleCalendarState(googleCalendarIntegration?.state ?? "disconnected");
+        setGoogleCalendarState(authorizationInterruptionState);
         return;
       }
       const preflight = evaluateGoogleCalendarPreflight({
@@ -5618,7 +5636,7 @@ function MainApplication() {
           authorization_failed: "Google Takvim yetkilendirmesi tamamlanamadı."
         };
         setGoogleCalendarError(preflightMessages[preflight.reason]);
-        setGoogleCalendarState(googleCalendarIntegration?.state ?? "disconnected");
+        setGoogleCalendarState(authorizationInterruptionState);
         return;
       }
       if (
@@ -5823,12 +5841,16 @@ function MainApplication() {
       ) {
         return;
       } else if (error instanceof Error && error.message === "GOOGLE_CALENDAR_CANCELLED") {
+        setGoogleCalendarState(authorizationInterruptionState);
         setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
       } else if (isErrorWithCode(error) && error.code === statusCodes.SIGN_IN_CANCELLED) {
+        setGoogleCalendarState(authorizationInterruptionState);
         setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
       } else if (isErrorWithCode(error) && error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setGoogleCalendarState(authorizationInterruptionState);
         setGoogleCalendarError("Google Play Hizmetleri bu cihazda hazır değil veya güncellenmeli.");
       } else if (isErrorWithCode(error) && error.code === statusCodes.IN_PROGRESS) {
+        setGoogleCalendarState(authorizationInterruptionState);
         setGoogleCalendarError("Google hesabı seçimi zaten devam ediyor.");
       } else if (error instanceof Error && error.message === "GOOGLE_CALENDAR_ACCOUNT_MISMATCH") {
         setGoogleCalendarState("expired");

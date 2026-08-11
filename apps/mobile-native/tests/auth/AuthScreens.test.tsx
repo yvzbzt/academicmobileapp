@@ -41,12 +41,14 @@ const safeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 function authTestTree(
   child: ReactElement,
   overrides: Omit<ThemeProviderProps, "children"> = {},
+  frame: { width?: number; height?: number } = {},
 ) {
-  const width = overrides.windowWidth ?? 390;
+  const width = frame.width ?? overrides.windowWidth ?? 390;
+  const height = frame.height ?? 844;
   return (
     <SafeAreaProvider
       initialMetrics={{
-        frame: { x: 0, y: 0, width, height: 844 },
+        frame: { x: 0, y: 0, width, height },
         insets: safeAreaInsets,
       }}
     >
@@ -68,8 +70,9 @@ function authTestTree(
 function renderAuth(
   child: ReactElement,
   overrides: Omit<ThemeProviderProps, "children"> = {},
+  frame: { width?: number; height?: number } = {},
 ) {
-  return renderAsync(authTestTree(child, overrides));
+  return renderAsync(authTestTree(child, overrides, frame));
 }
 
 function spyOnInputFocus(label: string) {
@@ -269,13 +272,23 @@ function onboardingProps(
 
 describe("Phase 6 rendered authentication screens", () => {
   describe("LoginScreen", () => {
-    it("matches the audited hero proportions, title scale, and multicolor Google mark", async () => {
+    it("fits the hero to the safe viewport while preserving title scale and the Google mark", async () => {
       await renderAuth(<LoginScreen {...loginProps()} />);
 
-      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ aspectRatio: 4 / 3 });
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ minHeight: 828 });
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 253.2 });
+      expect(screen.getByTestId("login-form-sheet")).toHaveStyle({ flexGrow: 1 });
       expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 32, lineHeight: 38 });
       expect(screen.getByTestId("google-color-mark", { includeHiddenElements: true })).toBeOnTheScreen();
       expect(screen.queryByText("E-postamı doğrula")).toBeNull();
+    });
+
+    it("uses a bounded hero on a short 320 by 568 phone viewport", async () => {
+      await renderAuth(<LoginScreen {...loginProps()} />, {}, { width: 320, height: 568 });
+
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ minHeight: 552 });
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 176 });
+      expect(screen.getByTestId("login-form-sheet")).toBeVisible();
     });
 
     it("focuses the first invalid field and moves IME focus to password", async () => {

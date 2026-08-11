@@ -10,6 +10,7 @@ import {
   planGoogleCalendarExactMappingLookups,
   planGoogleCalendarLifecycle,
   readGoogleCalendarConnectionRecordV3,
+  settledGoogleCalendarLifecycleState,
   type GoogleCalendarLifecycleIntent,
   type GoogleCalendarLifecycleStep,
   type GoogleCalendarPreflightInput
@@ -17,6 +18,14 @@ import {
 import type { GoogleCalendarEventMapping } from "../../apps/mobile-native/src/google-calendar/google-calendar-sync";
 
 describe("Google Calendar lifecycle persistence", () => {
+  it("settles interrupted authorization without retaining a transient busy state", () => {
+    expect(settledGoogleCalendarLifecycleState()).toBe("disconnected");
+    expect(settledGoogleCalendarLifecycleState("checking")).toBe("disconnected");
+    expect(settledGoogleCalendarLifecycleState("syncing")).toBe("disconnected");
+    expect(settledGoogleCalendarLifecycleState("connected")).toBe("connected");
+    expect(settledGoogleCalendarLifecycleState("partial")).toBe("partial");
+  });
+
   it("accepts a current owner-scoped v3 record while discarding unknown credential fields", () => {
     const record = readGoogleCalendarConnectionRecordV3(JSON.stringify({
       schemaVersion: 3,

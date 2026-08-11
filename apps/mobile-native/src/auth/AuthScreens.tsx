@@ -9,6 +9,7 @@ import {
   View,
   type TextInput,
 } from "react-native";
+import { useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Banner,
   Button,
@@ -79,6 +80,17 @@ function AuthScaffold({
 }: AuthScaffoldProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
+  const safeAreaFrame = useSafeAreaFrame();
+  const safeAreaInsets = useSafeAreaInsets();
+  const safeViewportHeight = Math.max(
+    0,
+    safeAreaFrame.height - safeAreaInsets.top - safeAreaInsets.bottom,
+  );
+  const compactViewport = safeViewportHeight < 720;
+  const heroHeight = Math.min(
+    310,
+    Math.max(176, safeViewportHeight * (compactViewport ? 0.27 : 0.3)),
+  );
 
   if (hero) {
     return (
@@ -89,8 +101,10 @@ function AuthScaffold({
           {
             marginHorizontal: -adaptation.screenGutter,
             marginTop: -theme.spacing.md,
+            minHeight: Math.max(0, safeViewportHeight - theme.spacing.md),
           },
         ]}
+        testID="login-hero-stack"
       >
         <View
           accessibilityElementsHidden
@@ -102,6 +116,7 @@ function AuthScaffold({
               backgroundColor: theme.colors.background.subtle,
               borderColor: theme.colors.border.subtle,
               borderRadius: theme.radii.prominent,
+              height: heroHeight,
             },
           ]}
         >
@@ -120,10 +135,12 @@ function AuthScaffold({
               backgroundColor: theme.colors.background.surface,
               borderColor: theme.colors.border.subtle,
               borderRadius: theme.radii.prominent,
-              gap: theme.spacing.md,
-              padding: theme.spacing.lg,
+              flexGrow: 1,
+              gap: compactViewport ? theme.spacing.sm : theme.spacing.md,
+              padding: compactViewport ? theme.spacing.md : theme.spacing.lg,
             },
           ]}
+          testID="login-form-sheet"
           variant="elevated"
         >
           <View
@@ -1253,9 +1270,7 @@ const styles = StyleSheet.create({
     width: "auto",
   },
   heroFrame: {
-    aspectRatio: 4 / 3,
     borderWidth: StyleSheet.hairlineWidth,
-    maxHeight: 330,
     overflow: "hidden",
     position: "relative",
     width: "100%",
@@ -1284,7 +1299,7 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 32,
     fontWeight: "800",
-    letterSpacing: -0.6,
+    letterSpacing: 0,
     lineHeight: 38,
     textAlign: "center",
   },
@@ -1360,6 +1375,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "center",
+    marginTop: "auto",
     paddingTop: 6,
   },
   identityMark: {

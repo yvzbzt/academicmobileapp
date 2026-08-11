@@ -163,9 +163,11 @@ describe("mobile authentication recovery contract", () => {
     const ownerGenerationCheck = onboardingHandler.indexOf("draftOwner.generation !== snapshot.generation");
     const payloadBuild = onboardingHandler.indexOf("buildAcademicSelectionPayload(academicOnboardingDraft)");
     const universityPatch = onboardingHandler.indexOf('"/me/university"');
-    const contextBootstrap = onboardingHandler.indexOf("await bootstrapAuthenticatedContext(activeSession.accessToken, snapshot)");
+    const authoritativeProfile = onboardingHandler.indexOf("profileDraftFromServer(savedProfile)");
+    const onboardingOwnerRelease = onboardingHandler.indexOf("onboardingOwnerRef.current = null");
     const contextGateRelease = onboardingHandler.indexOf("setAuthenticatedContextPending(false)");
     const returnToAuth = onboardingHandler.indexOf('setAuthStage("auth")');
+    const contextWarmup = onboardingHandler.indexOf("warmAuthenticatedContext(activeSession.accessToken");
     expect(sessionCheck).toBeGreaterThan(-1);
     expect(draftOwnerCheck).toBeGreaterThan(sessionCheck);
     expect(ownerGenerationCheck).toBeGreaterThan(draftOwnerCheck);
@@ -173,9 +175,12 @@ describe("mobile authentication recovery contract", () => {
     expect(onboardingHandler).not.toContain("AUTH_ENDPOINTS.login");
     expect(onboardingHandler).not.toContain("activateSession(activeSession)");
     expect(universityPatch).toBeGreaterThan(payloadBuild);
-    expect(contextBootstrap).toBeGreaterThan(universityPatch);
-    expect(contextGateRelease).toBeGreaterThan(contextBootstrap);
+    expect(authoritativeProfile).toBeGreaterThan(universityPatch);
+    expect(onboardingOwnerRelease).toBeGreaterThan(authoritativeProfile);
+    expect(contextGateRelease).toBeGreaterThan(onboardingOwnerRelease);
     expect(returnToAuth).toBeGreaterThan(contextGateRelease);
+    expect(contextWarmup).toBeGreaterThan(returnToAuth);
+    expect(onboardingHandler).not.toContain("await bootstrapAuthenticatedContext");
     expect(onboardingHandler.match(/"\/me\/university"/gu)).toHaveLength(1);
     expect(onboardingHandler).toContain('method: "PATCH"');
     expect(onboardingHandler).toContain("body: JSON.stringify(payload)");
@@ -190,6 +195,30 @@ describe("mobile authentication recovery contract", () => {
     expect(appSource).toContain("sessionOwner: session ? sessionOwner : null");
     expect(appSource).toContain("currentOwner: currentRouteOwner");
     expect(rootSurfaceRouting).toContain('rootRouteResolution.surface === "onboarding"');
+  });
+
+  it("releases authenticated routing after the mandatory profile and warms data recoverably", () => {
+    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const warmup = appSource.slice(
+      appSource.indexOf("function warmAuthenticatedContext"),
+      appSource.indexOf("async function bootstrapAuthenticatedContext")
+    );
+    const bootstrap = appSource.slice(
+      appSource.indexOf("async function bootstrapAuthenticatedContext"),
+      appSource.indexOf("async function handleAuth")
+    );
+
+    expect(warmup).toContain("void Promise.allSettled");
+    expect(warmup).toContain("loadPreferences(token, ownerSnapshot)");
+    expect(warmup).toContain("loadMyCalendar(token, ownerSnapshot)");
+    expect(warmup).toContain("loadUpcoming(token, ownerSnapshot)");
+    expect(warmup).toContain("loadAnnouncements(token, profileUniversityId, ownerSnapshot)");
+    expect(bootstrap).toContain('apiRequest<UserProfile>("/me"');
+    expect(bootstrap).toContain('setAuthStage(profileUniversityId ? "auth" : "academic_onboarding")');
+    expect(bootstrap).toContain("warmAuthenticatedContext(token, profileUniversityId, ownerSnapshot)");
+    expect(bootstrap).not.toContain("await loadMyCalendar");
+    expect(bootstrap).not.toContain("await loadUpcoming");
+    expect(bootstrap).not.toContain("await loadAnnouncements");
   });
 
   it("gates protected continuation until the activated owner context is ready", () => {
