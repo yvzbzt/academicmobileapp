@@ -3,6 +3,7 @@ import { useNetworkState } from "expo-network";
 import { useMemo, type ReactNode } from "react";
 import {
   FlatList,
+  Platform,
   SectionList,
   StyleSheet,
   Text,
@@ -103,6 +104,10 @@ export interface SummerSchoolScreenProps {
 }
 
 type SummerSectionKey = "dates" | "announcements" | "options";
+
+// Native-stack removal can touch Android's SwipeRefreshLayout off the UI thread
+// under Fabric. Destination refresh remains available through the visible button.
+const supportsDestinationPullToRefresh = () => Platform.OS !== "android";
 
 type SummerRow =
   | { key: string; kind: "event"; event: SummerSchoolEvent }
@@ -212,8 +217,8 @@ export function YokAnnouncementsScreen({
         />
       )}
       maxToRenderPerBatch={12}
-      onRefresh={mayRefresh ? onRefresh : undefined}
-      refreshing={visiblyLoading && hasItems}
+      onRefresh={supportsDestinationPullToRefresh() && mayRefresh ? onRefresh : undefined}
+      refreshing={supportsDestinationPullToRefresh() && visiblyLoading && hasItems}
       renderItem={renderItem}
       showsVerticalScrollIndicator
       style={{ backgroundColor: theme.colors.background.canvas, flex: 1 }}
@@ -418,8 +423,8 @@ export function SummerSchoolScreen({
         </View>
       )}
       maxToRenderPerBatch={14}
-      onRefresh={mayRefresh ? onRefresh : undefined}
-      refreshing={visiblyLoading && hasContent}
+      onRefresh={supportsDestinationPullToRefresh() && mayRefresh ? onRefresh : undefined}
+      refreshing={supportsDestinationPullToRefresh() && visiblyLoading && hasContent}
       renderItem={renderItem}
       renderSectionHeader={({ section }) => (
         <Text
