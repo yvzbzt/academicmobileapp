@@ -128,7 +128,8 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByRole("radio", { name: "Ajanda" }).props.accessibilityState).toEqual(
       expect.objectContaining({ selected: true }),
     );
-    expect(screen.getByText("Yaklaşan tarihler")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Takvim" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "3 Ağustos Pazartesi" })).toBeOnTheScreen();
     expect(screen.getByTestId("calendar-view-announcement").props.accessibilityLiveRegion)
       .toBe("polite");
 
@@ -144,7 +145,20 @@ describe("Phase 9 Calendar experience", () => {
       expect.objectContaining({ selected: true }),
     );
     expect(screen.getByLabelText("Aylık takvim özeti")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Akademik Takvim" })).toBeOnTheScreen();
     expect(screen.getByText("Ağustos 2026")).toBeOnTheScreen();
+  });
+
+  it("uses the selected Month cell as the event-list range", async () => {
+    await renderCalendar();
+    fireEvent.press(screen.getByRole("radio", { name: "Ay" }));
+    expect(screen.getByText("Ders kayıt dönemi")).toBeOnTheScreen();
+    expect(screen.queryByText("Final sınavı")).not.toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: /10 Ağustos 2026.*1 kayıt/u }));
+    expect(screen.getByText("Final sınavı")).toBeOnTheScreen();
+    expect(screen.queryByText("Ders kayıt dönemi")).not.toBeOnTheScreen();
+    expect(screen.getByText("1 etkinlik")).toBeOnTheScreen();
   });
 
   it("announces committed iOS view and period changes without an initial announcement", async () => {
@@ -179,11 +193,34 @@ describe("Phase 9 Calendar experience", () => {
 
   it("labels event type with icon-backed text and never invents a clock for date-only data", async () => {
     await renderCalendar();
-    expect(screen.getByText("Kayıt ve başvuru")).toBeOnTheScreen();
+    expect(screen.getByText("Son Başvuru")).toBeOnTheScreen();
     expect(screen.getByText("Sınav")).toBeOnTheScreen();
     expect(screen.getByText("Kişisel sınav")).toBeOnTheScreen();
-    expect(screen.getAllByText("Tüm gün · saat bilgisi verilmemiş").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tüm gün").length).toBeGreaterThan(0);
     expect(screen.queryByText(/00:00/u)).not.toBeOnTheScreen();
+  });
+
+  it("renders timestamp ranges in the academic event timezone", async () => {
+    await renderCalendar(props({
+      academicEvents: [{
+        id: "istanbul-final",
+        title: "Saat dilimi finali",
+        category: "final_exam",
+        startDate: "2026-08-11T07:00:00.000Z",
+        endDate: "2026-08-11T09:00:00.000Z",
+        temporalKind: "timestamp",
+        endTemporalKind: "timestamp",
+        timezone: "Europe/Istanbul",
+      }],
+      personalExams: [],
+      initialAnchorDate: "2026-08-11",
+      now: new Date("2026-08-11T06:00:00.000Z"),
+    }));
+
+    expect(screen.getByText("10:00")).toBeOnTheScreen();
+    expect(screen.getByText("12:00")).toBeOnTheScreen();
+    expect(screen.queryByText("07:00")).not.toBeOnTheScreen();
+    expect(screen.queryByText("09:00")).not.toBeOnTheScreen();
   });
 
   it("opens event detail with the exact selected item", async () => {
@@ -208,6 +245,7 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByText("Saati sistem seçicisinden seç.")).toBeOnTheScreen();
 
     fireEvent.changeText(screen.getByLabelText("Sınav adı"), "Veri Yapıları finali");
+    fireEvent.changeText(screen.getByLabelText("Konum veya not"), "D-101");
     fireEvent.press(screen.getByRole("button", { name: "Tarih seçilmedi" }));
     fireEvent(
       screen.getByLabelText("Sistem tarih seçici"),
@@ -226,6 +264,7 @@ describe("Phase 9 Calendar experience", () => {
 
     expect(callbacks.onCreatePersonalExam).toHaveBeenCalledWith(expect.objectContaining({
       title: "Veri Yapıları finali",
+      locationNote: "D-101",
     }));
     const submitted = callbacks.onCreatePersonalExam.mock.calls[0]?.[0];
     expect(submitted).toBeDefined();
@@ -238,10 +277,10 @@ describe("Phase 9 Calendar experience", () => {
     await renderCalendar();
     expect(screen.getByLabelText(/Google Takvim durumu.*Bağlı/u)).toBeOnTheScreen();
     expect(screen.getByText("3 uygulama kaydı doğrulandı")).toBeOnTheScreen();
-    expect(screen.getByText(/kişisel Google etkinlikleri değiştirilmez/u)).toBeOnTheScreen();
+    expect(screen.getByText("Etkinliklerini otomatik olarak senkronize et.")).toBeOnTheScreen();
     expect(screen.queryByText("Kullanmak istediğin Gmail hesabını seç.")).not.toBeOnTheScreen();
 
-    fireEvent.press(screen.getByRole("button", { name: "Şimdi eşitle" }));
+    fireEvent.press(screen.getByRole("button", { name: "Senkronize" }));
     fireEvent.press(screen.getByRole("button", { name: "Google Takvim'i yönet" }));
     expect(callbacks.onSyncGoogle).toHaveBeenCalledTimes(1);
     expect(callbacks.onManageGoogle).toHaveBeenCalledTimes(1);

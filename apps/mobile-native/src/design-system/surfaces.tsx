@@ -135,7 +135,7 @@ export function NavigationSurface({
   const sharedStyle: StyleProp<ViewStyle> = [
     styles.navigationSurface,
     kindStyle,
-    { borderColor: theme.colors.border.default },
+    { borderColor: theme.colors.border.subtle },
     useLiquidGlass
       ? null
       : {

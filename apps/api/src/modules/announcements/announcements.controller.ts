@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
@@ -34,6 +34,36 @@ export class AnnouncementsController {
     @Param("announcementId") announcementId: string
   ) {
     return this.announcementsService.getMyTrustedAnnouncement(user.id, announcementId);
+  }
+
+  @Get("my/saved/:announcementId")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMySavedAnnouncementStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("announcementId") announcementId: string
+  ) {
+    return this.announcementsService.getMySavedAnnouncementStatus(user.id, announcementId);
+  }
+
+  @Put("my/saved/:announcementId")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  saveMyAnnouncement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("announcementId") announcementId: string
+  ) {
+    return this.announcementsService.saveMyAnnouncement(user.id, announcementId);
+  }
+
+  @Delete("my/saved/:announcementId")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  deleteMySavedAnnouncement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("announcementId") announcementId: string
+  ) {
+    return this.announcementsService.deleteMySavedAnnouncement(user.id, announcementId);
   }
 
   @Get("yok")

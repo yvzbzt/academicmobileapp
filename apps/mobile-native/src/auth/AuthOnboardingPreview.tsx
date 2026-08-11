@@ -50,7 +50,7 @@ interface PreviewScenarioDefinition {
 }
 
 const SYNTHETIC_EMAIL = "ogrenci@phase6.invalid";
-const SYNTHETIC_PASSWORD = "phase6-parola";
+const SYNTHETIC_PASSWORD = "Phase6-Parola1";
 const SYNTHETIC_VERIFICATION_CODE = "4242";
 const SYNTHETIC_RECOVERY_CODE = "616161";
 
@@ -207,9 +207,9 @@ function AuthOnboardingPreviewContent({
   const [passwordConfirmation, setPasswordConfirmation] = useState(SYNTHETIC_PASSWORD);
   const [verificationCode, setVerificationCode] = useState(SYNTHETIC_VERIFICATION_CODE);
   const [recoveryCode, setRecoveryCode] = useState(SYNTHETIC_RECOVERY_CODE);
-  const [newPassword, setNewPassword] = useState("phase6-yeni-parola");
+  const [newPassword, setNewPassword] = useState("Phase6-Yeni1");
   const [newPasswordConfirmation, setNewPasswordConfirmation] = useState(
-    "phase6-yeni-parola",
+    "Phase6-Yeni1",
   );
   const [draft, setDraft] = useState<AcademicOnboardingScreenProps["draft"]>({
     ...INITIAL_ACADEMIC_DRAFT,
@@ -236,6 +236,45 @@ function AuthOnboardingPreviewContent({
       departmentId: value ?? "",
       classLevel: null,
     }));
+  }
+
+  const scenarioScreen = renderScenario({
+    scenario,
+    fullName,
+    email,
+    password,
+    passwordConfirmation,
+    verificationCode,
+    recoveryCode,
+    newPassword,
+    newPasswordConfirmation,
+    draft,
+    setScenario,
+    setFullName,
+    setEmail,
+    setPassword,
+    setPasswordConfirmation,
+    setVerificationCode,
+    setRecoveryCode,
+    setNewPassword,
+    setNewPasswordConfirmation,
+    selectUniversity,
+    selectFaculty,
+    selectDepartment,
+    setClassLevel: (value) => setDraft((current) => ({ ...current, classLevel: value })),
+  });
+
+  if (!showScenarioControls) {
+    return (
+      <Screen
+        accessibilityLabel="Phase 6 sentetik kimlik ve akademik profil önizlemesi"
+        keyboardSafe
+        readableWidth="form"
+        scroll
+      >
+        {scenarioScreen}
+      </Screen>
+    );
   }
 
   return (
@@ -277,31 +316,7 @@ function AuthOnboardingPreviewContent({
       </Card>
 
       <View key={scenario} style={styles.screenFixture}>
-        {renderScenario({
-          scenario,
-          fullName,
-          email,
-          password,
-          passwordConfirmation,
-          verificationCode,
-          recoveryCode,
-          newPassword,
-          newPasswordConfirmation,
-          draft,
-          setScenario,
-          setFullName,
-          setEmail,
-          setPassword,
-          setPasswordConfirmation,
-          setVerificationCode,
-          setRecoveryCode,
-          setNewPassword,
-          setNewPasswordConfirmation,
-          selectUniversity,
-          selectFaculty,
-          selectDepartment,
-          setClassLevel: (value) => setDraft((current) => ({ ...current, classLevel: value })),
-        })}
+        {scenarioScreen}
       </View>
     </Screen>
   );
@@ -351,9 +366,9 @@ function renderScenario(input: ScenarioRenderInput): ReactNode {
         busy={input.scenario === "login-loading"}
         email={input.email}
         feedback={loginFeedback}
-        googleAvailable={false}
+        googleAvailable
         googleBusy={false}
-        googleUnavailableMessage="phase6.invalid sentetik sağlayıcı durumu."
+        googleUnavailableMessage="Google girişi şu anda kullanılamıyor."
         onDismissFeedback={() => input.setScenario("login")}
         onEmailChange={input.setEmail}
         onForgotPassword={() => input.setScenario("recovery-request")}

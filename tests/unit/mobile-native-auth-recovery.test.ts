@@ -96,20 +96,20 @@ describe("mobile authentication recovery contract", () => {
 
   it("keeps the native registration rule in parity with the API", () => {
     expect(AUTH_PASSWORD_MIN_LENGTH).toBe(API_PASSWORD_MIN_LENGTH);
-    expect(AUTH_PASSWORD_MIN_LENGTH).toBe(10);
+    expect(AUTH_PASSWORD_MIN_LENGTH).toBe(8);
     expect(validateRegistrationForm({
       fullName: "Student Example",
       email: "student@example.com",
-      password: "1234567890",
-      passwordConfirmation: "1234567890"
+      password: "Abcdef12",
+      passwordConfirmation: "Abcdef12"
     })).toMatchObject({
       valid: true,
-      requirements: { minimumLength: true, confirmationMatches: true }
+      requirements: { minimumLength: true, characterGroupCount: 3, characterGroupsComplete: true, confirmationMatches: true }
     });
     expect(validateRegistrationForm({
       fullName: "Student Example",
       email: "student@example.com",
-      password: "1234567890",
+      password: "Abcdef12",
       passwordConfirmation: "different-password"
     })).toMatchObject({
       valid: false,
@@ -358,13 +358,13 @@ describe("mobile authentication recovery contract", () => {
     });
     expect(validatePasswordRecoveryConfirmation({
       code: "123456",
-      newPassword: "1234567890",
-      passwordConfirmation: "1234567890"
+      newPassword: "Abcdef12",
+      passwordConfirmation: "Abcdef12"
     })).toEqual({ valid: true });
     expect(validatePasswordRecoveryConfirmation({
       code: "12345",
-      newPassword: "1234567890",
-      passwordConfirmation: "1234567890"
+      newPassword: "Abcdef12",
+      passwordConfirmation: "Abcdef12"
     })).toMatchObject({ valid: false, code: "invalid_code" });
     expect(validatePasswordRecoveryConfirmation({
       code: "123456",
@@ -373,7 +373,12 @@ describe("mobile authentication recovery contract", () => {
     })).toMatchObject({ valid: false, code: "password_too_short" });
     expect(validatePasswordRecoveryConfirmation({
       code: "123456",
-      newPassword: "1234567890",
+      newPassword: "12345678",
+      passwordConfirmation: "12345678"
+    })).toMatchObject({ valid: false, code: "password_too_weak" });
+    expect(validatePasswordRecoveryConfirmation({
+      code: "123456",
+      newPassword: "Abcdef12",
       passwordConfirmation: "different-value"
     })).toMatchObject({ valid: false, code: "password_confirmation_mismatch" });
   });
@@ -434,7 +439,7 @@ describe("mobile authentication recovery contract", () => {
     );
     const registrationScreen = authScreensSource.slice(
       authScreensSource.indexOf("export function RegistrationScreen"),
-      authScreensSource.indexOf("function RequirementLine")
+      authScreensSource.indexOf("function RequirementChip")
     );
     const verificationScreen = authScreensSource.slice(
       authScreensSource.indexOf("export function VerificationScreen"),

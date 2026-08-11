@@ -1,11 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { isValidObjectId } from "mongoose";
-import { announcementItemSchema, announcementSourceSchema } from "../../database/mongoose-schemas.js";
+import { announcementItemSchema, announcementSourceSchema, savedAnnouncementSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
 import { canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class MongoAnnouncementRepository implements AnnouncementRepository {
@@ -190,6 +190,35 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
     return sourceDocument
       ? { item, source: toDomainRecord<AnnouncementSourceRecord>(sourceDocument) }
       : null;
+  }
+
+  async findSavedAnnouncement(userId: string, announcementId: string): Promise<SavedAnnouncementRecord | null> {
+    const document = await (await this.model("SavedAnnouncement", savedAnnouncementSchema))
+      .findOne({ userId, announcementId });
+    return document ? toDomainRecord<SavedAnnouncementRecord>(document) : null;
+  }
+
+  async saveAnnouncement(userId: string, announcementId: string, savedAt: Date): Promise<SavedAnnouncementRecord> {
+    const document = await (await this.model("SavedAnnouncement", savedAnnouncementSchema)).findOneAndUpdate(
+      { userId, announcementId },
+      {
+        $setOnInsert: { userId, announcementId, savedAt },
+        $set: { updatedAt: savedAt }
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+    if (!document) throw new Error("SAVED_ANNOUNCEMENT_UPSERT_FAILED");
+    return toDomainRecord<SavedAnnouncementRecord>(document);
+  }
+
+  async deleteSavedAnnouncement(userId: string, announcementId: string): Promise<boolean> {
+    const result = await (await this.model("SavedAnnouncement", savedAnnouncementSchema))
+      .deleteOne({ userId, announcementId });
+    return result.deletedCount > 0;
+  }
+
+  async deleteSavedAnnouncementsByUserId(userId: string): Promise<void> {
+    await (await this.model("SavedAnnouncement", savedAnnouncementSchema)).deleteMany({ userId });
   }
 
   async listAllItems(input: { limit?: number; offset?: number } = {}): Promise<AnnouncementItem[]> {

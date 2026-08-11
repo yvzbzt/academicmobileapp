@@ -108,7 +108,9 @@ export class AdminCalendarService {
       endDate?: string;
       facultyId?: string;
       departmentId?: string;
+      courseName?: string;
       description?: string;
+      location?: string;
       notificationRules?: Array<{ offsetDays: number; offsetHours?: number; trigger?: "before" | "at_time" | "approaching"; enabled: boolean }>;
     }>;
   }): Promise<CalendarDraftResponse> {
@@ -138,7 +140,9 @@ export class AdminCalendarService {
           term: event.term,
           category: event.category,
           title: event.title.trim(),
+          ...(event.courseName?.trim() ? { courseName: event.courseName.trim() } : {}),
           ...(event.description ? { description: event.description.trim() } : {}),
+          ...(event.location?.trim() ? { location: event.location.trim() } : {}),
           ...temporal,
           timezone: "Europe/Istanbul" as const,
           status: "approved" as const,

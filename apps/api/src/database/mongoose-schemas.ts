@@ -290,6 +290,17 @@ export const announcementItemSchema = new Schema(
     sourceUpdateTimeSource: { type: String, required: false, enum: ["source"] },
     discoveredAt: { type: String, required: false },
     summary: { type: String, required: false, trim: true },
+    body: [{
+      _id: false,
+      type: { type: String, required: true, enum: ["heading", "paragraph", "bullet"] },
+      text: { type: String, required: true, trim: true, maxlength: 800 }
+    }],
+    keyDates: [{
+      _id: false,
+      label: { type: String, required: true, trim: true, maxlength: 160 },
+      startDate: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/u },
+      endDate: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u }
+    }],
     fetchedAt: { type: String, required: false },
     freshness: { type: String, required: false, enum: ["fresh", "stale"], default: "fresh" },
     trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
@@ -305,6 +316,20 @@ announcementItemSchema.index({ sourceId: 1, canonicalUrl: 1 }, { name: "announce
 announcementItemSchema.index({ trustStatus: 1, dedupeKey: 1 }, { name: "announcement_items_trust_dedupe" });
 announcementItemSchema.index({ scopeType: 1, scopeId: 1 }, { name: "announcement_items_scope" });
 announcementItemSchema.index({ scopeType: 1, scopeId: 1, contentFingerprint: 1 }, { name: "announcement_items_scope_fingerprint" });
+
+export const savedAnnouncementSchema = new Schema(
+  {
+    userId: { type: String, required: true, index: true },
+    announcementId: { type: String, required: true, trim: true, index: true },
+    savedAt: { type: Date, required: true, default: Date.now }
+  },
+  { collection: "saved_announcements", timestamps: true }
+);
+
+savedAnnouncementSchema.index(
+  { userId: 1, announcementId: 1 },
+  { unique: true, name: "saved_announcements_user_announcement_unique" }
+);
 
 export const academicCalendarSchema = new Schema(
   {
@@ -365,7 +390,9 @@ export const academicEventSchema = new Schema(
       index: true
     },
     title: { type: String, required: true, trim: true },
+    courseName: { type: String, required: false, trim: true, maxlength: 240 },
     description: { type: String, required: false },
+    location: { type: String, required: false, trim: true, maxlength: 240 },
     temporalKind: { type: String, required: false, enum: ["date", "timestamp"], index: true },
     endTemporalKind: { type: String, required: false, enum: ["date", "timestamp"] },
     dateOnlyStart: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u, index: true },

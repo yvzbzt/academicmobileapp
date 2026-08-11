@@ -9,6 +9,7 @@ export type ManualExamRecord = {
   id: string;
   title: string;
   examDate: string;
+  locationNote?: string;
 };
 
 export type ManualExamEnvelope = {
@@ -145,10 +146,12 @@ function normalizeManualExamList(value: unknown): ManualExamRecord[] | null {
     const title = readNonEmptyString(candidate.title);
     const examDate = readTimestamp(candidate.examDate);
     if (!id || !title || !examDate) return null;
+    const locationNote = readOptionalString(candidate.locationNote, 240);
+    if (locationNote === false) return null;
 
     // Pick only the persistence contract fields. Runtime-added credentials or
     // other properties must never hitchhike into the stored envelope.
-    normalized.push({ id, title, examDate });
+    normalized.push({ id, title, examDate, ...(locationNote ? { locationNote } : {}) });
   }
 
   return normalized;
@@ -176,6 +179,14 @@ function readNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized ? normalized : null;
+}
+
+function readOptionalString(value: unknown, maxLength: number): string | null | false {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") return false;
+  const normalized = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  if (!normalized) return null;
+  return normalized.length <= maxLength ? normalized : false;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AuthRepository, AuthUserRecord } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import type { NotificationRepository } from "../notifications/notification.types.js";
+import type { AnnouncementRepository } from "../announcements/announcements.types.js";
 import { assertClassLevelAllowed, classLevelOptionsForDepartment } from "../catalog/academic-levels.js";
 import {
   normalizeFollowedAcademicScope,
@@ -33,7 +34,8 @@ export class UsersService {
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Inject("CatalogRepository") private readonly catalogRepository: CatalogRepository,
     @Inject("UserDataRepository") private readonly userDataRepository: UserDataRepository,
-    @Optional() @Inject("NotificationRepository") private readonly notificationRepository?: NotificationRepository
+    @Optional() @Inject("NotificationRepository") private readonly notificationRepository?: NotificationRepository,
+    @Optional() @Inject("AnnouncementRepository") private readonly announcementRepository?: AnnouncementRepository
   ) {}
 
   async getMe(userId: string): Promise<UserProfileResponse> {
@@ -144,6 +146,7 @@ export class UsersService {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
     await this.notificationRepository?.deleteUserData(userId);
+    await this.announcementRepository?.deleteSavedAnnouncementsByUserId(userId);
     await this.userDataRepository.deleteUserData(userId);
     await this.authRepository.deleteUserByAdmin(userId);
     return { status: "deleted" };
@@ -153,6 +156,7 @@ export class UsersService {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
     await this.notificationRepository?.deleteUserData(userId);
+    await this.announcementRepository?.deleteSavedAnnouncementsByUserId(userId);
     await this.userDataRepository.deleteUserData(userId);
     await this.authRepository.clearUserAppData(userId);
     return { status: "deleted" };
@@ -166,6 +170,7 @@ export class UsersService {
       await this.deleteMyData(userId);
     } else {
       await this.notificationRepository?.deleteUserData(userId);
+      await this.announcementRepository?.deleteSavedAnnouncementsByUserId(userId);
       await this.userDataRepository.deleteUserData(userId);
     }
 

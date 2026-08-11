@@ -116,9 +116,11 @@ export class CalendarService {
     const events = (await this.calendarRepository.listPublishedEvents({
       calendarId: calendar.id,
       universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {}),
       limit: 500,
       offset: 0
-    })).filter(isUniversityAcademicCalendarEvent);
+    })).filter(isPrimaryAcademicCalendarEvent);
 
     return { calendar, events: events.slice(0, 200), scope: "university", sourceStatus: events.length > 0 ? "parsed" : "source_only" };
   }
@@ -674,6 +676,7 @@ function renderIcsEvent(event: AcademicEventRecord): string[] {
     `LAST-MODIFIED:${icsTimestamp(event.updatedAt)}`,
     `SUMMARY:${escapeIcsText(event.title)}`,
     `DESCRIPTION:${escapeIcsText(description.join("\n"))}`,
+    ...(event.location ? [`LOCATION:${escapeIcsText(event.location)}`] : []),
     `CATEGORIES:${escapeIcsText(event.category)}`,
     ...temporalLines,
     "TRANSP:TRANSPARENT",
@@ -828,6 +831,10 @@ function announcementTimestamp(item: TrustedAcademicContentDto): number {
 
 function isUniversityAcademicCalendarEvent(event: AcademicEventRecord): boolean {
   if (event.facultyId || event.departmentId) return false;
+  return isPrimaryAcademicCalendarEvent(event);
+}
+
+function isPrimaryAcademicCalendarEvent(event: AcademicEventRecord): boolean {
   return event.category !== "course_schedule" && event.category !== "department_exam_schedule";
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
   findNodeHandle,
   type GestureResponderEvent,
@@ -41,6 +42,13 @@ export interface SelectFieldProps<Value extends string = string> {
   focusOnError?: boolean;
   focusOnErrorKey?: string | number;
   onOpenChange?: (open: boolean) => void;
+  inlineLabel?: boolean;
+  visualLabel?: string;
+  leadingAccessory?: ReactNode;
+  searchLabel?: string;
+  searchPlaceholder?: string;
+  searchValue?: string;
+  onSearchValueChange?: (value: string) => void;
   containerStyle?: StyleProp<ViewStyle>;
   testID?: string;
 }
@@ -65,6 +73,13 @@ export function SelectField<Value extends string = string>({
   focusOnError = false,
   focusOnErrorKey,
   onOpenChange,
+  inlineLabel = false,
+  visualLabel,
+  leadingAccessory,
+  searchLabel,
+  searchPlaceholder = "Ada göre ara",
+  searchValue,
+  onSearchValueChange,
   containerStyle,
   testID,
 }: SelectFieldProps<Value>) {
@@ -158,7 +173,11 @@ export function SelectField<Value extends string = string>({
     <View style={[styles.container, { gap: theme.spacing.xxs }, containerStyle]}>
       <Text
         nativeID={labelId}
-        style={[theme.typography.label, { color: theme.colors.text.primary }]}
+        style={[
+          theme.typography.label,
+          { color: theme.colors.text.primary },
+          inlineLabel && styles.visuallyHidden,
+        ]}
       >
         {label}
       </Text>
@@ -203,7 +222,7 @@ export function SelectField<Value extends string = string>({
               : focused
                 ? theme.colors.border.focus
                 : theme.colors.border.default,
-            borderRadius: theme.radii.control,
+            borderRadius: theme.radii.card,
             gap: theme.spacing.sm,
             minHeight: minimumTouchTarget,
             paddingHorizontal: theme.spacing.sm,
@@ -212,21 +231,37 @@ export function SelectField<Value extends string = string>({
         ]}
         testID={testID}
       >
-        <Text
-          style={[
-            theme.typography.body,
-            styles.value,
-            {
-              color: interactionDisabled
-                ? theme.colors.text.disabled
-                : selectedOption
-                  ? theme.colors.text.primary
-                  : theme.colors.text.secondary,
-            },
-          ]}
-        >
-          {loading ? loadingLabel : visibleValue}
-        </Text>
+        {leadingAccessory ? (
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.leadingAccessory}
+          >
+            {leadingAccessory}
+          </View>
+        ) : null}
+        <View style={styles.valueCopy}>
+          {inlineLabel ? (
+            <Text style={[theme.typography.label, { color: theme.colors.text.primary }]}>
+              {visualLabel ?? label}
+            </Text>
+          ) : null}
+          <Text
+            style={[
+              theme.typography.body,
+              styles.value,
+              {
+                color: interactionDisabled
+                  ? theme.colors.text.disabled
+                  : selectedOption
+                    ? theme.colors.text.primary
+                    : theme.colors.text.secondary,
+              },
+            ]}
+          >
+            {loading ? loadingLabel : visibleValue}
+          </Text>
+        </View>
         {loading ? (
           <ActivityIndicator
             accessibilityElementsHidden
@@ -273,6 +308,38 @@ export function SelectField<Value extends string = string>({
         description={sheetDescription}
         visible={open}
       >
+        {onSearchValueChange ? (
+          <View
+            style={[
+              styles.sheetSearchFrame,
+              {
+                backgroundColor: theme.colors.background.surface,
+                borderColor: theme.colors.border.default,
+                borderRadius: theme.radii.card,
+                marginBottom: theme.spacing.sm,
+                paddingHorizontal: theme.spacing.sm,
+              },
+            ]}
+          >
+            <TextInput
+              accessibilityLabel={searchLabel ?? `${label} ara`}
+              accessibilityRole="search"
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={onSearchValueChange}
+              placeholder={searchPlaceholder}
+              placeholderTextColor={theme.colors.text.disabled}
+              returnKeyType="search"
+              selectionColor={theme.colors.action.focus}
+              style={[
+                theme.typography.body,
+                styles.sheetSearchInput,
+                { color: theme.colors.text.primary },
+              ]}
+              value={searchValue ?? ""}
+            />
+          </View>
+        ) : null}
         <FlatList
           accessibilityLabel={`${label} seçenek listesi`}
           accessibilityRole="radiogroup"
@@ -317,7 +384,7 @@ export function SelectField<Value extends string = string>({
                       borderColor: selected
                         ? theme.colors.border.focus
                         : theme.colors.border.default,
-                      borderRadius: theme.radii.control,
+                      borderRadius: theme.radii.card,
                       gap: theme.spacing.xxs,
                       minHeight: minimumTouchTarget,
                       paddingHorizontal: theme.spacing.md,
@@ -386,8 +453,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   value: {
+    minWidth: 0,
+  },
+  valueCopy: {
     flex: 1,
     minWidth: 0,
+  },
+  leadingAccessory: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetSearchFrame: {
+    borderWidth: 1,
+  },
+  sheetSearchInput: {
+    minHeight: 48,
+    paddingVertical: 8,
   },
   options: {
     paddingBottom: 1,
@@ -403,5 +484,11 @@ const styles = StyleSheet.create({
   optionCopy: {
     flex: 1,
     minWidth: 0,
+  },
+  visuallyHidden: {
+    height: 1,
+    opacity: 0,
+    position: "absolute",
+    width: 1,
   },
 });

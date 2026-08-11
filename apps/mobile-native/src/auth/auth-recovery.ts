@@ -1,5 +1,42 @@
-export const AUTH_PASSWORD_MIN_LENGTH = 10;
+export const AUTH_PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_RECOVERY_CODE_LENGTH = 6;
+export const AUTH_PASSWORD_REQUIRED_CHARACTER_GROUPS = 3;
+
+export interface AuthPasswordRequirements {
+  minimumLength: boolean;
+  uppercase: boolean;
+  lowercase: boolean;
+  digit: boolean;
+  special: boolean;
+  characterGroupCount: number;
+  characterGroupsComplete: boolean;
+}
+
+/** Shared password truth for registration, recovery, and the visual checklist. */
+export function evaluateAuthPassword(password: string): AuthPasswordRequirements {
+  const uppercase = /[A-Z]/u.test(password);
+  const lowercase = /[a-z]/u.test(password);
+  const digit = /\d/u.test(password);
+  const special = /[^\p{L}\d\s]/u.test(password);
+  const characterGroupCount = [uppercase, lowercase, digit, special]
+    .filter(Boolean)
+    .length;
+
+  return {
+    minimumLength: password.length >= AUTH_PASSWORD_MIN_LENGTH,
+    uppercase,
+    lowercase,
+    digit,
+    special,
+    characterGroupCount,
+    characterGroupsComplete: characterGroupCount >= AUTH_PASSWORD_REQUIRED_CHARACTER_GROUPS,
+  };
+}
+
+export function isAuthPasswordStrong(password: string): boolean {
+  const requirements = evaluateAuthPassword(password);
+  return requirements.minimumLength && requirements.characterGroupsComplete;
+}
 
 export const AUTH_ENDPOINTS = {
   login: "/auth/login",
@@ -34,6 +71,7 @@ export type PasswordRecoveryValidationCode =
   | "invalid_email"
   | "invalid_code"
   | "password_too_short"
+  | "password_too_weak"
   | "password_confirmation_mismatch";
 
 export type PasswordRecoveryValidationResult =
@@ -149,6 +187,7 @@ export function validatePasswordRecoveryConfirmation(input: {
   newPassword: string;
   passwordConfirmation: string;
 }): PasswordRecoveryValidationResult {
+  const passwordRequirements = evaluateAuthPassword(input.newPassword);
   if (!new RegExp(`^\\d{${PASSWORD_RECOVERY_CODE_LENGTH}}$`).test(input.code.trim())) {
     return {
       valid: false,
@@ -156,11 +195,18 @@ export function validatePasswordRecoveryConfirmation(input: {
       message: `Sıfırlama kodu ${PASSWORD_RECOVERY_CODE_LENGTH} haneli olmalıdır.`
     };
   }
-  if (input.newPassword.length < AUTH_PASSWORD_MIN_LENGTH) {
+  if (!passwordRequirements.minimumLength) {
     return {
       valid: false,
       code: "password_too_short",
       message: `Yeni şifren en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmalıdır.`
+    };
+  }
+  if (!passwordRequirements.characterGroupsComplete) {
+    return {
+      valid: false,
+      code: "password_too_weak",
+      message: "Yeni şifren büyük harf, küçük harf, rakam ve özel karakter gruplarından en az üçünü içermelidir."
     };
   }
   if (input.newPassword !== input.passwordConfirmation) {

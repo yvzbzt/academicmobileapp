@@ -54,11 +54,11 @@ export function Card({
     styles.card,
     {
       backgroundColor,
-      borderColor: selected ? theme.colors.border.focus : theme.colors.border.default,
-      borderRadius: theme.radii.card,
+      borderColor: selected ? theme.colors.border.focus : theme.colors.border.subtle,
+      borderRadius: theme.radii.prominent,
       padding: theme.spacing.md,
     },
-    variant === "elevated"
+    variant === "elevated" || variant === "outlined"
       ? resolveElevationStyle("low", adaptation.platform, theme)
       : null,
     style,
@@ -181,7 +181,7 @@ export function ListItem({
       backgroundColor: selected
         ? theme.colors.state.selected
         : theme.colors.background.surface,
-      borderColor: theme.colors.border.default,
+      borderColor: theme.colors.border.subtle,
     },
     style,
   ];
@@ -264,7 +264,7 @@ export function Chip({
             ? theme.colors.action.disabled
             : selected
               ? theme.colors.state.selected
-              : theme.colors.background.surface,
+              : theme.colors.background.subtle,
           borderColor: focused ? theme.colors.border.focus : theme.colors.border.default,
           borderRadius: theme.radii.pill,
           paddingHorizontal: theme.spacing.sm,
@@ -417,7 +417,7 @@ export function SegmentedControl<Value extends string = string>({
 
 const styles = StyleSheet.create({
   card: {
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   listItem: {
     alignItems: "center",
@@ -429,7 +429,7 @@ const styles = StyleSheet.create({
   },
   chip: {
     alignItems: "center",
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 4,
     justifyContent: "center",

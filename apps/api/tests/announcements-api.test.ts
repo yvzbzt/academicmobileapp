@@ -356,6 +356,26 @@ describe("trusted announcement API contract", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("returns an empty collection without starting source discovery in the read request", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const findUniversityById = vi.fn(async () => {
+      throw new Error("source discovery must not run during a trusted collection read");
+    });
+    const service = new AnnouncementsService(
+      createAuthRepository(),
+      repository,
+      { findUniversityById } as never
+    );
+
+    await expect(service.getMyAnnouncementsCollection("student-1", 20)).resolves.toEqual({
+      items: [],
+      state: "fresh",
+      sourceCount: 0,
+      failedSourceCount: 0
+    });
+    expect(findUniversityById).not.toHaveBeenCalled();
+  });
+
   it("does not reset persisted YÖK source health during public collection reads", async () => {
     const repository = new InMemoryAnnouncementRepository();
     const source = await repository.upsertSource({

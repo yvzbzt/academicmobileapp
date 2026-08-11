@@ -26,7 +26,11 @@ export interface AcademicEventDto {
   calendarId: string;
   category: string;
   title: string;
+  /** Course name only when explicitly supplied by the source or an editor. */
+  courseName?: string;
   description?: string;
+  /** Human-readable campus, room, or online meeting location when provided by the source. */
+  location?: string;
   /** Date-only values are calendar dates; timestamp values are real instants. */
   temporalKind: AcademicEventTemporalKind;
   /** May differ from the start for a timed start with an inclusive date-only end. */
@@ -44,6 +48,20 @@ export type AcademicContentScopeType = "university" | "faculty" | "department";
 export type AcademicContentFreshness = "fresh" | "stale";
 export type AcademicContentCollectionState = "fresh" | "stale" | "partial";
 export type AcademicContentPublicationKind = "date" | "timestamp";
+
+export interface AcademicContentBodyBlockDto {
+  type: "heading" | "paragraph" | "bullet";
+  /** Sanitized plain text. Raw source HTML is never exposed. */
+  text: string;
+}
+
+export interface AcademicContentKeyDateDto {
+  label: string;
+  /** Source-declared calendar date. */
+  startDate: string;
+  /** Optional inclusive source-declared calendar end date. */
+  endDate?: string;
+}
 
 export interface AcademicContentSourceRelationshipDto {
   sourceId: string;
@@ -69,6 +87,10 @@ export interface TrustedAcademicContentDto {
   scopeId: string;
   title: string;
   summary?: string;
+  /** Sanitized, presentation-safe structure derived from source-owned content. */
+  body?: AcademicContentBodyBlockDto[];
+  /** Explicit date/date-range statements derived from the sanitized source body. */
+  keyDates?: AcademicContentKeyDateDto[];
   /** Backward-compatible alias of canonicalUrl. */
   link: string;
   canonicalUrl: string;

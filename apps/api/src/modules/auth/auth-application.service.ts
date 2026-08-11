@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, Optional, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { AUTH_ERROR_CODES, AUTH_PASSWORD_MIN_LENGTH, PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_RESEND_SECONDS, PASSWORD_RECOVERY_TTL_SECONDS, type AuthErrorCode } from "./auth.constants.js";
+import { AUTH_ERROR_CODES, AUTH_PASSWORD_REQUIREMENT_MESSAGE, PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_RESEND_SECONDS, PASSWORD_RECOVERY_TTL_SECONDS, isAuthPasswordStrong, type AuthErrorCode } from "./auth.constants.js";
 import { EmailVerificationSenderService } from "./email-verification-sender.service.js";
 import type { AuthRepository, AuthSessionResult, GoogleLoginInput, LoginInput, PasswordRecoveryConfirmInput, PasswordRecoveryRequestResult, RecentAuthenticationInput, RecentAuthenticationResult, RefreshInput, RefreshTokenRecord, RegisterInput, RegisterResult, VerifyEmailByLinkInput, VerifyEmailInput } from "./auth.types.js";
 import { FirebaseAdminService } from "../../database/firebase-admin.service.js";
@@ -34,6 +34,9 @@ export class AuthApplicationService {
     const normalizedEmail = input.email.trim().toLowerCase();
     const fullName = cleanGoogleDisplayName(input.fullName) ?? normalizedEmail.split("@")[0] ?? normalizedEmail;
     if (input.password !== input.passwordConfirmation) throw new BadRequestException("Password confirmation does not match.");
+    if (!isAuthPasswordStrong(input.password)) {
+      throw badRequestAuthError(AUTH_ERROR_CODES.PASSWORD_INVALID, AUTH_PASSWORD_REQUIREMENT_MESSAGE);
+    }
 
     const existingUser = await this.authRepository.findUserByEmail(normalizedEmail);
     if (existingUser) throw new ConflictException("Email is already registered.");
@@ -189,10 +192,10 @@ export class AuthApplicationService {
     if (input.newPassword !== input.passwordConfirmation) {
       throw badRequestAuthError(AUTH_ERROR_CODES.PASSWORD_CONFIRMATION_MISMATCH, "Password confirmation does not match.");
     }
-    if (input.newPassword.length < AUTH_PASSWORD_MIN_LENGTH) {
+    if (!isAuthPasswordStrong(input.newPassword)) {
       throw badRequestAuthError(
         AUTH_ERROR_CODES.PASSWORD_INVALID,
-        `Password must be at least ${AUTH_PASSWORD_MIN_LENGTH} characters.`
+        AUTH_PASSWORD_REQUIREMENT_MESSAGE
       );
     }
 

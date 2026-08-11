@@ -138,8 +138,8 @@ describe("auth and academic-profile HTTP contracts", () => {
       body: JSON.stringify({
         fullName: "HTTP Student",
         email: "HTTP.STUDENT@example.com",
-        password: "  spaced-pass  ",
-        passwordConfirmation: "  spaced-pass  "
+        password: "  Spaced-pass1  ",
+        passwordConfirmation: "  Spaced-pass1  "
       })
     });
     expect(registration.status).toBe(201);
@@ -149,13 +149,13 @@ describe("auth and academic-profile HTTP contracts", () => {
       verificationExpiresAt: expect.any(String),
       resendAvailableAt: expect.any(String)
     }));
-    expect(JSON.stringify(registration.body)).not.toContain("spaced-pass");
+    expect(JSON.stringify(registration.body)).not.toContain("Spaced-pass1");
 
     const unverifiedLogin = await request("/auth/login", {
       method: "POST",
       body: JSON.stringify({
         email: "http.student@example.com",
-        password: "  spaced-pass  ",
+        password: "  Spaced-pass1  ",
         deviceId: "http-device"
       })
     });
@@ -214,7 +214,7 @@ describe("auth and academic-profile HTTP contracts", () => {
       method: "POST",
       body: JSON.stringify({
         email: "http.student@example.com",
-        password: "  spaced-pass  ",
+        password: "  Spaced-pass1  ",
         deviceId: "http-device"
       })
     });
@@ -321,7 +321,7 @@ describe("auth and academic-profile HTTP contracts", () => {
       method: "POST",
       body: JSON.stringify({
         email: "http.student@example.com",
-        password: "  spaced-pass  ",
+        password: "  Spaced-pass1  ",
         deviceId: "http-device"
       })
     });

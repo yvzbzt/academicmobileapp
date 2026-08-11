@@ -129,6 +129,8 @@ describe("mongoose schemas", () => {
   it("defines academic calendar and event indexes", () => {
     expect(academicCalendarSchema.get("collection")).toBe("academic_calendars");
     expect(academicEventSchema.get("collection")).toBe("academic_events");
+    expect(academicEventSchema.path("courseName")).toBeDefined();
+    expect(academicEventSchema.path("location")).toBeDefined();
     expect(academicCalendarSchema.indexes()).toEqual(
       expect.arrayContaining([[{ universityId: 1, academicYear: 1, status: 1 }, expect.objectContaining({ name: "calendars_published_lookup" })]])
     );
@@ -155,7 +157,7 @@ describe("mongoose schemas", () => {
     expect(announcementSourceSchema.path("trustStatus").options.enum).toEqual(["trusted", "rejected", "quarantined"]);
     expect(announcementSourceSchema.path("trustStatus").options.default).toBe("quarantined");
     expect(announcementSourceSchema.path("duplicateOfId")).toBeDefined();
-    for (const path of ["rawTitle", "canonicalUrl", "officialSourceUrl", "publishedAt", "publicationTimeSource", "sourceUpdatedAt", "sourceUpdateTimeSource", "discoveredAt", "fetchedAt", "freshness", "trustStatus", "trustReasonCodes", "dedupeKey", "duplicateOfId"]) {
+    for (const path of ["rawTitle", "canonicalUrl", "officialSourceUrl", "publishedAt", "publicationTimeSource", "sourceUpdatedAt", "sourceUpdateTimeSource", "discoveredAt", "fetchedAt", "summary", "body", "keyDates", "freshness", "trustStatus", "trustReasonCodes", "dedupeKey", "duplicateOfId"]) {
       expect(announcementItemSchema.path(path), `announcement item path ${path}`).toBeDefined();
     }
     expect(announcementItemSchema.path("trustStatus").options.default).toBe("quarantined");

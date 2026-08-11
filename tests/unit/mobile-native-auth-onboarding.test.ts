@@ -52,9 +52,9 @@ describe("mobile authentication and academic onboarding helpers", () => {
 
     it("keeps registration password length in exact parity with the API", () => {
       expect(AUTH_PASSWORD_MIN_LENGTH).toBe(API_PASSWORD_MIN_LENGTH)
-      expect(AUTH_PASSWORD_MIN_LENGTH).toBe(10)
+      expect(AUTH_PASSWORD_MIN_LENGTH).toBe(8)
 
-      const password = "0123456789"
+      const password = "Abcdef12"
       expect(validateRegistrationForm({
         fullName: "Ada Lovelace",
         email: "ada@example.edu",
@@ -65,6 +65,12 @@ describe("mobile authentication and academic onboarding helpers", () => {
         errors: {},
         requirements: {
           minimumLength: true,
+          uppercase: true,
+          lowercase: true,
+          digit: true,
+          special: false,
+          characterGroupCount: 3,
+          characterGroupsComplete: true,
           confirmationMatches: true
         }
       })
@@ -74,18 +80,24 @@ describe("mobile authentication and academic onboarding helpers", () => {
       expect(validateRegistrationForm({
         fullName: " A ",
         email: "not-an-email",
-        password: "123456789",
+        password: "Aa1!234",
         passwordConfirmation: ""
       })).toEqual({
         valid: false,
         errors: {
           fullName: "Ad soyad en az 2 karakter olmalıdır.",
           email: "Geçerli bir e-posta adresi gir.",
-          password: "Şifren en az 10 karakter olmalıdır.",
+          password: "Şifren en az 8 karakter olmalıdır.",
           passwordConfirmation: "Şifre tekrarı zorunludur."
         },
         requirements: {
           minimumLength: false,
+          uppercase: true,
+          lowercase: true,
+          digit: true,
+          special: true,
+          characterGroupCount: 4,
+          characterGroupsComplete: true,
           confirmationMatches: false
         }
       })
@@ -95,15 +107,40 @@ describe("mobile authentication and academic onboarding helpers", () => {
       const result = validateRegistrationForm({
         fullName: "Ada Lovelace",
         email: "ada@example.edu",
-        password: "0123456789",
-        passwordConfirmation: "0123456788"
+        password: "Abcdef12",
+        passwordConfirmation: "Abcdef13"
       })
 
       expect(result.valid).toBe(false)
       expect(result.errors).toEqual({ passwordConfirmation: "Şifreler eşleşmiyor." })
       expect(result.requirements).toEqual({
         minimumLength: true,
+        uppercase: true,
+        lowercase: true,
+        digit: true,
+        special: false,
+        characterGroupCount: 3,
+        characterGroupsComplete: true,
         confirmationMatches: false
+      })
+    })
+
+    it("rejects an eight-character password that satisfies fewer than three character groups", () => {
+      expect(validateRegistrationForm({
+        fullName: "Ada Lovelace",
+        email: "ada@example.edu",
+        password: "12345678",
+        passwordConfirmation: "12345678"
+      })).toMatchObject({
+        valid: false,
+        errors: {
+          password: "Şifren büyük harf, küçük harf, rakam ve özel karakter gruplarından en az üçünü içermelidir."
+        },
+        requirements: {
+          minimumLength: true,
+          characterGroupCount: 1,
+          characterGroupsComplete: false
+        }
       })
     })
   })

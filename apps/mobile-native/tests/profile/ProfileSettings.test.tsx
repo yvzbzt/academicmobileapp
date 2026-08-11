@@ -1,5 +1,5 @@
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AccessibilityInfo, Switch } from "react-native";
+import { AccessibilityInfo, StyleSheet, Switch } from "react-native";
 import {
   act,
   fireEvent,
@@ -15,6 +15,7 @@ import {
   GoogleCalendarSettingsScreen,
   NotificationSettingsScreen,
   ProfileOverviewScreen,
+  resolveNotificationHeroLayout,
 } from "../../src/profile/ProfileSettings";
 import {
   resolveAcademicProfileSummary,
@@ -61,6 +62,14 @@ describe("Phase 10 profile and settings presentation", () => {
     jest.clearAllMocks();
   });
 
+  it("stacks the notification hero for narrow or large-text layouts only", () => {
+    expect(resolveNotificationHeroLayout(360, 1)).toBe("stacked");
+    expect(resolveNotificationHeroLayout(393, 1)).toBe("stacked");
+    expect(resolveNotificationHeroLayout(430, 1.3)).toBe("stacked");
+    expect(resolveNotificationHeroLayout(410, 1)).toBe("side-by-side");
+    expect(resolveNotificationHeroLayout(430, 1)).toBe("side-by-side");
+  });
+
   it("renders the required profile hierarchy with truthful identity and app metadata", async () => {
     const academicSummary = resolveAcademicProfileSummary(
       { universityId: "uni", facultyId: "faculty", departmentId: "department", classLevel: 3 },
@@ -90,18 +99,17 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    expect(screen.getByRole("header", { name: "Profil ve ayarlar" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
     expect(screen.getAllByText("Ada Lovelace").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ada@example.invalid").length).toBeGreaterThan(0);
-    expect(screen.getByText("Örnek Üniversitesi")).toBeVisible();
-    expect(screen.getByText("Akademik profil tamamlandı")).toBeVisible();
-    expect(screen.getByRole("header", { name: "Kişisel bilgiler" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Akademik profil" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Bildirimler" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Takvim bağlantıları" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Hesap yönetimi" })).toBeVisible();
-    expect(screen.getByText("0.1.1")).toBeVisible();
-    expect(screen.getByText("12")).toBeVisible();
+    expect(screen.getByLabelText(/Örnek Üniversitesi.*Akademik profil tamamlandı/u)).toBeVisible();
+    expect(screen.getByRole("header", { name: "AKADEMİK BİLGİLER" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "BİLDİRİM TERCİHLERİ" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "BAĞLANTILAR" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "HESAP" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Akademik Bilgiler" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Bildirim Tercihleri" })).toBeVisible();
+    expect(screen.getByText(/Sürüm 0\.1\.1 · Derleme 12/u)).toBeVisible();
     expect(screen.queryByText(/tema|görünüm|takipçi|öğrenci kimliği/iu)).toBeNull();
   });
 
@@ -166,22 +174,22 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    expect(screen.getByText("İşletim sistemi izni")).toBeVisible();
-    expect(screen.getByText("Bu cihazın kaydı")).toBeVisible();
-    expect(screen.getByText("Uygulama tercihi")).toBeVisible();
-    expect(screen.getByLabelText(/^Uygulama tercihi\. Açık$/u)).toBeVisible();
-    expect(screen.getByText("Gerçek teslimat")).toBeVisible();
-    expect(screen.getByText("Etkin değil")).toBeVisible();
+    expect(screen.getByRole("header", { name: "Bildirim tercihleri" })).toBeVisible();
+    expect(screen.getByText("Önemli akademik hatırlatmalar cebinizde")).toBeVisible();
+    expect(screen.getByLabelText(/^Bildirim izni gerekiyor\./u)).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Duyurular bildirimi" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Son başvuru tarihleri bildirimi" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Etkinlikler bildirimi" })).toBeVisible();
     const openSettingsButton = screen.getByRole("button", { name: "Cihaz ayarlarını aç" });
     fireEvent.press(openSettingsButton);
     await waitFor(() => expect(openSettingsButton).toBeEnabled());
-    const categorySwitch = screen.getByRole("switch", { name: "Sınavlar bildirimi" });
+    const categorySwitch = screen.getByRole("switch", { name: "Sınav tarihleri bildirimi" });
     expect(categorySwitch).toHaveStyle({ minHeight: 48, minWidth: 48 });
     for (const nativeSwitch of screen.UNSAFE_getAllByType(Switch)) {
       expect(nativeSwitch.props.disabled).toBe(false);
     }
     fireEvent.press(categorySwitch);
-    fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini kaydet" }));
+    fireEvent.press(screen.getByRole("button", { name: "Tercihleri kaydet" }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(onCategoryChange).toHaveBeenCalledWith("exam", false);
     expect(onSave).toHaveBeenCalledTimes(1);
@@ -209,12 +217,11 @@ describe("Phase 10 profile and settings presentation", () => {
         truth={failedTruth}
       />,
     ));
-    const retrySave = screen.getByRole("button", { name: "Bildirim tercihlerini kaydet" });
+    const retrySave = screen.getByRole("button", { name: "Tercihleri kaydet" });
     expect(retrySave).toBeEnabled();
     fireEvent.press(retrySave);
     expect(onSave).toHaveBeenCalledTimes(2);
-    expect(screen.getByLabelText(/^\u0130\u015fletim sistemi izni\./u)).toBeVisible();
-    expect(screen.getByLabelText(/^Bu cihaz\u0131n kayd\u0131\./u)).toBeVisible();
+    expect(screen.getByLabelText(/^Bildirim izni açık\./u)).toBeVisible();
 
     const rejectOpenSettings = jest.fn(() => Promise.reject(new Error("RAW_SETTINGS_FAILURE")));
     await view.rerenderAsync(tree(
@@ -267,6 +274,50 @@ describe("Phase 10 profile and settings presentation", () => {
     for (const nativeSwitch of screen.UNSAFE_getAllByType(Switch)) {
       expect(nativeSwitch.props.disabled).toBe(true);
     }
+  });
+
+  it("keeps granted permission actionable and the clean save control visually active without resaving", async () => {
+    const onOpenSettings = jest.fn();
+    const onSave = jest.fn();
+    const truth = resolveNotificationTruth({
+      permission: "granted",
+      preferenceEnabled: true,
+      registration: "registered",
+      saveState: "saved",
+    });
+    await renderAsync(tree(
+      <NotificationSettingsScreen
+        categories={[{ key: "exam", label: "Sınavlar", enabled: true }]}
+        dirty={false}
+        mode="selected_fields"
+        onCategoryChange={jest.fn()}
+        onModeChange={jest.fn()}
+        onOpenSettings={onOpenSettings}
+        onPreferenceEnabledChange={jest.fn()}
+        onSave={onSave}
+        preferenceEnabled
+        saveState="saved"
+        truth={truth}
+      />,
+    ));
+
+    const permission = screen.getByRole("button", { name: /^Bildirim izni açık\./u });
+    expect(permission).toBeEnabled();
+    fireEvent.press(permission);
+    await waitFor(() => expect(onOpenSettings).toHaveBeenCalledTimes(1));
+
+    const art = screen.getByTestId("notification-hero-art", { includeHiddenElements: true });
+    expect(screen.getByTestId("notification-settings-hero")).toHaveStyle({ flexDirection: "column" });
+    expect(art).toHaveProp("resizeMode", "contain");
+    const artStyle = StyleSheet.flatten(art.props.style);
+    expect(artStyle).toMatchObject({ height: 144, width: "100%" });
+    expect(typeof artStyle.height).toBe("number");
+    expect(Number.isFinite(artStyle.height as number)).toBe(true);
+
+    const save = screen.getByRole("button", { name: "Tercihleri kaydet" });
+    expect(save).toBeEnabled();
+    fireEvent.press(save);
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("keeps Google lifecycle controls compact and protects personal events in removal copy", async () => {

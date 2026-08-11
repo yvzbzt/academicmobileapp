@@ -1,6 +1,9 @@
 # Mobile Native Redesign Program
 
-Status date: 6 August 2026
+The current reference-led visual contract is documented in
+[`REFERENCE_DESIGN_BIBLE.md`](./REFERENCE_DESIGN_BIBLE.md).
+
+Status date: 11 August 2026
 
 Product target: `apps/mobile-native`
 
@@ -59,6 +62,12 @@ Authentication, registration, verification, and onboarding live outside the auth
 | 11 | Cross-platform quality and native visual QA | Complete at `f50a45b` | [phase-11-cross-platform-quality.md](./phases/phase-11-cross-platform-quality.md) |
 | 12 | Final reconciliation and release-readiness gate | Complete — local closure commit recorded by Git history | [phase-12-final-reconciliation.md](./phases/phase-12-final-reconciliation.md) |
 
+## Reference-board implementation update
+
+The post-Phase-12 visual milestone applies the supplied reference board across the native product without changing the four-route information architecture. It adds the fixed-height pre-login introduction, reference-led authentication and onboarding, the white/blue visual foundation, refreshed Home, Announcements, Calendar, and Profile screens, and the supporting backend contracts for trusted announcements and scoped calendar data.
+
+Tracked application metadata is now version `0.1.3` with Android version code `14`. The checkpoint passed the full root and native test suites, both TypeScript checks, native Android visual/runtime review, and a locally signed release APK build. APKs, signing inputs, raw screenshots, UI hierarchy exports, and runtime logs remain local artifacts and are intentionally excluded from source control.
+
 ## Permanent documents
 
 - [DECISIONS.md](./DECISIONS.md) — accepted decisions and explicitly deferred choices.
@@ -92,6 +101,6 @@ The historical Phase 1–8 audit classification was:
 
 Phases 9–11 completed Calendar/personal exams, Profile/settings, and cross-platform quality without reopening the earlier contracts. Phase 12 found and repaired two release-blocking regressions at their narrowest boundaries: production access/calendar signing secrets now fail closed, use distinct values, and never cross-fallback, while tracked Expo configuration now applies SecureStore backup exclusions and deterministic notification metadata during native generation. Focused coverage was added for both repairs.
 
-The current Android implementation is `CONDITIONALLY_READY` pending direct modern-Android, TalkBack, and installed-authenticated manual evidence. Publication remains `NOT_READY`: source version code `12` is below locally documented historical codes `13`/`14`, the highest Play-uploaded code and Play signing acceptance are unknown, release-signing enforcement is not source-authoritative in a clean clone, and store/privacy materials remain incomplete. iOS implementation/publication and the combined live-provider gate are `NOT_READY` because required iOS identity/signing/APNs configuration and native evidence are absent. These external and release limitations do not undo the deterministically tested Phase 1–11 product implementation.
+The current Android implementation and local release APK are validated for the recorded test environment. Store publication still depends on Play signing acceptance, store/privacy material completion, and final checks on supported production devices. iOS implementation and publication remain unverified because the required iOS identity, signing, APNs configuration, Xcode environment, and native evidence are not available. These external release limitations do not invalidate the tested product implementation.
 
-MongoDB remains the only runtime database; Firestore persistence remains absent. The authenticated shell still has exactly four primary tabs. No fake social feature, production credential, production provider access, deployment, publication, migration, or store upload was introduced by Phase 12. Any post-Phase-12 work requires a separately approved plan.
+MongoDB remains the runtime database; Firestore persistence remains absent. The authenticated shell still has exactly four primary routes. No fake social feature, production credential, provider secret, signing input, migration, or store upload is part of the redesign source change.

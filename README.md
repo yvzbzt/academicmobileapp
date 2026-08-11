@@ -1,55 +1,72 @@
-# Universite Akademik Takvim Bildirim Uygulamasi
+# Academic Calendar
 
-Turkiye'deki universitelerin akademik takvimlerini PDF kaynaklardan isleyen, admin onayi sonrasinda yayinlayan ve ogrencilere bildirim planlayan MVP platformu.
+Academic Calendar is a full-stack platform that turns official university calendars and announcements into a personalized student experience. It provides reviewed academic dates, trusted announcements, reminders, and optional Google Calendar synchronization through web, mobile, and administrative applications.
 
-## MVP Kapsami
+## Applications
 
-- NestJS API: auth, RBAC, katalog, takvim, PDF processing, audit, notification scheduling ve delivery tracking.
-- MongoDB adapterleri: auth, katalog, takvim, PDF, notification ve audit koleksiyonlari.
-- Redis/BullMQ: queue adapteri ve Redis rate-limit store.
-- Admin web: katalog CRUD, PDF isleme/review, calendar publish/rollback, audit export, notification retry/delivery timeline.
-- Student mobile web: login/register, universite secimi, akademik takvim, upcoming events, notification preferences ve web device registration.
-- Student mobile native (React Native + Expo): register/login, university selection, calendar timeline, all-calendar vs selected-field alarms.
+| Application | Technology | Purpose |
+| --- | --- | --- |
+| API | NestJS, MongoDB; optional Redis and BullMQ adapters | Authentication, catalog data, calendar publication, announcement ingestion, notifications, and audit records |
+| Admin | React, Vite | Source management, document review, calendar publishing, delivery monitoring, and audit export |
+| Student web | React, Vite | Browser-based access to calendars, announcements, and account settings |
+| Student mobile | React Native, Expo | Native experience targeting Android and iOS, with reminders, profile scoping, and calendar synchronization |
 
-## Student Registration Rules
+## Key Features
 
-- Registration accepts any valid email address.
-- Registration passwords must contain at least 10 characters, and password confirmation must match.
-- Email verification is mandatory before first login.
-- Students select their university, faculty and department after verification so the timeline can be scoped correctly.
-- Turkey university/faculty/department options are seeded from YOK Atlas on API startup unless `BOOTSTRAP_CATALOG_SEED_ENABLED=false`.
-- Student timeline endpoints (`/calendar/my`, `/calendar/upcoming`) are filtered by selected university/faculty/department scope.
+- Email and Google authentication with verification, session controls, and account recovery.
+- University, faculty, department, and year-based personalization.
+- Review and publication workflow for official academic calendar sources.
+- Trusted announcement feed with source attribution, saving, and direct destinations.
+- Agenda, week, and month calendar views with personal exam creation.
+- Notification preferences, quiet hours, and device registration.
+- Owner-scoped Google Calendar synchronization that does not modify unrelated personal events.
+- Role-based administration, audit trails, delivery tracking, and retry workflows.
 
-For local development without SMTP credentials, the API emits only a non-sensitive configuration warning; it never logs the email address or verification/deletion code. A preview verification token is returned in non-production mode (or when explicitly enabled) and must remain disabled in production. The controlled authentication error and resend-timing contract is documented in [docs/04-security-hardening.md](docs/04-security-hardening.md#controlled-authentication-api-contract).
-- Docker Compose: local dependency stack ve production-style API/admin/mobile deployment compose.
-- CI: typecheck, tests, frontend builds, MongoDB/Redis/BullMQ smoke ve dependency audit.
+## Repository Structure
 
-## Hizli Baslangic
+```text
+apps/
+  admin/          Administrative web application
+  api/            NestJS API and background services
+  mobile/         Student web application
+  mobile-native/  React Native and Expo application
+packages/
+  shared/         Shared API contracts and domain types
+docs/              Architecture, security, testing, and deployment guides
+deploy/            Deployment assets
+tests/             Cross-application unit and end-to-end tests
+```
+
+## Requirements
+
+- Node.js 22 and npm
+- Docker with Docker Compose for MongoDB- and Redis-backed local services
+- Android Studio and a supported JDK for local Android builds
+- macOS with Xcode for local iOS builds
+
+## Local Development
+
+Install the root and native-app dependencies:
 
 ```bash
 npm install
+npm --prefix apps/mobile-native install
 cp .env.example .env
-npm run validate
 ```
 
-Local dependency stack:
+Start the local infrastructure and verify it:
 
 ```bash
 docker compose up -d mongodb redis
 npm run smoke:infra
 ```
 
-Development servers:
+Run the services you need in separate terminals:
 
 ```bash
 npm run start:api
 npm run dev:admin
 npm run dev:mobile
-```
-
-React Native development:
-
-```bash
 npm run dev:mobile:native
 ```
 
@@ -60,55 +77,56 @@ npm run android:mobile:native
 npm run ios:mobile:native
 ```
 
-Default local URLs:
+Default local endpoints:
 
 - API: `http://localhost:3000`
-- Admin: `http://localhost:3001` or next available Vite port
-- Student mobile web: `http://localhost:3002` or next available Vite port
+- Admin: `http://localhost:3001`
+- Student web: `http://localhost:3002`
 
-## Production-Style Compose
+Vite may select the next available port when a default port is already in use.
 
-Set strong secrets before running:
+## Configuration
 
-```powershell
-function New-DeploymentSecret {
-  $secretBytes = New-Object byte[] 48
-  $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
-  try {
-    $generator.GetBytes($secretBytes)
-    [Convert]::ToBase64String($secretBytes)
-  } finally {
-    $generator.Dispose()
-  }
-}
-$env:JWT_ACCESS_SECRET = New-DeploymentSecret
-$env:JWT_REFRESH_SECRET = New-DeploymentSecret
-$env:CALENDAR_FEED_SECRET = New-DeploymentSecret
-Remove-Item Function:\New-DeploymentSecret
-npm.cmd run compose:prod:config
-npm.cmd run compose:prod:build
-docker compose -f docker-compose.prod.yml up
-```
+Copy the relevant example environment file before development:
 
-On Windows, if Docker Compose reports a Buildx/Bake gRPC header error from a non-ASCII workspace path, use `npm.cmd run compose:prod:build:classic` for the build step.
+- Root services: [`.env.example`](./.env.example)
+- Native app: [`apps/mobile-native/.env.example`](./apps/mobile-native/.env.example)
 
-Exposed services:
-
-- API: `http://localhost:3000`
-- Admin: `http://localhost:8080`
-- Student mobile web: `http://localhost:8081`
+The native app resolves its API URL from `EXPO_PUBLIC_API_URL`, the Expo development host, or its platform fallback. Google login, Google Calendar, Firebase Cloud Messaging, email delivery, and production authentication require their corresponding provider credentials. Never commit local environment files, signing keys, service-account files, or production secrets.
 
 ## Validation
 
+Run the main repository checks:
+
 ```bash
 npm run validate
+```
+
+`validate` performs the root TypeScript check, Vitest suite, and production builds for both web applications. Validate the native app separately:
+
+```bash
+npm run typecheck:mobile:native
+npm run test:mobile:native
+```
+
+Infrastructure-dependent checks are available with:
+
+```bash
 npm run smoke:infra
 ```
 
-`npm run validate` runs TypeScript typecheck, Vitest tests, admin production build and mobile production build.
+## Deployment
+
+Production-style containers are defined in [`docker-compose.prod.yml`](./docker-compose.prod.yml). Configure strong secrets and deployment-specific provider credentials before building or starting the stack:
+
+```bash
+npm run compose:prod:config
+npm run compose:prod:build
+docker compose -f docker-compose.prod.yml up
+```
+
+See the [deployment guide](./docs/08-devops-deployment.md) and [Firebase deployment guide](./docs/15-firebase-deploy.md) for environment, secret, and provider configuration.
 
 ## Documentation
 
-Use the [documentation index](docs/README.md) for architecture, API contracts,
-data model, security, deployment, mobile-native redesign, validation evidence,
-known issues, and historical reports.
+The [documentation index](./docs/README.md) links to the architecture, API contracts, data model, security controls, test strategy, deployment procedures, and mobile design system. Native-app implementation details are documented in [`apps/mobile-native/README.md`](./apps/mobile-native/README.md).

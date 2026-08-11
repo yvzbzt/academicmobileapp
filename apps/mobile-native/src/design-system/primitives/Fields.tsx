@@ -10,6 +10,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { usePlatformAdaptation, useTheme } from "../theme";
 
 export interface TextFieldProps
@@ -18,8 +19,14 @@ export interface TextFieldProps
   supportingText?: string;
   error?: string;
   disabled?: boolean;
+  leadingAccessory?: ReactNode;
   trailingAccessory?: ReactNode;
+  /** Keeps the programmatic label while removing duplicate visible copy in compact compositions. */
+  labelVisuallyHidden?: boolean;
+  /** Places the label and input copy together inside one list-style row. */
+  inlineLabel?: boolean;
   containerStyle?: StyleProp<ViewStyle>;
+  frameStyle?: StyleProp<ViewStyle>;
   inputStyle?: StyleProp<TextStyle>;
 }
 
@@ -28,8 +35,12 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   supportingText,
   error,
   disabled = false,
+  leadingAccessory,
   trailingAccessory,
+  labelVisuallyHidden = false,
+  inlineLabel = false,
   containerStyle,
+  frameStyle,
   inputStyle,
   accessibilityLabel,
   accessibilityHint,
@@ -45,20 +56,82 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   const labelId = `${generatedId}-label`;
   const errorId = `${generatedId}-error`;
   const helpText = error ?? supportingText;
+  const automaticLeadingIcon = textInputProps.textContentType === "emailAddress"
+    || textInputProps.keyboardType === "email-address"
+    ? "mail-outline"
+    : textInputProps.textContentType === "password"
+      || textInputProps.textContentType === "newPassword"
+      ? "lock-closed-outline"
+      : textInputProps.textContentType === "name"
+        ? "person-outline"
+        : textInputProps.textContentType === "oneTimeCode"
+          || textInputProps.keyboardType === "number-pad"
+          ? "shield-checkmark-outline"
+          : null;
+  const resolvedLeadingAccessory = leadingAccessory ?? (automaticLeadingIcon ? (
+    <Ionicons
+      color={theme.colors.text.secondary}
+      name={automaticLeadingIcon}
+      size={20}
+    />
+  ) : null);
   const borderColor = error
     ? theme.colors.status.error
     : focused
       ? theme.colors.border.focus
       : theme.colors.border.default;
+  const labelElement = (
+    <Text
+      nativeID={labelId}
+      style={[
+        theme.typography.label,
+        { color: theme.colors.text.primary },
+        labelVisuallyHidden && styles.visuallyHidden,
+      ]}
+    >
+      {label}
+    </Text>
+  );
+  const inputElement = (
+    <TextInput
+      {...textInputProps}
+      ref={inputRef}
+      accessibilityHint={accessibilityHint ?? helpText}
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityLabelledBy={labelId}
+      aria-errormessage={error ? errorId : undefined}
+      aria-invalid={error ? true : undefined}
+      editable={!disabled}
+      onBlur={(event) => {
+        setFocused(false);
+        onBlur?.(event);
+      }}
+      onFocus={(event) => {
+        setFocused(true);
+        onFocus?.(event);
+      }}
+      placeholderTextColor={theme.colors.text.disabled}
+      selectionColor={theme.colors.action.focus}
+      style={[
+        styles.input,
+        theme.typography.body,
+        {
+          color: disabled
+            ? theme.colors.text.disabled
+            : theme.colors.text.primary,
+          minHeight: minimumTouchTarget - 4,
+          paddingHorizontal: theme.spacing.sm,
+          paddingVertical: theme.spacing.xs,
+        },
+        inlineLabel && styles.inlineInput,
+        inputStyle,
+      ]}
+    />
+  );
 
   return (
     <View style={[styles.container, { gap: theme.spacing.xxs }, containerStyle]}>
-      <Text
-        nativeID={labelId}
-        style={[theme.typography.label, { color: theme.colors.text.primary }]}
-      >
-        {label}
-      </Text>
+      {!inlineLabel ? labelElement : null}
       <View
         style={[
           styles.inputFrame,
@@ -68,43 +141,26 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
               ? theme.colors.action.disabled
               : theme.colors.background.surface,
             borderColor,
-            borderRadius: theme.radii.control,
+            borderRadius: theme.radii.card,
           },
+          frameStyle,
         ]}
       >
-        <TextInput
-          {...textInputProps}
-          ref={inputRef}
-          accessibilityHint={accessibilityHint ?? helpText}
-          accessibilityLabel={accessibilityLabel ?? label}
-          accessibilityLabelledBy={labelId}
-          aria-errormessage={error ? errorId : undefined}
-          aria-invalid={error ? true : undefined}
-          editable={!disabled}
-          onBlur={(event) => {
-            setFocused(false);
-            onBlur?.(event);
-          }}
-          onFocus={(event) => {
-            setFocused(true);
-            onFocus?.(event);
-          }}
-          placeholderTextColor={theme.colors.text.disabled}
-          selectionColor={theme.colors.action.focus}
-          style={[
-            styles.input,
-            theme.typography.body,
-            {
-              color: disabled
-                ? theme.colors.text.disabled
-                : theme.colors.text.primary,
-              minHeight: minimumTouchTarget - 4,
-              paddingHorizontal: theme.spacing.sm,
-              paddingVertical: theme.spacing.xs,
-            },
-            inputStyle,
-          ]}
-        />
+        {resolvedLeadingAccessory ? (
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={[styles.leadingAccessory, { paddingLeft: theme.spacing.sm }]}
+          >
+            {resolvedLeadingAccessory}
+          </View>
+        ) : null}
+        {inlineLabel ? (
+          <View style={[styles.inlineCopy, { paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.xs }]}>
+            {labelElement}
+            {inputElement}
+          </View>
+        ) : inputElement}
         {trailingAccessory ? (
           <View
             style={[styles.trailingAccessory, { paddingRight: theme.spacing.xxs }]}
@@ -196,9 +252,13 @@ export const PasswordField = forwardRef<TextInput, PasswordFieldProps>(function 
             },
           ]}
         >
-          <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>
-            {revealed ? "Gizle" : "Göster"}
-          </Text>
+          <Ionicons
+            accessibilityElementsHidden
+            color={theme.colors.text.secondary}
+            importantForAccessibility="no-hide-descendants"
+            name={revealed ? "eye-off-outline" : "eye-outline"}
+            size={23}
+          />
         </Pressable>
       }
     />
@@ -206,7 +266,7 @@ export const PasswordField = forwardRef<TextInput, PasswordFieldProps>(function 
 });
 
 export interface SearchFieldProps
-  extends Omit<TextFieldProps, "trailingAccessory"> {
+  extends Omit<TextFieldProps, "leadingAccessory" | "trailingAccessory"> {
   onClear?: () => void;
   clearAccessibilityLabel?: string;
 }
@@ -233,6 +293,9 @@ export function SearchField({
       onChangeText={onChangeText}
       returnKeyType={textFieldProps.returnKeyType ?? "search"}
       value={value}
+      leadingAccessory={
+        <Ionicons color={theme.colors.text.secondary} name="search-outline" size={20} />
+      }
       trailingAccessory={
         hasValue ? (
           <Pressable
@@ -283,13 +346,32 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  inlineCopy: {
+    flex: 1,
+    justifyContent: "center",
+    minWidth: 0,
+  },
+  inlineInput: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
   trailingAccessory: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  leadingAccessory: {
     alignItems: "center",
     justifyContent: "center",
   },
   fieldAction: {
     alignItems: "center",
-    borderWidth: 1,
+    borderWidth: 0,
     justifyContent: "center",
+  },
+  visuallyHidden: {
+    height: 1,
+    opacity: 0,
+    position: "absolute",
+    width: 1,
   },
 });

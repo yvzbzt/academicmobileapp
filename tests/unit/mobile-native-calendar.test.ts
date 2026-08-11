@@ -62,10 +62,10 @@ describe("Phase 9 calendar and personal-exam model", () => {
       academicSourceLabel: "Örnek Üniversitesi Akademik Takvimi",
     });
     expect(items.map((item) => ({ id: item.id, label: item.classificationLabel, icon: item.icon }))).toEqual([
-      { id: "registration-range", label: "Kayıt ve başvuru", icon: "flag-outline" },
+      { id: "registration-range", label: "Son Başvuru", icon: "flag-outline" },
       { id: "final-exam", label: "Sınav", icon: "document-text-outline" },
       { id: "personal-1", label: "Kişisel sınav", icon: "school-outline" },
-      { id: "timestamped-orientation", label: "Akademik tarih", icon: "calendar-outline" },
+      { id: "timestamped-orientation", label: "Etkinlik", icon: "calendar-outline" },
     ]);
     expect(items[0]).toMatchObject({
       startDate: "2026-08-03",
@@ -311,7 +311,37 @@ describe("Phase 9 calendar and personal-exam model", () => {
       title: "Fizik",
       examDate: new Date(2026, 8, 1, 9, 20).toISOString(),
     });
-    expect(draft).toEqual({ title: "Fizik", date: "2026-09-01", time: "09:20" });
+    expect(draft).toEqual({
+      title: "Fizik",
+      date: "2026-09-01",
+      time: "09:20",
+      locationNote: "",
+    });
+  });
+
+  it("keeps optional academic locations and personal room notes in Calendar items", () => {
+    const items = buildCalendarItems({
+      academicEvents: [{
+        id: "located-event",
+        title: "Veri Yapıları Final Sınavı",
+        category: "final_exam",
+        startDate: "2026-08-10T07:00:00.000Z",
+        endDate: "2026-08-10T09:00:00.000Z",
+        location: "Mühendislik Fak. – A Blok 201",
+      }],
+      personalExams: [{
+        id: "personal-located",
+        title: "Matematik II",
+        examDate: "2026-08-11T06:00:00.000Z",
+        locationNote: "D-101",
+      }],
+      academicSourceLabel: "Resmî kaynak",
+    });
+
+    expect(items.map((item) => item.location)).toEqual([
+      "Mühendislik Fak. – A Blok 201",
+      "D-101",
+    ]);
   });
 
   it("keeps create, edit, delete, relaunch, and A/B/A storage owner-scoped", () => {

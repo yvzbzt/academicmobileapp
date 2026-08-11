@@ -1,9 +1,9 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import {
   Button,
   Card,
-  SearchField,
   SelectField,
   useTheme,
   type SelectFieldOption,
@@ -77,7 +77,7 @@ export function AcademicProfileFields({
   useEffect(() => setDepartmentQuery(""), [props.draft.facultyId]);
 
   return (
-    <>
+    <View style={[styles.fieldsStack, { gap: theme.spacing.md }]}>
       <SelectorSearch
         disabled={props.busy}
         error={props.universitiesError}
@@ -87,7 +87,7 @@ export function AcademicProfileFields({
         onRetry={props.onRetryUniversities}
         onValueChange={props.onUniversityChange}
         options={filteredUniversities}
-        placeholder="Üniversiteni seç"
+        placeholder="Üniversite ara veya seç"
         query={universityQuery}
         requiredError={props.universityRequiredError}
         validationAttempt={props.validationAttempt}
@@ -105,7 +105,7 @@ export function AcademicProfileFields({
         onRetry={props.onRetryFaculties}
         onValueChange={props.onFacultyChange}
         options={filteredFaculties}
-        placeholder="İsteğe bağlı"
+        placeholder="Fakülte ara veya seç"
         query={facultyQuery}
         selectorLabel="Fakülte"
         value={props.draft.facultyId || null}
@@ -121,22 +121,24 @@ export function AcademicProfileFields({
         onRetry={props.onRetryDepartments}
         onValueChange={props.onDepartmentChange}
         options={filteredDepartments}
-        placeholder="İsteğe bağlı"
+        placeholder="Bölüm ara veya seç"
         query={departmentQuery}
         selectorLabel="Bölüm"
         value={props.draft.departmentId || null}
       />
 
-      <View style={{ gap: theme.spacing.xs }}>
+      <View style={styles.selectorGroup}>
         <SelectField
           disabled={props.busy || !props.draft.departmentId}
           emptyLabel="Önce bölüm seç."
+          inlineLabel
           label="Sınıf"
+          leadingAccessory={<AcademicFieldIcon icon="school-outline" tone="navy" />}
           onValueChange={(value) => props.onClassLevelChange(Number(value) as AcademicClassLevel)}
           options={classOptions}
-          placeholder="İsteğe bağlı"
-          supportingText="Bölümünü seçtiğinde uygun sınıflar gösterilir."
+          placeholder="Sınıf seç"
           value={props.draft.classLevel === null ? null : String(props.draft.classLevel)}
+          visualLabel="Sınıf  ·  Opsiyonel"
         />
         {props.draft.classLevel !== null ? (
           <Button compact disabled={props.busy} label="Sınıf seçimini temizle" onPress={() => props.onClassLevelChange(null)} variant="ghost" />
@@ -152,7 +154,7 @@ export function AcademicProfileFields({
           universities={props.universities}
         />
       ) : null}
-    </>
+    </View>
   );
 }
 
@@ -171,14 +173,67 @@ export function AcademicProfileReview(props: {
     ["Sınıf", props.classLevels.find((item) => item.value === props.draft.classLevel)?.label ?? "Seçilmedi"],
   ];
   return (
-    <Card accessibilityLabel="Akademik seçim özeti" style={{ gap: theme.spacing.sm }} variant="tonal">
-      <Text accessibilityRole="header" style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>Seçim özeti</Text>
-      {rows.map(([label, value]) => (
-        <View key={label} style={[styles.reviewRow, { gap: theme.spacing.sm }]}>
-          <Text style={[theme.typography.meta, styles.reviewKey, { color: theme.colors.text.secondary }]}>{label}</Text>
-          <Text style={[theme.typography.bodyStrong, styles.reviewValue, { color: theme.colors.text.primary }]}>{value}</Text>
+    <Card
+      accessibilityLabel="Akademik seçim özeti"
+      style={[
+        styles.reviewCard,
+        {
+          backgroundColor: theme.colors.background.surface,
+          borderColor: theme.colors.border.subtle,
+          borderRadius: theme.radii.prominent,
+          gap: theme.spacing.sm,
+        },
+      ]}
+      variant="tonal"
+    >
+      <View style={[styles.reviewHeading, { gap: theme.spacing.sm }]}>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            styles.reviewHeadingIcon,
+            {
+              backgroundColor: theme.colors.action.primary,
+              borderRadius: theme.radii.card,
+            },
+          ]}
+        >
+          <Ionicons color={theme.colors.action.onPrimary} name="list-outline" size={18} />
         </View>
-      ))}
+        <View style={[styles.reviewHeadingCopy, { gap: theme.spacing.xxs }]}>
+          <Text accessibilityRole="header" style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>Seçilen bilgiler</Text>
+        </View>
+      </View>
+      <View style={[styles.reviewPills, { gap: theme.spacing.xs }]}>
+        {rows.map(([label, value], index) => (
+          <View
+            key={label}
+            style={[
+              styles.reviewPill,
+              {
+                backgroundColor: index === 0
+                  ? theme.colors.action.secondary
+                  : theme.colors.background.subtle,
+                borderColor: theme.colors.border.subtle,
+                borderRadius: theme.radii.pill,
+                gap: theme.spacing.xs,
+              },
+            ]}
+          >
+            {index === 0 ? <Ionicons color={theme.colors.action.primary} name="school-outline" size={16} /> : null}
+            <Text
+              style={[
+                theme.typography.metaStrong,
+                styles.reviewPillText,
+                { color: index === 0 ? theme.colors.text.link : theme.colors.text.secondary },
+              ]}
+            >
+              {value === "Seçilmedi" ? `${label} seçilmedi` : value}
+            </Text>
+            <Ionicons color={theme.colors.text.secondary} name="close" size={14} />
+          </View>
+        ))}
+      </View>
     </Card>
   );
 }
@@ -203,32 +258,83 @@ interface SelectorSearchProps {
 
 function SelectorSearch(props: SelectorSearchProps) {
   const theme = useTheme();
+  const presentation = selectorPresentation(props.selectorLabel);
   return (
-    <View style={{ gap: theme.spacing.xs }}>
-      <SearchField
-        disabled={props.disabled || props.loading}
-        label={props.label}
-        onChangeText={props.onQueryChange}
-        placeholder="Ada göre ara"
-        value={props.query}
-      />
+    <View
+      style={[
+        styles.selectorGroup,
+        {
+          gap: theme.spacing.xs,
+        },
+      ]}
+    >
       <SelectField
         disabled={props.disabled}
         emptyLabel={props.query ? "Aramana uygun sonuç bulunamadı." : "Kullanılabilir seçenek yok."}
         error={props.requiredError ?? props.error}
         focusOnError={Boolean(props.requiredError)}
         focusOnErrorKey={props.validationAttempt}
+        inlineLabel
         label={props.selectorLabel}
+        leadingAccessory={<AcademicFieldIcon icon={presentation.icon} tone={props.selectorLabel === "Üniversite" ? "blue" : "navy"} />}
         loading={props.loading}
         onValueChange={props.onValueChange}
+        onSearchValueChange={props.onQueryChange}
         options={props.options}
         placeholder={props.placeholder}
+        searchLabel={props.label}
+        searchValue={props.query}
         value={props.value}
+        visualLabel={`${props.selectorLabel}  ·  ${props.selectorLabel === "Üniversite" ? "Zorunlu" : "Opsiyonel"}`}
       />
-      {props.error ? <Button compact disabled={props.disabled} label="Seçenekleri tekrar yükle" onPress={props.onRetry} variant="secondary" /> : null}
-      {props.onClear ? <Button compact disabled={props.disabled} label={`${props.selectorLabel} seçimini temizle`} onPress={props.onClear} variant="ghost" /> : null}
+      {props.error || props.onClear ? (
+        <View style={[styles.selectorActions, { gap: theme.spacing.xs }]}>
+          {props.error ? <Button compact disabled={props.disabled} label="Seçenekleri tekrar yükle" onPress={props.onRetry} variant="secondary" /> : null}
+          {props.onClear ? <Button compact disabled={props.disabled} label={`${props.selectorLabel} seçimini temizle`} onPress={props.onClear} variant="ghost" /> : null}
+        </View>
+      ) : null}
     </View>
   );
+}
+
+function AcademicFieldIcon({
+  icon,
+  tone,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  tone: "blue" | "navy";
+}) {
+  const theme = useTheme();
+  return (
+    <View
+      style={[
+        styles.academicFieldIcon,
+        {
+          backgroundColor: theme.colors.action.secondary,
+          borderRadius: theme.radii.control,
+        },
+      ]}
+    >
+      <Ionicons
+        color={tone === "blue" ? theme.colors.action.primary : theme.colors.text.secondary}
+        name={icon}
+        size={22}
+      />
+    </View>
+  );
+}
+
+function selectorPresentation(selectorLabel: string): {
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+} {
+  if (selectorLabel === "Üniversite") {
+    return { description: "Akademik takvim ve duyuru kapsamın için üniversiteni seç.", icon: "school-outline" };
+  }
+  if (selectorLabel === "Fakülte") {
+    return { description: "İstersen fakülte kapsamını ekle.", icon: "business-outline" };
+  }
+  return { description: "İstersen bölüm kapsamını ekle.", icon: "book-outline" };
 }
 
 export function filterAcademicOptions(
@@ -245,17 +351,54 @@ function optionLabel(options: readonly AcademicOption[], value: string): string 
 }
 
 const styles = StyleSheet.create({
-  reviewRow: {
-    alignItems: "flex-start",
+  fieldsStack: {
+    gap: 10,
+    width: "100%",
+  },
+  reviewCard: {
+  },
+  reviewHeading: {
+    alignItems: "center",
     flexDirection: "row",
+    minWidth: 0,
   },
-  reviewKey: {
-    flexBasis: 90,
-    flexShrink: 0,
-  },
-  reviewValue: {
+  reviewHeadingCopy: {
     flex: 1,
     minWidth: 0,
-    textAlign: "right",
+  },
+  reviewHeadingIcon: {
+    alignItems: "center",
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  reviewPills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  reviewPill: {
+    alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    maxWidth: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  reviewPillText: {
+    flexShrink: 1,
+  },
+  academicFieldIcon: {
+    alignItems: "center",
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  selectorActions: {
+    alignItems: "stretch",
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  selectorGroup: {
+    width: "100%",
   },
 });

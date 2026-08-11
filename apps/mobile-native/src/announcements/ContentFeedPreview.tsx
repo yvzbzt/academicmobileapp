@@ -280,6 +280,7 @@ export function ContentFeedPreview({
   const [selectedItem, setSelectedItem] = useState<ContentFeedItem>(
     initialDetail,
   );
+  const [saved, setSaved] = useState(false);
 
   return (
     <SafeAreaProvider
@@ -313,7 +314,10 @@ export function ContentFeedPreview({
                   <AnnouncementDetail
                     item={selectedItem}
                     onBack={() => navigation.goBack()}
+                    onOpenNotificationSettings={() => undefined}
                     onOpenOfficialSource={() => Promise.resolve(fixture.officialHandoffResult)}
+                    onToggleSaved={() => setSaved((current) => !current)}
+                    saved={saved}
                   />
                 )}
               </PreviewStack.Screen>

@@ -75,14 +75,14 @@ describe("AuthOnboardingPreview", () => {
 
     await selectScenario("Kurtarma · onay", "kurtarma onay");
     expect(screen.getByLabelText("Yeni şifre")).toHaveDisplayValue(
-      "phase6-yeni-parola",
+      "Phase6-Yeni1",
     );
 
     await selectScenario("Kurtarma · başarı", "kurtarma başarı");
     expect(
       screen.getByText("Sentetik şifre yenilendi. Yeni şifrenle giriş yapabilirsin."),
     ).toBeVisible();
-    expect(screen.getByRole("header", { name: "Tekrar hoş geldin" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Akademik Takvim" })).toBeVisible();
 
     await selectScenario("Akademik profil", "akademik profil");
     expect(screen.getByRole("combobox", { name: "Üniversite" })).toHaveAccessibilityValue({
@@ -91,7 +91,7 @@ describe("AuthOnboardingPreview", () => {
 
     await selectScenario("Profil · yükleniyor", "akademik profil yükleniyor");
     expect(screen.getByRole("combobox", { name: "Üniversite" })).toBeBusy();
-    expect(screen.getByRole("button", { name: "Kaydet ve devam et" })).toBeBusy();
+    expect(screen.getByRole("button", { name: "Profili kaydet" })).toBeBusy();
 
     await selectScenario("Profil · hata", "akademik profil hata");
     expect(

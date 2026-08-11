@@ -65,9 +65,9 @@ describe("Phase 7 Home daily-brief contracts", () => {
     const selected = selectNearestImportantItem([
       { id: "past", title: "Geçmiş", category: "final_exam", startDate: new Date(2026, 6, 1).toISOString() },
       { id: "later", title: "Daha sonra", category: "course_registration", startDate: new Date(2026, 7, 3).toISOString() },
-      { id: "nearest", title: "En yakın", category: "application_deadline", startDate: new Date(2026, 7, 1, 12).toISOString() },
+      { id: "nearest", title: "Veri Yapıları Final Sınavı", courseName: "Veri Yapıları", location: "A Blok 201", category: "application_deadline", startDate: new Date(2026, 7, 1, 12).toISOString() },
     ], [], now);
-    expect(selected).toMatchObject({ id: "nearest", kind: "deadline" });
+    expect(selected).toMatchObject({ id: "nearest", kind: "deadline", courseName: "Veri Yapıları", location: "A Blok 201" });
     expect(formatRemainingTime(selected!.date, now)).toBe("2 saat kaldı");
   });
 

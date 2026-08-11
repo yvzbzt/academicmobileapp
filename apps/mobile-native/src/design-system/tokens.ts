@@ -1,7 +1,92 @@
 export type ThemeMode = "light" | "dark";
 export type ThemePreference = ThemeMode | "system";
 
+/**
+ * The reference artwork's immutable brand swatches. Semantic tokens below may
+ * use darker foreground variants when a swatch does not meet text contrast.
+ */
+export const referencePalette = {
+  blue: "#2563EB",
+  teal: "#14B8A6",
+  orange: "#F97316",
+  yellow: "#EAB308",
+  slate: "#64748B",
+  mist: "#F1F5F9",
+  navy: "#0B1739",
+  white: "#FFFFFF",
+  academicBlue: "#1463F3",
+  academicBlueDeep: "#0758E9",
+  academicBlueSoft: "#EAF2FF",
+  academicBlueTint: "#EEF5FF",
+  academicBlueSurface: "#F6F9FF",
+  academicBlueSurfaceStrong: "#DCE9FF",
+  academicBlueBorder: "#CFE0FF",
+  academicBlueBorderMuted: "#E0E9F8",
+  academicBlueBorderStrong: "#BFD4FA",
+  academicBorder: "#E2E8F0",
+  academicBorderCool: "#E3E9F2",
+  academicBorderBlueMuted: "#D7E5F7",
+  academicTextSecondary: "#60708D",
+  academicTextInfo: "#28436F",
+  academicTextBody: "#263654",
+  academicTextDate: "#354667",
+  academicGreen: "#0BA977",
+  academicGreenSoft: "#E6F8F2",
+  academicGreenTint: "#EAF9F3",
+  academicGreenSurface: "#FBFFFD",
+  academicGreenBorder: "#D9EFE7",
+  academicGreenBorderStrong: "#8EDBC1",
+  academicTeal: "#10BBA2",
+  academicTealSoft: "#E1F9F5",
+  academicTealTitle: "#086A5B",
+  academicTealAction: "#087765",
+  academicTealSurface: "#F0FCFA",
+  academicTealBorder: "#D2F3ED",
+  academicTealBorderMuted: "#CDECE6",
+  academicOrange: "#E99700",
+  academicOrangeFeed: "#F08A00",
+  academicOrangeSoft: "#FFF4D8",
+  academicOrangeFeedSoft: "#FFF5E6",
+  academicRed: "#F04B4B",
+  academicRedFeed: "#F04444",
+  academicRedSoft: "#FFF0F0",
+  academicPurple: "#7047EB",
+  academicPurpleSoft: "#F2EEFF",
+  academicMutedIcon: "#A4AEC0",
+  academicPlaceholder: "#8793A8",
+  academicNeutralLine: "#B9C8DD",
+  academicNeutralLineSoft: "#D3DEEB",
+  whiteAlpha14: "#FFFFFF24",
+  whiteAlpha24: "#FFFFFF3D",
+  academicBlueDeepAlpha18: "#0758E92E",
+  heart: "#FF7474",
+  googleBlue: "#4285F4",
+  googleGreen: "#34A853",
+  googleYellow: "#FBBC05",
+  googleRed: "#EA4335",
+  violet: "#7C3AED",
+  violetSoft: "#F3E8FF",
+  violetText: "#6D28D9",
+  emerald: "#10B981",
+  emeraldSoft: "#E8F8F2",
+  emeraldText: "#047857",
+  emeraldStrong: "#059669",
+  emeraldContainer: "#DDF8F2",
+  amberStrong: "#D97706",
+  amberContainer: "#FFF4D6",
+} as const;
+
 export interface SemanticColors {
+  accent: {
+    blue: string;
+    blueText: string;
+    teal: string;
+    tealText: string;
+    orange: string;
+    orangeText: string;
+    yellow: string;
+    yellowText: string;
+  };
   background: {
     canvas: string;
     surface: string;
@@ -17,6 +102,7 @@ export interface SemanticColors {
     link: string;
   };
   border: {
+    subtle: string;
     default: string;
     strong: string;
     focus: string;
@@ -25,6 +111,7 @@ export interface SemanticColors {
     primary: string;
     onPrimary: string;
     primaryPressed: string;
+    primaryRipple: string;
     secondary: string;
     secondaryPressed: string;
     ghostPressed: string;
@@ -58,67 +145,89 @@ export interface SemanticColors {
 }
 
 const lightColors: SemanticColors = {
+  accent: {
+    blue: referencePalette.blue,
+    blueText: "#1D4ED8",
+    teal: referencePalette.teal,
+    tealText: "#0F766E",
+    orange: referencePalette.orange,
+    orangeText: "#C2410C",
+    yellow: referencePalette.yellow,
+    yellowText: "#854D0E",
+  },
   background: {
-    canvas: "#F6F7FB",
-    surface: "#FFFFFF",
-    surfaceRaised: "#FFFFFF",
-    subtle: "#EEF1F7",
-    inverse: "#172033",
+    canvas: referencePalette.white,
+    surface: referencePalette.white,
+    surfaceRaised: referencePalette.white,
+    subtle: referencePalette.mist,
+    inverse: referencePalette.navy,
   },
   text: {
-    primary: "#172033",
-    secondary: "#526079",
-    disabled: "#526079",
-    inverse: "#FFFFFF",
-    link: "#3730A3",
+    primary: referencePalette.navy,
+    secondary: "#5B6577",
+    disabled: "#5B6577",
+    inverse: referencePalette.white,
+    link: "#1D4ED8",
   },
   border: {
+    subtle: "#E2E8F0",
     default: "#758197",
     strong: "#526079",
-    focus: "#6D5CE7",
+    focus: "#2563EB",
   },
   action: {
-    primary: "#4338CA",
-    onPrimary: "#FFFFFF",
-    primaryPressed: "#3730A3",
-    secondary: "#EEF2FF",
-    secondaryPressed: "#E0E7FF",
-    ghostPressed: "#E7EAF1",
-    disabled: "#E2E6EE",
+    primary: referencePalette.blue,
+    onPrimary: referencePalette.white,
+    primaryPressed: "#1D4ED8",
+    primaryRipple: "#FFFFFF33",
+    secondary: "#EFF6FF",
+    secondaryPressed: "#DBEAFE",
+    ghostPressed: "#EAF2FF",
+    disabled: "#E8EDF5",
     onDisabled: "#526079",
-    focus: "#6D5CE7",
+    focus: "#2563EB",
   },
   status: {
-    success: "#137A4B",
-    successContainer: "#DDF7E9",
-    onSuccessContainer: "#075C37",
-    warning: "#8A5200",
-    warningContainer: "#FFF1CC",
-    onWarningContainer: "#6B3F00",
-    error: "#B42318",
-    errorPressed: "#8F1B13",
-    errorContainer: "#FDE7E4",
-    onError: "#FFFFFF",
-    onErrorContainer: "#8F1B13",
-    info: "#1D4ED8",
-    infoContainer: "#E1EAFF",
-    onInfoContainer: "#173EA7",
+    success: "#0F766E",
+    successContainer: "#DDF8F2",
+    onSuccessContainer: "#075E50",
+    warning: "#854D0E",
+    warningContainer: "#FFF4D6",
+    onWarningContainer: "#704000",
+    error: "#DC2626",
+    errorPressed: "#B91C1C",
+    errorContainer: "#FEF2F2",
+    onError: referencePalette.white,
+    onErrorContainer: "#991B1B",
+    info: "#2563EB",
+    infoContainer: "#EAF2FF",
+    onInfoContainer: "#1746A2",
   },
   state: {
-    pressed: "#1720331F",
-    selected: "#E0E7FF",
-    scrim: "#0E132199",
-    skeleton: "#DDE2EB",
-    skeletonHighlight: "#EEF1F7",
+    pressed: "#2563EB1A",
+    selected: "#EAF2FF",
+    scrim: "#0B173999",
+    skeleton: "#DDE7F3",
+    skeletonHighlight: "#F2F6FB",
   },
 };
 
 const darkColors: SemanticColors = {
+  accent: {
+    blue: "#60A5FA",
+    blueText: "#BFDBFE",
+    teal: "#2DD4BF",
+    tealText: "#99F6E4",
+    orange: "#FB923C",
+    orangeText: "#FED7AA",
+    yellow: "#FACC15",
+    yellowText: "#FEF08A",
+  },
   background: {
-    canvas: "#0E1321",
-    surface: "#151C2E",
-    surfaceRaised: "#1D263A",
-    subtle: "#1D263A",
+    canvas: "#081120",
+    surface: "#101B30",
+    surfaceRaised: "#16233B",
+    subtle: "#182842",
     inverse: "#F8FAFC",
   },
   text: {
@@ -129,20 +238,22 @@ const darkColors: SemanticColors = {
     link: "#C7D2FE",
   },
   border: {
+    subtle: "#334763",
     default: "#94A3B8",
     strong: "#CBD5E1",
-    focus: "#C7D2FE",
+    focus: "#60A5FA",
   },
   action: {
-    primary: "#A5B4FC",
-    onPrimary: "#111827",
-    primaryPressed: "#C7D2FE",
-    secondary: "#29334A",
-    secondaryPressed: "#344158",
-    ghostPressed: "#29334A",
-    disabled: "#29334A",
+    primary: "#60A5FA",
+    onPrimary: "#071326",
+    primaryPressed: "#93C5FD",
+    primaryRipple: "#07132626",
+    secondary: "#1B3150",
+    secondaryPressed: "#244266",
+    ghostPressed: "#1B3150",
+    disabled: "#26364D",
     onDisabled: "#94A3B8",
-    focus: "#C7D2FE",
+    focus: "#93C5FD",
   },
   status: {
     success: "#6EE7B7",
@@ -162,24 +273,24 @@ const darkColors: SemanticColors = {
   },
   state: {
     pressed: "#F8FAFC24",
-    selected: "#303A61",
+    selected: "#173967",
     scrim: "#000000B3",
-    skeleton: "#29334A",
-    skeletonHighlight: "#344158",
+    skeleton: "#26364D",
+    skeletonHighlight: "#334763",
   },
 };
 
 export const typography = {
-  display: { fontSize: 28, lineHeight: 34, fontWeight: "700" as const },
-  screenTitle: { fontSize: 24, lineHeight: 30, fontWeight: "700" as const },
-  sectionTitle: { fontSize: 20, lineHeight: 26, fontWeight: "700" as const },
-  cardTitle: { fontSize: 17, lineHeight: 23, fontWeight: "600" as const },
-  body: { fontSize: 16, lineHeight: 23, fontWeight: "400" as const },
-  bodyStrong: { fontSize: 16, lineHeight: 23, fontWeight: "600" as const },
-  label: { fontSize: 14, lineHeight: 19, fontWeight: "600" as const },
-  meta: { fontSize: 13, lineHeight: 18, fontWeight: "400" as const },
-  metaStrong: { fontSize: 13, lineHeight: 18, fontWeight: "600" as const },
-  navLabel: { fontSize: 12, lineHeight: 16, fontWeight: "600" as const },
+  display: { fontFamily: "Inter_700Bold", fontSize: 28, lineHeight: 34, fontWeight: "700" as const },
+  screenTitle: { fontFamily: "Inter_700Bold", fontSize: 24, lineHeight: 30, fontWeight: "700" as const },
+  sectionTitle: { fontFamily: "Inter_700Bold", fontSize: 20, lineHeight: 26, fontWeight: "700" as const },
+  cardTitle: { fontFamily: "Inter_600SemiBold", fontSize: 17, lineHeight: 23, fontWeight: "600" as const },
+  body: { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 23, fontWeight: "400" as const },
+  bodyStrong: { fontFamily: "Inter_600SemiBold", fontSize: 16, lineHeight: 23, fontWeight: "600" as const },
+  label: { fontFamily: "Inter_600SemiBold", fontSize: 14, lineHeight: 19, fontWeight: "600" as const },
+  meta: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 18, fontWeight: "400" as const },
+  metaStrong: { fontFamily: "Inter_500Medium", fontSize: 13, lineHeight: 18, fontWeight: "500" as const },
+  navLabel: { fontFamily: "Inter_500Medium", fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
 } as const;
 
 export const spacing = {

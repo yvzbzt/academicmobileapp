@@ -1,7 +1,7 @@
 import type { UserRole } from "../../../../packages/shared/src/contracts.js";
 
 export interface EndpointContract {
-  method: "GET" | "POST" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   authRequired: boolean;
   roles: UserRole[] | "public";
@@ -44,6 +44,9 @@ export const endpointCatalog: EndpointContract[] = [
   { method: "GET", path: "/announcements/my", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/announcements/my/trusted", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/announcements/my/trusted/:announcementId", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/announcements/my/saved/:announcementId", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "PUT", path: "/announcements/my/saved/:announcementId", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "DELETE", path: "/announcements/my/saved/:announcementId", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/announcements/yok/trusted", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "POST", path: "/devices/register", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "DELETE", path: "/devices/current", authRequired: true, roles: ["student"], rateLimit: "standard" },

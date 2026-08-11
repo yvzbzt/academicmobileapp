@@ -278,8 +278,8 @@ function ProfileSettingsPreviewExperience({
       Profile: (
         <ProfileOverviewScreen
           academicSummary={academicSummary}
-          appVersion="0.1.1"
-          buildNumber={12}
+          appVersion="0.1.3"
+          buildNumber={13}
           email="ogrenci@example.invalid"
           fullName={incomplete ? "Örnek Öğrenci" : "Deniz Örnek"}
           googleAccountEmail={incomplete ? undefined : "calendar@example.invalid"}
@@ -344,6 +344,13 @@ function ProfileSettingsPreviewExperience({
           dirty={notificationSaveState === "dirty"}
           error={scenario === "notifications-error" ? "Sentetik tercih kaydı doğrulanamadı." : undefined}
           mode={notificationMode}
+          onBack={() => {
+            if (profilePreviewNavigationRef.canGoBack()) {
+              profilePreviewNavigationRef.goBack();
+            } else {
+              openRoute("Profile");
+            }
+          }}
           onCategoryChange={(key, enabled) => {
             setNotificationCategories((current) => current.map((category) => (
               category.key === key ? { ...category, enabled } : category
@@ -437,14 +444,14 @@ function ProfileSettingsPreviewExperience({
           headerBackTitle: "Profil",
         }}
       >
-        <ProfilePreviewStack.Screen name="Profile" options={{ title: "Profil" }}>
-          {() => <PreviewScreen>{screens.Profile}</PreviewScreen>}
+        <ProfilePreviewStack.Screen name="Profile" options={{ headerShown: false, title: "Profil" }}>
+          {() => <PreviewScreen headerless>{screens.Profile}</PreviewScreen>}
         </ProfilePreviewStack.Screen>
         <ProfilePreviewStack.Screen name="AcademicProfileSettings" options={{ title: "Akademik Profil" }}>
           {() => <PreviewScreen>{screens.AcademicProfileSettings}</PreviewScreen>}
         </ProfilePreviewStack.Screen>
-        <ProfilePreviewStack.Screen name="NotificationSettings" options={{ title: "Bildirimler" }}>
-          {() => <PreviewScreen>{screens.NotificationSettings}</PreviewScreen>}
+        <ProfilePreviewStack.Screen name="NotificationSettings" options={{ headerShown: false, title: "Bildirim tercihleri" }}>
+          {() => <PreviewScreen headerless>{screens.NotificationSettings}</PreviewScreen>}
         </ProfilePreviewStack.Screen>
         <ProfilePreviewStack.Screen name="GoogleCalendarSettings" options={{ title: "Google Takvim" }}>
           {() => <PreviewScreen>{screens.GoogleCalendarSettings}</PreviewScreen>}
@@ -457,11 +464,17 @@ function ProfileSettingsPreviewExperience({
   );
 }
 
-function PreviewScreen({ children }: { children: React.ReactNode }) {
+function PreviewScreen({
+  children,
+  headerless = false,
+}: {
+  children: React.ReactNode;
+  headerless?: boolean;
+}) {
   return (
     <Screen
       contentStyle={{ paddingBottom: 32 }}
-      edges={["left", "right", "bottom"]}
+      edges={headerless ? ["top", "left", "right", "bottom"] : ["left", "right", "bottom"]}
       readableWidth="content"
       scroll
       scrollViewProps={{ contentInsetAdjustmentBehavior: "automatic" }}

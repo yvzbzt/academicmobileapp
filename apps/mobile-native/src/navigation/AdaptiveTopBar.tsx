@@ -83,7 +83,8 @@ export function AdaptiveTopBar({
               gap: compact ? theme.spacing.xs : theme.spacing.sm,
               minHeight: adaptation.minimumTouchTarget,
               paddingHorizontal: adaptation.screenGutter,
-              paddingVertical: compact ? theme.spacing.xs : theme.spacing.sm,
+              paddingBottom: compact ? theme.spacing.xs : theme.spacing.sm,
+              paddingTop: compact ? theme.spacing.sm : theme.spacing.md,
             },
           ]}
         >
@@ -170,6 +171,7 @@ const styles = StyleSheet.create({
   },
   surface: {
     alignSelf: "stretch",
+    minHeight: 64,
   },
   safeArea: {
     alignSelf: "stretch",

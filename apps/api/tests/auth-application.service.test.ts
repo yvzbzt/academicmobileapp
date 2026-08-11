@@ -78,6 +78,22 @@ function expectAuthError(error: HttpException, errorCode: AuthErrorCode, message
 }
 
 describe("AuthApplicationService", () => {
+  it("rejects registration passwords that do not satisfy the advertised composition rule", async () => {
+    const { service: authService } = createAuthService();
+
+    const error = await captureHttpException(() => authService.register({
+      email: "weak-password@example.edu.tr",
+      password: "abcdefgh",
+      passwordConfirmation: "abcdefgh"
+    }));
+
+    expect(error.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    expect(error.getResponse()).toEqual(expect.objectContaining({
+      errorCode: AUTH_ERROR_CODES.PASSWORD_INVALID,
+      message: expect.stringContaining("at least 3")
+    }));
+  });
+
   it("registers a student and returns a verification-required response", async () => {
     const { service: authService, sender } = createAuthService();
 

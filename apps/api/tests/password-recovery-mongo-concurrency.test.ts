@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import type { Connection } from "mongoose";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { MongoConnectionService } from "../src/database/mongo-connection.service.js";
@@ -42,6 +43,19 @@ interface RecoveryFixture {
 class NoopRecoverySender extends EmailVerificationSenderService {
   override async sendPasswordRecoveryEmail(input: SendPasswordRecoveryEmailInput): Promise<void> {
     void input;
+  }
+}
+
+// Keep this suite focused on Mongo's document-level compare-and-swap behavior.
+// Production-cost bcrypt work before the barrier makes participant arrival depend
+// on unrelated full-suite CPU load and can expire the barrier before the CAS runs.
+class FastTestPasswordHasher extends PasswordHasher {
+  override async hash(password: string): Promise<string> {
+    return createHash("sha256").update(password).digest("hex");
+  }
+
+  override async verify(password: string, passwordHash: string): Promise<boolean> {
+    return (await this.hash(password)) === passwordHash;
   }
 }
 
@@ -97,7 +111,7 @@ function assertExactTestConnection(connection: Connection, databaseName: string)
 }
 
 function createFixture(repository: MongoAuthRepository): RecoveryFixture {
-  const passwordHasher = new PasswordHasher();
+  const passwordHasher = new FastTestPasswordHasher();
   const tokenService = new TokenService();
   const service = new AuthApplicationService(
     repository,

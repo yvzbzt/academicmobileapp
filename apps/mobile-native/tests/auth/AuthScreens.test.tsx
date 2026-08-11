@@ -112,8 +112,8 @@ function registrationProps(
   return {
     fullName: "Ada Lovelace",
     email: "ada@example.edu",
-    password: "0123456789",
-    passwordConfirmation: "0123456789",
+    password: "Strong1!",
+    passwordConfirmation: "Strong1!",
     busy: false,
     feedback: null,
     onFullNameChange: jest.fn(),
@@ -183,8 +183,8 @@ function recoveryConfirmProps(
 ): PasswordRecoveryConfirmScreenProps {
   return {
     code: "123456",
-    newPassword: "0123456789",
-    passwordConfirmation: "0123456789",
+    newPassword: "Strong1!",
+    passwordConfirmation: "Strong1!",
     busy: false,
     feedback: null,
     onNewPasswordChange: jest.fn(),
@@ -269,6 +269,15 @@ function onboardingProps(
 
 describe("Phase 6 rendered authentication screens", () => {
   describe("LoginScreen", () => {
+    it("matches the audited hero proportions, title scale, and multicolor Google mark", async () => {
+      await renderAuth(<LoginScreen {...loginProps()} />);
+
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ aspectRatio: 4 / 3 });
+      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 32, lineHeight: 38 });
+      expect(screen.getByTestId("google-color-mark", { includeHiddenElements: true })).toBeOnTheScreen();
+      expect(screen.queryByText("E-postamı doğrula")).toBeNull();
+    });
+
     it("focuses the first invalid field and moves IME focus to password", async () => {
       const onSubmit = jest.fn();
       const invalid = loginProps({ email: "invalid", password: "", onSubmit });
@@ -393,10 +402,9 @@ describe("Phase 6 rendered authentication screens", () => {
       );
 
       await userEvent.press(screen.getByRole("button", { name: "Şifremi unuttum" }));
-      await userEvent.press(screen.getByRole("button", { name: "E-postamı doğrula" }));
       await userEvent.press(screen.getByRole("button", { name: "Kayıt ol" }));
       expect(onForgotPassword).toHaveBeenCalledTimes(1);
-      expect(onVerificationRecovery).toHaveBeenCalledTimes(1);
+      expect(onVerificationRecovery).not.toHaveBeenCalled();
       expect(onRegister).toHaveBeenCalledTimes(1);
     });
   });
@@ -409,7 +417,7 @@ describe("Phase 6 rendered authentication screens", () => {
           {...registrationProps({
             fullName: "A",
             email: "invalid",
-            password: "123456789",
+            password: "Aa1!234",
             passwordConfirmation: "",
             onSubmit,
           })}
@@ -420,41 +428,42 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
       expect(screen.getByLabelText("Şifre")).toBeVisible();
       expect(screen.getByLabelText("Şifre tekrar")).toBeVisible();
-      expect(screen.getByText("1 / 3 · Hesap")).toBeVisible();
+      expect(screen.getByTestId("registration-form-card")).toHaveStyle({ overflow: "hidden", padding: 0 });
+      expect(screen.getAllByRole("button", { name: "Şifreyi göster" })).toHaveLength(2);
+      expect(screen.getByLabelText("1 / 3. Hesap oluştur")).toBeVisible();
       const nameFocus = spyOnInputFocus("Ad soyad");
-      await userEvent.press(screen.getByRole("button", { name: "Hesap oluştur" }));
+      await userEvent.press(screen.getByRole("button", { name: "Devam et" }));
 
       expect(screen.getByRole("alert", { name: "Ad soyad en az 2 karakter olmalıdır." })).toBeVisible();
-      expect(screen.getByRole("alert", { name: "Şifren en az 10 karakter olmalıdır." })).toBeVisible();
+      expect(screen.getByRole("alert", { name: "Şifren en az 8 karakter olmalıdır." })).toBeVisible();
       expect(screen.getByRole("alert", { name: "Şifre tekrarı zorunludur." })).toBeVisible();
       expect(nameFocus).toHaveBeenCalledTimes(1);
       expect(onSubmit).not.toHaveBeenCalled();
     });
 
-    it("distinguishes the min-10 rule and a confirmation mismatch", async () => {
+    it("distinguishes the min-8 rule and a confirmation mismatch", async () => {
       const view = await renderAuth(
         <RegistrationScreen
           {...registrationProps({
-            password: "123456789",
-            passwordConfirmation: "123456789",
+            password: "Aa1!234",
+            passwordConfirmation: "Aa1!234",
           })}
         />,
       );
-      await userEvent.press(screen.getByRole("button", { name: "Hesap oluştur" }));
-      expect(screen.getByRole("alert", { name: "Şifren en az 10 karakter olmalıdır." })).toBeVisible();
-      expect(screen.getByText("○ En az 10 karakter")).toBeVisible();
+      await userEvent.press(screen.getByRole("button", { name: "Devam et" }));
+      expect(screen.getByRole("alert", { name: "Şifren en az 8 karakter olmalıdır." })).toBeVisible();
+      expect(screen.getByLabelText("8+ karakter. Henüz karşılanmadı.")).toBeVisible();
 
       await view.rerenderAsync(authTestTree(
         <RegistrationScreen
           {...registrationProps({
-            password: "0123456789",
-            passwordConfirmation: "0123456788",
+            password: "Strong1!",
+            passwordConfirmation: "Strong2!",
           })}
         />,
       ));
       expect(screen.getByRole("alert", { name: "Şifreler eşleşmiyor." })).toBeVisible();
-      expect(screen.getByText("✓ En az 10 karakter")).toBeVisible();
-      expect(screen.getByText("○ Şifreler birbiriyle aynı")).toBeVisible();
+      expect(screen.getByLabelText("8+ karakter. Karşılandı.")).toBeVisible();
     });
 
     it("calls the ready callback from the confirmation IME exactly once", async () => {
@@ -465,8 +474,11 @@ describe("Phase 6 rendered authentication screens", () => {
 
       fireEvent(screen.getByLabelText("Şifre tekrar"), "submitEditing");
       expect(onSubmit).toHaveBeenCalledTimes(1);
-      expect(screen.getByText("✓ En az 10 karakter")).toBeVisible();
-      expect(screen.getByText("✓ Şifreler birbiriyle aynı")).toBeVisible();
+      expect(screen.getByLabelText("8+ karakter. Karşılandı.")).toBeVisible();
+      expect(screen.getByLabelText("Büyük harf (A-Z). Karşılandı.")).toBeVisible();
+      expect(screen.getByLabelText("Küçük harf (a-z). Karşılandı.")).toBeVisible();
+      expect(screen.getByLabelText("Rakam (0-9). Karşılandı.")).toBeVisible();
+      expect(screen.getByLabelText("Özel karakter (!@#?). Karşılandı.")).toBeVisible();
     });
   });
 
@@ -618,12 +630,12 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(onCancel).toHaveBeenCalledTimes(1);
     });
 
-    it("requires a min-10 matching password on the confirmation surface", async () => {
+    it("requires a min-8 matching password on the confirmation surface", async () => {
       const onSubmit = jest.fn();
       const view = await renderAuth(
         <PasswordRecoveryConfirmScreen
           {...recoveryConfirmProps({
-            newPassword: "123456789",
+            newPassword: "Aa1!234",
             passwordConfirmation: "different",
             onSubmit,
           })}
@@ -632,15 +644,15 @@ describe("Phase 6 rendered authentication screens", () => {
 
       expect(screen.getByRole("header", { name: "Yeni şifreni belirle" })).toBeVisible();
       await userEvent.press(screen.getByRole("button", { name: "Şifreyi yenile" }));
-      expect(screen.getByRole("alert", { name: "Şifren en az 10 karakter olmalıdır." })).toBeVisible();
+      expect(screen.getByRole("alert", { name: "Şifren en az 8 karakter olmalıdır." })).toBeVisible();
       expect(screen.getByRole("alert", { name: "Şifreler eşleşmiyor." })).toBeVisible();
       expect(onSubmit).not.toHaveBeenCalled();
 
       await view.rerenderAsync(authTestTree(
         <PasswordRecoveryConfirmScreen
           {...recoveryConfirmProps({
-            newPassword: "0123456789",
-            passwordConfirmation: "0123456789",
+            newPassword: "Strong1!",
+            passwordConfirmation: "Strong1!",
             onSubmit,
           })}
         />,
@@ -661,7 +673,7 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByRole("combobox", { name: "Fakülte" })).toBeDisabled();
       expect(screen.getByRole("combobox", { name: "Bölüm" })).toBeDisabled();
       expect(screen.getByRole("combobox", { name: "Sınıf" })).toBeDisabled();
-      await userEvent.press(screen.getByRole("button", { name: "Kaydet ve devam et" }));
+      await userEvent.press(screen.getByRole("button", { name: "Profili kaydet" }));
 
       const university = screen.getByRole("combobox", { name: "Üniversite" });
       expect(university).toHaveProp("accessibilityHint", "Üniversite seçimi zorunludur.");
@@ -677,12 +689,12 @@ describe("Phase 6 rendered authentication screens", () => {
         />,
       );
 
+      const university = screen.getByRole("combobox", { name: "Üniversite" });
+      await userEvent.press(university);
       await fireEventAsync.changeText(
         screen.getByRole("search", { name: "Üniversite ara" }),
         "ege",
       );
-      const university = screen.getByRole("combobox", { name: "Üniversite" });
-      await userEvent.press(university);
       expect(university).toHaveProp(
         "accessibilityState",
         expect.objectContaining({ expanded: true }),
@@ -698,11 +710,11 @@ describe("Phase 6 rendered authentication screens", () => {
     it("shows a query-specific no-result state", async () => {
       await renderAuth(<AcademicOnboardingScreen {...onboardingProps()} />);
 
+      await userEvent.press(screen.getByRole("combobox", { name: "Üniversite" }));
       await fireEventAsync.changeText(
         screen.getByRole("search", { name: "Üniversite ara" }),
         "sonuç-yok",
       );
-      await userEvent.press(screen.getByRole("combobox", { name: "Üniversite" }));
       expect(
         screen.getByRole("summary", { name: "Aramana uygun sonuç bulunamadı." }),
       ).toBeVisible();
@@ -723,7 +735,7 @@ describe("Phase 6 rendered authentication screens", () => {
       const university = screen.getByRole("combobox", { name: "Üniversite" });
       expect(university).toBeBusy();
       expect(university).toBeDisabled();
-      expect(university).toHaveTextContent("Seçenekler yükleniyor");
+      expect(screen.getByText("Seçenekler yükleniyor")).toBeVisible();
       expect(screen.getByRole("alert", { name: "Üniversiteler yüklenemedi." })).toBeVisible();
       await userEvent.press(screen.getByRole("button", { name: "Seçenekleri tekrar yükle" }));
       expect(onRetryUniversities).toHaveBeenCalledTimes(1);
@@ -772,13 +784,13 @@ describe("Phase 6 rendered authentication screens", () => {
       );
 
       const review = screen.getByLabelText("Akademik seçim özeti");
-      expect(within(review).getByRole("header", { name: "Seçim özeti" })).toBeVisible();
+      expect(within(review).getByRole("header", { name: "Seçilen bilgiler" })).toBeVisible();
       expect(within(review).getByText("Ankara Üniversitesi")).toBeVisible();
       expect(within(review).getByText("Mühendislik Fakültesi")).toBeVisible();
       expect(within(review).getByText("Bilgisayar Mühendisliği")).toBeVisible();
       expect(within(review).getByText("4. sınıf")).toBeVisible();
 
-      await userEvent.press(screen.getByRole("button", { name: "Kaydet ve devam et" }));
+      await userEvent.press(screen.getByRole("button", { name: "Profili kaydet" }));
       expect(onSave).toHaveBeenCalledTimes(1);
     });
 
@@ -797,7 +809,7 @@ describe("Phase 6 rendered authentication screens", () => {
       );
 
       const passwordFocus = spyOnInputFocus("Hesap şifresi");
-      await userEvent.press(screen.getByRole("button", { name: "Kaydet ve devam et" }));
+      await userEvent.press(screen.getByRole("button", { name: "Profili kaydet" }));
       expect(screen.getByRole("alert", { name: "Devam etmek için şifreni gir." })).toBeVisible();
       expect(passwordFocus).toHaveBeenCalledTimes(1);
       expect(onSave).not.toHaveBeenCalled();
@@ -808,13 +820,21 @@ describe("Phase 6 rendered authentication screens", () => {
             draft: { ...emptyDraft, universityId: "ankara" },
             initialDraft: emptyDraft,
             needsPassword: true,
-            password: "0123456789",
+            password: "Strong1!",
             onSave,
           })}
         />,
       ));
       fireEvent(screen.getByLabelText("Hesap şifresi"), "submitEditing");
       expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    it("allows the optional academic profile step to be skipped explicitly", async () => {
+      const onSkip = jest.fn();
+      await renderAuth(<AcademicOnboardingScreen {...onboardingProps({ onSkip })} />);
+
+      await userEvent.press(screen.getByRole("button", { name: "Şimdilik geç" }));
+      expect(onSkip).toHaveBeenCalledTimes(1);
     });
 
     it("warns before discarding a dirty draft and invokes Back only after confirmation", async () => {
@@ -869,14 +889,12 @@ describe("Phase 6 rendered authentication screens", () => {
       </SafeAreaProvider>,
     );
 
-    const title = screen.getByRole("header", { name: "Akademik yolculuğuna başla" });
+    const title = screen.getByRole("header", { name: "Akademik Takvim" });
     expect(title).not.toHaveProp("numberOfLines");
-    const form = screen.getByLabelText("Akademik yolculuğuna başla formu");
-    expect(form).toBeVisible();
     expect(screen.getByLabelText("Ad soyad")).toBeVisible();
     expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
     expect(screen.getByLabelText("Şifre")).toBeVisible();
     expect(screen.getByLabelText("Şifre tekrar")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Hesap oluştur" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Devam et" })).toBeVisible();
   });
 });

@@ -20,6 +20,7 @@ export type GoogleCalendarAcademicEvent = {
   temporalKind?: "date" | "timestamp";
   endTemporalKind?: "date" | "timestamp";
   timezone?: string;
+  location?: string;
 };
 
 export type GoogleCalendarAnnouncement = {
@@ -39,6 +40,7 @@ export type GoogleCalendarSyncItem = {
   sourceType: GoogleCalendarSourceType;
   summary: string;
   description: string;
+  location?: string;
   startDate: string;
   endDate: string;
   allDay: boolean;
@@ -133,6 +135,7 @@ type GoogleApiEvent = {
   status?: string;
   summary?: string;
   description?: string;
+  location?: string;
   start?: { date?: string; dateTime?: string; timeZone?: string };
   end?: { date?: string; dateTime?: string; timeZone?: string };
   endTimeUnspecified?: boolean;
@@ -493,6 +496,7 @@ export function buildGoogleCalendarSyncItems(
           sourceType: "academic_event",
           summary: event.title,
           description,
+          ...(event.location ? { location: event.location } : {}),
           startDate: timestampStart,
           endDate: timestampEnd,
           allDay: false,
@@ -507,6 +511,7 @@ export function buildGoogleCalendarSyncItems(
           sourceType: "academic_event",
           summary: event.title,
           description,
+          ...(event.location ? { location: event.location } : {}),
           startDate,
           endDate: addDays(inclusiveEndDate, 1),
           allDay: true
@@ -526,6 +531,7 @@ export function buildGoogleCalendarSyncItems(
         sourceType: "academic_event",
         summary: event.title,
         description,
+        ...(event.location ? { location: event.location } : {}),
         startDate,
         endDate: hasValidEnd ? suppliedEnd! : addMinutes(startDate, 60),
         allDay: false,
@@ -581,6 +587,7 @@ function createSyncItem(input: Omit<GoogleCalendarSyncItem, "fingerprint">): Goo
       input.sourceType,
       input.summary,
       input.description,
+      ...(input.location ? [input.location] : []),
       input.startDate,
       input.endDate,
       String(input.allDay),
@@ -604,6 +611,7 @@ function toGoogleEventBody(item: GoogleCalendarSyncItem, ownerId: string): Googl
   return {
     summary: item.summary,
     description: item.description,
+    ...(item.location ? { location: item.location } : {}),
     ...temporalFields,
     transparency: "transparent",
     extendedProperties: {

@@ -12,9 +12,9 @@ export function resolveNavigationTheme(
     colors: {
       primary: theme.colors.action.primary,
       background: theme.colors.background.canvas,
-      card: theme.colors.background.surface,
+      card: theme.colors.background.surfaceRaised,
       text: theme.colors.text.primary,
-      border: theme.colors.border.default,
+      border: theme.colors.border.subtle,
       notification: theme.colors.status.error,
     },
   };

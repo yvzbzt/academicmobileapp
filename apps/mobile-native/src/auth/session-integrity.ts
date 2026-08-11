@@ -117,7 +117,7 @@ const AUTH_ERROR_MESSAGES: Record<ControlledAuthErrorCode, string> = {
   invalid_password_recovery_code: "Şifre sıfırlama kodu geçersiz. Kodu kontrol edip tekrar dene.",
   password_recovery_code_expired: "Şifre sıfırlama kodunun süresi dolmuş. Yeni bir kod iste.",
   password_confirmation_mismatch: "Yeni şifre ve şifre tekrarı aynı olmalıdır.",
-  password_invalid: "Yeni şifren en az 10 karakter olmalıdır.",
+  password_invalid: "Yeni şifren en az 8 karakter olmalı ve büyük harf, küçük harf, rakam ve özel karakter gruplarından en az üçünü içermelidir.",
   session_expired: "Oturumunun süresi doldu. Lütfen tekrar giriş yap.",
   disabled_account: "Bu hesap devre dışı. Destek ekibiyle iletişime geç.",
   google_sign_in_cancelled: "Google ile giriş iptal edildi.",

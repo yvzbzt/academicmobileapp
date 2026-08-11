@@ -334,6 +334,7 @@ describe("Phase 10 Profile and Settings contracts", () => {
     expect(academicSave).toContain("const authoritativeDraft = result.draft");
     expect(appSource).toContain("preferenceEnabled: notificationLifecycle.preferenceEnabled");
     expect(appSource).toContain("dirty={notificationPreferenceDirty}");
+    expect(profileRoutes).toContain('onBack={() => requestAppRoute("Profile")}');
     expect(appSource).toContain("connectionExists={Boolean(googleCalendarIntegration)}");
     expect(profileRoutes).toContain("email={email}");
     expect(profileRoutes).toContain("fullName={fullName}");
@@ -361,8 +362,40 @@ describe("Phase 10 Profile and Settings contracts", () => {
     const appConfig = JSON.parse(readFileSync(
       new URL("../../apps/mobile-native/app.json", import.meta.url),
       "utf8",
-    )) as { expo: { version: string; android: { versionCode: number } } };
-    expect(appConfig.expo.version).toBe("0.1.1");
-    expect(appConfig.expo.android.versionCode).toBe(12);
+    )) as {
+      expo: {
+        version: string;
+        userInterfaceStyle: string;
+        splash: { backgroundColor: string; dark: { backgroundColor: string } };
+        android: { versionCode: number };
+      };
+    };
+    expect(appConfig.expo.version).toBe("0.1.3");
+    expect(appConfig.expo.android.versionCode).toBe(14);
+    expect(appConfig.expo.userInterfaceStyle).toBe("light");
+    expect(appConfig.expo.splash.backgroundColor).toBe("#ffffff");
+    expect(appConfig.expo.splash.dark.backgroundColor).toBe("#ffffff");
+
+    const androidBuild = readFileSync(
+      new URL("../../apps/mobile-native/android/app/build.gradle", import.meta.url),
+      "utf8",
+    );
+    expect(androidBuild).toContain("versionCode 14");
+    expect(androidBuild).toContain('versionName "0.1.3"');
+
+    const androidStrings = readFileSync(
+      new URL("../../apps/mobile-native/android/app/src/main/res/values/strings.xml", import.meta.url),
+      "utf8",
+    );
+    const androidNightColors = readFileSync(
+      new URL("../../apps/mobile-native/android/app/src/main/res/values-night/colors.xml", import.meta.url),
+      "utf8",
+    );
+    expect(androidStrings).toContain(
+      '<string name="expo_system_ui_user_interface_style" translatable="false">light</string>',
+    );
+    expect(androidNightColors).toContain(
+      '<color name="splashscreen_background">#ffffff</color>',
+    );
   });
 });

@@ -10,9 +10,11 @@ import {
   createContentDedupeKey,
   createNormalizedContentFingerprint,
   evaluateContentTrust,
+  extractAcademicContentKeyDates,
   isNavigationOrChromeTitle,
   isOfficialContentUrl,
   normalizeDisplayText,
+  sanitizeAcademicContentBody,
   toIsoString
 } from "./announcement-content-trust.js";
 import type { AnnouncementItem, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
@@ -28,6 +30,8 @@ export interface ParsedAnnouncementItem {
   publishedDate?: string;
   sourceUpdatedAt?: Date;
   summary?: string;
+  body?: NonNullable<AnnouncementItem["body"]>;
+  keyDates?: NonNullable<AnnouncementItem["keyDates"]>;
 }
 
 export async function fetchSourceItems(sourceUrl: string, parser: AnnouncementSourceParser, timeoutMs = 7000): Promise<ParsedAnnouncementItem[]> {
@@ -83,6 +87,8 @@ export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItem
     });
     if (trust.status !== "trusted" || !trust.title || !trust.canonicalUrl || !trust.dedupeKey) return [];
     const summary = normalizeDisplayText(item.summary, 1_200);
+    const body = item.body ?? [];
+    const keyDates = item.keyDates ?? [];
     const freshness = isFreshAcademicContent({
       title: trust.title,
       url: trust.canonicalUrl,
@@ -112,6 +118,8 @@ export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItem
       ...(item.sourceUpdatedAt ? { sourceUpdatedAt: item.sourceUpdatedAt.toISOString(), sourceUpdateTimeSource: "source" as const } : {}),
       discoveredAt: fetchedAtIso,
       ...(summary ? { summary } : {}),
+      ...(body.length ? { body } : {}),
+      ...(keyDates.length ? { keyDates } : {}),
       fetchedAt: fetchedAtIso,
       freshness: "fresh",
       trustStatus: "trusted",
@@ -208,6 +216,7 @@ interface ParsedItemCandidate {
   publishedDate?: string;
   sourceUpdatedAt?: Date;
   summary?: string;
+  richBody?: string;
 }
 
 type ParsedPublication =
@@ -324,6 +333,8 @@ function finalizeParsedItem(input: ParsedItemCandidate, officialSourceUrl: strin
   });
   if (decision.status !== "trusted" || !decision.title || !decision.canonicalUrl) return null;
   const summary = normalizeDisplayText(input.summary, 1_200);
+  const body = sanitizeAcademicContentBody(input.richBody ?? input.summary);
+  const keyDates = extractAcademicContentKeyDates(body);
   const freshness = isFreshAcademicContent({
     title: decision.title,
     url: decision.canonicalUrl,
@@ -342,7 +353,9 @@ function finalizeParsedItem(input: ParsedItemCandidate, officialSourceUrl: strin
         ? { publicationKind: "timestamp", publishedAt: input.publishedAt }
         : {}),
     ...(input.sourceUpdatedAt ? { sourceUpdatedAt: input.sourceUpdatedAt } : {}),
-    ...(summary ? { summary } : {})
+    ...(summary ? { summary } : {}),
+    ...(body.length ? { body } : {}),
+    ...(keyDates.length ? { keyDates } : {})
   };
 }
 
@@ -546,6 +559,7 @@ async function fetchAtuContentItems(sourceUrl: string, timeoutMs: number): Promi
       link,
       ...(publishedAt ? { publishedAt } : {}),
       ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
+      ...(row.HTMLicerik || row.MetinIcerik ? { richBody: row.HTMLicerik ?? row.MetinIcerik } : {}),
       ...(row.AltBaslik && normalizeDisplayText(row.AltBaslik) !== "-" ? { summary: row.AltBaslik } : {})
     }, descriptor.sourceUrl.toString());
     return item ? [item] : [];
@@ -674,6 +688,7 @@ function parseRssItem(input: string, sourceUrl: string): ParsedAnnouncementItem 
   const published = extractTagValue(input, "pubDate") ?? extractTagValue(input, "published") ?? extractTagValue(input, "dc:date");
   const updated = extractTagValue(input, "updated") ?? extractTagValue(input, "modified");
   const summary = extractTagValue(input, "description");
+  const richBody = extractTagValue(input, "content:encoded") ?? summary;
   const publication = published ? parsePublicationMaybe(normalizeDisplayText(published)) : undefined;
   const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
 
@@ -682,6 +697,7 @@ function parseRssItem(input: string, sourceUrl: string): ParsedAnnouncementItem 
     link,
     ...(publication ?? {}),
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
+    ...(richBody ? { richBody } : {}),
     ...(summary ? { summary } : {})
   }, sourceUrl);
 }
@@ -695,6 +711,7 @@ function parseAtomEntry(input: string, sourceUrl: string): ParsedAnnouncementIte
   const published = extractTagValue(input, "published");
   const updated = extractTagValue(input, "updated");
   const summary = extractTagValue(input, "summary") ?? extractTagValue(input, "content");
+  const richBody = extractTagValue(input, "content") ?? summary;
   const publication = published ? parsePublicationMaybe(normalizeDisplayText(published)) : undefined;
   const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
 
@@ -703,6 +720,7 @@ function parseAtomEntry(input: string, sourceUrl: string): ParsedAnnouncementIte
     link,
     ...(publication ?? {}),
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
+    ...(richBody ? { richBody } : {}),
     ...(summary ? { summary } : {})
   }, sourceUrl);
 }
@@ -923,7 +941,8 @@ function collectJsonAnnouncementItems(value: unknown, sourceUrl: string, output:
   if (!isJsonRecord(value)) return;
   const rawTitle = readJsonRawText(value, ["title", "baslik", "başlık", "name", "subject", "headline"]);
   const link = readJsonRawText(value, ["link", "url", "href", "permalink", "slug"]);
-  const summary = readJsonRawText(value, ["summary", "description", "excerpt", "ozet", "özet", "icerik", "içerik"]);
+  const summary = readJsonRawText(value, ["summary", "description", "excerpt", "ozet", "özet"]);
+  const richBody = readJsonRawText(value, ["body", "content", "html", "icerik", "içerik", "HTMLicerik", "MetinIcerik"]);
   const published = readJsonRawText(value, ["publishedAt", "publishDate", "pubDate", "date", "createdAt", "baslamaTarihi", "BaşlamaTarihi"]);
   const updated = readJsonRawText(value, ["sourceUpdatedAt", "updatedAt", "modifiedAt", "updateDate", "lastModified", "guncellenmeTarihi", "GüncellenmeTarihi"]);
   const absoluteLink = link ? canonicalizeContentUrl(link, sourceUrl) : null;
@@ -931,12 +950,14 @@ function collectJsonAnnouncementItems(value: unknown, sourceUrl: string, output:
   if (rawTitle && absoluteLink && (containsAnnouncementHint(normalizeDisplayText(rawTitle), absoluteLink) || containsAnnouncementHint("", sourceUrl))) {
     const publication = published ? parsePublicationMaybe(normalizeDisplayText(published)) : undefined;
     const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
+    const summaryText = summary ?? richBody;
     const item = finalizeParsedItem({
       rawTitle,
       link: absoluteLink,
       ...(publication ?? {}),
       ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
-      ...(summary ? { summary } : {})
+      ...(richBody ? { richBody } : {}),
+      ...(summaryText ? { summary: summaryText } : {})
     }, sourceUrl);
     if (item) output.push(item);
   }
@@ -1034,7 +1055,13 @@ function preferParsedItem(candidate: ParsedAnnouncementItem, current: ParsedAnno
   const currentTime = parsedItemTimestamp(current);
   if (candidateTime !== currentTime) return candidateTime > currentTime;
   if (candidate.link.startsWith("https://") !== current.link.startsWith("https://")) return candidate.link.startsWith("https://");
-  return parsedItemRichness(candidate) > parsedItemRichness(current);
+  const candidateRichness = candidate.title.length
+    + (candidate.summary?.length ?? 0)
+    + (candidate.body?.reduce((total, block) => total + block.text.length, 0) ?? 0);
+  const currentRichness = current.title.length
+    + (current.summary?.length ?? 0)
+    + (current.body?.reduce((total, block) => total + block.text.length, 0) ?? 0);
+  return candidateRichness > currentRichness;
 }
 
 function parsedItemTimestamp(item: ParsedAnnouncementItem): number {
@@ -1043,14 +1070,25 @@ function parsedItemTimestamp(item: ParsedAnnouncementItem): number {
 }
 
 function parsedItemRichness(item: ParsedAnnouncementItem): number {
-  return item.title.length + (item.summary?.length ?? 0) + (item.publishedAt || item.publishedDate ? 30 : 0) + (item.sourceUpdatedAt ? 20 : 0);
+  return item.title.length
+    + (item.summary?.length ?? 0)
+    + (item.body?.reduce((total, block) => total + block.text.length, 0) ?? 0)
+    + (item.keyDates?.length ?? 0) * 20
+    + (item.publishedAt || item.publishedDate ? 30 : 0)
+    + (item.sourceUpdatedAt ? 20 : 0);
 }
 
 function preferAnnouncementItem(candidate: AnnouncementItem, current: AnnouncementItem): boolean {
   const recency = compareAcademicContentDuplicateRecency(candidate, current);
   if (recency !== 0) return recency > 0;
   if (candidate.link.startsWith("https://") !== current.link.startsWith("https://")) return candidate.link.startsWith("https://");
-  return candidate.title.length + (candidate.summary?.length ?? 0) > current.title.length + (current.summary?.length ?? 0);
+  const candidateRichness = candidate.title.length
+    + (candidate.summary?.length ?? 0)
+    + (candidate.body?.reduce((total, block) => total + block.text.length, 0) ?? 0);
+  const currentRichness = current.title.length
+    + (current.summary?.length ?? 0)
+    + (current.body?.reduce((total, block) => total + block.text.length, 0) ?? 0);
+  return candidateRichness > currentRichness;
 }
 
 function ensureCrawlerSystemCa(): void {

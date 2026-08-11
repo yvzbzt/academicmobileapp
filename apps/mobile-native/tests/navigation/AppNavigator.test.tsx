@@ -10,7 +10,7 @@ import {
   Text,
 } from "react-native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   act,
   fireEvent,
@@ -41,6 +41,7 @@ import {
 const visibleRoutes: AppVisibleRoute[] = [
   "BootstrapLoading",
   "BootstrapError",
+  "Introduction",
   "Login",
   "Register",
   "Verification",
@@ -380,6 +381,10 @@ function getTabControl(label: string) {
 }
 
 function getTabBarContainer() {
+  const customBar = screen.queryByLabelText("Ana gezinme", {
+    includeHiddenElements: true,
+  });
+  if (customBar) return customBar;
   let node = getTabControl("Ana Sayfa");
   while (node.parent && node.props.pointerEvents !== "auto" && node.props.pointerEvents !== "none") {
     node = node.parent;
@@ -399,6 +404,13 @@ function expectSelectedTab(label: string) {
     const control = getTabControl(tab.label);
     if (tab.label === label) expect(control).toBeSelected();
     else expect(control).not.toBeSelected();
+  }
+}
+
+function expectPrimaryTabsHidden() {
+  expect(screen.queryByLabelText("Ana gezinme", { includeHiddenElements: true })).toBeNull();
+  for (const tab of primaryTabRoutes) {
+    expect(screen.queryByRole("button", { name: tab.label })).toBeNull();
   }
 }
 
@@ -437,8 +449,8 @@ describe("AppNavigator", () => {
       dark: false,
       colors: {
         background: lightTheme.colors.background.canvas,
-        border: lightTheme.colors.border.default,
-        card: lightTheme.colors.background.surface,
+        border: lightTheme.colors.border.subtle,
+        card: lightTheme.colors.background.surfaceRaised,
         notification: lightTheme.colors.status.error,
         primary: lightTheme.colors.action.primary,
         text: lightTheme.colors.text.primary,
@@ -448,8 +460,8 @@ describe("AppNavigator", () => {
       dark: true,
       colors: {
         background: darkTheme.colors.background.canvas,
-        border: darkTheme.colors.border.default,
-        card: darkTheme.colors.background.surface,
+        border: darkTheme.colors.border.subtle,
+        card: darkTheme.colors.background.surfaceRaised,
         notification: darkTheme.colors.status.error,
         primary: darkTheme.colors.action.primary,
         text: darkTheme.colors.text.primary,
@@ -457,7 +469,42 @@ describe("AppNavigator", () => {
     });
   });
 
-  it("focuses the real authenticated route heading and announces headerless routes", async () => {
+  it("exposes Introduction and replaces it with the auth root without back history", async () => {
+    const hardwareBackHandlers = captureHardwareBackHandlers();
+    const onVisibleRouteChange = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Introduction",
+      onVisibleRouteChange,
+      rootSurface: "introduction",
+    });
+
+    await expectVisibleRoute("Introduction");
+    expectPrimaryTabsHidden();
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Login"
+        onVisibleRouteChange={onVisibleRouteChange}
+        rootSurface="auth"
+        screens={screens}
+      />,
+    );
+
+    await expectVisibleRoute("Login");
+    expect(screen.queryByRole("header", { name: "SCREEN:Introduction" })).toBeNull();
+    expectPrimaryTabsHidden();
+    expect(onVisibleRouteChange).toHaveBeenCalledWith("Introduction");
+    expect(onVisibleRouteChange).toHaveBeenCalledWith("Login");
+
+    expect(hardwareBackHandlers).toHaveLength(1);
+    await act(async () => {
+      expect(hardwareBackHandlers[0]!()).toBe(false);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+    await expectVisibleRoute("Login");
+  });
+
+  it("announces headerless roots and focuses the real heading on pushed routes", async () => {
     const focusSpy = jest
       .spyOn(AccessibilityInfo, "setAccessibilityFocus")
       .mockImplementation(() => undefined);
@@ -471,18 +518,24 @@ describe("AppNavigator", () => {
         rootSurface: "authenticated",
       });
       await expectVisibleRoute("Home");
-      focusSpy.mockClear();
-
-      fireEvent(screen.getByRole("header", { name: "Ana Sayfa" }), "layout", {
-        nativeEvent: { layout: { height: 32, width: 160, x: 0, y: 0 } },
-        target: 501,
+      expect(screen.queryByRole("header", { name: "Ana Sayfa" })).toBeNull();
+      expect(screen.UNSAFE_getByType(SafeAreaView).props.edges).toContain("top");
+      await waitFor(() => {
+        expect(announceSpy).toHaveBeenLastCalledWith("Ana Sayfa ekranı");
       });
-      expect(focusSpy).toHaveBeenLastCalledWith(501);
+      announceSpy.mockClear();
 
-      await pressTab("Duyurular");
-      await expectVisibleRoute("Announcements");
+      await authenticated.rerenderAsync(
+        <NavigatorHarness
+          activeRoute="Home"
+          request={{ key: "open-summer-school-heading", route: "SummerSchool" }}
+          rootSurface="authenticated"
+          screens={screens}
+        />,
+      );
+      await expectVisibleRoute("SummerSchool");
       focusSpy.mockClear();
-      fireEvent(screen.getByRole("header", { name: "Duyurular" }), "layout", {
+      fireEvent(screen.getByRole("header", { name: "Yaz Okulu" }), "layout", {
         nativeEvent: { layout: { height: 32, width: 160, x: 0, y: 0 } },
         target: 502,
       });
@@ -619,7 +672,7 @@ describe("AppNavigator", () => {
     await expectVisibleRoute("AcademicOnboarding");
   });
 
-  it("maps exactly four Turkish tab controls to their authenticated roots", async () => {
+  it("keeps exactly four Turkish tab routes without an unrelated center action", async () => {
     await renderNavigator({
       activeRoute: "Home",
       rootSurface: "authenticated",
@@ -627,6 +680,7 @@ describe("AppNavigator", () => {
     await expectVisibleRoute("Home");
 
     expect(screen.getAllByRole("button")).toHaveLength(4);
+    expect(screen.queryByRole("button", { name: "Takvime yeni öğe ekle" })).toBeNull();
     expectSelectedTab("Ana Sayfa");
 
     for (const tab of primaryTabRoutes.slice(1)) {
@@ -699,6 +753,8 @@ describe("AppNavigator", () => {
     );
 
     await expectVisibleRoute("AnnouncementDetail");
+    expect(screen.getAllByRole("header", { name: "Duyuru Detayı" })).toHaveLength(1);
+    expectPrimaryTabsHidden();
     expect(onRequestHandled).toHaveBeenCalledWith("announcement-42");
 
     expect(hardwareBackHandlers).toHaveLength(1);
@@ -707,6 +763,33 @@ describe("AppNavigator", () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 40));
     });
     await expectVisibleRoute("Announcements");
+    expectSelectedTab("Duyurular");
+  });
+
+  it("leaves Notification Settings chrome to its exact in-screen top bar", async () => {
+    const onRequestHandled = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Profile",
+      onRequestHandled,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Profile");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Profile"
+        onRequestHandled={onRequestHandled}
+        request={{ key: "open-notification-settings", route: "NotificationSettings" }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+
+    await expectVisibleRoute("NotificationSettings");
+    expect(screen.queryByRole("header", { name: "Bildirim tercihleri" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Geri dön" })).toBeNull();
+    expectPrimaryTabsHidden();
+    expect(onRequestHandled).toHaveBeenCalledWith("open-notification-settings");
   });
 
   it("keeps Summer School and YÖK reachable inside the Announcements tab", async () => {
@@ -728,7 +811,7 @@ describe("AppNavigator", () => {
       />,
     );
     await expectVisibleRoute("SummerSchool");
-    expectSelectedTab("Duyurular");
+    expectPrimaryTabsHidden();
 
     await view.rerenderAsync(
       <NavigatorHarness
@@ -740,14 +823,14 @@ describe("AppNavigator", () => {
       />,
     );
     await expectVisibleRoute("YokAnnouncements");
-    expectSelectedTab("Duyurular");
+    expectPrimaryTabsHidden();
     expect(onRequestHandled.mock.calls).toEqual([
       ["summer-school"],
       ["yok-announcements"],
     ]);
   });
 
-  it("preserves independent nested histories while switching tabs", async () => {
+  it("hides primary tabs on detail routes and restores them after Back", async () => {
     const onRequestHandled = jest.fn();
     const view = await renderNavigator({
       activeRoute: "Announcements",
@@ -770,7 +853,11 @@ describe("AppNavigator", () => {
       />,
     );
     await expectVisibleRoute("AnnouncementDetail");
+    expectPrimaryTabsHidden();
 
+    fireEvent.press(screen.getByRole("button", { name: "Geri dön" }));
+    await expectVisibleRoute("Announcements");
+    expectSelectedTab("Duyurular");
     await pressTab("Takvim");
     await expectVisibleRoute("Calendar");
 
@@ -788,13 +875,9 @@ describe("AppNavigator", () => {
       />,
     );
     await expectVisibleRoute("CalendarEventDetail");
-
-    await pressTab("Duyurular");
-    await expectVisibleRoute("AnnouncementDetail");
-    expectSelectedTab("Duyurular");
-
-    await pressTab("Takvim");
-    await expectVisibleRoute("CalendarEventDetail");
+    expectPrimaryTabsHidden();
+    fireEvent.press(screen.getByRole("button", { name: "Geri dön" }));
+    await expectVisibleRoute("Calendar");
     expectSelectedTab("Takvim");
     expect(onRequestHandled.mock.calls).toEqual([
       ["announcement-history"],
@@ -802,7 +885,7 @@ describe("AppNavigator", () => {
     ]);
   });
 
-  it("reselects a nested tab back to its root without pushing another route", async () => {
+  it("returns from a nested destination without exposing an overlapping tab reselect", async () => {
     const onVisibleRouteChange = jest.fn();
     const view = await renderNavigator({
       activeRoute: "Announcements",
@@ -825,9 +908,9 @@ describe("AppNavigator", () => {
       />,
     );
     await expectVisibleRoute("AnnouncementDetail");
-    expectSelectedTab("Duyurular");
+    expectPrimaryTabsHidden();
 
-    await pressTab("Duyurular");
+    fireEvent.press(screen.getByRole("button", { name: "Geri dön" }));
     await expectVisibleRoute("Announcements");
     expectSelectedTab("Duyurular");
     expect(onVisibleRouteChange).toHaveBeenCalledWith("AnnouncementDetail");
@@ -915,7 +998,7 @@ describe("AppNavigator", () => {
       },
     );
     await expectVisibleRoute("Home");
-    expect(screen.getByText("TAB_HEIGHT:114")).toBeVisible();
+    expect(screen.getByText("TAB_HEIGHT:98")).toBeVisible();
 
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
@@ -958,7 +1041,7 @@ describe("AppNavigator", () => {
       />,
     );
     await expectVisibleRoute("CalendarEventDetail");
-    expectSelectedTab("Takvim");
+    expectPrimaryTabsHidden();
     expect(onRequestHandled).toHaveBeenCalledWith("calendar-event-back");
 
     expect(hardwareBackHandlers).toHaveLength(1);
@@ -995,7 +1078,7 @@ describe("AppNavigator", () => {
     await expectVisibleRoute("AcademicProfileSettings");
     expect(screen.getByRole("button", { name: "Geri d\u00f6n" })).toBeEnabled();
     expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset).toBe(0);
-    expectSelectedTab("Profil");
+    expectPrimaryTabsHidden();
 
     expect(hardwareBackHandlers).toHaveLength(1);
     await act(async () => {
@@ -1021,6 +1104,7 @@ describe("AppNavigator", () => {
     );
     await expectVisibleRoute("AccountDataSettings");
     expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset).toBe(0);
+    expectPrimaryTabsHidden();
   });
 
   it("intercepts dirty settings Back, keeps Cancel in place, then discards before leaving", async () => {

@@ -81,8 +81,8 @@ export function Banner({
         styles.banner,
         {
           backgroundColor: palette.background,
-          borderColor: palette.accent,
-          borderRadius: theme.radii.control,
+          borderColor: theme.colors.border.subtle,
+          borderRadius: theme.radii.card,
           gap: theme.spacing.sm,
           padding: theme.spacing.md,
         },
@@ -329,7 +329,10 @@ export function ErrorState({
 const styles = StyleSheet.create({
   banner: {
     alignItems: "flex-start",
-    borderLeftWidth: 4,
+    borderLeftWidth: 3,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
   },
   feedbackCopy: {

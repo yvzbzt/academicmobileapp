@@ -32,6 +32,7 @@ jest.mock("@react-navigation/native", () => ({ useScrollToTop: jest.fn() }));
 const callbacks = {
   onLoadMore: jest.fn(),
   onOpenItem: jest.fn(),
+  onOpenNotificationSettings: jest.fn(),
   onOpenSummerSchool: jest.fn(),
   onOpenYok: jest.fn(),
   onRefresh: jest.fn(),
@@ -259,6 +260,23 @@ describe("Phase 8 Announcements feed", () => {
     expect(screen.queryByText("Reddedilmiş kaynak görünmemeli")).not.toBeOnTheScreen();
     expect(screen.getAllByText(/Yayınlandı/iu).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Güncellendi/iu)).toBeOnTheScreen();
+  });
+
+  it("renders the reference top bar, compact search/filter rails, and actionable reminder artwork", async () => {
+    await renderFeed(feedProps());
+
+    expect(screen.getByTestId("announcements-top-bar")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Duyurular" })).toBeOnTheScreen();
+    expect(screen.getByTestId("announcements-search-frame")).toBeOnTheScreen();
+    expect(screen.getByTestId("announcements-reminder-banner")).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));
+    expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(1);
+
+    fireEvent.press(screen.getByRole("button", {
+      name: "Hiçbir duyuruyu kaçırma. Bildirimleri aç.",
+    }));
+    expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(2);
   });
 
   it("debounces raw search for 300 ms and exposes a recoverable no-result state", async () => {

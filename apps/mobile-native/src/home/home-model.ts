@@ -14,12 +14,16 @@ export interface HomeAcademicEvent extends AcademicTemporalValue {
   id: string;
   title: string;
   category: string;
+  courseName?: string;
+  location?: string;
+  timezone?: string;
 }
 
 export interface HomeManualExam {
   id: string;
   title: string;
   examDate: string;
+  locationNote?: string;
 }
 
 export interface HomeExamCountdownItem extends AcademicTemporalValue {
@@ -32,10 +36,13 @@ export interface HomeImportantItem {
   id: string;
   title: string;
   category: string;
+  courseName?: string;
+  location?: string;
   date: string;
   endDate?: string;
   temporalKind?: AcademicTemporalKind;
   endTemporalKind?: AcademicTemporalKind;
+  timezone?: string;
   kind: "exam" | "deadline" | "registration" | "event";
 }
 
@@ -109,6 +116,7 @@ export function selectTodayItems(
       title: exam.title,
       category: "personal_exam",
       date: exam.examDate,
+      ...(exam.locationNote ? { location: exam.locationNote } : {}),
       kind: "exam" as const,
     }));
   return [...academic, ...personal].sort(compareImportantItems);
@@ -126,6 +134,7 @@ export function selectNearestImportantItem(
       title: exam.title,
       category: "personal_exam",
       date: exam.examDate,
+      ...(exam.locationNote ? { location: exam.locationNote } : {}),
       kind: "exam" as const,
     })),
   ].filter((item) => {
@@ -290,9 +299,12 @@ function toImportantItem(event: HomeAcademicEvent): HomeImportantItem {
     title: event.title,
     category,
     date: event.startDate,
+    ...(event.courseName ? { courseName: event.courseName } : {}),
+    ...(event.location ? { location: event.location } : {}),
     ...(event.endDate ? { endDate: event.endDate } : {}),
     ...(event.temporalKind ? { temporalKind: event.temporalKind } : {}),
     ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {}),
+    ...(event.timezone ? { timezone: event.timezone } : {}),
     kind
   };
 }

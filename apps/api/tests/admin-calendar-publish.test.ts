@@ -35,6 +35,36 @@ async function createApprovedExtractedEvents() {
 }
 
 describe("AdminCalendarService", () => {
+  it("preserves explicit course and location metadata on manually authored events", async () => {
+    const service = new AdminCalendarService(
+      new InMemoryCalendarRepository(),
+      new InMemoryPdfRepository()
+    );
+
+    const draft = await service.createManualDraft({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "Located events",
+      createdBy: "admin-1",
+      events: [{
+        title: "Veri Yapıları Final Sınavı",
+        courseName: "  Veri Yapıları  ",
+        category: "final_exam",
+        term: "fall",
+        startDate: "2026-11-10T09:30:00+03:00",
+        endDate: "2026-11-10T11:00:00+03:00",
+        location: "  Mühendislik Fak. – A Blok 201  "
+      }]
+    });
+
+    expect(draft.events[0]).toMatchObject({
+      courseName: "Veri Yapıları",
+      location: "Mühendislik Fak. – A Blok 201",
+      startDate: new Date("2026-11-10T06:30:00.000Z"),
+      endDate: new Date("2026-11-10T08:00:00.000Z")
+    });
+  });
+
   it.each([
     ["ambiguous instant", { startDate: "2026-09-01T09:30:00", endDate: "2026-09-01T11:00:00+03:00" }],
     ["reverse date range", { startDate: "2026-09-03", endDate: "2026-09-01" }],

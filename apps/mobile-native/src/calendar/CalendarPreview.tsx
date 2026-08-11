@@ -162,7 +162,12 @@ function CalendarPreviewExperience({
   const updateExam = (id: string, input: PersonalExamMutationInput): PersonalExamMutationResult => {
     setPersonalExams((current) => current.map((exam) => exam.id === id ? { id, ...input } : exam));
     setSelectedItem((current) => current?.source === "personal" && current.id === id
-      ? { ...current, title: input.title, startDate: input.examDate }
+      ? {
+          ...current,
+          title: input.title,
+          startDate: input.examDate,
+          ...(input.locationNote ? { location: input.locationNote } : {}),
+        }
       : current);
     return { ok: true };
   };
@@ -196,7 +201,7 @@ function CalendarPreviewExperience({
     <SafeAreaProvider>
       <ThemeProvider preference={preference}>
         <NavigationContainer>
-          <PreviewStack.Navigator initialRouteName={initialRoute}>
+          <PreviewStack.Navigator initialRouteName={initialRoute} screenOptions={{ headerShown: false }}>
             <PreviewStack.Screen name="Calendar" options={{ title: "Takvim" }}>
               {({ navigation }) => (
                 <CalendarExperience
@@ -235,6 +240,7 @@ function CalendarPreviewExperience({
                   departmentName="Bilgisayar Mühendisliği"
                   facultyName="Mühendislik Fakültesi"
                   item={selectedItem}
+                  onBack={() => navigation.goBack()}
                   onDeletePersonalExam={(id) => {
                     const result = deleteExam(id);
                     if (result.ok) navigation.goBack();

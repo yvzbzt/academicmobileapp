@@ -121,6 +121,76 @@ describe("Phase 7 Home daily brief", () => {
     expect(useScrollToTop).toHaveBeenCalledWith(expect.objectContaining({ current: expect.anything() }));
   });
 
+  it("renders the white reference hierarchy with a functional top bar and illustrated focus card", async () => {
+    await renderHome(props());
+
+    expect(screen.getByTestId("home-top-bar")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Ana Sayfa" })).toBeOnTheScreen();
+    expect(screen.getByText("Bugünkü Odak")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-focus-card")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Önemli duyuru" })).toHaveTextContent("Öne çıkan duyurular");
+
+    fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));
+    expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the incomplete-profile prompt compact and locally dismissible", async () => {
+    await renderHome(props({ facultyName: undefined, departmentName: undefined }));
+
+    expect(screen.getByTestId("home-profile-completion-card")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Akademik profili tamamla" })).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Akademik profil önerisini kapat" }));
+
+    expect(screen.queryByTestId("home-profile-completion-card")).not.toBeOnTheScreen();
+    expect(callbacks.onCompleteProfile).not.toHaveBeenCalled();
+  });
+
+  it("renders explicit course and venue metadata without splitting the event title", async () => {
+    await renderHome(props({
+      events: [{
+        id: "final-exam",
+        title: "Veri Yapıları Final Sınavı",
+        courseName: "Veri Yapıları",
+        location: "Mühendislik Fak. – A Blok 201",
+        category: "final_exam",
+        startDate: new Date(2026, 7, 1, 13).toISOString(),
+      }],
+    }));
+
+    expect(screen.getByText("Veri Yapıları")).toBeOnTheScreen();
+    expect(screen.getByText("Mühendislik Fak. – A Blok 201")).toBeOnTheScreen();
+    expect(screen.getAllByText("Veri Yapıları Final Sınavı").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("renders academic event clocks in the event timezone instead of the device timezone", async () => {
+    const originalTimezone = process.env.TZ;
+    process.env.TZ = "UTC";
+    try {
+      await renderHome(props({
+        now: new Date("2026-08-11T06:00:00.000Z"),
+        events: [{
+          id: "istanbul-final",
+          title: "Saat dilimi finali",
+          category: "final_exam",
+          startDate: "2026-08-11T07:00:00.000Z",
+          endDate: "2026-08-11T09:00:00.000Z",
+          temporalKind: "timestamp",
+          endTemporalKind: "timestamp",
+          timezone: "Europe/Istanbul",
+        }],
+      }));
+
+      expect(screen.getAllByText("10:00").length).toBeGreaterThan(0);
+      expect(screen.getByText("12:00")).toBeOnTheScreen();
+      expect(screen.queryByText("07:00")).not.toBeOnTheScreen();
+      expect(screen.queryByText("09:00")).not.toBeOnTheScreen();
+    } finally {
+      if (originalTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTimezone;
+    }
+  });
+
   it("keeps initial loading, empty, and recoverable error mutually exclusive", async () => {
     const view = await renderHome(props({ events: [], announcements: [], calendarLoading: true, calendarAttempted: false, announcementLoading: true, announcementAttempted: false }));
     expect(screen.getByLabelText("Günlük özet yükleniyor").props.accessibilityState).toEqual({ busy: true });

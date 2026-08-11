@@ -2,12 +2,13 @@ import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { canonicalContentKey, canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class InMemoryAnnouncementRepository implements AnnouncementRepository {
   private readonly sources = new Map<string, AnnouncementSourceRecord>();
   private readonly items = new Map<string, AnnouncementItem[]>();
+  private readonly savedAnnouncements = new Map<string, SavedAnnouncementRecord>();
 
   constructor() {}
 
@@ -160,6 +161,35 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
     return null;
   }
 
+  async findSavedAnnouncement(userId: string, announcementId: string): Promise<SavedAnnouncementRecord | null> {
+    return this.savedAnnouncements.get(savedAnnouncementKey(userId, announcementId)) ?? null;
+  }
+
+  async saveAnnouncement(userId: string, announcementId: string, savedAt: Date): Promise<SavedAnnouncementRecord> {
+    const key = savedAnnouncementKey(userId, announcementId);
+    const existing = this.savedAnnouncements.get(key);
+    const record: SavedAnnouncementRecord = {
+      id: existing?.id ?? randomUUID(),
+      userId,
+      announcementId,
+      savedAt: existing?.savedAt ?? savedAt,
+      createdAt: existing?.createdAt ?? savedAt,
+      updatedAt: savedAt
+    };
+    this.savedAnnouncements.set(key, record);
+    return record;
+  }
+
+  async deleteSavedAnnouncement(userId: string, announcementId: string): Promise<boolean> {
+    return this.savedAnnouncements.delete(savedAnnouncementKey(userId, announcementId));
+  }
+
+  async deleteSavedAnnouncementsByUserId(userId: string): Promise<void> {
+    for (const [key, record] of this.savedAnnouncements) {
+      if (record.userId === userId) this.savedAnnouncements.delete(key);
+    }
+  }
+
   async listAllItems(input: { limit?: number; offset?: number } = {}): Promise<AnnouncementItem[]> {
     const activeSourceIds = new Set([...this.sources.values()]
       .filter((source) => source.status === "active" && source.trustStatus === "trusted")
@@ -177,6 +207,10 @@ function compareAnnouncementItems(left: AnnouncementItem, right: AnnouncementIte
   const leftTime = Math.max(...[left.publishedAt, left.sourceUpdatedAt, left.discoveredAt].map((value) => value ? Date.parse(value) : 0).filter(Number.isFinite), 0);
   const rightTime = Math.max(...[right.publishedAt, right.sourceUpdatedAt, right.discoveredAt].map((value) => value ? Date.parse(value) : 0).filter(Number.isFinite), 0);
   return rightTime - leftTime;
+}
+
+function savedAnnouncementKey(userId: string, announcementId: string): string {
+  return `${userId}\u0000${announcementId}`;
 }
 
 function isApiEligibleItem(item: AnnouncementItem): boolean {

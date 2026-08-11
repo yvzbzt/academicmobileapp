@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState, type ReactNode } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View, useWindowDimensions, type View as NativeView } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type View as NativeView } from "react-native";
 import {
   Banner,
   Button,
@@ -8,8 +8,9 @@ import {
   ErrorState,
   useTheme,
 } from "../design-system";
-import { formatAcademicTemporal, isDateOnlyValue } from "../temporal/academic-temporal";
-import type { CalendarItem } from "./calendar-model";
+import { isDateOnlyValue } from "../temporal/academic-temporal";
+import type { CalendarClassification, CalendarItem } from "./calendar-model";
+import { formatCalendarTemporal } from "./calendar-time";
 import {
   PersonalExamEditor,
   type PersonalExamMutationInput,
@@ -23,6 +24,8 @@ export interface CalendarEventDetailProps {
   universityName?: string;
   facultyName?: string;
   departmentName?: string;
+  /** Used by headerless preview or host stacks that delegate chrome to this screen. */
+  onBack?: () => void;
   onUpdatePersonalExam: (
     id: string,
     input: PersonalExamMutationInput,
@@ -37,6 +40,7 @@ export function CalendarEventDetail({
   universityName,
   facultyName,
   departmentName,
+  onBack,
   onUpdatePersonalExam,
   onDeletePersonalExam,
 }: CalendarEventDetailProps) {
@@ -63,6 +67,7 @@ export function CalendarEventDetail({
       : "Tüm gün · kaynakta saat bilgisi verilmemiştir"
     : "Saat, kaynakta belirtilen gerçek zaman bilgisidir";
   const academicContext = [universityName, facultyName, departmentName].filter(Boolean).join(" · ");
+  const accentColor = classificationColor(item.classification, theme.colors);
 
   const confirmDelete = () => {
     Alert.alert(
@@ -98,6 +103,35 @@ export function CalendarEventDetail({
         showsVerticalScrollIndicator
         style={{ backgroundColor: theme.colors.background.canvas }}
       >
+        {onBack ? (
+          <View style={styles.detailHeader}>
+            <Pressable
+              accessibilityLabel="Geri"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onBack}
+              style={({ pressed }) => [
+                styles.backButton,
+                {
+                  backgroundColor: pressed ? theme.colors.action.ghostPressed : theme.colors.background.surface,
+                  borderColor: theme.colors.border.subtle,
+                  borderRadius: theme.radii.pill,
+                },
+              ]}
+            >
+              <Ionicons color={theme.colors.action.primary} name="chevron-back" size={26} />
+            </Pressable>
+            <Text
+              accessibilityRole="header"
+              numberOfLines={1}
+              style={[theme.typography.sectionTitle, styles.detailHeaderTitle, { color: theme.colors.text.primary }]}
+            >
+              Takvim Ayrıntısı
+            </Text>
+            <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.headerSpacer} />
+          </View>
+        ) : null}
+
         {feedback}
 
         {actionError ? (
@@ -109,29 +143,73 @@ export function CalendarEventDetail({
           />
         ) : null}
 
-        <View style={{ gap: theme.spacing.sm }}>
-          <View style={[styles.classification, {
-            backgroundColor: theme.colors.background.subtle,
-            borderColor: theme.colors.border.default,
-            borderRadius: theme.radii.pill,
-            gap: theme.spacing.xs,
-            paddingHorizontal: theme.spacing.sm,
-            paddingVertical: theme.spacing.xs,
-          }]}>
-            <Ionicons color={theme.colors.action.primary} name={item.icon} size={20} />
-            <Text style={[theme.typography.metaStrong, { color: theme.colors.text.primary }]}>{item.classificationLabel}</Text>
+        <Card style={[styles.heroCard, { gap: theme.spacing.sm }]} variant="elevated">
+          <View style={[styles.heroLayout, { gap: theme.spacing.sm }]}>
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={[
+                styles.heroAccent,
+                { backgroundColor: accentColor, borderRadius: theme.radii.pill },
+              ]}
+            />
+            <View style={[styles.heroContent, { gap: theme.spacing.sm }]}>
+              <View style={[styles.classification, {
+                backgroundColor: theme.colors.background.subtle,
+                borderColor: accentColor,
+                borderRadius: theme.radii.pill,
+                gap: theme.spacing.xs,
+                paddingHorizontal: theme.spacing.sm,
+                paddingVertical: theme.spacing.xs,
+              }]}>
+                <Ionicons color={accentColor} name={item.icon} size={20} />
+                <Text style={[theme.typography.metaStrong, styles.classificationLabel, { color: accentColor }]}>{item.classificationLabel}</Text>
+              </View>
+              <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>{item.title}</Text>
+            </View>
           </View>
-          <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>{item.title}</Text>
-        </View>
+        </Card>
 
-        <Card style={{ gap: theme.spacing.sm }}>
-          <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>Tarih ve zaman</Text>
-          <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{formatAcademicTemporal(item)}</Text>
+        <Card style={[styles.detailCard, { gap: theme.spacing.sm }]} variant="elevated">
+          <View style={[styles.cardHeading, { gap: theme.spacing.sm }]}>
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={[
+                styles.cardIcon,
+                {
+                  backgroundColor: theme.colors.action.secondary,
+                  borderRadius: theme.radii.control,
+                },
+              ]}
+            >
+              <Ionicons color={accentColor} name={dateOnly ? "calendar-outline" : "time-outline"} size={21} />
+            </View>
+            <View style={[styles.flexOne, { gap: theme.spacing.xxs }]}>
+              <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>Tarih ve zaman</Text>
+              <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{formatCalendarTemporal(item)}</Text>
+            </View>
+          </View>
           <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>{semanticTime}</Text>
         </Card>
 
-        <Card style={{ gap: theme.spacing.sm }}>
-          <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>Kaynak ve kapsam</Text>
+        <Card style={[styles.detailCard, { gap: theme.spacing.sm }]} variant="elevated">
+          <View style={[styles.cardHeading, { gap: theme.spacing.sm }]}>
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={[
+                styles.cardIcon,
+                {
+                  backgroundColor: theme.colors.action.secondary,
+                  borderRadius: theme.radii.control,
+                },
+              ]}
+            >
+              <Ionicons color={accentColor} name="school-outline" size={21} />
+            </View>
+            <Text accessibilityRole="header" style={[theme.typography.sectionTitle, styles.flexOne, { color: theme.colors.text.primary }]}>Kaynak ve kapsam</Text>
+          </View>
           <View style={{ gap: theme.spacing.xs }}>
             <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{item.sourceLabel}</Text>
             <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>
@@ -143,19 +221,32 @@ export function CalendarEventDetail({
               <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Akademik yıl: {academicYear}</Text>
             ) : null}
             <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Tür: {item.classificationLabel}</Text>
+            {item.location ? (
+              <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Konum / not: {item.location}</Text>
+            ) : null}
             <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Kayıt kimliği: {item.id}</Text>
           </View>
         </Card>
 
         {item.source === "personal" ? (
-          <View style={[styles.actions, { gap: theme.spacing.sm }]}>
+          <View
+            style={[
+              styles.actions,
+              {
+                backgroundColor: theme.colors.background.surface,
+                borderColor: theme.colors.border.subtle,
+                borderRadius: theme.radii.prominent,
+                gap: theme.spacing.sm,
+                padding: theme.spacing.sm,
+              },
+            ]}
+          >
             <Button
               aria-expanded={editing}
               fullWidth
               label="Kişisel sınavı düzenle"
               onPress={() => setEditing(true)}
               ref={editExamRef}
-              variant="secondary"
             />
             <Button
               fullWidth
@@ -169,7 +260,12 @@ export function CalendarEventDetail({
 
       {item.source === "personal" ? (
         <PersonalExamEditor
-          exam={{ id: item.id, title: item.title, examDate: item.startDate }}
+          exam={{
+            id: item.id,
+            title: item.title,
+            examDate: item.startDate,
+            ...(item.location ? { locationNote: item.location } : {}),
+          }}
           onDismiss={() => setEditing(false)}
           onSubmit={(input) => onUpdatePersonalExam(item.id, input)}
           returnFocusRef={editExamRef}
@@ -180,11 +276,46 @@ export function CalendarEventDetail({
   );
 }
 
+function classificationColor(
+  classification: CalendarClassification,
+  colors: ReturnType<typeof useTheme>["colors"],
+): string {
+  switch (classification) {
+    case "personal_exam": return colors.action.primary;
+    case "exam": return colors.status.error;
+    case "registration": return colors.status.warning;
+    case "holiday": return colors.status.success;
+    case "academic": return colors.status.info;
+  }
+}
+
 const styles = StyleSheet.create({
   content: {
     alignSelf: "center",
     maxWidth: 720,
     width: "100%",
+  },
+  detailHeader: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    flexDirection: "row",
+    minHeight: 56,
+  },
+  backButton: {
+    alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  detailHeaderTitle: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "center",
+  },
+  headerSpacer: {
+    height: 48,
+    width: 48,
   },
   classification: {
     alignItems: "center",
@@ -192,8 +323,47 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     flexShrink: 1,
+    maxWidth: "100%",
+  },
+  classificationLabel: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  heroCard: {
+    alignSelf: "stretch",
+  },
+  heroLayout: {
+    alignItems: "stretch",
+    flexDirection: "row",
+  },
+  heroAccent: {
+    alignSelf: "stretch",
+    minHeight: 88,
+    width: 4,
+  },
+  heroContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  detailCard: {
+    alignSelf: "stretch",
+  },
+  cardHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  cardIcon: {
+    alignItems: "center",
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  flexOne: {
+    flex: 1,
+    minWidth: 0,
   },
   actions: {
     alignSelf: "stretch",
+    borderWidth: StyleSheet.hairlineWidth,
   },
 });

@@ -82,7 +82,8 @@ describe("GoogleCalendarService", () => {
         temporalKind: "timestamp",
         endTemporalKind: "timestamp",
         startDate: "2026-11-10T09:30:00+03:00",
-        endDate: "2026-11-10T11:00:00+03:00"
+        endDate: "2026-11-10T11:00:00+03:00",
+        location: "Mühendislik Fakültesi, A Blok 201"
       },
       {
         id: "mixed",
@@ -108,7 +109,8 @@ describe("GoogleCalendarService", () => {
       startDate: "2026-11-10T06:30:00.000Z",
       endDate: "2026-11-10T08:00:00.000Z",
       allDay: false,
-      timeZone: "Europe/Istanbul"
+      timeZone: "Europe/Istanbul",
+      location: "Mühendislik Fakültesi, A Blok 201"
     }));
     expect(items.find((item) => item.sourceId === "academic-event:mixed")).toEqual(expect.objectContaining({
       startDate: "2026-09-01T06:30:00.000Z",

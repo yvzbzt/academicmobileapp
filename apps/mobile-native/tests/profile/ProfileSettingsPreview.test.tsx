@@ -82,7 +82,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     fireEvent.press(back);
 
     await waitFor(() => {
-      expect(screen.getByRole("header", { name: "Profil ve ayarlar" })).toBeVisible();
+      expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
     });
     expect(screen.getAllByText("Deniz Örnek").length).toBeGreaterThan(0);
   });
@@ -95,7 +95,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     });
 
     await renderAsync(<ProfileSettingsPreview scenario="profile-summary" />);
-    expect(await screen.findByRole("header", { name: "Profil ve ayarlar" })).toBeVisible();
+    expect(await screen.findByRole("header", { name: "Profil" })).toBeVisible();
     expect(urlHandlers.length).toBeGreaterThan(0);
 
     act(() => {
@@ -114,6 +114,8 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     const notificationView = await renderAsync(
       <ProfileSettingsPreview scenario="notifications-settings-required" />,
     );
+    expect(await screen.findAllByRole("header", { name: "Bildirim tercihleri" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Geri dön" })).toHaveLength(1);
     expect(await screen.findByText("Bildirim izni gerekiyor")).toBeVisible();
     expect(screen.getByRole("button", { name: "Cihaz ayarlarını aç" })).toBeEnabled();
     await notificationView.unmountAsync();

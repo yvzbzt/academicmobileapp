@@ -125,6 +125,7 @@ export function AppShellPreview() {
   const screens = useMemo<AppScreenSlots>(() => ({
     BootstrapLoading: <InactiveEvidenceSlot routeLabel="Yükleme" />,
     BootstrapError: <InactiveEvidenceSlot routeLabel="Yükleme hatası" />,
+    Introduction: <InactiveEvidenceSlot routeLabel="Uygulama tanıtımı" />,
     Login: <InactiveEvidenceSlot routeLabel="Giriş" />,
     Register: <InactiveEvidenceSlot routeLabel="Kayıt" />,
     Verification: <InactiveEvidenceSlot routeLabel="Doğrulama" />,

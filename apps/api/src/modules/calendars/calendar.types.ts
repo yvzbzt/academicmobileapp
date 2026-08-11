@@ -38,7 +38,9 @@ export interface AcademicEventRecord {
   term: AcademicTerm;
   category: AcademicEventCategory;
   title: string;
+  courseName?: string;
   description?: string;
+  location?: string;
   /** Compatibility/sort instant. Use dateOnlyStart when temporalKind is date. */
   startDate: Date;
   /** Compatibility/sort instant. Use dateOnlyEnd when endTemporalKind is date. */

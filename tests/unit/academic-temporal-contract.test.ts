@@ -19,7 +19,9 @@ describe("academic temporal API-to-native contract", () => {
       dateOnlyStart: "2026-09-01",
       dateOnlyEnd: "2026-09-03",
       startDate: new Date("2026-09-01T00:00:00.000Z"),
-      endDate: new Date("2026-09-03T23:59:59.999Z")
+      endDate: new Date("2026-09-03T23:59:59.999Z"),
+      courseName: "Veri Yapıları",
+      location: "Merkez Kampüs, A Blok 201"
     }));
     const nativePayload = JSON.parse(JSON.stringify(dto)) as AcademicTemporalValue;
     const rendered = formatAcademicTemporal(nativePayload);
@@ -28,7 +30,9 @@ describe("academic temporal API-to-native contract", () => {
       temporalKind: "date",
       endTemporalKind: "date",
       startDate: "2026-09-01",
-      endDate: "2026-09-03"
+      endDate: "2026-09-03",
+      courseName: "Veri Yapıları",
+      location: "Merkez Kampüs, A Blok 201"
     });
     expect(rendered).toContain("1 Eylül 2026");
     expect(rendered).toContain("3 Eylül 2026");

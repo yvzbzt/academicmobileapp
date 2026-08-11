@@ -1,4 +1,4 @@
-import { forwardRef, useState } from "react";
+import { forwardRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -27,6 +27,8 @@ export interface ButtonProps
   disabled?: boolean;
   fullWidth?: boolean;
   compact?: boolean;
+  leadingIcon?: ReactNode;
+  trailingIcon?: ReactNode;
   style?: StyleProp<ViewStyle>;
   labelStyle?: StyleProp<TextStyle>;
 }
@@ -74,7 +76,7 @@ function resolveButtonPalette(
   if (variant === "secondary") {
     return {
       background: theme.colors.action.secondary,
-      foreground: theme.colors.text.primary,
+      foreground: theme.colors.text.link,
       border: theme.colors.border.default,
       pressedBackground: theme.colors.action.secondaryPressed,
     };
@@ -82,9 +84,9 @@ function resolveButtonPalette(
 
   if (variant === "ghost") {
     return {
-      background: theme.colors.background.surface,
+      background: "transparent",
       foreground: theme.colors.text.link,
-      border: theme.colors.background.surface,
+      border: "transparent",
       pressedBackground: theme.colors.action.ghostPressed,
     };
   }
@@ -106,6 +108,8 @@ export const Button = forwardRef<NativeView, ButtonProps>(function Button({
   disabled = false,
   fullWidth = false,
   compact = false,
+  leadingIcon,
+  trailingIcon,
   style,
   labelStyle,
   accessibilityLabel,
@@ -167,7 +171,7 @@ export const Button = forwardRef<NativeView, ButtonProps>(function Button({
           backgroundColor:
             pressed || pressedByEvent ? palette.pressedBackground : palette.background,
           borderColor: focused ? theme.colors.border.focus : palette.border,
-          borderRadius: theme.radii.control,
+          borderRadius: theme.radii.pill,
           paddingHorizontal: compact ? theme.spacing.sm : theme.spacing.lg,
         },
         fullWidth && styles.fullWidth,
@@ -178,10 +182,16 @@ export const Button = forwardRef<NativeView, ButtonProps>(function Button({
       ]}
     >
       <View style={styles.labelFrame}>
+        {leadingIcon && !loading ? (
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            {leadingIcon}
+          </View>
+        ) : null}
         <Text
           allowFontScaling
           style={[
             theme.typography.bodyStrong,
+            styles.label,
             { color: palette.foreground },
             loading && styles.hiddenLabel,
             labelStyle,
@@ -189,6 +199,11 @@ export const Button = forwardRef<NativeView, ButtonProps>(function Button({
         >
           {visibleLabel}
         </Text>
+        {trailingIcon && !loading ? (
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            {trailingIcon}
+          </View>
+        ) : null}
         {loading ? (
           <ActivityIndicator
             accessibilityElementsHidden
@@ -205,7 +220,7 @@ export const Button = forwardRef<NativeView, ButtonProps>(function Button({
 const styles = StyleSheet.create({
   button: {
     alignItems: "center",
-    borderWidth: 2,
+    borderWidth: 1,
     justifyContent: "center",
   },
   fullWidth: {
@@ -216,8 +231,17 @@ const styles = StyleSheet.create({
   },
   labelFrame: {
     alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 8,
+    maxWidth: "100%",
     justifyContent: "center",
     minWidth: 24,
+  },
+  label: {
+    flexShrink: 1,
+    minWidth: 0,
+    textAlign: "center",
   },
   hiddenLabel: {
     opacity: 0,

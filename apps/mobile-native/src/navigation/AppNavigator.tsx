@@ -3,6 +3,7 @@ import {
   CommonActions,
   NavigationContainer,
   createNavigationContainerRef,
+  getFocusedRouteNameFromRoute,
   type NavigationState,
   type PartialState,
   useFocusEffect,
@@ -10,8 +11,15 @@ import {
   usePreventRemove,
   useScrollToTop,
 } from "@react-navigation/native";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  BottomTabBarHeightCallbackContext,
+  createBottomTabNavigator,
+  type BottomTabBarProps,
+} from "@react-navigation/bottom-tabs";
+import {
+  useSafeAreaInsets,
+  type Edge,
+} from "react-native-safe-area-context";
 import {
   createNativeStackNavigator,
   type NativeStackHeaderProps,
@@ -31,11 +39,14 @@ import {
   Alert,
   BackHandler,
   findNodeHandle,
+  Keyboard,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
+  type LayoutChangeEvent,
   type ScrollView,
   type Text as NativeText,
 } from "react-native";
@@ -58,6 +69,7 @@ import { resolveNavigationTheme } from "./navigation-theme";
 export type AppRootSurface =
   | "hydration_loading"
   | "hydration_error"
+  | "introduction"
   | "auth"
   | "onboarding"
   | "authenticated";
@@ -65,6 +77,7 @@ export type AppRootSurface =
 export type AppVisibleRoute =
   | "BootstrapLoading"
   | "BootstrapError"
+  | "Introduction"
   | "Login"
   | "Register"
   | "Verification"
@@ -118,6 +131,7 @@ export interface AppRouteLeaveGuard {
 type RootStackParamList = {
   BootstrapLoading: undefined;
   BootstrapError: undefined;
+  Introduction: undefined;
   AuthFlow: undefined;
   OnboardingFlow: undefined;
   Authenticated: undefined;
@@ -231,29 +245,42 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   });
   const isBootstrap = route === "BootstrapLoading" || route === "BootstrapError";
   const hasAuthenticatedShell = isAuthenticatedRoute(route);
+  const hasStackHeader = hasAuthenticatedShell && !isContentOwnedHeaderRoute(route);
   const hasFormLayout = isAuthOrOnboardingRoute(route)
     || route === "AcademicProfileSettings"
     || route === "AccountDataSettings";
   const authenticatedEdges = adaptation.navigationLayout === "navigation-rail"
     ? ["right", "bottom"] as const
     : ["left", "right"] as const;
+  const authenticatedScreenEdges: readonly Edge[] = hasStackHeader
+    ? authenticatedEdges
+    : ["top", ...authenticatedEdges];
 
   useFocusEffect(
     useCallback(() => {
-      if (hasAuthenticatedShell) return undefined;
+      if (hasStackHeader) return undefined;
       const timer = setTimeout(() => {
         AccessibilityInfo.announceForAccessibility(
           `${routeAccessibilityTitle(route)} ekranı`,
         );
       }, 100);
       return () => clearTimeout(timer);
-    }, [hasAuthenticatedShell, route]),
+    }, [hasStackHeader, route]),
   );
 
   if (isBootstrap) {
     return (
       <Screen centered>
         <View style={styles.bootstrap}>{screens[route]}</View>
+      </Screen>
+    );
+  }
+
+  if (route === "Introduction") {
+    return (
+      <Screen edges={["top", "left", "right", "bottom"]} fullBleed>
+        {globalFeedback}
+        {screens[route]}
       </Screen>
     );
   }
@@ -266,7 +293,7 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
     || route === "Calendar"
     || route === "CalendarEventDetail") {
     return (
-      <Screen edges={[...authenticatedEdges]} fullBleed>
+      <Screen edges={[...authenticatedScreenEdges]} fullBleed>
         {globalFeedback}
         {screens[route]}
       </Screen>
@@ -276,7 +303,7 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   return (
     <Screen
       scroll
-      edges={hasAuthenticatedShell ? [...authenticatedEdges] : ["top", "left", "right", "bottom"]}
+      edges={hasAuthenticatedShell ? [...authenticatedScreenEdges] : ["top", "left", "right", "bottom"]}
       keyboardSafe={hasFormLayout}
       readableWidth={hasFormLayout ? "form" : "content"}
       contentStyle={styles.content}
@@ -298,6 +325,7 @@ const routeComponent = (route: AppVisibleRoute) => function RouteComponent() {
 
 const BootstrapLoadingScreen = routeComponent("BootstrapLoading");
 const BootstrapErrorScreen = routeComponent("BootstrapError");
+const IntroductionScreen = routeComponent("Introduction");
 const LoginScreen = routeComponent("Login");
 const RegisterScreen = routeComponent("Register");
 const VerificationScreen = routeComponent("Verification");
@@ -437,7 +465,11 @@ function HomeNavigator() {
         header: renderShellStackHeader
       }}
     >
-      <HomeStack.Screen name="Home" component={HomeScreen} options={{ title: "Ana Sayfa" }} />
+      <HomeStack.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ headerShown: false, title: "Ana Sayfa" }}
+      />
     </HomeStack.Navigator>
   );
 }
@@ -456,10 +488,14 @@ function AnnouncementsNavigator() {
         headerBackTitle: "Gündem",
       }}
     >
-      <AnnouncementStack.Screen name="Announcements" component={AnnouncementsScreen} options={{ title: "Duyurular" }} />
+      <AnnouncementStack.Screen
+        name="Announcements"
+        component={AnnouncementsScreen}
+        options={{ headerShown: false, title: "Duyurular" }}
+      />
       <AnnouncementStack.Screen name="SummerSchool" component={SummerSchoolScreen} options={{ title: "Yaz Okulu" }} />
       <AnnouncementStack.Screen name="YokAnnouncements" component={YokAnnouncementsScreen} options={{ title: "YÖK" }} />
-      <AnnouncementStack.Screen name="AnnouncementDetail" component={AnnouncementDetailScreen} options={{ title: "İçerik" }} />
+      <AnnouncementStack.Screen name="AnnouncementDetail" component={AnnouncementDetailScreen} options={{ title: "Duyuru Detayı" }} />
     </AnnouncementStack.Navigator>
   );
 }
@@ -478,7 +514,11 @@ function CalendarNavigator() {
         headerBackTitle: "Takvim",
       }}
     >
-      <CalendarStack.Screen name="Calendar" component={CalendarScreen} options={{ title: "Takvim" }} />
+      <CalendarStack.Screen
+        name="Calendar"
+        component={CalendarScreen}
+        options={{ headerShown: false, title: "Takvim" }}
+      />
       <CalendarStack.Screen name="CalendarEventDetail" component={CalendarEventDetailScreen} options={{ title: "Takvim Ayrıntısı" }} />
     </CalendarStack.Navigator>
   );
@@ -498,9 +538,17 @@ function SettingsNavigator() {
         headerBackTitle: "Profil",
       }}
     >
-      <SettingsStack.Screen name="Profile" component={ProfileScreen} options={{ title: "Profil" }} />
+      <SettingsStack.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ headerShown: false, title: "Profil" }}
+      />
       <SettingsStack.Screen name="AcademicProfileSettings" component={AcademicProfileSettingsScreen} options={{ title: "Akademik Profil" }} />
-      <SettingsStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: "Bildirimler" }} />
+      <SettingsStack.Screen
+        name="NotificationSettings"
+        component={NotificationSettingsScreen}
+        options={{ headerShown: false, title: "Bildirim tercihleri" }}
+      />
       <SettingsStack.Screen name="GoogleCalendarSettings" component={GoogleCalendarSettingsScreen} options={{ title: "Google Takvim" }} />
       <SettingsStack.Screen name="AccountDataSettings" component={AccountDataSettingsScreen} options={{ title: "Hesap ve Veri" }} />
     </SettingsStack.Navigator>
@@ -518,22 +566,13 @@ function ShellTabIcon({
   route: keyof MainTabParamList;
   size: number;
 }) {
-  const adaptation = usePlatformAdaptation();
-  const theme = useTheme();
   const definition = primaryTabDefinition(route);
-  const usesMaterialIndicator = adaptation.platform === "android";
 
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[
-        styles.tabIconIndicator,
-        usesMaterialIndicator && styles.tabIconIndicatorAndroid,
-        focused && usesMaterialIndicator && {
-          backgroundColor: theme.colors.state.selected,
-        },
-      ]}
+      style={styles.tabIconIndicator}
     >
       <Ionicons
         name={focused ? definition.selectedIcon : definition.icon}
@@ -544,6 +583,129 @@ function ShellTabIcon({
   );
 }
 
+function ShellBottomTabBar({
+  descriptors,
+  insets,
+  navigation,
+  state,
+}: BottomTabBarProps) {
+  const adaptation = usePlatformAdaptation();
+  const theme = useTheme();
+  const onHeightChange = useContext(BottomTabBarHeightCallbackContext);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const { fontScale, width } = useWindowDimensions();
+  const contract = resolveAppShellLayoutContract({
+    platform: adaptation.platform,
+    windowWidth: width,
+    fontScale,
+  });
+  const contentHeight = contract.bottomNavigationContentHeight ?? 64;
+  const barHeight = contentHeight + insets.bottom;
+  const activeTabRoute = state.routes[state.index];
+  const activeTabDefinition = activeTabRoute
+    ? primaryTabDefinition(activeTabRoute.name as keyof MainTabParamList)
+    : null;
+  const focusedContentRoute = activeTabRoute
+    ? getFocusedRouteNameFromRoute(activeTabRoute) ?? activeTabDefinition?.rootRoute
+    : undefined;
+  const contentOwnsBottomChrome = Boolean(
+    activeTabDefinition && focusedContentRoute !== activeTabDefinition.rootRoute,
+  );
+  const activeTint = theme.colors.action.primary;
+  const inactiveTint = theme.colors.text.secondary;
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    onHeightChange?.(event.nativeEvent.layout.height);
+  }, [onHeightChange]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (contentOwnsBottomChrome) onHeightChange?.(0);
+  }, [contentOwnsBottomChrome, onHeightChange]);
+
+  const renderTab = (routeIndex: number) => {
+    const route = state.routes[routeIndex];
+    if (!route) return null;
+    const definition = primaryTabDefinition(route.name as keyof MainTabParamList);
+    const descriptor = descriptors[route.key];
+    const focused = state.index === routeIndex;
+    const color = focused ? activeTint : inactiveTint;
+    const onPress = () => {
+      const event = navigation.emit({
+        type: "tabPress",
+        target: route.key,
+        canPreventDefault: true,
+      });
+      if (!focused && !event.defaultPrevented) {
+        navigation.navigate(route.name, route.params);
+      }
+    };
+    const onLongPress = () => {
+      navigation.emit({ type: "tabLongPress", target: route.key });
+    };
+
+    return (
+      <Pressable
+        key={route.key}
+        accessibilityHint={`${definition.label} sekmesini açar.`}
+        accessibilityLabel={descriptor.options.tabBarAccessibilityLabel ?? definition.label}
+        accessibilityRole="button"
+        accessibilityState={{ selected: focused }}
+        android_ripple={{ color: theme.colors.state.pressed, borderless: false }}
+        onLongPress={onLongPress}
+        onPress={onPress}
+        style={({ pressed }) => [styles.tabItem, pressed && styles.tabItemPressed]}
+        testID={descriptor.options.tabBarButtonTestID}
+      >
+        <ShellTabIcon color={color} focused={focused} route={definition.route} size={22} />
+        <ShellTabLabel color={color} label={definition.label} />
+      </Pressable>
+    );
+  };
+
+  if (contentOwnsBottomChrome) return null;
+
+  return (
+    <NavigationSurface
+      accessibilityElementsHidden={keyboardVisible}
+      accessibilityLabel="Ana gezinme"
+      accessibilityRole="tablist"
+      importantForAccessibility={keyboardVisible ? "no-hide-descendants" : "auto"}
+      kind="tab-bar"
+      onLayout={handleLayout}
+      pointerEvents={keyboardVisible ? "none" : "auto"}
+      style={[
+        styles.bottomTabBar,
+        {
+          backgroundColor: theme.colors.background.surfaceRaised,
+          borderColor: theme.colors.border.subtle,
+          height: keyboardVisible ? 0 : barHeight,
+          opacity: keyboardVisible ? 0 : 1,
+          overflow: keyboardVisible ? "hidden" : "visible",
+          paddingBottom: keyboardVisible ? 0 : insets.bottom,
+          paddingLeft: Math.max(insets.left, 4),
+          paddingRight: Math.max(insets.right, 4),
+        },
+      ]}
+    >
+      {state.routes.map((_route, routeIndex) => renderTab(routeIndex))}
+    </NavigationSurface>
+  );
+}
+
+function renderShellBottomTabBar(props: BottomTabBarProps) {
+  return <ShellBottomTabBar {...props} />;
+}
+
 function ShellTabLabel({
   color,
   label,
@@ -552,6 +714,7 @@ function ShellTabLabel({
   label: string;
 }) {
   const adaptation = usePlatformAdaptation();
+  const theme = useTheme();
   const { fontScale, width } = useWindowDimensions();
   const contract = resolveAppShellLayoutContract({
     platform: adaptation.platform,
@@ -565,6 +728,7 @@ function ShellTabLabel({
       maxFontSizeMultiplier={contract.navigationLabelMaxFontSizeMultiplier}
       numberOfLines={contract.navigationLabelLines}
       style={[
+        theme.typography.navLabel,
         styles.tabLabel,
         {
           color,
@@ -604,8 +768,11 @@ function AuthenticatedNavigator() {
     <MainTabs.Navigator
       initialRouteName="HomeTab"
       backBehavior="history"
+      tabBar={useNavigationRail ? undefined : renderShellBottomTabBar}
       screenOptions={({ route }) => {
         const definition = primaryTabDefinition(route.name);
+        const focusedContentRoute = getFocusedRouteNameFromRoute(route) ?? definition.rootRoute;
+        const contentOwnsBottomChrome = focusedContentRoute !== definition.rootRoute;
         return {
           headerShown: false,
           sceneStyle: { backgroundColor: theme.colors.background.canvas },
@@ -641,7 +808,8 @@ function AuthenticatedNavigator() {
           tabBarPosition: useNavigationRail ? "left" : "bottom",
           tabBarStyle: {
             backgroundColor: "transparent",
-            borderColor: theme.colors.border.default,
+            borderColor: theme.colors.border.subtle,
+            display: contentOwnsBottomChrome ? "none" : "flex",
             height: bottomNavigationHeight,
           },
           tabBarVariant: useNavigationRail ? "material" : "uikit",
@@ -683,6 +851,8 @@ function expectedSafeRequestLeaf(request: AppNavigationRequest): AppVisibleRoute
 function requestAction(request: AppNavigationRequest) {
   const params = request.params ?? {};
   switch (request.route) {
+    case "Introduction":
+      return CommonActions.navigate("Introduction");
     case "Login":
     case "Register":
     case "Verification":
@@ -749,6 +919,7 @@ function rootScreen(surface: AppRootSurface): keyof RootStackParamList {
   switch (surface) {
     case "hydration_loading": return "BootstrapLoading";
     case "hydration_error": return "BootstrapError";
+    case "introduction": return "Introduction";
     case "auth": return "AuthFlow";
     case "onboarding": return "OnboardingFlow";
     case "authenticated": return "Authenticated";
@@ -871,6 +1042,9 @@ export function AppNavigator({
           {rootSurface === "hydration_error" && (
             <RootStack.Screen name="BootstrapError" component={BootstrapErrorScreen} />
           )}
+          {rootSurface === "introduction" && (
+            <RootStack.Screen name="Introduction" component={IntroductionScreen} />
+          )}
           {rootSurface === "auth" && (
             <RootStack.Screen name="AuthFlow" component={AuthNavigator} />
           )}
@@ -890,6 +1064,7 @@ export function AppNavigator({
 function isControlledBaseRoute(route: AppVisibleRoute): boolean {
   return route === "BootstrapLoading"
     || route === "BootstrapError"
+    || route === "Introduction"
     || route === "Login"
     || route === "Register"
     || route === "Verification"
@@ -916,6 +1091,7 @@ function requestMatchesRootSurface(route: AppVisibleRoute, surface: AppRootSurfa
   if (route === "UnknownRoute") return surface === "authenticated";
   if (route === "BootstrapLoading") return surface === "hydration_loading";
   if (route === "BootstrapError") return surface === "hydration_error";
+  if (route === "Introduction") return surface === "introduction";
   if (route === "AcademicOnboarding") return surface === "onboarding";
   if (route === "Login"
     || route === "Register"
@@ -930,7 +1106,7 @@ function requestMatchesRootSurface(route: AppVisibleRoute, surface: AppRootSurfa
 
 function isVisibleRoute(value: string): value is AppVisibleRoute {
   return [
-    "BootstrapLoading", "BootstrapError", "Login", "Register", "Verification",
+    "BootstrapLoading", "BootstrapError", "Introduction", "Login", "Register", "Verification",
     "PasswordRecoveryRequest", "PasswordRecoveryCode", "PasswordRecoveryConfirm",
     "AcademicOnboarding",
     "Home", "Announcements", "SummerSchool", "YokAnnouncements", "AnnouncementDetail",
@@ -964,9 +1140,21 @@ function isAuthenticatedRoute(route: AppVisibleRoute): boolean {
     || route === "AccountDataSettings";
 }
 
+function isPrimaryTabRootRoute(route: AppVisibleRoute): boolean {
+  return route === "Home"
+    || route === "Announcements"
+    || route === "Calendar"
+    || route === "Profile";
+}
+
+function isContentOwnedHeaderRoute(route: AppVisibleRoute): boolean {
+  return isPrimaryTabRootRoute(route) || route === "NotificationSettings";
+}
+
 const ROUTE_ACCESSIBILITY_TITLES: Readonly<Record<AppVisibleRoute, string>> = {
   BootstrapLoading: "Uygulama hazırlanıyor",
   BootstrapError: "Başlangıç tamamlanamadı",
+  Introduction: "Akademik Takvim tanıtımı",
   Login: "Giriş",
   Register: "Kayıt",
   Verification: "E-posta doğrulama",
@@ -978,12 +1166,12 @@ const ROUTE_ACCESSIBILITY_TITLES: Readonly<Record<AppVisibleRoute, string>> = {
   Announcements: "Duyurular",
   SummerSchool: "Yaz Okulu",
   YokAnnouncements: "YÖK Duyuruları",
-  AnnouncementDetail: "Duyuru Ayrıntısı",
+  AnnouncementDetail: "Duyuru Detayı",
   Calendar: "Takvim",
   CalendarEventDetail: "Takvim Ayrıntısı",
   Profile: "Profil",
   AcademicProfileSettings: "Akademik Profil",
-  NotificationSettings: "Bildirimler",
+  NotificationSettings: "Bildirim tercihleri",
   GoogleCalendarSettings: "Google Takvim",
   AccountDataSettings: "Hesap ve Veri",
   UnknownRoute: "Sayfa bulunamadı",
@@ -1003,10 +1191,16 @@ const styles = StyleSheet.create({
     gap: 14
   },
   tabItem: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "flex-start",
     minHeight: 48,
+    paddingTop: 5,
+  },
+  tabItemPressed: {
+    opacity: 0.72,
   },
   tabLabel: {
-    fontWeight: "600",
     marginTop: 1,
     maxWidth: 76,
     textAlign: "center",
@@ -1014,12 +1208,17 @@ const styles = StyleSheet.create({
   tabIconIndicator: {
     alignItems: "center",
     borderRadius: 999,
-    height: 30,
+    height: 28,
     justifyContent: "center",
-    minWidth: 44,
-    paddingHorizontal: 8,
+    minWidth: 32,
   },
-  tabIconIndicatorAndroid: {
-    minWidth: 64,
+  bottomTabBar: {
+    alignItems: "flex-start",
+    borderBottomWidth: 0,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    flexDirection: "row",
+    overflow: "visible",
+    paddingTop: 6,
   },
 });

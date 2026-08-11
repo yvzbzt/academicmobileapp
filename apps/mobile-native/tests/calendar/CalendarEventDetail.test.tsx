@@ -79,6 +79,28 @@ describe("Phase 9 Calendar detail", () => {
     expect(screen.queryByRole("button", { name: "Kişisel sınavı düzenle" })).not.toBeOnTheScreen();
   });
 
+  it("renders trusted timestamp details in the event timezone", async () => {
+    await renderDetail({
+      ...academicItem,
+      key: "academic:istanbul-final",
+      routeId: "istanbul-final",
+      id: "istanbul-final",
+      title: "Saat dilimi finali",
+      category: "final_exam",
+      classification: "exam",
+      classificationLabel: "Sınav",
+      icon: "document-text-outline",
+      startDate: "2026-08-11T07:00:00.000Z",
+      endDate: "2026-08-11T09:00:00.000Z",
+      temporalKind: "timestamp",
+      endTemporalKind: "timestamp",
+      timezone: "Europe/Istanbul",
+    });
+
+    expect(screen.getByText(/10:00.*12:00/u)).toBeOnTheScreen();
+    expect(screen.queryByText(/07:00/u)).not.toBeOnTheScreen();
+  });
+
   it("edits an owner-scoped personal exam through the same native picker form", async () => {
     await renderDetail(personalItem);
     fireEvent.press(screen.getByRole("button", { name: "Kişisel sınavı düzenle" }));

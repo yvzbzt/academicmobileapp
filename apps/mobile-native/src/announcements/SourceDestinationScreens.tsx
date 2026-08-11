@@ -425,7 +425,7 @@ export function SummerSchoolScreen({
         <Text
           accessibilityRole="header"
           style={[
-            theme.typography.sectionTitle,
+            theme.typography.cardTitle,
             styles.sectionHeader,
             { color: theme.colors.text.primary, marginBottom: theme.spacing.sm, marginTop: theme.spacing.lg },
           ]}
@@ -460,33 +460,39 @@ function DestinationHeading({
 }) {
   const theme = useTheme();
   return (
-    <View style={{ gap: theme.spacing.sm }}>
-      <View style={[styles.headingRow, { gap: theme.spacing.sm }]}>
-        <View style={[styles.headingCopy, { gap: theme.spacing.xxs }]}>
-          <View style={[styles.iconTitleRow, { gap: theme.spacing.xs }]}>
-            <Ionicons
-              accessibilityElementsHidden
-              color={theme.colors.text.link}
-              importantForAccessibility="no-hide-descendants"
-              name={icon}
-              size={24}
-            />
-            <Text accessibilityRole="header" style={[theme.typography.screenTitle, styles.headingCopy, { color: theme.colors.text.primary }]}>
-              {title}
-            </Text>
-          </View>
-          <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>{description}</Text>
-          {supportingText ? <Text style={[theme.typography.metaStrong, { color: theme.colors.text.secondary }]}>{supportingText}</Text> : null}
-        </View>
-        <Card
-          accessibilityLabel={`${count} ${countLabel}`}
-          style={[styles.countCard, { gap: theme.spacing.xxs }]}
-          variant="tonal"
+    <View style={[styles.headingCopy, { gap: theme.spacing.xxs }]}>
+      <View style={[styles.iconTitleRow, { gap: theme.spacing.xs }]}>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            styles.headingIcon,
+            {
+              backgroundColor: theme.colors.action.secondary,
+              borderRadius: theme.radii.pill,
+            },
+          ]}
         >
-          <Text style={[theme.typography.cardTitle, { color: theme.colors.text.link }]}>{count}</Text>
-          <Text style={[theme.typography.metaStrong, { color: theme.colors.text.secondary }]}>{countLabel}</Text>
-        </Card>
+          <Ionicons color={theme.colors.text.link} name={icon} size={18} />
+        </View>
+        <Text accessibilityRole="header" style={[theme.typography.screenTitle, styles.headingCopy, { color: theme.colors.text.primary }]}>
+          {title}
+        </Text>
+        <View
+          accessibilityLabel={`${count} ${countLabel}`}
+          style={[
+            styles.countBadge,
+            {
+              backgroundColor: theme.colors.action.secondary,
+              borderRadius: theme.radii.pill,
+            },
+          ]}
+        >
+          <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>{count}</Text>
+        </View>
       </View>
+      <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{description}</Text>
+      {supportingText ? <Text style={[theme.typography.metaStrong, { color: theme.colors.text.secondary }]}>{supportingText}</Text> : null}
     </View>
   );
 }
@@ -506,26 +512,48 @@ function TrustedDestinationCard({
     <Card
       accessibilityLabel={`${item.sourceName}. ${scopeLabel}. ${timestamp}. ${item.title}. Ayrıntıyı aç.`}
       onPress={onPress}
-      style={{ gap: theme.spacing.sm }}
-      variant="outlined"
+      style={[
+        styles.compactCard,
+        {
+          borderColor: theme.colors.border.subtle,
+          borderRadius: theme.radii.card,
+          gap: theme.spacing.xs,
+          padding: theme.spacing.sm,
+        },
+      ]}
+      variant="elevated"
     >
       <View style={[styles.metadataRow, { gap: theme.spacing.xs }]}>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            styles.cardIcon,
+            {
+              backgroundColor: theme.colors.action.secondary,
+              borderRadius: theme.radii.pill,
+            },
+          ]}
+        >
+          <Ionicons color={theme.colors.text.link} name="shield-checkmark-outline" size={14} />
+        </View>
+        <Text style={[theme.typography.metaStrong, styles.flexOne, { color: theme.colors.text.link }]}>{scopeLabel}</Text>
+        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{timestamp}</Text>
         <Ionicons
           accessibilityElementsHidden
           color={theme.colors.text.link}
           importantForAccessibility="no-hide-descendants"
-          name="shield-checkmark-outline"
-          size={20}
+          name="bookmark-outline"
+          size={18}
         />
-        <Text style={[theme.typography.metaStrong, styles.flexOne, { color: theme.colors.text.secondary }]}>{item.sourceName}</Text>
       </View>
-      <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{scopeLabel} · {timestamp}</Text>
+      <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{item.sourceName}</Text>
       <Text style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>{item.title}</Text>
-      {item.summary ? <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>{item.summary}</Text> : null}
-      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.actionRow, { gap: theme.spacing.xs }]}>
-        <Text style={[theme.typography.label, { color: theme.colors.text.link }]}>Ayrıntıyı aç</Text>
-        <Ionicons color={theme.colors.text.link} name="chevron-forward" size={18} />
-      </View>
+      {item.summary ? (
+        <Text ellipsizeMode="tail" numberOfLines={2} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
+          {item.summary}
+        </Text>
+      ) : null}
     </Card>
   );
 }
@@ -545,7 +573,19 @@ function SummerRowContent({
   if (item.kind === "event") {
     const dateLabel = formatAcademicTemporal(item.event);
     return (
-      <Card accessibilityLabel={`Yaz okulu tarihi. ${item.event.title}. ${dateLabel}.`} style={{ gap: theme.spacing.xs }}>
+      <Card
+        accessibilityLabel={`Yaz okulu tarihi. ${item.event.title}. ${dateLabel}.`}
+        style={[
+          styles.compactCard,
+          {
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.xs,
+            padding: theme.spacing.sm,
+          },
+        ]}
+        variant="elevated"
+      >
         <View style={[styles.metadataRow, { gap: theme.spacing.xs }]}>
           <Ionicons accessibilityElementsHidden color={theme.colors.status.warning} importantForAccessibility="no-hide-descendants" name="calendar-outline" size={20} />
           <Text style={[theme.typography.metaStrong, { color: theme.colors.status.warning }]}>Yaz okulu tarihi</Text>
@@ -564,7 +604,16 @@ function SummerRowContent({
         accessibilityLabel={`Başvuru koşulu. ${item.requirement.message}. ${dateLabel}.${item.requirement.sourceUrl ? " Resmî kaynağı aç." : " Resmî bağlantı mevcut değil."}`}
         accessibilityRole={item.requirement.sourceUrl ? "link" : undefined}
         onPress={item.requirement.sourceUrl ? () => void onOpenOfficialSource(item.requirement.sourceUrl!) : undefined}
-        style={{ gap: theme.spacing.xs }}
+        style={[
+          styles.compactCard,
+          {
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.xs,
+            padding: theme.spacing.sm,
+          },
+        ]}
+        variant="elevated"
       >
         <View style={[styles.metadataRow, { gap: theme.spacing.xs }]}>
           <Ionicons accessibilityElementsHidden color={theme.colors.status.info} importantForAccessibility="no-hide-descendants" name="document-text-outline" size={20} />
@@ -598,7 +647,16 @@ function SummerRowContent({
         accessibilityLabel={`${item.option.universityName}. ${item.option.academicYear}. ${item.option.events.length} tarih. ${departmentLabel}.${item.option.sourceUrl ? " Resmî kaynağı aç." : " Resmî bağlantı mevcut değil."}`}
         accessibilityRole={item.option.sourceUrl ? "link" : undefined}
         onPress={item.option.sourceUrl ? () => void onOpenOfficialSource(item.option.sourceUrl!) : undefined}
-        style={{ gap: theme.spacing.xs }}
+        style={[
+          styles.compactCard,
+          {
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.xs,
+            padding: theme.spacing.sm,
+          },
+        ]}
+        variant="elevated"
       >
         <View style={[styles.metadataRow, { gap: theme.spacing.xs }]}>
           <Ionicons accessibilityElementsHidden color={theme.colors.status.success} importantForAccessibility="no-hide-descendants" name="school-outline" size={20} />
@@ -770,17 +828,22 @@ function sourceStateRow(input: {
 }
 
 const styles = StyleSheet.create({
-  actionRow: {
+  cardIcon: {
     alignItems: "center",
-    alignSelf: "flex-end",
-    flexDirection: "row",
-    minHeight: 48,
+    height: 26,
+    justifyContent: "center",
+    width: 26,
   },
-  countCard: {
+  compactCard: {
+    marginHorizontal: 1,
+  },
+  countBadge: {
     alignItems: "center",
     flexShrink: 0,
-    minWidth: 76,
-    padding: 12,
+    justifyContent: "center",
+    minHeight: 28,
+    minWidth: 28,
+    paddingHorizontal: 8,
   },
   flexOne: {
     flex: 1,
@@ -790,9 +853,11 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  headingRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
+  headingIcon: {
+    alignItems: "center",
+    height: 36,
+    justifyContent: "center",
+    width: 36,
   },
   iconTitleRow: {
     alignItems: "center",

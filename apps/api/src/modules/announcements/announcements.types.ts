@@ -1,5 +1,7 @@
 import type {
+  AcademicContentBodyBlockDto,
   AcademicContentFreshness,
+  AcademicContentKeyDateDto,
   AcademicContentPublicationKind,
   AcademicContentScopeType,
   AcademicContentType,
@@ -32,6 +34,8 @@ export interface AnnouncementFallbackItem {
   sourceUpdatedAt?: Date;
   discoveredAt?: Date;
   summary?: string;
+  body?: AcademicContentBodyBlockDto[];
+  keyDates?: AcademicContentKeyDateDto[];
 }
 
 export interface AnnouncementSourceRecord {
@@ -86,6 +90,8 @@ export interface AnnouncementItem {
   sourceUpdateTimeSource?: "source";
   discoveredAt?: string;
   summary?: string;
+  body?: AcademicContentBodyBlockDto[];
+  keyDates?: AcademicContentKeyDateDto[];
   fetchedAt?: string;
   freshness?: AcademicContentFreshness;
   trustStatus?: AnnouncementTrustStatus;
@@ -120,6 +126,21 @@ export interface AnnouncementReplacementOptions {
   authoritativeEmpty?: boolean;
 }
 
+export interface SavedAnnouncementRecord {
+  id: string;
+  userId: string;
+  announcementId: string;
+  savedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SavedAnnouncementStatus {
+  announcementId: string;
+  saved: boolean;
+  savedAt?: string;
+}
+
 export interface AnnouncementRepository {
   listSourcesByScope(input: { universityId: string; facultyId?: string; departmentId?: string }): Promise<AnnouncementSourceRecord[]>;
   listAllSources(input?: { status?: AnnouncementSourceStatus; limit?: number; offset?: number }): Promise<AnnouncementSourceRecord[]>;
@@ -139,5 +160,9 @@ export interface AnnouncementRepository {
     facultyId?: string;
     departmentId?: string;
   }): Promise<{ item: AnnouncementItem; source: AnnouncementSourceRecord } | null>;
+  findSavedAnnouncement(userId: string, announcementId: string): Promise<SavedAnnouncementRecord | null>;
+  saveAnnouncement(userId: string, announcementId: string, savedAt: Date): Promise<SavedAnnouncementRecord>;
+  deleteSavedAnnouncement(userId: string, announcementId: string): Promise<boolean>;
+  deleteSavedAnnouncementsByUserId(userId: string): Promise<void>;
   listAllItems(input?: { limit?: number; offset?: number }): Promise<AnnouncementItem[]>;
 }

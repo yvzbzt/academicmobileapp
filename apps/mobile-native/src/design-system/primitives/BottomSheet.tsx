@@ -38,6 +38,8 @@ export interface BottomSheetProps {
   returnFocusRef?: RefObject<NativeView | null>;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  /** Centers the title and places the dismiss control on the leading edge. */
+  headerLayout?: "default" | "centered-leading-dismiss";
 }
 
 /**
@@ -61,6 +63,7 @@ export function BottomSheet({
   returnFocusRef,
   style,
   testID = "bottom-sheet",
+  headerLayout = "default",
 }: BottomSheetProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
@@ -134,15 +137,9 @@ export function BottomSheet({
               styles.sheet,
               {
                 backgroundColor: theme.colors.background.surfaceRaised,
-                borderColor: theme.colors.border.default,
-                borderTopLeftRadius:
-                  adaptation.platform === "ios"
-                    ? theme.radii.prominent
-                    : theme.radii.card,
-                borderTopRightRadius:
-                  adaptation.platform === "ios"
-                    ? theme.radii.prominent
-                    : theme.radii.card,
+                borderColor: theme.colors.border.subtle,
+                borderTopLeftRadius: theme.radii.prominent,
+                borderTopRightRadius: theme.radii.prominent,
                 gap: theme.spacing.md,
                 maxWidth: isWide ? theme.readableWidths.form : theme.readableWidths.content,
                 paddingBottom: theme.spacing.md,
@@ -168,12 +165,32 @@ export function BottomSheet({
                 testID={`${testID}-grabber`}
               />
             ) : null}
-            <View style={[styles.header, { gap: theme.spacing.sm }]}>
-              <View style={[styles.heading, { gap: theme.spacing.xxs }]}>
+            <View style={[
+              styles.header,
+              headerLayout === "centered-leading-dismiss" && styles.centeredHeader,
+              { gap: theme.spacing.sm },
+            ]}>
+              {headerLayout === "centered-leading-dismiss" ? (
+                <DismissControl
+                  disabled={!mayDismiss}
+                  label={dismissAccessibilityLabel}
+                  minimumTouchTarget={minimumTouchTarget}
+                  onPress={handleDismiss}
+                />
+              ) : null}
+              <View style={[
+                styles.heading,
+                headerLayout === "centered-leading-dismiss" && styles.centeredHeading,
+                { gap: theme.spacing.xxs },
+              ]}>
                 <Text
                   accessibilityRole="header"
                   ref={headingRef}
-                  style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}
+                  style={[
+                    theme.typography.sectionTitle,
+                    headerLayout === "centered-leading-dismiss" && styles.centeredHeadingText,
+                    { color: theme.colors.text.primary },
+                  ]}
                 >
                   {title}
                 </Text>
@@ -188,39 +205,16 @@ export function BottomSheet({
                   </Text>
                 ) : null}
               </View>
-              <Pressable
-                accessibilityLabel={dismissAccessibilityLabel}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: !mayDismiss }}
-                disabled={!mayDismiss}
-                hitSlop={theme.spacing.xs}
-                onPress={handleDismiss}
-                style={({ pressed }) => [
-                  styles.dismissButton,
-                  {
-                    backgroundColor: pressed
-                      ? theme.colors.action.ghostPressed
-                      : theme.colors.background.subtle,
-                    borderColor: theme.colors.border.default,
-                    borderRadius: theme.radii.pill,
-                    minHeight: minimumTouchTarget,
-                    minWidth: minimumTouchTarget,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    theme.typography.bodyStrong,
-                    {
-                      color: mayDismiss
-                        ? theme.colors.text.primary
-                        : theme.colors.text.disabled,
-                    },
-                  ]}
-                >
-                  ×
-                </Text>
-              </Pressable>
+              {headerLayout === "centered-leading-dismiss" ? (
+                <View accessibilityElementsHidden style={{ minHeight: minimumTouchTarget, minWidth: minimumTouchTarget }} />
+              ) : (
+                <DismissControl
+                  disabled={!mayDismiss}
+                  label={dismissAccessibilityLabel}
+                  minimumTouchTarget={minimumTouchTarget}
+                  onPress={handleDismiss}
+                />
+              )}
             </View>
             {loading ? (
               <View
@@ -263,6 +257,51 @@ export function BottomSheet({
   );
 }
 
+function DismissControl({
+  disabled,
+  label,
+  minimumTouchTarget,
+  onPress,
+}: {
+  disabled: boolean;
+  label: string;
+  minimumTouchTarget: number;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      hitSlop={theme.spacing.xs}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.dismissButton,
+        {
+          backgroundColor: pressed
+            ? theme.colors.action.ghostPressed
+            : theme.colors.background.subtle,
+          borderColor: theme.colors.border.subtle,
+          borderRadius: theme.radii.pill,
+          minHeight: minimumTouchTarget,
+          minWidth: minimumTouchTarget,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          theme.typography.sectionTitle,
+          { color: disabled ? theme.colors.text.disabled : theme.colors.text.primary },
+        ]}
+      >
+        ×
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -291,9 +330,18 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     flexDirection: "row",
   },
+  centeredHeader: {
+    alignItems: "center",
+  },
   heading: {
     flex: 1,
     minWidth: 0,
+  },
+  centeredHeading: {
+    alignItems: "center",
+  },
+  centeredHeadingText: {
+    textAlign: "center",
   },
   dismissButton: {
     alignItems: "center",
@@ -306,6 +354,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flexShrink: 1,
+    minHeight: 0,
   },
   scrollContent: {
     flexShrink: 1,

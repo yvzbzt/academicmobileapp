@@ -1,7 +1,9 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   BackHandler,
+  Image,
   StyleSheet,
   Text,
   View,
@@ -11,8 +13,11 @@ import {
   Banner,
   Button,
   Card,
+  IconButton,
   PasswordField,
   TextField,
+  referencePalette,
+  usePlatformAdaptation,
   useTheme,
   type FeedbackTone,
 } from "../design-system";
@@ -23,7 +28,9 @@ import {
 } from "../academic/AcademicProfileFields";
 import {
   AUTH_PASSWORD_MIN_LENGTH,
+  AUTH_PASSWORD_REQUIRED_CHARACTER_GROUPS,
   PASSWORD_RECOVERY_CODE_LENGTH,
+  evaluateAuthPassword,
   validatePasswordRecoveryConfirmation,
 } from "./auth-recovery";
 import {
@@ -56,6 +63,7 @@ interface AuthScaffoldProps {
   description: string;
   eyebrow?: string;
   feedback?: AuthFeedback | null;
+  hero?: boolean;
   onDismissFeedback?: () => void;
   children: ReactNode;
 }
@@ -65,10 +73,106 @@ function AuthScaffold({
   description,
   eyebrow,
   feedback,
+  hero = false,
   onDismissFeedback,
   children,
 }: AuthScaffoldProps) {
   const theme = useTheme();
+  const adaptation = usePlatformAdaptation();
+
+  if (hero) {
+    return (
+      <View
+        style={[
+          styles.screenStack,
+          styles.heroScreenStack,
+          {
+            marginHorizontal: -adaptation.screenGutter,
+            marginTop: -theme.spacing.md,
+          },
+        ]}
+      >
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          testID="login-hero-frame"
+          style={[
+            styles.heroFrame,
+            {
+              backgroundColor: theme.colors.background.subtle,
+              borderColor: theme.colors.border.subtle,
+              borderRadius: theme.radii.prominent,
+            },
+          ]}
+        >
+          <Image
+            resizeMode="cover"
+            source={require("../../assets/auth-campus-login-v3.png")}
+            style={styles.heroImage}
+          />
+        </View>
+
+        <Card
+          accessibilityLabel={`${title} formu`}
+          style={[
+            styles.heroSheet,
+            {
+              backgroundColor: theme.colors.background.surface,
+              borderColor: theme.colors.border.subtle,
+              borderRadius: theme.radii.prominent,
+              gap: theme.spacing.md,
+              padding: theme.spacing.lg,
+            },
+          ]}
+          variant="elevated"
+        >
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={[
+              styles.heroSheetCrest,
+              {
+                backgroundColor: theme.colors.action.primary,
+                borderColor: theme.colors.background.surface,
+                borderRadius: theme.radii.card,
+              },
+            ]}
+          >
+            <Ionicons color={theme.colors.action.onPrimary} name="calendar-outline" size={29} />
+          </View>
+          <View style={[styles.heroIdentity, { gap: theme.spacing.xs }]}>
+            {eyebrow ? (
+              <Text style={[theme.typography.label, { color: theme.colors.text.link }]}>
+                {eyebrow}
+              </Text>
+            ) : null}
+            <Text
+              accessibilityRole="header"
+              testID="auth-hero-title"
+              style={[theme.typography.screenTitle, styles.heroTitle, { color: theme.colors.text.primary }]}
+            >
+              {title}
+            </Text>
+            <Text style={[theme.typography.body, styles.heroDescription, { color: theme.colors.text.secondary }]}>
+              {description}
+            </Text>
+          </View>
+
+          {feedback ? (
+            <Banner
+              message={feedback.text}
+              onDismiss={onDismissFeedback}
+              title={feedback.tone === "error" ? "İşlem tamamlanamadı" : feedback.tone === "success" ? "Tamamlandı" : "Bilgi"}
+              tone={feedback.tone}
+            />
+          ) : null}
+
+          {children}
+        </Card>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.screenStack, { gap: theme.spacing.lg }]}>
       <View style={[styles.identity, { gap: theme.spacing.sm }]}>
@@ -84,7 +188,7 @@ function AuthScaffold({
             },
           ]}
         >
-          <Text style={[theme.typography.cardTitle, { color: theme.colors.text.link }]}>AT</Text>
+          <Ionicons color={theme.colors.text.link} name="calendar-outline" size={24} />
         </View>
         <View style={[styles.identityCopy, { gap: theme.spacing.xxs }]}>
           <Text style={[theme.typography.label, { color: theme.colors.text.link }]}>
@@ -113,7 +217,7 @@ function AuthScaffold({
 
       <Card
         accessibilityLabel={`${title} formu`}
-        style={{ gap: theme.spacing.md }}
+        style={[styles.authCard, { gap: theme.spacing.md }]}
         variant="elevated"
       >
         {children}
@@ -163,10 +267,11 @@ export function LoginScreen(props: LoginScreenProps) {
 
   return (
     <AuthScaffold
-      description="Takvimini, sınavlarını ve akademik duyurularını güvenle takip et."
+      description="Sınavlarını, duyurularını ve akademik takvimini tek yerde takip et."
       feedback={props.feedback}
+      hero
       onDismissFeedback={props.onDismissFeedback}
-      title="Tekrar hoş geldin"
+      title="Akademik Takvim"
     >
       <TextField
         autoCapitalize="none"
@@ -177,9 +282,10 @@ export function LoginScreen(props: LoginScreenProps) {
         error={attempted ? validation.errors.email : undefined}
         keyboardType="email-address"
         label="E-posta adresi"
+        labelVisuallyHidden
         onChangeText={props.onEmailChange}
         onSubmitEditing={() => passwordRef.current?.focus()}
-        placeholder="ornek@universite.edu.tr"
+        placeholder="E-posta adresiniz"
         ref={emailRef}
         returnKeyType="next"
         submitBehavior="submit"
@@ -192,14 +298,44 @@ export function LoginScreen(props: LoginScreenProps) {
         error={attempted ? validation.errors.password : undefined}
         ref={passwordRef}
         label="Şifre"
+        labelVisuallyHidden
         onChangeText={props.onPasswordChange}
         onSubmitEditing={submit}
-        placeholder="Şifreni gir"
+        placeholder="Şifreniz"
         returnKeyType="done"
         textContentType="password"
         value={props.password}
       />
-      <View style={[styles.inlineActions, { gap: theme.spacing.xs }]}>
+      <Button
+        disabled={interactionBusy}
+        fullWidth
+        label="Giriş yap"
+        leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="arrow-forward-circle" size={22} />}
+        loading={props.busy}
+        onPress={submit}
+        style={styles.loginPillButton}
+      />
+      {props.googleAvailable ? (
+        <Button
+          disabled={props.busy}
+          fullWidth
+          label="Google ile devam et"
+          leadingIcon={<GoogleColorMark />}
+          loading={props.googleBusy}
+          onPress={props.onGoogleSubmit}
+          style={[
+            styles.loginPillButton,
+            {
+              backgroundColor: theme.colors.background.surface,
+              borderColor: theme.colors.border.subtle,
+            },
+          ]}
+          variant="secondary"
+        />
+      ) : (
+        <Banner message={props.googleUnavailableMessage} title="Google girişi kullanılamıyor" tone="info" />
+      )}
+      <View style={[styles.loginLinks, { gap: theme.spacing.xs }]}>
         <Button
           compact
           disabled={interactionBusy}
@@ -207,38 +343,79 @@ export function LoginScreen(props: LoginScreenProps) {
           onPress={props.onForgotPassword}
           variant="ghost"
         />
-        <Button
-          compact
-          disabled={interactionBusy || props.email.trim().length === 0}
-          label="E-postamı doğrula"
-          onPress={props.onVerificationRecovery}
-          variant="ghost"
-        />
+        <View style={[styles.accountSwitch, { gap: theme.spacing.xxs }]}>
+          <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Hesabın yok mu?</Text>
+          <Button compact disabled={interactionBusy} label="Kayıt ol" onPress={props.onRegister} variant="ghost" />
+        </View>
       </View>
-      <Button
-        disabled={interactionBusy}
-        fullWidth
-        label="Giriş yap"
-        loading={props.busy}
-        onPress={submit}
-      />
-      {props.googleAvailable ? (
-        <Button
-          disabled={props.busy}
-          fullWidth
-          label="Google ile devam et"
-          loading={props.googleBusy}
-          onPress={props.onGoogleSubmit}
-          variant="secondary"
-        />
-      ) : (
-        <Banner message={props.googleUnavailableMessage} title="Google girişi kullanılamıyor" tone="info" />
-      )}
-      <View style={[styles.accountSwitch, { gap: theme.spacing.xs }]}>
-        <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Hesabın yok mu?</Text>
-        <Button compact disabled={interactionBusy} label="Kayıt ol" onPress={props.onRegister} variant="ghost" />
+      <View
+        accessible
+        accessibilityLabel="Güvenilir akademik içerik. Verileriniz güvende. Resmi kaynaklardan güncellenir."
+        style={[
+          styles.loginTrustStrip,
+          {
+            backgroundColor: theme.colors.background.subtle,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+          },
+        ]}
+      >
+        <TrustItem icon="shield-checkmark-outline" label={"Güvenilir\nakademik içerik"} tone="success" />
+        <TrustItem icon="lock-closed" label={"Verileriniz\ngüvende"} tone="primary" />
+        <TrustItem icon="ribbon-outline" label={"Resmi kaynaklardan\ngüncellenir"} tone="error" />
+      </View>
+      <View style={[styles.loginFooter, { gap: theme.spacing.xs }]}>
+        <Ionicons color={referencePalette.heart} name="heart" size={19} />
+        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Öğrenciler için tasarlandı, başarıya giden yolda seninle.</Text>
       </View>
     </AuthScaffold>
+  );
+}
+
+function TrustItem({
+  icon,
+  label,
+  tone,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  tone: "primary" | "success" | "error";
+}) {
+  const theme = useTheme();
+  const color = tone === "success"
+    ? theme.colors.status.success
+    : tone === "error"
+      ? theme.colors.status.error
+      : theme.colors.action.primary;
+  const backgroundColor = tone === "success"
+    ? theme.colors.status.successContainer
+    : tone === "error"
+      ? theme.colors.status.errorContainer
+      : theme.colors.action.secondary;
+  return (
+    <View style={[styles.trustItem, { gap: theme.spacing.xxs }]}>
+      <View style={[styles.trustIcon, { backgroundColor, borderRadius: theme.radii.pill }]}>
+        <Ionicons color={color} name={icon} size={20} />
+      </View>
+      <Text style={[theme.typography.meta, styles.trustLabel, { color: theme.colors.text.secondary }]}>{label}</Text>
+    </View>
+  );
+}
+
+/** Code-native rendering of Google's multicolor G for the OAuth action. */
+function GoogleColorMark() {
+  const theme = useTheme();
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.googleMark}
+      testID="google-color-mark"
+    >
+      <View style={styles.googleRing} />
+      <View style={[styles.googleRingCutout, { backgroundColor: theme.colors.background.surface }]} />
+      <View style={styles.googleCrossbar} />
+    </View>
   );
 }
 
@@ -280,106 +457,235 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
   }
 
   return (
-    <AuthScaffold
-      description="Hesabını oluştur; e-postanı doğruladıktan sonra akademik profilini tek adımda tamamla."
-      eyebrow="1 / 3 · Hesap"
-      feedback={props.feedback}
-      onDismissFeedback={props.onDismissFeedback}
-      title="Akademik yolculuğuna başla"
+    <View
+      style={[
+        styles.registrationScreen,
+        {
+          gap: theme.spacing.md,
+        },
+      ]}
     >
-      <TextField
-        autoCapitalize="words"
-        autoComplete="name"
-        blurOnSubmit={false}
-        disabled={props.busy}
-        error={attempted ? validation.errors.fullName : undefined}
-        ref={nameRef}
-        label="Ad soyad"
-        onChangeText={props.onFullNameChange}
-        onSubmitEditing={() => emailRef.current?.focus()}
-        placeholder="Adın ve soyadın"
-        returnKeyType="next"
-        submitBehavior="submit"
-        textContentType="name"
-        value={props.fullName}
-      />
-      <TextField
-        autoCapitalize="none"
-        autoComplete="email"
-        autoCorrect={false}
-        blurOnSubmit={false}
-        disabled={props.busy}
-        error={attempted ? validation.errors.email : undefined}
-        ref={emailRef}
-        keyboardType="email-address"
-        label="E-posta adresi"
-        onChangeText={props.onEmailChange}
-        onSubmitEditing={() => passwordRef.current?.focus()}
-        placeholder="ornek@universite.edu.tr"
-        returnKeyType="next"
-        submitBehavior="submit"
-        textContentType="emailAddress"
-        value={props.email}
-      />
-      <PasswordField
-        autoComplete="new-password"
-        blurOnSubmit={false}
-        disabled={props.busy}
-        error={attempted ? validation.errors.password : undefined}
-        ref={passwordRef}
-        label="Şifre"
-        onChangeText={props.onPasswordChange}
-        onSubmitEditing={() => confirmationRef.current?.focus()}
-        placeholder={`En az ${AUTH_PASSWORD_MIN_LENGTH} karakter`}
-        returnKeyType="next"
-        submitBehavior="submit"
-        textContentType="newPassword"
-        value={props.password}
-      />
-      <PasswordField
-        autoComplete="new-password"
-        disabled={props.busy}
-        error={attempted ? validation.errors.passwordConfirmation : undefined}
-        ref={confirmationRef}
-        label="Şifre tekrar"
-        onChangeText={props.onPasswordConfirmationChange}
-        onSubmitEditing={submit}
-        placeholder="Şifreni yeniden gir"
-        returnKeyType="done"
-        textContentType="newPassword"
-        value={props.passwordConfirmation}
-      />
+      <View style={styles.registrationTopBar}>
+        <IconButton
+          accessibilityLabel="Geri dön"
+          disabled={props.busy}
+          icon={<Ionicons color={theme.colors.text.primary} name="arrow-back" size={25} />}
+          onPress={props.onLogin}
+          style={{ borderRadius: theme.radii.card }}
+        />
+      </View>
+
+      <View style={[styles.registrationHero, { minHeight: 230 }]}>
+        <View style={[styles.registrationHeroCopy, { gap: theme.spacing.sm }]}>
+          <View
+            style={[
+              styles.registrationBrand,
+              {
+                backgroundColor: theme.colors.action.primary,
+                borderRadius: theme.radii.card,
+              },
+            ]}
+          >
+            <Ionicons color={theme.colors.action.onPrimary} name="calendar-outline" size={27} />
+          </View>
+          <Text accessibilityRole="header" style={[theme.typography.display, { color: theme.colors.text.primary }]}>Akademik{"\n"}Takvim</Text>
+          <Text style={[theme.typography.body, { color: theme.colors.text.primary }]}>Üniversite hayatını planla, <Text style={{ color: theme.colors.text.link }}>hedeflerine bir adım daha yaklaş.</Text></Text>
+        </View>
+        <Image
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          resizeMode="cover"
+          source={require("../../assets/auth-campus-hero-v2.png")}
+          style={styles.registrationHeroImage}
+        />
+      </View>
+
       <View
-        accessibilityLiveRegion="polite"
+        accessible
+        accessibilityLabel="1 / 3. Hesap oluştur"
         style={[
-          styles.requirements,
+          styles.registrationProgress,
           {
-            backgroundColor: theme.colors.background.subtle,
-            borderColor: theme.colors.border.default,
-            borderRadius: theme.radii.control,
-            gap: theme.spacing.xxs,
-            padding: theme.spacing.sm,
+            backgroundColor: theme.colors.background.surface,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.md,
+            padding: theme.spacing.md,
           },
         ]}
       >
-        <RequirementLine complete={validation.requirements.minimumLength} label={`En az ${AUTH_PASSWORD_MIN_LENGTH} karakter`} />
-        <RequirementLine complete={validation.requirements.confirmationMatches} label="Şifreler birbiriyle aynı" />
+        <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}><Text style={[theme.typography.sectionTitle, { color: theme.colors.text.link }]}>1 / 3</Text>  ·  Hesap oluştur</Text>
+        <View style={[styles.progressSegments, { gap: theme.spacing.xxs }]}>
+          <View style={[styles.progressSegment, { backgroundColor: theme.colors.action.primary }]} />
+          <View style={[styles.progressSegment, { backgroundColor: theme.colors.background.subtle }]} />
+          <View style={[styles.progressSegment, { backgroundColor: theme.colors.background.subtle }]} />
+        </View>
       </View>
-      <Button fullWidth label="Hesap oluştur" loading={props.busy} onPress={submit} />
+
+      {props.feedback ? (
+        <Banner
+          message={props.feedback.text}
+          onDismiss={props.onDismissFeedback}
+          title={props.feedback.tone === "error" ? "İşlem tamamlanamadı" : props.feedback.tone === "success" ? "Tamamlandı" : "Bilgi"}
+          tone={props.feedback.tone}
+        />
+      ) : null}
+
+      <Card
+        accessibilityLabel="Hesap oluşturma formu"
+        style={styles.registrationForm}
+        testID="registration-form-card"
+        variant="elevated"
+      >
+        <TextField
+          autoCapitalize="words"
+          autoComplete="name"
+          blurOnSubmit={false}
+          disabled={props.busy}
+          error={attempted ? validation.errors.fullName : undefined}
+          frameStyle={styles.registrationFieldFrame}
+          inlineLabel
+          leadingAccessory={<AuthFieldIcon name="person-outline" />}
+          ref={nameRef}
+          label="Ad soyad"
+          onChangeText={props.onFullNameChange}
+          onSubmitEditing={() => emailRef.current?.focus()}
+          placeholder="Adınızı ve soyadınızı girin"
+          returnKeyType="next"
+          submitBehavior="submit"
+          textContentType="name"
+          value={props.fullName}
+        />
+        <TextField
+          autoCapitalize="none"
+          autoComplete="email"
+          autoCorrect={false}
+          blurOnSubmit={false}
+          disabled={props.busy}
+          error={attempted ? validation.errors.email : undefined}
+          frameStyle={styles.registrationFieldFrame}
+          inlineLabel
+          leadingAccessory={<AuthFieldIcon name="mail-outline" />}
+          ref={emailRef}
+          keyboardType="email-address"
+          label="E-posta adresi"
+          onChangeText={props.onEmailChange}
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          placeholder="ornek@universite.edu.tr"
+          returnKeyType="next"
+          submitBehavior="submit"
+          textContentType="emailAddress"
+          value={props.email}
+        />
+        <PasswordField
+          autoComplete="new-password"
+          blurOnSubmit={false}
+          disabled={props.busy}
+          error={attempted ? validation.errors.password : undefined}
+          frameStyle={styles.registrationFieldFrame}
+          inlineLabel
+          leadingAccessory={<AuthFieldIcon name="lock-closed-outline" />}
+          ref={passwordRef}
+          label="Şifre"
+          onChangeText={props.onPasswordChange}
+          onSubmitEditing={() => confirmationRef.current?.focus()}
+          placeholder={`En az ${AUTH_PASSWORD_MIN_LENGTH} karakter`}
+          returnKeyType="next"
+          submitBehavior="submit"
+          textContentType="newPassword"
+          value={props.password}
+        />
+        <PasswordField
+          autoComplete="new-password"
+          disabled={props.busy}
+          error={attempted ? validation.errors.passwordConfirmation : undefined}
+          frameStyle={[styles.registrationFieldFrame, styles.registrationFieldFrameLast]}
+          inlineLabel
+          leadingAccessory={<AuthFieldIcon name="lock-closed-outline" />}
+          ref={confirmationRef}
+          label="Şifre tekrar"
+          onChangeText={props.onPasswordConfirmationChange}
+          onSubmitEditing={submit}
+          placeholder="Şifrenizi tekrar girin"
+          returnKeyType="done"
+          textContentType="newPassword"
+          value={props.passwordConfirmation}
+        />
+      </Card>
+
+      <View
+        accessibilityLiveRegion="polite"
+        style={[
+          styles.passwordStrength,
+          {
+            backgroundColor: theme.colors.background.surface,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.sm,
+            padding: theme.spacing.md,
+          },
+        ]}
+      >
+        <View style={[styles.passwordStrengthHeading, { gap: theme.spacing.sm }]}>
+          <View style={[styles.passwordShield, { backgroundColor: theme.colors.status.successContainer, borderRadius: theme.radii.pill }]}>
+            <Ionicons color={theme.colors.status.success} name="shield-checkmark-outline" size={30} />
+          </View>
+          <View style={styles.passwordStrengthCopy}>
+            <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Güçlü bir şifre, güvenli bir başlangıç</Text>
+            <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Şifren en az {AUTH_PASSWORD_MIN_LENGTH} karakter olmalı ve aşağıdaki gruplardan en az {AUTH_PASSWORD_REQUIRED_CHARACTER_GROUPS} tanesini içermelidir.</Text>
+          </View>
+        </View>
+        <View style={[styles.requirementChips, { gap: theme.spacing.xs }]}>
+          <RequirementChip complete={validation.requirements.minimumLength} label={`${AUTH_PASSWORD_MIN_LENGTH}+ karakter`} />
+          <RequirementChip complete={validation.requirements.uppercase} label="Büyük harf (A-Z)" />
+          <RequirementChip complete={validation.requirements.lowercase} label="Küçük harf (a-z)" />
+          <RequirementChip complete={validation.requirements.digit} label="Rakam (0-9)" />
+          <RequirementChip complete={validation.requirements.special} label="Özel karakter (!@#?)" />
+        </View>
+      </View>
+
+      <Button
+        fullWidth
+        label="Devam et"
+        loading={props.busy}
+        onPress={submit}
+        trailingIcon={<Ionicons color={theme.colors.action.onPrimary} name="arrow-forward" size={23} />}
+      />
       <View style={[styles.accountSwitch, { gap: theme.spacing.xs }]}>
         <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Zaten hesabın var mı?</Text>
         <Button compact disabled={props.busy} label="Giriş yap" onPress={props.onLogin} variant="ghost" />
       </View>
-    </AuthScaffold>
+    </View>
   );
 }
 
-function RequirementLine({ complete, label }: { complete: boolean; label: string }) {
+function AuthFieldIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
   const theme = useTheme();
   return (
-    <Text style={[theme.typography.meta, { color: complete ? theme.colors.status.success : theme.colors.text.secondary }]}>
-      {complete ? "✓" : "○"} {label}
-    </Text>
+    <View style={[styles.authFieldIcon, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.control }]}>
+      <Ionicons color={theme.colors.action.primary} name={name} size={20} />
+    </View>
+  );
+}
+
+function RequirementChip({ complete, label }: { complete: boolean; label: string }) {
+  const theme = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${label}. ${complete ? "Karşılandı" : "Henüz karşılanmadı"}.`}
+      style={[
+        styles.requirementChip,
+        {
+          backgroundColor: complete ? theme.colors.status.successContainer : theme.colors.status.errorContainer,
+          borderRadius: theme.radii.small,
+          gap: theme.spacing.xxs,
+        },
+      ]}
+    >
+      <Ionicons color={complete ? theme.colors.status.success : theme.colors.status.error} name={complete ? "checkmark-circle" : "ellipse"} size={14} />
+      <Text style={[theme.typography.meta, { color: complete ? theme.colors.status.success : theme.colors.status.error }]}>{label}</Text>
+    </View>
   );
 }
 
@@ -584,8 +890,13 @@ export function PasswordRecoveryConfirmScreen(props: PasswordRecoveryConfirmScre
     newPassword: props.newPassword,
     passwordConfirmation: props.passwordConfirmation,
   });
-  const passwordError = attempted && props.newPassword.length < AUTH_PASSWORD_MIN_LENGTH
-    ? `Şifren en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmalıdır.`
+  const passwordRequirements = evaluateAuthPassword(props.newPassword);
+  const passwordError = attempted
+    ? !passwordRequirements.minimumLength
+      ? `Şifren en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmalıdır.`
+      : !passwordRequirements.characterGroupsComplete
+        ? "Şifren büyük harf, küçük harf, rakam ve özel karakter gruplarından en az üçünü içermelidir."
+        : undefined
     : undefined;
   const confirmationError = attempted && props.passwordConfirmation !== props.newPassword
     ? "Şifreler eşleşmiyor."
@@ -593,7 +904,7 @@ export function PasswordRecoveryConfirmScreen(props: PasswordRecoveryConfirmScre
   function submit() {
     setAttempted(true);
     if (!validation.valid) {
-      if (props.newPassword.length < AUTH_PASSWORD_MIN_LENGTH) {
+      if (!passwordRequirements.minimumLength || !passwordRequirements.characterGroupsComplete) {
         passwordRef.current?.focus();
       } else {
         confirmationRef.current?.focus();
@@ -675,11 +986,13 @@ export interface AcademicOnboardingScreenProps {
   onRetryDepartments: () => void;
   onSave: () => void;
   onBack: () => void;
+  onSkip?: () => void;
   onDismissFeedback?: () => void;
 }
 
 export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
   const theme = useTheme();
+  const adaptation = usePlatformAdaptation();
   const [attempted, setAttempted] = useState(false);
   const [validationAttempt, setValidationAttempt] = useState(0);
   const passwordRef = useRef<TextInput>(null);
@@ -723,18 +1036,58 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
   }
 
   return (
-    <AuthScaffold
-      description="İçerikleri sana göre hazırlamak için üniversiteni seç. Diğer alanları şimdi ya da daha sonra tamamlayabilirsin."
-      eyebrow="3 / 3 · Akademik profil"
-      feedback={props.feedback}
-      onDismissFeedback={props.onDismissFeedback}
-      title="Akademik profilini tamamla"
+    <View
+      style={[
+        styles.onboardingScreen,
+        {
+          gap: theme.spacing.md,
+          marginHorizontal: -adaptation.screenGutter,
+          paddingHorizontal: adaptation.screenGutter,
+        },
+      ]}
     >
-      <Card style={{ gap: theme.spacing.xxs }} variant="tonal">
-        <Text style={[theme.typography.label, { color: theme.colors.text.secondary }]}>Hesap</Text>
-        <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{props.fullName || "Öğrenci"}</Text>
-        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{maskEmail(props.email)}</Text>
-      </Card>
+      <View style={styles.onboardingTopRow}>
+        <IconButton
+          accessibilityLabel="Geri dön"
+          disabled={props.busy}
+          icon={<Ionicons color={theme.colors.text.primary} name="arrow-back" size={25} />}
+          onPress={requestBack}
+          style={{ borderRadius: theme.radii.card }}
+        />
+        <View style={[styles.onboardingProgressBlock, { gap: theme.spacing.xxs }]}>
+          <View style={styles.onboardingSteps}>
+            <StepCircle complete label="1" />
+            <View style={[styles.stepLine, { backgroundColor: theme.colors.action.primary }]} />
+            <StepCircle complete label="2" />
+            <View style={[styles.stepLine, { backgroundColor: theme.colors.action.primary }]} />
+            <StepCircle active label="3" />
+          </View>
+          <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}><Text style={[theme.typography.bodyStrong, { color: theme.colors.text.link }]}>3 / 3</Text>  ·  Akademik profil</Text>
+        </View>
+        <View style={styles.onboardingTopSpacer} />
+      </View>
+
+      <Image
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        resizeMode="contain"
+        source={require("../../assets/academic-profile-campus.png")}
+        style={styles.onboardingCampus}
+      />
+
+      <View style={[styles.onboardingIdentity, { gap: theme.spacing.xs }]}>
+        <Text accessibilityRole="header" style={[theme.typography.display, styles.onboardingTitle, { color: theme.colors.text.primary }]}>Akademik profilini tamamla</Text>
+        <Text style={[theme.typography.body, styles.onboardingDescription, { color: theme.colors.text.secondary }]}>Profil bilgilerin, takvimini sana özel hale getirir ve bölümüne özel duyuruları kaçırmamanı sağlar.</Text>
+      </View>
+
+      {props.feedback ? (
+        <Banner
+          message={props.feedback.text}
+          onDismiss={props.onDismissFeedback}
+          title={props.feedback.tone === "error" ? "İşlem tamamlanamadı" : props.feedback.tone === "success" ? "Tamamlandı" : "Bilgi"}
+          tone={props.feedback.tone}
+        />
+      ) : null}
 
       <AcademicProfileFields
         busy={props.busy}
@@ -785,9 +1138,62 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         faculties={props.faculties}
         universities={props.universities}
       />
-      <Button fullWidth label="Kaydet ve devam et" loading={props.busy} onPress={save} />
-      <Button compact disabled={props.busy} label="Geri dön" onPress={requestBack} variant="ghost" />
-    </AuthScaffold>
+      <View
+        style={[
+          styles.onboardingInfo,
+          {
+            backgroundColor: theme.colors.status.infoContainer,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.sm,
+            padding: theme.spacing.md,
+          },
+        ]}
+      >
+        <View style={[styles.onboardingInfoIcon, { backgroundColor: theme.colors.action.primary, borderRadius: theme.radii.pill }]}>
+          <Ionicons color={theme.colors.action.onPrimary} name="sparkles" size={22} />
+        </View>
+        <Text style={[theme.typography.bodyStrong, styles.onboardingInfoText, { color: theme.colors.status.onInfoContainer }]}>Doğru bilgilerle sınav tarihleri, kayıt dönemleri ve bölümüne özel duyurular sana özel gelir.</Text>
+      </View>
+      <Button
+        fullWidth
+        label="Profili kaydet"
+        leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="briefcase-outline" size={21} />}
+        loading={props.busy}
+        onPress={save}
+      />
+      {props.onSkip ? (
+        <Button compact disabled={props.busy} label="Şimdilik geç" onPress={props.onSkip} variant="secondary" />
+      ) : null}
+    </View>
+  );
+}
+
+function StepCircle({
+  label,
+  active = false,
+  complete = false,
+}: {
+  label: string;
+  active?: boolean;
+  complete?: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.stepNode}>
+      <View
+        style={[
+          styles.stepCircle,
+          {
+            backgroundColor: active ? theme.colors.action.primary : theme.colors.background.surface,
+            borderColor: theme.colors.action.primary,
+            borderRadius: theme.radii.pill,
+          },
+        ]}
+      >
+        <Text style={[theme.typography.bodyStrong, { color: active ? theme.colors.action.onPrimary : theme.colors.text.link }]}>{label}</Text>
+      </View>
+      {complete ? <Ionicons color={theme.colors.action.primary} name="checkmark" size={13} /> : null}
+    </View>
   );
 }
 
@@ -827,12 +1233,134 @@ export function formatDuration(totalSeconds: number): string {
 }
 
 const styles = StyleSheet.create({
+  authCard: {
+    padding: 20,
+  },
   screenStack: {
     width: "100%",
   },
   identity: {
     alignItems: "flex-start",
     flexDirection: "row",
+  },
+  heroIdentity: {
+    alignItems: "center",
+    paddingBottom: 2,
+    paddingTop: 4,
+  },
+  heroScreenStack: {
+    alignSelf: "stretch",
+    width: "auto",
+  },
+  heroFrame: {
+    aspectRatio: 4 / 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    maxHeight: 330,
+    overflow: "hidden",
+    position: "relative",
+    width: "100%",
+  },
+  heroImage: {
+    height: "100%",
+    width: "100%",
+  },
+  heroSheet: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    marginTop: -36,
+    overflow: "visible",
+    paddingTop: 34,
+  },
+  heroSheetCrest: {
+    alignItems: "center",
+    alignSelf: "center",
+    borderWidth: 5,
+    height: 58,
+    justifyContent: "center",
+    position: "absolute",
+    top: -29,
+    width: 58,
+  },
+  heroTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+    lineHeight: 38,
+    textAlign: "center",
+  },
+  heroDescription: {
+    maxWidth: 390,
+    textAlign: "center",
+  },
+  loginPillButton: {
+    borderRadius: 999,
+  },
+  googleMark: {
+    height: 24,
+    position: "relative",
+    width: 24,
+  },
+  googleRing: {
+    borderBottomColor: referencePalette.googleGreen,
+    borderLeftColor: referencePalette.googleYellow,
+    borderRadius: 999,
+    borderRightColor: referencePalette.googleBlue,
+    borderTopColor: referencePalette.googleRed,
+    borderWidth: 4,
+    height: 22,
+    left: 1,
+    position: "absolute",
+    top: 1,
+    width: 22,
+  },
+  googleRingCutout: {
+    height: 7,
+    position: "absolute",
+    right: 0,
+    top: 6,
+    width: 9,
+  },
+  googleCrossbar: {
+    backgroundColor: referencePalette.googleBlue,
+    height: 4,
+    position: "absolute",
+    right: 0,
+    top: 10,
+    width: 11,
+  },
+  loginLinks: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  loginTrustStrip: {
+    alignItems: "stretch",
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    overflow: "hidden",
+    paddingVertical: 12,
+  },
+  trustItem: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "flex-start",
+    paddingHorizontal: 4,
+  },
+  trustIcon: {
+    alignItems: "center",
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  trustLabel: {
+    textAlign: "center",
+  },
+  loginFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    paddingTop: 6,
   },
   identityMark: {
     alignItems: "center",
@@ -857,8 +1385,165 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "center",
   },
-  requirements: {
+  registrationScreen: {
+    alignSelf: "stretch",
+    width: "auto",
+  },
+  registrationTopBar: {
+    alignItems: "flex-start",
+  },
+  registrationHero: {
+    overflow: "hidden",
+    position: "relative",
+  },
+  registrationHeroCopy: {
+    justifyContent: "center",
+    maxWidth: "46%",
+    minHeight: 220,
+    zIndex: 1,
+  },
+  registrationBrand: {
+    alignItems: "center",
+    height: 54,
+    justifyContent: "center",
+    width: 54,
+  },
+  registrationHeroImage: {
+    bottom: -34,
+    height: 300,
+    position: "absolute",
+    right: -48,
+    width: "72%",
+  },
+  registrationProgress: {
+    alignItems: "center",
     borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  progressSegments: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    maxWidth: 150,
+  },
+  progressSegment: {
+    borderRadius: 999,
+    flex: 1,
+    height: 6,
+  },
+  registrationForm: {
+    overflow: "hidden",
+    padding: 0,
+  },
+  registrationFieldFrame: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 0,
+    borderRadius: 0,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+    minHeight: 82,
+  },
+  registrationFieldFrameLast: {
+    borderBottomWidth: 0,
+  },
+  authFieldIcon: {
+    alignItems: "center",
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  passwordStrength: {
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  passwordStrengthHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  passwordShield: {
+    alignItems: "center",
+    height: 58,
+    justifyContent: "center",
+    width: 58,
+  },
+  passwordStrengthCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  requirementChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  requirementChip: {
+    alignItems: "center",
+    flexDirection: "row",
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  onboardingScreen: {
+    alignSelf: "stretch",
+    width: "auto",
+  },
+  onboardingTopRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  onboardingProgressBlock: {
+    alignItems: "center",
+    flex: 1,
+  },
+  onboardingTopSpacer: {
+    width: 48,
+  },
+  onboardingSteps: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+  },
+  stepNode: {
+    alignItems: "center",
+    minWidth: 34,
+  },
+  stepCircle: {
+    alignItems: "center",
+    borderWidth: 1,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
+  stepLine: {
+    height: 1,
+    marginTop: 17,
+    width: 52,
+  },
+  onboardingCampus: {
+    alignSelf: "center",
+    height: 205,
+    width: "100%",
+  },
+  onboardingIdentity: {
+    alignItems: "center",
+  },
+  onboardingTitle: {
+    textAlign: "center",
+  },
+  onboardingDescription: {
+    maxWidth: 470,
+    textAlign: "center",
+  },
+  onboardingInfo: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  onboardingInfoIcon: {
+    alignItems: "center",
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  onboardingInfoText: {
+    flex: 1,
+    minWidth: 0,
   },
   timing: {
     borderWidth: 1,

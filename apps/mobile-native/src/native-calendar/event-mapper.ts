@@ -10,6 +10,7 @@ export type AcademicCalendarEventInput = {
   endTemporalKind?: "date" | "timestamp";
   timezone?: string;
   description?: string;
+  location?: string;
   url?: string;
   recurrenceRule?: NativeCalendarSyncEvent["recurrenceRule"];
 };
@@ -18,6 +19,7 @@ export type ManualExamEventInput = {
   id: string;
   title: string;
   examDate: string;
+  locationNote?: string;
 };
 
 export type NativeCalendarMappingOptions = {
@@ -59,6 +61,7 @@ export function mapAcademicEventsToNativeCalendarEvents(
         allDay,
         timezone: options.timezone ?? event.timezone ?? DEFAULT_TIMEZONE,
         notes: event.description ?? `Academic event category: ${categoryLabel}`,
+        location: event.location,
         url: event.url,
         category,
         recurrenceRule: event.recurrenceRule,
@@ -85,6 +88,7 @@ export function mapManualExamsToNativeCalendarEvents(
         allDay: false,
         timezone: options.timezone ?? DEFAULT_TIMEZONE,
         notes: "Manual exam reminder",
+        location: exam.locationNote,
         category: "manual_exam",
         reminderMinutesBefore: options.reminderMinutesBefore ?? []
       }

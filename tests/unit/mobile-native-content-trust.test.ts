@@ -342,6 +342,29 @@ describe("mobile native content trust", () => {
     expect(envelope.hasMore).toBe(true);
     expect(envelope.nextCursor).toBe("page-2");
   });
+
+  it("revalidates optional rich body and structured key dates from the trusted API", () => {
+    const envelope = normalizeTrustedApiContentEnvelope({
+      items: [scopedRecord("rich", {
+        body: [
+          { type: "paragraph", text: "<script>çıkar</script><strong>Takvim güncellendi.</strong>" },
+          { type: "bullet", text: "Sınav yerinizi kontrol edin." },
+        ],
+        keyDates: [
+          { label: "Final Sınavları", startDate: "2026-06-23", endDate: "2026-07-04" },
+          { label: "Geçersiz", startDate: "2026-02-31" },
+        ],
+      })],
+    });
+
+    expect(envelope.items[0]?.body).toEqual([
+      { type: "paragraph", text: "Takvim güncellendi." },
+      { type: "bullet", text: "Sınav yerinizi kontrol edin." },
+    ]);
+    expect(envelope.items[0]?.keyDates).toEqual([
+      { label: "Final Sınavları", startDate: "2026-06-23", endDate: "2026-07-04" },
+    ]);
+  });
 });
 
 describe("mobile native content-state wiring", () => {

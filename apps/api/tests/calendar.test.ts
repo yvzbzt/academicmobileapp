@@ -58,7 +58,7 @@ describe("CalendarService", () => {
     await expect(service.getMyCalendar(session.user.id)).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it("returns the published university calendar and university-wide events for selected university", async () => {
+  it("returns the published university calendar and events matching the student's academic scope", async () => {
     const { authRepository, session } = await createStudentWithUniversity();
     const calendarRepository = await createSeededCalendarRepository();
     const service = new CalendarService(calendarRepository, authRepository);
@@ -69,24 +69,61 @@ describe("CalendarService", () => {
     expect(response.events.length).toBeGreaterThan(0);
     expect(response.scope).toBe("university");
     expect(response.events.every((event) => event.status === "published")).toBe(true);
-    expect(response.events.every((event) => !event.facultyId && !event.departmentId)).toBe(true);
     expect(response.events.some((event) => event.title.includes("Diger Fakulteler"))).toBe(false);
-    expect(response.events.some((event) => event.title.includes("Final Sinavlari"))).toBe(false);
-    expect(response.events.some((event) => event.title.includes("Yaz Okulu"))).toBe(false);
+    expect(response.events.some((event) => event.title.includes("Final Sinavlari"))).toBe(true);
+    expect(response.events.some((event) => event.title.includes("Yaz Okulu"))).toBe(true);
     expect(response.events.some((event) => event.title.includes("Eski Takvim"))).toBe(false);
   });
 
-  it("does not scope the academic calendar view by faculty or department", async () => {
+  it("includes university, faculty, and department events while excluding other academic scopes", async () => {
     const { authRepository, session } = await createStudentWithUniversity();
     const calendarRepository = await createSeededCalendarRepository();
+    const calendar = await calendarRepository.findPublishedCalendar("sample-university-1");
+    expect(calendar).not.toBeNull();
+    await calendarRepository.createEvents([
+      {
+        calendarId: calendar!.id,
+        universityId: calendar!.universityId,
+        facultyId: "sample-faculty-1",
+        departmentId: "sample-department-1",
+        academicYear: calendar!.academicYear,
+        term: "fall",
+        category: "custom_event",
+        title: "Own department custom event",
+        startDate: new Date("2026-10-20T10:00:00.000Z"),
+        timezone: "Europe/Istanbul",
+        status: "published",
+        notificationRules: []
+      },
+      {
+        calendarId: calendar!.id,
+        universityId: calendar!.universityId,
+        facultyId: "sample-faculty-1",
+        departmentId: "other-department",
+        academicYear: calendar!.academicYear,
+        term: "fall",
+        category: "custom_event",
+        title: "Other department custom event",
+        startDate: new Date("2026-10-21T10:00:00.000Z"),
+        timezone: "Europe/Istanbul",
+        status: "published",
+        notificationRules: []
+      }
+    ]);
     const service = new CalendarService(calendarRepository, authRepository);
 
     const response = await service.getMyCalendar(session.user.id);
 
     expect(response.scope).toBe("university");
-    expect(response.events).toHaveLength(1);
-    expect(response.events[0]?.title).toBe("Guz Donemi Ders Kayitlari");
-    expect(response.events.every((event) => !event.facultyId && !event.departmentId)).toBe(true);
+    expect(response.events.map((event) => event.title)).toEqual(expect.arrayContaining([
+      "Guz Donemi Ders Kayitlari",
+      "Guz Donemi Final Sinavlari",
+      "Own department custom event"
+    ]));
+    expect(response.events.some((event) => event.title === "Diger Fakulteler Ara Sinav Takvimi")).toBe(false);
+    expect(response.events.some((event) => event.title === "Other department custom event")).toBe(false);
+    expect(response.events.some((event) => event.category === "course_schedule")).toBe(false);
+    expect(response.events.some((event) => event.category === "department_exam_schedule")).toBe(false);
   });
 
   it("resolves an exact trusted event beyond the calendar collection cap and hides every unavailable case", async () => {
@@ -385,6 +422,7 @@ describe("CalendarService", () => {
         term: "fall",
         category: "midterm_exam",
         title: "Real timed range",
+        location: "Muhendislik Fak. - A Blok 201",
         temporalKind: "timestamp",
         endTemporalKind: "timestamp",
         startDate: new Date("2026-11-10T06:30:00.000Z"),
@@ -468,6 +506,7 @@ describe("CalendarService", () => {
     expect(feed.content).toContain("SUMMARY:Yaz Okulu");
     expect(feed.content).toContain("DTSTART;VALUE=DATE:20260901\r\nDTEND;VALUE=DATE:20260904");
     expect(feed.content).toContain("DTSTART:20261110T063000Z\r\nDTEND:20261110T080000Z");
+    expect(feed.content).toContain("LOCATION:Muhendislik Fak. - A Blok 201");
     expect(feed.content).toContain("DTSTART:20260910T063000Z\r\nDTEND:20260912T210000Z");
     expect(feed.content).toContain("DTSTART:20260831T210000Z\r\nDTEND:20260903T140000Z");
     expect(feed.content).toContain("DTSTART:19100930T220304Z\r\nDTEND:19101001T120000Z");

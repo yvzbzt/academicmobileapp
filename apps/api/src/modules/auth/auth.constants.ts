@@ -1,4 +1,22 @@
-export const AUTH_PASSWORD_MIN_LENGTH = 10;
+export const AUTH_PASSWORD_MIN_LENGTH = 8;
+export const AUTH_PASSWORD_MIN_CHARACTER_GROUPS = 3;
+
+export function authPasswordCharacterGroupCount(password: string): number {
+  return [
+    /[A-Z]/u.test(password),
+    /[a-z]/u.test(password),
+    /\d/u.test(password),
+    /[^\p{L}\d\s]/u.test(password)
+  ].filter(Boolean).length;
+}
+
+export function isAuthPasswordStrong(password: string): boolean {
+  return password.length >= AUTH_PASSWORD_MIN_LENGTH
+    && authPasswordCharacterGroupCount(password) >= AUTH_PASSWORD_MIN_CHARACTER_GROUPS;
+}
+
+export const AUTH_PASSWORD_REQUIREMENT_MESSAGE =
+  `Password must be at least ${AUTH_PASSWORD_MIN_LENGTH} characters and contain at least ${AUTH_PASSWORD_MIN_CHARACTER_GROUPS} of uppercase, lowercase, digit, and special-character groups.`;
 
 export const PASSWORD_RECOVERY_CODE_LENGTH = 6;
 export const PASSWORD_RECOVERY_TTL_SECONDS = 10 * 60;

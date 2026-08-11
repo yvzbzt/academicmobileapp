@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { mapAcademicEventsToNativeCalendarEvents } from "../../apps/mobile-native/src/native-calendar/event-mapper.js";
+import {
+  mapAcademicEventsToNativeCalendarEvents,
+  mapManualExamsToNativeCalendarEvents
+} from "../../apps/mobile-native/src/native-calendar/event-mapper.js";
 
 describe("native academic calendar event mapping", () => {
   it("keeps date-only ranges all-day and converts the inclusive end to an exclusive end", () => {
@@ -63,6 +66,28 @@ describe("native academic calendar event mapping", () => {
       endDate: "2026-09-03T14:00:00.000Z",
       allDay: false,
       timezone: "Europe/Istanbul"
+    }));
+  });
+
+  it("keeps academic locations and personal exam room notes", () => {
+    expect(mapAcademicEventsToNativeCalendarEvents([{
+      id: "located-event",
+      title: "Veri Yapıları Final Sınavı",
+      category: "final_exam",
+      temporalKind: "timestamp",
+      startDate: "2026-11-10T09:30:00+03:00",
+      location: "Mühendislik Fakültesi, A Blok 201"
+    }])[0]).toEqual(expect.objectContaining({
+      location: "Mühendislik Fakültesi, A Blok 201"
+    }));
+
+    expect(mapManualExamsToNativeCalendarEvents([{
+      id: "personal-exam",
+      title: "Matematik II Finali",
+      examDate: "2026-11-10T09:30:00+03:00",
+      locationNote: "D-101"
+    }])[0]).toEqual(expect.objectContaining({
+      location: "D-101"
     }));
   });
 });

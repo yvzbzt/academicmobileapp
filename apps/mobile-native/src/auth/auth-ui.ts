@@ -1,6 +1,7 @@
 import {
   AUTH_PASSWORD_MIN_LENGTH,
   PASSWORD_RECOVERY_CODE_LENGTH,
+  evaluateAuthPassword,
   isValidPasswordRecoveryEmail,
 } from "./auth-recovery";
 
@@ -24,6 +25,12 @@ export interface RegistrationValidationResult {
   };
   requirements: {
     minimumLength: boolean;
+    uppercase: boolean;
+    lowercase: boolean;
+    digit: boolean;
+    special: boolean;
+    characterGroupCount: number;
+    characterGroupsComplete: boolean;
     confirmationMatches: boolean;
   };
 }
@@ -50,7 +57,7 @@ export function validateRegistrationForm(input: {
 }): RegistrationValidationResult {
   const errors: RegistrationValidationResult["errors"] = {};
   const normalizedName = input.fullName.trim();
-  const minimumLength = input.password.length >= AUTH_PASSWORD_MIN_LENGTH;
+  const passwordRequirements = evaluateAuthPassword(input.password);
   const confirmationMatches = input.passwordConfirmation.length > 0
     && input.password === input.passwordConfirmation;
 
@@ -60,8 +67,10 @@ export function validateRegistrationForm(input: {
   if (!isValidPasswordRecoveryEmail(input.email)) {
     errors.email = "Ge\u00e7erli bir e-posta adresi gir.";
   }
-  if (!minimumLength) {
+  if (!passwordRequirements.minimumLength) {
     errors.password = `\u015eifren en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmal\u0131d\u0131r.`;
+  } else if (!passwordRequirements.characterGroupsComplete) {
+    errors.password = "Şifren büyük harf, küçük harf, rakam ve özel karakter gruplarından en az üçünü içermelidir.";
   }
   if (!confirmationMatches) {
     errors.passwordConfirmation = input.passwordConfirmation.length === 0
@@ -72,7 +81,7 @@ export function validateRegistrationForm(input: {
   return {
     valid: Object.keys(errors).length === 0,
     errors,
-    requirements: { minimumLength, confirmationMatches },
+    requirements: { ...passwordRequirements, confirmationMatches },
   };
 }
 

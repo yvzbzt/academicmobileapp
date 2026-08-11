@@ -2,6 +2,13 @@ import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
 import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  useFonts,
+} from "@expo-google-fonts/inter";
+import {
   GoogleSignin,
   isCancelledResponse,
   isErrorWithCode,
@@ -128,6 +135,13 @@ import {
   VerificationScreen,
   type AuthFeedback
 } from "./src/auth/AuthScreens";
+import { PreLoginWelcomeScreen } from "./src/auth/PreLoginWelcomeScreen";
+import {
+  PRELOGIN_WELCOME_COMPLETION_STORAGE_KEY,
+  PRELOGIN_WELCOME_COMPLETION_STORAGE_VALUE,
+  resolvePreloginWelcomeGate,
+  type PreloginWelcomeGate,
+} from "./src/auth/prelogin-welcome";
 import { RecentAuthenticationPanel } from "./src/auth/RecentAuthenticationPanel";
 import {
   normalizeAccountAuthProvider,
@@ -445,6 +459,11 @@ type DepartmentRecord = {
 type AnnouncementApiRecord = MobileContentRecordInput;
 type AnnouncementCollectionApiPayload = MobileContentCollectionInput;
 type AnnouncementRecord = TrustedMobileContentRecord;
+type SavedAnnouncementApiStatus = {
+  announcementId: string;
+  saved: boolean;
+  savedAt?: string;
+};
 
 type CalendarRecord = {
   id: string;
@@ -456,6 +475,9 @@ type CalendarRecord = {
 type EventRecord = {
   id: string;
   title: string;
+  courseName?: string;
+  description?: string;
+  location?: string;
   category: string;
   startDate: string;
   endDate?: string;
@@ -565,8 +587,8 @@ const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
 const GOOGLE_CALENDAR_V2_STORAGE_PREFIX = "native_google_calendar_connection_v2";
 const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v3";
 // Sourced from app.json; kept visible here so Profile never reports a package-only placeholder.
-const NATIVE_APP_VERSION = "0.1.1";
-const NATIVE_ANDROID_BUILD_NUMBER = 12;
+const NATIVE_APP_VERSION = "0.1.3";
+const NATIVE_ANDROID_BUILD_NUMBER = 14;
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -599,7 +621,11 @@ const DEFAULT_CATEGORY_OPTIONS = [
   "summer_school_end",
   "holiday",
   "orientation",
-  "custom_event"
+  "custom_event",
+  "announcement",
+  "faculty_announcement",
+  "department_announcement",
+  "yok_event"
 ];
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -626,7 +652,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   summer_school_end: "Yaz okulu bitişi",
   holiday: "Tatil",
   orientation: "Oryantasyon",
-  custom_event: "Özel etkinlik"
+  custom_event: "Özel etkinlik",
+  announcement: "Üniversite duyuruları",
+  faculty_announcement: "Fakülte duyuruları",
+  department_announcement: "Bölüm duyuruları",
+  yok_event: "YÖK duyuru ve etkinlikleri"
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -903,7 +933,22 @@ function normalizeEventRecordsForDisplay(events: EventRecord[]): EventRecord[] {
   return events.flatMap((event) => {
     const title = normalizeDisplayText(event.title);
     if (!title || isNavigationContentTitle(title)) return [];
-    return [{ ...event, title }];
+    const courseName = normalizeDisplayText(event.courseName).slice(0, 240).trim();
+    const description = normalizeDisplayText(event.description).slice(0, 2_000).trim();
+    const location = normalizeDisplayText(event.location).slice(0, 240).trim();
+    const {
+      courseName: _courseName,
+      description: _description,
+      location: _location,
+      ...baseEvent
+    } = event;
+    return [{
+      ...baseEvent,
+      title,
+      ...(courseName ? { courseName } : {}),
+      ...(description ? { description } : {}),
+      ...(location ? { location } : {})
+    }];
   });
 }
 
@@ -1180,6 +1225,9 @@ async function deleteStoredValue(key: string): Promise<void> {
 function MainApplication() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authStage, setAuthStage] = useState<AuthStage>("auth");
+  const [preloginWelcomeGate, setPreloginWelcomeGate] = useState<
+    PreloginWelcomeGate | "loading" | "saving"
+  >("loading");
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const {
     acknowledgeNavigationRequest,
@@ -1301,6 +1349,13 @@ function MainApplication() {
     loading: boolean;
     error?: string;
   } | null>(null);
+  const [announcementSaveStatus, setAnnouncementSaveStatus] = useState<{
+    id: string;
+    saved: boolean;
+    loading: boolean;
+    mutating: boolean;
+    error?: string;
+  } | null>(null);
   const [academicProfileExpanded, setAcademicProfileExpanded] = useState(false);
   const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
   const [contentFeedLimit, setContentFeedLimit] = useState(CONTENT_FEED_INITIAL_LIMIT);
@@ -1322,6 +1377,7 @@ function MainApplication() {
   const onboardingSaveAttemptRef = useRef(0);
   const routeIntentCoordinatorRef = useRef(new RouteIntentCoordinator());
   const announcementDetailRequestGenerationRef = useRef(0);
+  const announcementSaveRequestGenerationRef = useRef(0);
   const contentFeedRequestCoordinatorRef = useRef(createContentFeedRequestCoordinator());
   const contentFeedAbortControllerRef = useRef<AbortController | null>(null);
   const authenticatedRequestControllersRef = useRef(new Set<AbortController>());
@@ -1595,7 +1651,17 @@ function MainApplication() {
     hasPendingVerification: Boolean(pendingVerification),
     hasPendingPasswordRecovery: Boolean(pendingPasswordRecovery)
   });
-  const navigatorRootSurface: AppRootSurface = rootRouteResolution.surface === "hydration"
+  const shouldShowPreloginWelcome = hydrationStatus === "ready"
+    && !session
+    && (preloginWelcomeGate === "pending" || preloginWelcomeGate === "saving")
+    && rootRouteResolution.surface === "auth"
+    && authMode === "login"
+    && authStage === "auth"
+    && !pendingVerification
+    && !pendingPasswordRecovery;
+  const navigatorRootSurface: AppRootSurface = shouldShowPreloginWelcome
+    ? "introduction"
+    : rootRouteResolution.surface === "hydration"
     ? rootRouteResolution.route.name === "Hydration" && rootRouteResolution.route.params.status === "error"
       ? "hydration_error"
       : "hydration_loading"
@@ -1611,11 +1677,15 @@ function MainApplication() {
     ? "BootstrapLoading"
     : navigatorRootSurface === "hydration_error"
       ? "BootstrapError"
+      : navigatorRootSurface === "introduction"
+        ? "Introduction"
       : navigatorRootSurface === "authenticated"
         ? routeForLegacyTab(activeTab)
         : visibleRouteForResolvedRoot(rootRouteResolution.route);
   const controlledActiveRoute = navigatorRootSurface === "authenticated"
     ? (AUTHENTICATED_ROUTE_NAMES.has(activeRoute) ? activeRoute : expectedBaseRoute)
+    : navigatorRootSurface === "introduction"
+      ? "Introduction"
     : navigatorRootSurface === "auth"
       ? (AUTH_ROUTE_NAMES.has(activeRoute) ? activeRoute : expectedBaseRoute)
       : navigatorRootSurface === "onboarding"
@@ -1991,7 +2061,9 @@ function MainApplication() {
 
   function invalidateAnnouncementDetailOwnership(): void {
     announcementDetailRequestGenerationRef.current += 1;
+    announcementSaveRequestGenerationRef.current += 1;
     setAnnouncementDetailLoad(null);
+    setAnnouncementSaveStatus(null);
     setActiveTrustedDetail((previous) => previous?.type === "announcement" ? null : previous);
   }
 
@@ -2015,10 +2087,118 @@ function MainApplication() {
       title: item.record.title,
       item
     });
+    loadAnnouncementSavedStatus(item.record.id);
     requestAppRoute("AnnouncementDetail", { announcementId: item.record.id });
   }
 
+  function loadAnnouncementSavedStatus(announcementId: string): void {
+    const requestGeneration = ++announcementSaveRequestGenerationRef.current;
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    setAnnouncementSaveStatus({
+      id: announcementId,
+      saved: false,
+      loading: true,
+      mutating: false
+    });
+    if (!currentSession || !ownerSnapshot || currentSession.user.id !== ownerSnapshot.ownerId) {
+      setAnnouncementSaveStatus({
+        id: announcementId,
+        saved: false,
+        loading: false,
+        mutating: false,
+        error: "Kaydetme durumu doğrulanamadı."
+      });
+      return;
+    }
+
+    void apiRequest<SavedAnnouncementApiStatus>(
+      `/announcements/my/saved/${encodeURIComponent(announcementId)}`,
+      {},
+      currentSession.accessToken,
+      { ownerSnapshot }
+    ).then((payload) => {
+      if (
+        requestGeneration !== announcementSaveRequestGenerationRef.current
+        || !accountGuardRef.current.isCurrent(ownerSnapshot)
+        || payload.announcementId !== announcementId
+      ) return;
+      setAnnouncementSaveStatus({
+        id: announcementId,
+        saved: payload.saved === true,
+        loading: false,
+        mutating: false
+      });
+    }).catch((error: unknown) => {
+      if (
+        error instanceof StaleAccountRequestError
+        || requestGeneration !== announcementSaveRequestGenerationRef.current
+        || !accountGuardRef.current.isCurrent(ownerSnapshot)
+      ) return;
+      setAnnouncementSaveStatus({
+        id: announcementId,
+        saved: false,
+        loading: false,
+        mutating: false,
+        error: "Kaydetme durumu şu anda yüklenemedi."
+      });
+    });
+  }
+
+  async function toggleAnnouncementSaved(announcementId: string): Promise<void> {
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    const current = announcementSaveStatus?.id === announcementId
+      ? announcementSaveStatus
+      : null;
+    if (!currentSession || !ownerSnapshot || currentSession.user.id !== ownerSnapshot.ownerId || current?.mutating) return;
+    const targetSaved = !current?.saved;
+    const requestGeneration = ++announcementSaveRequestGenerationRef.current;
+    setAnnouncementSaveStatus({
+      id: announcementId,
+      saved: current?.saved ?? false,
+      loading: false,
+      mutating: true
+    });
+    try {
+      const payload = await trackAuthenticatedMutation(() => apiRequest<SavedAnnouncementApiStatus>(
+        `/announcements/my/saved/${encodeURIComponent(announcementId)}`,
+        { method: targetSaved ? "PUT" : "DELETE" },
+        currentSession.accessToken,
+        { ownerSnapshot }
+      ));
+      if (
+        requestGeneration !== announcementSaveRequestGenerationRef.current
+        || !accountGuardRef.current.isCurrent(ownerSnapshot)
+        || payload.announcementId !== announcementId
+        || payload.saved !== targetSaved
+      ) return;
+      setAnnouncementSaveStatus({
+        id: announcementId,
+        saved: targetSaved,
+        loading: false,
+        mutating: false
+      });
+    } catch (error) {
+      if (
+        error instanceof StaleAccountRequestError
+        || requestGeneration !== announcementSaveRequestGenerationRef.current
+        || !accountGuardRef.current.isCurrent(ownerSnapshot)
+      ) return;
+      setAnnouncementSaveStatus({
+        id: announcementId,
+        saved: current?.saved ?? false,
+        loading: false,
+        mutating: false,
+        error: targetSaved
+          ? "Duyuru kaydedilemedi. Lütfen tekrar dene."
+          : "Duyuru kayıtlı içeriklerden çıkarılamadı. Lütfen tekrar dene."
+      });
+    }
+  }
+
   function loadProtectedAnnouncementDetail(announcementId: string): void {
+    loadAnnouncementSavedStatus(announcementId);
     const requestGeneration = ++announcementDetailRequestGenerationRef.current;
     const cachedItem = buildContentFeed({
       academic: announcementFeed,
@@ -2382,10 +2562,28 @@ function MainApplication() {
     if (hydrationInProgressRef.current) return;
     hydrationInProgressRef.current = true;
     setHydrationStatus("loading");
+    setPreloginWelcomeGate("loading");
     setHydrationError(null);
     setCleanupIssue(null);
     try {
       await restoreDeviceId();
+      const [storedWelcomeCompletion, storedSessionValue] = await Promise.all([
+        getStoredValue(PRELOGIN_WELCOME_COMPLETION_STORAGE_KEY),
+        getStoredValue(SESSION_STORAGE_KEY),
+      ]);
+      const resolvedWelcomeGate = resolvePreloginWelcomeGate({
+        storedCompletion: storedWelcomeCompletion,
+        storedSession: storedSessionValue,
+      });
+      if (resolvedWelcomeGate === "restorable_session") {
+        setPreloginWelcomeGate("completed");
+        await setStoredValue(
+          PRELOGIN_WELCOME_COMPLETION_STORAGE_KEY,
+          PRELOGIN_WELCOME_COMPLETION_STORAGE_VALUE,
+        ).catch(() => undefined);
+      } else {
+        setPreloginWelcomeGate(resolvedWelcomeGate);
+      }
       let restoredSession = await restoreSession();
       const recoverableTargets: AccountCleanupTarget[] = [];
 
@@ -2494,8 +2692,8 @@ function MainApplication() {
         });
       }
 
-      await loadUniversities();
       if (restoredSession) {
+        await loadUniversities();
         const snapshot = accountGuardRef.current.capture();
         if (snapshot) {
           const contextReady = await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
@@ -2510,6 +2708,10 @@ function MainApplication() {
             });
           }
         }
+      } else {
+        // Public catalog data is useful on Register, but must not delay the
+        // fixed first-launch introduction or Login becoming interactive.
+        void loadUniversities();
       }
       setHydrationStatus("ready");
     } catch {
@@ -3684,6 +3886,31 @@ function MainApplication() {
     }
   }
 
+  function skipAcademicOnboarding(): void {
+    const activeSession = sessionRef.current;
+    const snapshot = accountGuardRef.current.capture();
+    const draftOwner = onboardingOwnerRef.current;
+    if (
+      !activeSession
+      || !snapshot
+      || !draftOwner
+      || activeSession.user.id !== snapshot.ownerId
+      || draftOwner.ownerId !== snapshot.ownerId
+      || draftOwner.generation !== snapshot.generation
+      || !accountGuardRef.current.isCurrent(draftOwner)
+    ) {
+      setMessage({ text: "Bu adım yalnızca doğrulanmış etkin oturum için geçilebilir.", tone: "error" });
+      return;
+    }
+
+    onboardingOwnerRef.current = null;
+    setMessage(null);
+    setAuthenticatedContextPending(false);
+    setActiveTab("home");
+    setActiveRoute("Home");
+    setAuthStage("auth");
+  }
+
   function openPasswordRecovery(candidateEmail = email): void {
     setEmail(candidateEmail.trim().toLowerCase());
     setPassword("");
@@ -4129,7 +4356,9 @@ function MainApplication() {
     contentFeedAbortControllerRef.current = null;
     contentFeedRequestCoordinatorRef.current.reset();
     announcementDetailRequestGenerationRef.current += 1;
+    announcementSaveRequestGenerationRef.current += 1;
     setAnnouncementDetailLoad(null);
+    setAnnouncementSaveStatus(null);
     setActiveTrustedDetail(null);
     setActiveCalendarDetail(null);
     setPreferences({ loading: false });
@@ -6458,6 +6687,7 @@ function MainApplication() {
             onRetryFaculties={() => void loadFacultiesForRegistration(registerUniversityId)}
             onRetryUniversities={() => void loadUniversities()}
             onSave={() => void saveAcademicOnboarding()}
+            onSkip={skipAcademicOnboarding}
             onUniversityChange={(value) => updateOnboardingDraft(
               selectAcademicUniversity(academicOnboardingDraft, value)
             )}
@@ -7977,6 +8207,7 @@ function MainApplication() {
       onLoadMore={() => void loadMoreContentFeed()}
       onRetryPagination={() => void loadMoreContentFeed()}
       onOpenItem={openContentFeedItem}
+      onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
       onOpenYok={() => requestAppRoute("YokAnnouncements")}
       onOpenSummerSchool={() => requestAppRoute("SummerSchool")}
     />
@@ -8143,6 +8374,23 @@ function MainApplication() {
         ? () => loadProtectedAnnouncementDetail(announcementDetailLoad.id)
         : undefined}
       onOpenOfficialSource={openAnnouncement}
+      onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
+      onToggleSaved={() => routeBoundAnnouncementDetail
+        ? toggleAnnouncementSaved(routeBoundAnnouncementDetail.id)
+        : Promise.resolve()}
+      saved={Boolean(
+        routeBoundAnnouncementDetail
+        && announcementSaveStatus?.id === routeBoundAnnouncementDetail.id
+        && announcementSaveStatus.saved
+      )}
+      saveError={routeBoundAnnouncementDetail && announcementSaveStatus?.id === routeBoundAnnouncementDetail.id
+        ? announcementSaveStatus.error
+        : undefined}
+      saveLoading={Boolean(
+        routeBoundAnnouncementDetail
+        && announcementSaveStatus?.id === routeBoundAnnouncementDetail.id
+        && (announcementSaveStatus.loading || announcementSaveStatus.mutating)
+      )}
     />
   );
   const calendarTrustedDetail = (
@@ -8301,6 +8549,7 @@ function MainApplication() {
         mode={alarmMode}
         onCategoryChange={updateCategory}
         onModeChange={updateAlarmMode}
+        onBack={() => requestAppRoute("Profile")}
         onOpenSettings={() => openNotificationSettings()}
         onPreferenceEnabledChange={updateAlarmEnabled}
         onRetry={() => void retryNotificationSettings()}
@@ -8369,6 +8618,27 @@ function MainApplication() {
     </>
   ) : null;
 
+  async function completePreloginWelcome(): Promise<void> {
+    if (preloginWelcomeGate === "saving") return;
+    setPreloginWelcomeGate("saving");
+    try {
+      await setStoredValue(
+        PRELOGIN_WELCOME_COMPLETION_STORAGE_KEY,
+        PRELOGIN_WELCOME_COMPLETION_STORAGE_VALUE,
+      );
+    } catch {
+      // Continue in memory; the next successful session restore repairs the
+      // installation flag without exposing a low-level storage error.
+    } finally {
+      // A transient storage failure must never trap someone on the welcome
+      // screen. Persistence is retried on a later successful session restore.
+      setPreloginWelcomeGate("completed");
+      setAuthMode("login");
+      setAuthStage("auth");
+      setActiveRoute("Login");
+    }
+  }
+
   const routeLeaveGuard: AppRouteLeaveGuard | null =
     academicProfileDirty
       ? {
@@ -8393,6 +8663,12 @@ function MainApplication() {
   const screens: AppScreenSlots = {
     BootstrapLoading: bootstrapLoading,
     BootstrapError: bootstrapError,
+    Introduction: (
+      <PreLoginWelcomeScreen
+        busy={preloginWelcomeGate === "saving"}
+        onContinue={() => void completePreloginWelcome()}
+      />
+    ),
     Login: renderRoutedScreen("Login"),
     Register: renderRoutedScreen("Register"),
     Verification: renderRoutedScreen("Verification"),
@@ -8417,8 +8693,8 @@ function MainApplication() {
 
   return (
     <SafeAreaProvider>
-      <ThemeProvider>
-        <StatusBar style="auto" />
+      <ThemeProvider preference="light">
+        <RoutedStatusBar />
         <AppNavigator
           rootSurface={navigatorRootSurface}
           activeRoute={controlledActiveRoute}
@@ -8439,7 +8715,22 @@ function MainApplication() {
   );
 }
 
+function RoutedStatusBar() {
+  return (
+    <StatusBar
+      style="dark"
+      translucent
+    />
+  );
+}
+
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
   const showPhase10ProfilePreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW === "1";
   const showPhase9CalendarPreview = __DEV__
@@ -8454,6 +8745,10 @@ export default function App() {
     && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
+
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
 
   if (showPhase10ProfilePreview) {
     const previewTheme = process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW_THEME === "dark"
@@ -8539,8 +8834,8 @@ export default function App() {
   if (showPhase4DesignPreview) {
     return (
       <SafeAreaProvider>
-        <ThemeProvider>
-          <StatusBar style="auto" />
+        <ThemeProvider preference="light">
+          <StatusBar style="dark" />
           <DesignSystemPreview />
         </ThemeProvider>
       </SafeAreaProvider>

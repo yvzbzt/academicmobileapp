@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import type { TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
+import type {
+  AcademicContentBodyBlockDto,
+  AcademicContentKeyDateDto,
+  TrustedAcademicContentDto
+} from "../../../../../packages/shared/src/contracts.js";
 import type {
   AnnouncementContentType,
   AnnouncementItem,
@@ -164,6 +168,182 @@ export function normalizeDisplayText(input: string | undefined, maximumLength = 
     .replace(/\s+/gu, " ")
     .trim();
   return truncateAtWord(decoded, maximumLength);
+}
+
+const richBodyMarker = "\uE000ACADEMIC_BODY\uE001";
+const turkishMonthNumbers: Readonly<Record<string, number>> = {
+  ocak: 1,
+  subat: 2,
+  mart: 3,
+  nisan: 4,
+  mayis: 5,
+  haziran: 6,
+  temmuz: 7,
+  agustos: 8,
+  eylul: 9,
+  ekim: 10,
+  kasim: 11,
+  aralik: 12
+};
+
+/** Converts source-owned HTML/text into a small, plain-text presentation AST. */
+export function sanitizeAcademicContentBody(input: string | undefined): AcademicContentBodyBlockDto[] {
+  if (!input?.trim()) return [];
+  const prepared = input.slice(0, 60_000)
+    .replace(/<!--([\s\S]*?)-->/gu, " ")
+    .replace(/<(?:script|style|template|noscript|svg|math|iframe|object|embed|form)\b[^>]*>[\s\S]*?<\/(?:script|style|template|noscript|svg|math|iframe|object|embed|form)\s*>/giu, " ")
+    .replace(/<h[1-6]\b[^>]*>/giu, `\n${richBodyMarker}heading:`)
+    .replace(/<li\b[^>]*>/giu, `\n${richBodyMarker}bullet:`)
+    .replace(/<(?:p|div|section|article|blockquote|tr)\b[^>]*>/giu, `\n${richBodyMarker}paragraph:`)
+    .replace(/<br\s*\/?\s*>/giu, `\n${richBodyMarker}paragraph:`)
+    .replace(/<\/(?:h[1-6]|li|p|div|section|article|blockquote|tr)\s*>/giu, "\n")
+    .replace(/\r\n?/gu, "\n");
+  const blocks: AcademicContentBodyBlockDto[] = [];
+  let totalLength = 0;
+  for (const rawLine of prepared.split(/\n+/u)) {
+    const marker = rawLine.startsWith(richBodyMarker)
+      ? /^(?:\uE000ACADEMIC_BODY\uE001)(heading|paragraph|bullet):/u.exec(rawLine)
+      : null;
+    const type = marker?.[1] === "heading" || marker?.[1] === "bullet"
+      ? marker[1]
+      : "paragraph";
+    const text = normalizeDisplayText(marker ? rawLine.slice(marker[0].length) : rawLine, 800);
+    if (!text) continue;
+    if (totalLength + text.length > 12_000 || blocks.length >= 48) break;
+    const previous = blocks.at(-1);
+    if (previous?.type === type && previous.text === text) continue;
+    blocks.push({ type, text });
+    totalLength += text.length;
+  }
+  return blocks;
+}
+
+/** Revalidates stored structured body data before serialization. */
+export function normalizeAcademicContentBodyBlocks(input: unknown): AcademicContentBodyBlockDto[] {
+  if (!Array.isArray(input)) return [];
+  const blocks: AcademicContentBodyBlockDto[] = [];
+  let totalLength = 0;
+  for (const candidate of input.slice(0, 48)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const value = candidate as Record<string, unknown>;
+    if (value.type !== "heading" && value.type !== "paragraph" && value.type !== "bullet") continue;
+    const text = normalizeDisplayText(typeof value.text === "string" ? value.text : undefined, 800);
+    if (!text || totalLength + text.length > 12_000) continue;
+    blocks.push({ type: value.type, text });
+    totalLength += text.length;
+  }
+  return blocks;
+}
+
+/** Extracts only explicit source-declared date or date-range statements. */
+export function extractAcademicContentKeyDates(
+  body: readonly AcademicContentBodyBlockDto[]
+): AcademicContentKeyDateDto[] {
+  const dates: AcademicContentKeyDateDto[] = [];
+  let headingHint = "";
+  for (const block of body) {
+    if (block.type === "heading") headingHint = normalizeDisplayText(block.text, 160);
+    const parsed = parseExplicitKeyDate(block.text, headingHint);
+    if (!parsed) continue;
+    const key = `${parsed.label}\u0000${parsed.startDate}\u0000${parsed.endDate ?? ""}`;
+    if (dates.some((date) => `${date.label}\u0000${date.startDate}\u0000${date.endDate ?? ""}` === key)) continue;
+    dates.push(parsed);
+    if (dates.length >= 16) break;
+  }
+  return dates;
+}
+
+/** Revalidates stored key dates and rejects impossible or inverted ranges. */
+export function normalizeAcademicContentKeyDates(input: unknown): AcademicContentKeyDateDto[] {
+  if (!Array.isArray(input)) return [];
+  const dates: AcademicContentKeyDateDto[] = [];
+  for (const candidate of input.slice(0, 16)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const value = candidate as Record<string, unknown>;
+    const label = normalizeDisplayText(typeof value.label === "string" ? value.label : undefined, 160);
+    const startDate = validDateOnly(typeof value.startDate === "string" ? value.startDate : "");
+    const endDate = validDateOnly(typeof value.endDate === "string" ? value.endDate : "");
+    if (!label || !startDate || (endDate && endDate < startDate)) continue;
+    dates.push({ label, startDate, ...(endDate && endDate !== startDate ? { endDate } : {}) });
+  }
+  return dates;
+}
+
+function parseExplicitKeyDate(text: string, headingHint: string): AcademicContentKeyDateDto | null {
+  const normalized = normalizeDisplayText(text, 800);
+  const patterns: Array<{ expression: RegExp; parse: (match: RegExpExecArray) => { startDate: string; endDate?: string } | null }> = [
+    {
+      expression: /(\d{4}-\d{2}-\d{2})(?:\s*(?:-|–|—|ile)\s*(\d{4}-\d{2}-\d{2}))?/iu,
+      parse: (match) => dateRange(match[1], match[2])
+    },
+    {
+      expression: /(\d{1,2})[./](\d{1,2})[./](\d{4})(?:\s*(?:-|–|—|ile)\s*(\d{1,2})[./](\d{1,2})[./](\d{4}))?/iu,
+      parse: (match) => dateRange(
+        isoCalendarDate(Number(match[3]), Number(match[2]), Number(match[1])),
+        match[4] ? isoCalendarDate(Number(match[6]), Number(match[5]), Number(match[4])) : undefined
+      )
+    },
+    {
+      expression: /(\d{1,2})\s+([\p{L}]+)\s*(?:-|–|—|ile)\s*(\d{1,2})\s+([\p{L}]+)\s+(\d{4})/iu,
+      parse: (match) => dateRange(
+        turkishCalendarDate(match[1], match[2], match[5]),
+        turkishCalendarDate(match[3], match[4], match[5])
+      )
+    },
+    {
+      expression: /(\d{1,2})\s*(?:-|–|—|ile)\s*(\d{1,2})\s+([\p{L}]+)\s+(\d{4})/iu,
+      parse: (match) => dateRange(
+        turkishCalendarDate(match[1], match[3], match[4]),
+        turkishCalendarDate(match[2], match[3], match[4])
+      )
+    },
+    {
+      expression: /(\d{1,2})\s+([\p{L}]+)\s+(\d{4})/iu,
+      parse: (match) => dateRange(turkishCalendarDate(match[1], match[2], match[3]))
+    }
+  ];
+  for (const { expression, parse } of patterns) {
+    const match = expression.exec(normalized);
+    if (!match) continue;
+    const range = parse(match);
+    if (!range) continue;
+    const inlineLabel = normalizeDisplayText(normalized.slice(0, match.index).replace(/^[•*\-–—\s]+|[\s:;,.\-–—]+$/gu, ""), 160);
+    const label = inlineLabel || headingHint;
+    if (!label || (label.match(/[\p{L}]/gu)?.length ?? 0) < 2) return null;
+    return { label, ...range };
+  }
+  return null;
+}
+
+function turkishCalendarDate(dayValue: string | undefined, monthValue: string | undefined, yearValue: string | undefined): string | undefined {
+  const month = monthValue ? turkishMonthNumbers[foldTurkish(monthValue)] : undefined;
+  return month ? isoCalendarDate(Number(yearValue), month, Number(dayValue)) : undefined;
+}
+
+function isoCalendarDate(year: number, month: number, day: number): string | undefined {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return undefined;
+  const value = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return validDateOnly(value);
+}
+
+function validDateOnly(value: string): string | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return year >= 1
+    && date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+    ? value
+    : undefined;
+}
+
+function dateRange(startDate: string | undefined, endDate?: string): { startDate: string; endDate?: string } | null {
+  if (!startDate || (endDate && endDate < startDate)) return null;
+  return { startDate, ...(endDate && endDate !== startDate ? { endDate } : {}) };
 }
 
 export function isNavigationOrChromeTitle(input: string | undefined): boolean {
@@ -390,6 +570,10 @@ export function toTrustedAcademicContentDto(
   const sourceUpdatedAt = item.sourceUpdateTimeSource === "source" ? toIsoString(item.sourceUpdatedAt) : undefined;
   const publication = normalizeSourcePublication(item);
   const summary = normalizeDisplayText(item.summary, 1_200);
+  const body = normalizeAcademicContentBodyBlocks(item.body);
+  const keyDates = normalizeAcademicContentKeyDates(
+    item.keyDates?.length ? item.keyDates : extractAcademicContentKeyDates(body)
+  );
   const contentType = source.contentType ?? item.contentType ?? "announcement";
   const contentFingerprint = createNormalizedContentFingerprint({
     title: decision.title,
@@ -414,6 +598,8 @@ export function toTrustedAcademicContentDto(
     scopeId: source.scopeId,
     title: decision.title,
     ...(summary ? { summary } : {}),
+    ...(body.length ? { body } : {}),
+    ...(keyDates.length ? { keyDates } : {}),
     link: decision.canonicalUrl,
     canonicalUrl: decision.canonicalUrl,
     canonicalUrlAliases,
@@ -455,6 +641,10 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
     const discoveredAt = toIsoString(item.discoveredAt);
     const fetchedAt = toIsoString(item.fetchedAt);
     const summary = normalizeDisplayText(item.summary, 1_200);
+    const body = normalizeAcademicContentBodyBlocks(item.body);
+    const keyDates = normalizeAcademicContentKeyDates(
+      item.keyDates?.length ? item.keyDates : extractAcademicContentKeyDates(body)
+    );
     const contentFingerprint = createNormalizedContentFingerprint({
       title: decision.title,
       ...(summary ? { summary } : {}),
@@ -483,6 +673,8 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
       ...(sourceUpdatedAt ? { sourceUpdatedAt, sourceUpdateTimeSource: "source" as const } : {}),
       ...(discoveredAt ? { discoveredAt } : {}),
       ...(summary ? { summary } : {}),
+      ...(body.length ? { body } : {}),
+      ...(keyDates.length ? { keyDates } : {}),
       ...(fetchedAt ? { fetchedAt } : {}),
       freshness: item.freshness === "stale" ? "stale" : "fresh",
       trustStatus: "trusted",

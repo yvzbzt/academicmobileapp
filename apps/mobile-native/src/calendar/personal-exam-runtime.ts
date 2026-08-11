@@ -14,6 +14,7 @@ import {
 export interface PersonalExamMutationInput {
   title: string;
   examDate: string;
+  locationNote?: string;
 }
 
 export type PersonalExamMutationResult =
@@ -241,11 +242,21 @@ export class PersonalExamRuntime {
 
 function normalizeMutationInput(
   input: PersonalExamMutationInput,
-): { title: string; examDate: string } | null {
+): { title: string; examDate: string; locationNote?: string } | null {
   const title = input.title.normalize("NFKC").replace(/\s+/gu, " ").trim();
   const examDate = new Date(input.examDate);
-  if (!title || title.length > 160 || Number.isNaN(examDate.getTime())) return null;
-  return { title, examDate: examDate.toISOString() };
+  const locationNote = input.locationNote?.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  if (
+    !title
+    || title.length > 160
+    || Number.isNaN(examDate.getTime())
+    || (locationNote?.length ?? 0) > 240
+  ) return null;
+  return {
+    title,
+    examDate: examDate.toISOString(),
+    ...(locationNote ? { locationNote } : {}),
+  };
 }
 
 function cloneState(state: PersonalExamRuntimeState): PersonalExamRuntimeState {

@@ -185,7 +185,7 @@ describe("Phase 8 synthetic content-feed preview", () => {
     expect(screen.getAllByText(/preview\.edu\.tr/iu).length).toBeGreaterThan(0);
     await act(async () => {
       fireEvent.press(
-        screen.getByRole("button", { name: /Resmî kaynağı aç/iu }),
+        screen.getByRole("button", { name: /Resmî bağlantıyı aç/iu }),
       );
       await Promise.resolve();
     });

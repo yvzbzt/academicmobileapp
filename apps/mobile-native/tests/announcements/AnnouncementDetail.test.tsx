@@ -84,9 +84,11 @@ function item(
 
 const callbacks = {
   onBack: jest.fn(),
+  onOpenNotificationSettings: jest.fn(),
   onOpenOfficialSource: jest.fn<Promise<boolean>, [string]>(),
   onRetry: jest.fn(),
   onShareResult: jest.fn(),
+  onToggleSaved: jest.fn<Promise<void>, []>(),
 };
 
 function detailProps(
@@ -94,7 +96,9 @@ function detailProps(
 ): AnnouncementDetailProps {
   return {
     item: item(),
+    onOpenNotificationSettings: callbacks.onOpenNotificationSettings,
     onOpenOfficialSource: callbacks.onOpenOfficialSource,
+    onToggleSaved: callbacks.onToggleSaved,
     ...overrides,
   };
 }
@@ -134,6 +138,7 @@ describe("Phase 8 announcement detail", () => {
       width: 320,
     });
     callbacks.onOpenOfficialSource.mockResolvedValue(true);
+    callbacks.onToggleSaved.mockResolvedValue();
   });
 
   it("renders an admitted normalized detail, source identity, both source dates, and domain disclosure", async () => {
@@ -157,6 +162,44 @@ describe("Phase 8 announcement detail", () => {
     expect(screen.getAllByText(/example\.edu\.tr/iu).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Duyuru · Üniversite")).toBeOnTheScreen();
     expect(screen.queryByText(/<strong>|&amp;|<p>/iu)).not.toBeOnTheScreen();
+  });
+
+  it("uses the reference source pill, article card, trust callout, and fixed action treatment", async () => {
+    await renderDetail(detailProps());
+
+    expect(screen.getByTestId("announcement-detail-source-pill")).toBeOnTheScreen();
+    expect(screen.getByTestId("announcement-detail-article-card")).toBeOnTheScreen();
+    expect(screen.getByTestId("announcement-detail-sticky-actions")).toBeOnTheScreen();
+    expect(screen.getByText("Ders kayıtları ve danışman onayları için güvenli özet.")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Paylaş" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", {
+      name: "Resmî bağlantıyı aç: example.edu.tr",
+    })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Kaydet" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Bildirim tercihlerini yönet" })).toBeOnTheScreen();
+  });
+
+  it("renders sanitized rich body blocks and explicit key-date ranges", async () => {
+    await renderDetail(detailProps({
+      item: item({
+        body: [
+          { type: "paragraph", text: "Üniversitemiz senato kararıyla takvimi güncellemiştir." },
+          { type: "bullet", text: "Sınav yerinizi öğrenci portalından kontrol edin." },
+        ],
+        keyDates: [
+          { label: "Kayıt Yenileme", startDate: "2026-05-20", endDate: "2026-05-24" },
+          { label: "Final Sınavları", startDate: "2026-06-23", endDate: "2026-07-04" },
+        ],
+      }),
+    }));
+
+    expect(screen.getByTestId("announcement-detail-rich-body")).toBeOnTheScreen();
+    expect(screen.getByText("Üniversitemiz senato kararıyla takvimi güncellemiştir.")).toBeOnTheScreen();
+    expect(screen.getByText("Sınav yerinizi öğrenci portalından kontrol edin.")).toBeOnTheScreen();
+    expect(screen.getByTestId("announcement-detail-key-dates")).toBeOnTheScreen();
+    expect(screen.getByText("Kayıt Yenileme")).toBeOnTheScreen();
+    expect(screen.getByText("20 Mayıs 2026 – 24 Mayıs 2026")).toBeOnTheScreen();
+    expect(screen.getByText("23 Haziran 2026 – 04 Temmuz 2026")).toBeOnTheScreen();
   });
 
   it("renders an Istanbul source date without inventing midnight or a clock", async () => {
@@ -201,7 +244,7 @@ describe("Phase 8 announcement detail", () => {
   it("opens the specific canonical content URL, not the source listing URL", async () => {
     await renderDetail(detailProps());
     fireEvent.press(screen.getByRole("button", {
-      name: "Resmî kaynağı aç: example.edu.tr",
+      name: "Resmî bağlantıyı aç: example.edu.tr",
     }));
     await waitFor(() => expect(callbacks.onOpenOfficialSource).toHaveBeenCalledWith(
       "https://example.edu.tr/duyurular/detail-record",
@@ -218,7 +261,7 @@ describe("Phase 8 announcement detail", () => {
     callbacks.onOpenOfficialSource.mockImplementation(implementation);
     await renderDetail(detailProps());
     fireEvent.press(screen.getByRole("button", {
-      name: "Resmî kaynağı aç: example.edu.tr",
+      name: "Resmî bağlantıyı aç: example.edu.tr",
     }));
     expect(await screen.findByText("İşlem tamamlanamadı")).toBeOnTheScreen();
     expect(screen.getByText("Resmî kaynak açılamadı. Lütfen tekrar dene.")).toBeOnTheScreen();
@@ -286,7 +329,7 @@ describe("Phase 8 announcement detail", () => {
     await renderDetail(detailProps({ item: detailItem }));
     expect(screen.getByRole("header", { name: "İçerik açılamadı" })).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Paylaş" })).not.toBeOnTheScreen();
-    expect(screen.queryByRole("button", { name: /Resmî kaynağı aç/iu })).not.toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: /Resmî bağlantıyı aç/iu })).not.toBeOnTheScreen();
   });
 
   it("keeps loading and error states exclusive with one accessible busy indicator", async () => {
@@ -304,12 +347,15 @@ describe("Phase 8 announcement detail", () => {
     expect(callbacks.onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("renders only actions supported by real contracts and an optional preview back action", async () => {
+  it("renders the real share/save actions, notification handoff, and an optional preview back action", async () => {
     await renderDetail(detailProps({ onBack: callbacks.onBack }));
     fireEvent.press(screen.getByRole("button", { name: "Duyurulara geri dön" }));
     expect(callbacks.onBack).toHaveBeenCalledTimes(1);
+    fireEvent.press(screen.getByRole("button", { name: "Kaydet" }));
+    await waitFor(() => expect(callbacks.onToggleSaved).toHaveBeenCalledTimes(1));
+    fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini yönet" }));
+    expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(1);
     for (const unsupported of [
-      "Kaydet",
       "Okundu olarak işaretle",
       "Takvime ekle",
       "Ekler",
@@ -319,6 +365,21 @@ describe("Phase 8 announcement detail", () => {
     ]) {
       expect(screen.queryByRole("button", { name: unsupported })).not.toBeOnTheScreen();
     }
+  });
+
+  it("exposes saved, loading, and contained save-error states", async () => {
+    const saved = await renderDetail(detailProps({ saved: true }));
+    expect(screen.getByRole("button", { name: "Kaydedildi" })).toBeOnTheScreen();
+    await saved.unmountAsync();
+
+    const loading = await renderDetail(detailProps({ saveLoading: true }));
+    expect(screen.getByRole("button", { name: "Kaydet" }).props.accessibilityState)
+      .toEqual(expect.objectContaining({ busy: true, disabled: true }));
+    await loading.unmountAsync();
+
+    await renderDetail(detailProps({ saveError: "Duyuru kaydedilemedi. Lütfen tekrar dene." }));
+    expect(screen.getByText("Duyuru kaydedilemedi. Lütfen tekrar dene.")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Ders kayıt takvimi açıklandı" })).toBeOnTheScreen();
   });
 
   it("uses opaque Android/iOS detail markers at 320 dp and 200% text", async () => {

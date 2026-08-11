@@ -1,117 +1,109 @@
-# Student Mobile Native App (React Native + Expo)
+# Academic Calendar Mobile
 
-Native student app for academic calendar tracking and alarm preferences.
+Academic Calendar Mobile is the React Native and Expo client for the Academic Calendar platform. It targets Android and iOS and provides a personalized view of official academic dates, trusted university announcements, reminders, and calendar integrations.
 
-## Scripts
+## Product Experience
 
-- `npm run start` starts Expo development server.
-- `npm run android` runs on Android emulator/device.
-- `npm run ios` runs on iOS simulator/device (macOS required for simulator).
-- `npm run web` runs Expo web preview.
-- `npm run typecheck` runs TypeScript checks.
+- A one-time, single-screen introduction followed by email or Google authentication.
+- Guided registration and academic-profile setup for university, faculty, department, and year.
+- Four primary destinations: Home, Announcements, Calendar, and Profile.
+- A daily brief with upcoming exams, events, deadlines, and featured announcements.
+- Searchable, source-attributed announcements with filters, saved items, and detail views.
+- Agenda, week, and month calendar views with personal exam creation.
+- Notification categories, quiet hours, and device-level delivery status.
+- Owner-scoped Google Calendar synchronization with explicit disconnect, cleanup, and revoke actions.
+- Secure session storage, recent-authentication checks, and account/data deletion flows.
 
-From repository root:
+The visual contract, responsive behavior, accessibility rules, and screen inventory are maintained in the [mobile redesign documentation](../../docs/mobile-native-redesign/README.md).
 
-- `npm run dev:mobile:native`
-- `npm run android:mobile:native`
-- `npm run ios:mobile:native`
-- `npm run typecheck:mobile:native`
+## Requirements
 
-## Features
+- Node.js 22 and npm
+- A running Academic Calendar API
+- Android Studio and a supported JDK for Android development
+- macOS with Xcode for iOS development
 
-- Student register/login/logout with device id.
-- University selection and profile linking.
-- Published calendar and upcoming events.
-- Direct, owner-scoped Google Calendar synchronization for academic dates and trusted, source-dated announcements/events, with live connection verification, partial-result reporting, account change, disconnect, managed-event removal, and OAuth revoke choices.
-- Alarm controls:
-  - `All Calendar`: enables alarms for all academic categories.
-  - `Selected Fields`: enables alarms for chosen categories only.
-- Notification delivery lifecycle: explicit OS permission, FCM token acquisition/rotation, owner-bound backend registration/detach, and honest inactive/error states.
-- Exact notification destinations for trusted announcements and calendar events, revalidated for the current owner before opening.
+Expo Go is not supported because the app uses native Firebase Messaging and Google Sign-In modules. Use a development build, emulator, simulator, or physical device.
 
-## API Base URL Notes
+## Installation
 
-API base URL is now resolved automatically in this order:
+From the repository root:
 
-1. `EXPO_PUBLIC_API_URL` (if defined)
-2. Expo dev bundle host (same machine IP as Metro, port `3000`)
-3. Platform fallback defaults
+```bash
+npm --prefix apps/mobile-native install
+cp apps/mobile-native/.env.example apps/mobile-native/.env
+```
 
-Fallback defaults:
+## Configuration
 
-- Production APK: `https://academic-api.anssoft.com.tr`
-- iOS simulator: `http://localhost:3000`
-- Android emulator: `http://10.0.2.2:3000`
+Available public client settings are documented in [`.env.example`](./.env.example). The API base URL is resolved in this order:
 
-For local override, copy `.env.example` to `.env` in this folder and set:
+1. `EXPO_PUBLIC_API_URL`
+2. The Expo development bundle host on port `3000`
+3. The platform fallback
 
-- `EXPO_PUBLIC_API_URL=http://192.168.1.20:3000`
+Fallbacks are `http://10.0.2.2:3000` for the Android emulator, `http://localhost:3000` for the iOS simulator, and `https://academic-api.anssoft.com.tr` for production builds.
 
-## Google Login Notes
+Provider integrations require environment-specific configuration:
 
-Mobile Google login does not use Firebase authorized domains. Android needs:
+- Android Google Sign-In requires an Android OAuth client for package `com.anssoft.akademiktakvim` and the signing certificate SHA-1.
+- Backend Google authentication requires a Web OAuth client ID in `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`; the API must allow the corresponding client IDs.
+- Google Calendar synchronization requires the Google Calendar API and the `calendar.events` scope.
+- iOS requires its own OAuth client, Firebase application, signing identity, and APNs configuration.
+- Push delivery requires matching Firebase native configuration and authorized Firebase Admin credentials on the API.
 
-- Android OAuth Client ID for package `com.anssoft.akademiktakvim` and the APK signing SHA-1.
-- Web OAuth Client ID set as `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, so Google Sign-In returns an ID token for the backend.
+Do not commit `.env`, `google-services.json`, `GoogleService-Info.plist`, keystores, signing properties, service-account files, or provider secrets.
 
-The VPS backend must include both client IDs in `GOOGLE_OAUTH_CLIENT_IDS`.
+## Development
 
-If the APK shows a raw React Native Google Sign-In troubleshooting error, code `10`, or `DEVELOPER_ERROR`, treat it as a Google/Firebase configuration mismatch:
+Run Metro from the repository root:
 
-- Confirm `android/app/build.gradle` uses application ID `com.anssoft.akademiktakvim`.
-- Confirm the Android OAuth client in Google Cloud/Firebase uses that exact package name.
-- Confirm the OAuth Android client has the SHA-1 of the APK/AAB signing certificate.
-- For the current Play upload key, the SHA-1 in the last build report was `5F:59:8B:3A:F3:3E:9F:BA:E6:07:59:E3:38:29:61:79:A1:C0:27:47`.
-- After Google Play App Signing is enabled, also add the Play Console app-signing SHA-1 from Play Console > Setup > App integrity.
-- Confirm `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` is a Web OAuth client ID, not an Android OAuth client ID.
+```bash
+npm run dev:mobile:native
+```
 
-## Google Calendar Lifecycle Notes
+Launch a native target:
 
-The app checks the current academic profile, network, calendar response, and trusted announcement response before it can show Google account/scope authorization. Stored connection metadata is never treated as proof of connection: restore must verify the current Google account/token against the Calendar API.
+```bash
+npm run android:mobile:native
+npm run ios:mobile:native
+```
 
-Only source-authored publication/update dates are transferable. Discovery, crawl, and fetch timestamps are not calendar dates. The app mutates only events marked with its private managed and owner properties; personal Google Calendar events are not selected for update or deletion.
+Equivalent commands from this directory are `npm run start`, `npm run android`, and `npm run ios`.
 
-The selected Google Cloud project must have the Calendar API enabled and permit the `calendar.events` scope. iOS also requires its own `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` and matching native OAuth/Firebase configuration; the Android and Web client IDs are not substitutes for it.
+## Validation
 
-The Calendar screen exposes distinct actions:
+```bash
+npm run typecheck
+npm run test:native
+```
 
-- Disconnect and leave existing managed events in Google Calendar.
-- Remove the current Academic Calendar owner's managed events, then disconnect.
-- Revoke Google access while leaving existing events in place.
-- Change account after choosing whether old managed events remain or are removed.
+From the repository root, use `npm run typecheck:mobile:native` and `npm run test:mobile:native`. Root API and shared-contract validation is covered by `npm run validate`.
 
-Ordinary disconnect or revoke keeps a token-free disconnected ledger so a later data/account deletion for the same app owner can still attempt removal after reauthorization. Choosing to keep old events during account switch is different: the new account replaces that ledger, so the intentionally retained old-account records can be removed only after reconnecting that Google account.
+## Android Release Build
 
-Logout clears local Google metadata and signs out locally but intentionally leaves the OAuth grant and remote managed events. `Verilerimi Sil` and `Hesabımı Sil` instead attempt removal known through the current ledger followed by access revocation and report incomplete cleanup for retry.
+The generated `android/` project and release-signing configuration are local build inputs and remain ignored. Generate or synchronize the native project, configure an authorized release keystore outside version control, and then build from `apps/mobile-native/android`:
 
-## Notification Delivery Notes
+```powershell
+.\gradlew.bat assembleRelease
+```
 
-A saved preference alone is not delivery. Delivery is shown as active only when the user enabled it, OS permission is granted, and the current app installation is registered with the API. Permission is requested only after the user's explicit enable/save action. A permanently denied state links to system notification settings.
+On macOS or Linux, run `./gradlew assembleRelease`. The default APK output is `app/build/outputs/apk/release/app-release.apk`. Verify the package name, version code, signature, and checksum before distribution; do not commit the resulting APK or AAB.
 
-Native delivery uses React Native Firebase Messaging with Expo Notifications for permission, Android channels, local foreground presentation, and a strict tap fallback. React Native Firebase 26 requires the React Native New Architecture, which is enabled in `app.json`; Expo Go is not a valid runtime for this native path. The API stores the FCM token required for delivery, but hashes the stable app installation ID before persistence; registration responses and delivery/admin audit DTOs never return the raw token. Android channels are `academic-reminders` and `academic-updates`.
+## Data and Integration Boundaries
 
-Provider-visible push title/body text is deliberately generic. After an owner/schema check, the authenticated app resolves only `GET /announcements/my/trusted/:announcementId` or `GET /calendar/my/trusted/:eventId`; it never searches a capped collection or falls back to another record. The worker atomically claims jobs and re-reads the active registration immediately before every provider send so a concurrent worker or account/token rebind cannot silently use a stale registration.
+- Only trusted, owner-authorized announcement and calendar destinations are opened.
+- Google synchronization mutates only events marked as managed by this application; unrelated personal events are never selected for update or deletion.
+- Disconnecting Google Calendar can leave managed events in place, while cleanup and revoke actions are explicit.
+- Signing out clears local integration metadata but does not silently revoke provider access or delete remote events.
+- Data and account deletion attempt managed-event cleanup and access revocation, and report incomplete provider cleanup instead of claiming success.
+- Device-calendar mapping code is dormant reference logic; the active integration uses the Google Calendar API and requests no device-calendar permission.
 
-Native/provider requirements:
+## Documentation
 
-- Android and iOS need authorized Firebase native app configuration for the matching bundle/package.
-- The API sender needs authorized Firebase Admin/FCM credentials.
-- iOS additionally needs an authorized `GoogleService-Info.plist`, APNs configuration, and a macOS/Xcode build environment.
-- Expo Go/web output is not evidence for these native modules or provider delivery.
-
-The current Windows QA environment has only an API 24 Android AVD. It cannot demonstrate API 26+ channel behavior or the API 33+ notification permission prompt. The repository has no authorized iOS `GoogleService-Info.plist` or non-production APNs/FCM delivery fixture, so iOS token/delivery and real provider sends remain explicit evidence blockers.
-
-## Native Device Calendar Boundary
-
-`src/native-calendar` is retained as dormant reference logic only. It is not wired into `App.tsx`, has no installed device-calendar adapter/dependency, requests no calendar permission, and performs no runtime synchronization. The working calendar integration described above is Google Calendar REST synchronization.
-
-## Account Deletion
-
-Google Play's public account deletion URL is:
-
-- `https://akademiksil.anssoft.com.tr/account-deletion`
-
-The mobile app exposes two profile actions:
-
-- `Verilerimi Sil`: removes school selection, notification preferences/device records, alarms, and user-scoped app data while keeping the account active; it also attempts current-ledger Google managed-event removal and OAuth revocation without touching personal events. Old-account records intentionally retained during account switch require reconnecting that Google account.
-- `Hesabımı Sil`: removes app data and notification records, attempts current-ledger Google managed-event removal/revocation, revokes sessions, anonymizes the account record, and allows the same email to register again later. Old-account records intentionally retained during account switch cannot be reached without reconnecting that account; other incomplete device/provider cleanup is reported rather than silently treated as complete.
+- [Design system and QA program](../../docs/mobile-native-redesign/README.md)
+- [Security controls](../../docs/04-security-hardening.md)
+- [Testing strategy](../../docs/05-test-strategy.md)
+- [Deployment guide](../../docs/08-devops-deployment.md)
+- [Firebase deployment](../../docs/15-firebase-deploy.md)
+- [Performance validation](./performance/README.md)

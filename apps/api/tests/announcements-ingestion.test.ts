@@ -467,6 +467,35 @@ describe("announcement discovery and ingestion", () => {
     })]);
   });
 
+  it("converts syndicated source content to sanitized body and explicit key-date blocks", () => {
+    const [item] = parseSyndicatedAnnouncements(
+      `<rss><channel><item>
+        <title>2026 Akademik Takvim Güncellemesi</title>
+        <link>https://example.edu.tr/duyuru/takvim-guncellemesi</link>
+        <description><![CDATA[Önemli akademik tarihler güncellendi.]]></description>
+        <content:encoded><![CDATA[
+          <script>alert('x')</script>
+          <p>Üniversitemiz senato kararıyla takvim güncellenmiştir.</p>
+          <h3>Kayıt Yenileme</h3><p>20 – 24 Mayıs 2026</p>
+          <h3>Final Sınavları</h3><p>23 Haziran – 04 Temmuz 2026</p>
+        ]]></content:encoded>
+      </item></channel></rss>`,
+      "https://example.edu.tr/duyurular"
+    );
+
+    expect(item?.body).toEqual(expect.arrayContaining([
+      { type: "paragraph", text: "Üniversitemiz senato kararıyla takvim güncellenmiştir." },
+      { type: "heading", text: "Kayıt Yenileme" },
+      { type: "paragraph", text: "20 – 24 Mayıs 2026" },
+    ]));
+    expect(item?.keyDates).toEqual([
+      { label: "Kayıt Yenileme", startDate: "2026-05-20", endDate: "2026-05-24" },
+      { label: "Final Sınavları", startDate: "2026-06-23", endDate: "2026-07-04" },
+    ]);
+    expect(JSON.stringify(item)).not.toContain("alert");
+    expect(JSON.stringify(item)).not.toContain("<script");
+  });
+
   it("never substitutes crawl time for a missing source publication time", () => {
     const source: AnnouncementSourceRecord = {
       id: "source-generic",

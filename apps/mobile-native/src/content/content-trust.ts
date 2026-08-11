@@ -3,6 +3,17 @@ export type ContentTrustStatus = "trusted" | "rejected" | "quarantined";
 export type ContentSourceStatus = "active" | "inactive";
 export type ContentCollectionState = "fresh" | "stale" | "partial";
 
+export interface MobileContentBodyBlock {
+  type: "heading" | "paragraph" | "bullet";
+  text: string;
+}
+
+export interface MobileContentKeyDate {
+  label: string;
+  startDate: string;
+  endDate?: string;
+}
+
 export interface MobileContentRecordInput {
   id: string;
   sourceId: string;
@@ -24,6 +35,8 @@ export interface MobileContentRecordInput {
   discoveredAt?: string;
   fetchedAt?: string;
   summary?: string;
+  body?: MobileContentBodyBlock[];
+  keyDates?: MobileContentKeyDate[];
   freshness?: ContentFreshness;
   trustStatus?: ContentTrustStatus;
   sourceStatus?: ContentSourceStatus;
@@ -285,6 +298,8 @@ export function admitTrustedContentRecord(
     || normalized.link !== record.link
     || normalized.officialSourceUrl !== record.officialSourceUrl
     || (record.summary !== undefined && normalized.summary !== record.summary)
+    || (record.body !== undefined && JSON.stringify(normalized.body ?? []) !== JSON.stringify(record.body))
+    || (record.keyDates !== undefined && JSON.stringify(normalized.keyDates ?? []) !== JSON.stringify(record.keyDates))
   ) return null;
   return normalized;
 }
@@ -447,6 +462,8 @@ function normalizeTrustedContentRecord(
   const sourceName = normalizeDisplayText(record.sourceName);
   if (!isExplicitAcademicSourceName(sourceName)) return null;
   const summary = normalizeDisplayText(record.summary);
+  const body = normalizeContentBodyBlocks(record.body);
+  const keyDates = normalizeContentKeyDates(record.keyDates);
   const publishedDate = record.publicationKind === "date" ? validDateOnly(record.publishedDate) : undefined;
   const publishedAt = record.publicationKind === "date" ? undefined : validIsoTimestamp(record.publishedAt);
   const publicationKind = publishedDate ? "date" as const : publishedAt ? "timestamp" as const : undefined;
@@ -456,9 +473,11 @@ function normalizeTrustedContentRecord(
   const {
     canonicalUrl: _canonicalUrl,
     canonicalUrlAliases: _canonicalUrlAliases,
+    body: _body,
     contentFingerprint: _contentFingerprint,
     discoveredAt: _discoveredAt,
     fetchedAt: _fetchedAt,
+    keyDates: _keyDates,
     officialSourceUrl: _officialSourceUrl,
     publicationKind: _publicationKind,
     publishedDate: _publishedDate,
@@ -504,6 +523,8 @@ function normalizeTrustedContentRecord(
     sourceRelationships,
     ...(contentFingerprint ? { contentFingerprint } : {}),
     ...(summary ? { summary } : {}),
+    ...(body.length ? { body } : {}),
+    ...(keyDates.length ? { keyDates } : {}),
     ...(publicationKind === "date" && publishedDate ? { publicationKind, publishedDate } : {}),
     ...(publicationKind === "timestamp" && publishedAt ? { publicationKind, publishedAt } : {}),
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
@@ -601,6 +622,37 @@ function validDateOnly(value: string | undefined): string | undefined {
   return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month)
     ? value
     : undefined;
+}
+
+function normalizeContentBodyBlocks(input: unknown): MobileContentBodyBlock[] {
+  if (!Array.isArray(input)) return [];
+  const blocks: MobileContentBodyBlock[] = [];
+  let totalLength = 0;
+  for (const candidate of input.slice(0, 48)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const value = candidate as Record<string, unknown>;
+    if (value.type !== "heading" && value.type !== "paragraph" && value.type !== "bullet") continue;
+    const text = normalizeDisplayText(typeof value.text === "string" ? value.text : undefined).slice(0, 800).trim();
+    if (!text || totalLength + text.length > 12_000) continue;
+    blocks.push({ type: value.type, text });
+    totalLength += text.length;
+  }
+  return blocks;
+}
+
+function normalizeContentKeyDates(input: unknown): MobileContentKeyDate[] {
+  if (!Array.isArray(input)) return [];
+  const dates: MobileContentKeyDate[] = [];
+  for (const candidate of input.slice(0, 16)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const value = candidate as Record<string, unknown>;
+    const label = normalizeDisplayText(typeof value.label === "string" ? value.label : undefined).slice(0, 160).trim();
+    const startDate = validDateOnly(typeof value.startDate === "string" ? value.startDate : undefined);
+    const endDate = validDateOnly(typeof value.endDate === "string" ? value.endDate : undefined);
+    if (!label || !startDate || (endDate && endDate < startDate)) continue;
+    dates.push({ label, startDate, ...(endDate && endDate !== startDate ? { endDate } : {}) });
+  }
+  return dates;
 }
 
 function validDate(value: string | undefined): Date | null {

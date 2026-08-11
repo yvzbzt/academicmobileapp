@@ -2,10 +2,10 @@ import { BadRequestException, Inject, Injectable, NotFoundException, Optional } 
 import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
-import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
-import { academicContentLogicalIdentityKey, compareAcademicContentDuplicateRecency, isOfficialContentUrl, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
+import { AnnouncementIngestionService, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
+import { academicContentLogicalIdentityKey, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
 import { fetchSourceItems, toAnnouncementItems, type ParsedAnnouncementItem } from "./announcement-parser.js";
-import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, SavedAnnouncementStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 @Injectable()
@@ -13,7 +13,7 @@ export class AnnouncementsService {
   constructor(
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
-    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
+    @Optional() @Inject("CatalogRepository") _catalogRepository?: CatalogRepository,
     @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService,
     @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
   ) {}
@@ -34,10 +34,12 @@ export class AnnouncementsService {
     };
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
     await this.announcementIngestionService?.ensureStaticAnnouncementSources();
-    let sources = await this.announcementRepository.listSourcesByScope(scopeInput);
+    const sources = await this.announcementRepository.listSourcesByScope(scopeInput);
     if (sources.length === 0) {
-      await this.discoverAndStoreUniversitySource(user.universityId);
-      sources = await this.announcementRepository.listSourcesByScope(scopeInput);
+      // Source discovery probes multiple external candidates and belongs to the
+      // scheduled/admin ingestion path. A student feed read must stay bounded
+      // when a university has not been configured or ingested yet.
+      return toContentCollection([], 0, 0);
     }
 
     const cachedItems = await this.announcementRepository.listItemsByScope({ ...scopeInput, limit: Math.max(boundedLimit * 4, 100) });
@@ -106,6 +108,26 @@ export class AnnouncementsService {
     } : trustedPresentation;
   }
 
+  async getMySavedAnnouncementStatus(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
+    await this.assertUserExists(userId);
+    const saved = await this.announcementRepository.findSavedAnnouncement(userId, announcementId);
+    return saved
+      ? { announcementId, saved: true, savedAt: saved.savedAt.toISOString() }
+      : { announcementId, saved: false };
+  }
+
+  async saveMyAnnouncement(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
+    await this.getMyTrustedAnnouncement(userId, announcementId);
+    const saved = await this.announcementRepository.saveAnnouncement(userId, announcementId, new Date());
+    return { announcementId, saved: true, savedAt: saved.savedAt.toISOString() };
+  }
+
+  async deleteMySavedAnnouncement(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
+    await this.assertUserExists(userId);
+    await this.announcementRepository.deleteSavedAnnouncement(userId, announcementId);
+    return { announcementId, saved: false };
+  }
+
   async getYokAnnouncements(limit = 60): Promise<TrustedAcademicContentDto[]> {
     return (await this.getYokAnnouncementsCollection(limit)).items;
   }
@@ -156,32 +178,8 @@ export class AnnouncementsService {
     return toContentCollection(presentTrustedItems(cachedItems.map(markStale), [source]).slice(0, boundedLimit), 1, 1);
   }
 
-  private async discoverAndStoreUniversitySource(universityId: string): Promise<AnnouncementSourceRecord | null> {
-    const university = await this.catalogRepository?.findUniversityById(universityId);
-    if (!university) return null;
-    const result = await discoverAnnouncementSourceForUniversity(university, { timeoutMs: readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7_000) });
-    if (result.status !== "source_found" || !result.sourceUrl) return null;
-    const officialHomepage = university.websiteUrl ?? result.homepageUrl;
-    if (!officialHomepage || !isOfficialContentUrl(result.sourceUrl, officialHomepage)) return null;
-
-    const checkedAt = new Date();
-    return this.announcementRepository.upsertSource({
-      scopeType: "university",
-      scopeId: university.id,
-      sourceName: `${university.name} Duyurular`,
-      sourceUrl: result.sourceUrl,
-      contentType: "announcement",
-      parser: result.parser ?? "auto",
-      priority: 20,
-      status: "active",
-      homepageUrl: officialHomepage,
-      discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
-      healthStatus: result.itemCount > 0 ? "healthy" : "degraded",
-      lastCheckedAt: checkedAt,
-      ...(result.itemCount > 0 ? { lastSuccessAt: checkedAt } : {}),
-      consecutiveFailures: result.itemCount > 0 ? 0 : 1,
-      itemCount: result.itemCount
-    });
+  private async assertUserExists(userId: string): Promise<void> {
+    if (!await this.authRepository.findUserById(userId)) throw new NotFoundException("User not found.");
   }
 
   private async refreshSources(
@@ -251,7 +249,9 @@ function fallbackParsedItems(source: AnnouncementSourceRecord): ParsedAnnounceme
     ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
     ...(item.publishedDate ? { publishedDate: item.publishedDate, publicationKind: item.publicationKind ?? "date" as const } : {}),
     ...(item.sourceUpdatedAt ? { sourceUpdatedAt: item.sourceUpdatedAt } : {}),
-    ...(item.summary ? { summary: item.summary } : {})
+    ...(item.summary ? { summary: item.summary } : {}),
+    ...(item.body?.length ? { body: item.body } : {}),
+    ...(item.keyDates?.length ? { keyDates: item.keyDates } : {})
   }));
 }
 

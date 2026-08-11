@@ -256,11 +256,25 @@ describe("mobile announcement API presentation", () => {
       createdAt: new Date(),
       updatedAt: new Date()
     };
-    const trusted = { ...base, trustStatus: "trusted" as const };
+    const trusted = {
+      ...base,
+      trustStatus: "trusted" as const,
+      body: [
+        { type: "paragraph" as const, text: "<script>çıkar</script><strong>Takvim güncellendi.</strong>" },
+        { type: "unknown" as "paragraph", text: "gösterilmemeli" },
+      ],
+      keyDates: [
+        { label: "Final Sınavları", startDate: "2026-06-23", endDate: "2026-07-04" },
+        { label: "Geçersiz", startDate: "2026-02-31" },
+      ],
+    };
     const legacySource: AnnouncementSourceRecord = { ...source };
     delete legacySource.trustStatus;
 
-    expect(toTrustedAcademicContentDto(trusted, source)).not.toBeNull();
+    expect(toTrustedAcademicContentDto(trusted, source)).toMatchObject({
+      body: [{ type: "paragraph", text: "Takvim güncellendi." }],
+      keyDates: [{ label: "Final Sınavları", startDate: "2026-06-23", endDate: "2026-07-04" }],
+    });
     expect(toTrustedAcademicContentDto(base, source)).toBeNull();
     expect(toTrustedAcademicContentDto(trusted)).toBeNull();
     expect(toTrustedAcademicContentDto(trusted, { ...source, id: "different-source" })).toBeNull();

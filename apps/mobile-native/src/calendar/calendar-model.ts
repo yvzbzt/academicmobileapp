@@ -6,7 +6,7 @@ import {
   type AcademicTemporalKind,
 } from "../temporal/academic-temporal";
 
-export type CalendarViewMode = "agenda" | "week" | "month";
+export type CalendarViewMode = "day" | "agenda" | "week" | "month";
 
 export type CalendarClassification =
   | "personal_exam"
@@ -27,12 +27,15 @@ export interface CalendarAcademicEvent {
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
+  description?: string;
+  location?: string;
 }
 
 export interface CalendarPersonalExam {
   id: string;
   title: string;
   examDate: string;
+  locationNote?: string;
 }
 
 export interface CalendarItem {
@@ -59,6 +62,8 @@ export interface CalendarItem {
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
+  description?: string;
+  location?: string;
 }
 
 export type CalendarPresentationState =
@@ -89,6 +94,7 @@ export interface PersonalExamDraft {
   title: string;
   date: string | null;
   time: string | null;
+  locationNote?: string;
 }
 
 export interface PersonalExamDraftErrors {
@@ -121,6 +127,13 @@ export const CALENDAR_VIEW_OPTIONS = [
   { value: "month", label: "Ay" },
 ] as const;
 
+export const ACADEMIC_CALENDAR_VIEW_OPTIONS = [
+  { value: "day", label: "Gün" },
+  { value: "week", label: "Hafta" },
+  { value: "month", label: "Ay" },
+  { value: "agenda", label: "Ajanda" },
+] as const;
+
 export function selectUniversityAcademicCalendarEvents(
   events: readonly CalendarAcademicEvent[],
 ): CalendarAcademicEvent[] {
@@ -149,6 +162,8 @@ export function buildCalendarItems(input: {
     const endTemporalKind = event.endDate
       ? event.endTemporalKind ?? (isDateOnlyValue(event.endDate) ? "date" : temporalKind)
       : undefined;
+    const description = event.description ? cleanText(event.description) : null;
+    const location = event.location ? cleanText(event.location) : null;
     return [{
       key: `academic:${id}`,
       routeId: id,
@@ -168,12 +183,15 @@ export function buildCalendarItems(input: {
       ...(event.universityId ? { universityId: event.universityId } : {}),
       ...(event.facultyId ? { facultyId: event.facultyId } : {}),
       ...(event.departmentId ? { departmentId: event.departmentId } : {}),
+      ...(description ? { description } : {}),
+      ...(location ? { location } : {}),
     }];
   });
 
   const personal = input.personalExams.flatMap((exam): CalendarItem[] => {
     const id = cleanText(exam.id);
     const title = cleanText(exam.title);
+    const location = exam.locationNote ? cleanText(exam.locationNote) : null;
     if (!id || !title || !Number.isFinite(Date.parse(exam.examDate))) return [];
     return [{
       key: `personal:${id}`,
@@ -188,6 +206,7 @@ export function buildCalendarItems(input: {
       sourceLabel: "Kişisel planın",
       startDate: exam.examDate,
       temporalKind: "timestamp",
+      ...(location ? { location } : {}),
     }];
   });
 
@@ -211,9 +230,9 @@ export function classificationLabel(classification: CalendarClassification): str
   switch (classification) {
     case "personal_exam": return "Kişisel sınav";
     case "exam": return "Sınav";
-    case "registration": return "Kayıt ve başvuru";
+    case "registration": return "Son Başvuru";
     case "holiday": return "Tatil";
-    case "academic": return "Akademik tarih";
+    case "academic": return "Etkinlik";
   }
 }
 
@@ -256,6 +275,9 @@ export function todayDateOnly(now = new Date()): string {
 
 export function calendarPeriod(view: Exclude<CalendarViewMode, "agenda">, anchorDate: string): CalendarPeriod {
   const anchor = validDateOnly(anchorDate) ?? todayDateOnly();
+  if (view === "day") {
+    return { start: anchor, end: anchor, label: formatCalendarDayHeading(anchor) };
+  }
   if (view === "week") {
     const weekday = weekdayMondayFirst(anchor);
     const start = addCalendarDays(anchor, -weekday) ?? anchor;
@@ -285,6 +307,7 @@ export function moveCalendarAnchor(
   direction: -1 | 1,
 ): string {
   const anchor = validDateOnly(anchorDate) ?? todayDateOnly();
+  if (view === "day") return addCalendarDays(anchor, direction) ?? anchor;
   if (view === "week") return addCalendarDays(anchor, direction * 7) ?? anchor;
   const parts = dateOnlyParts(anchor)!;
   const moved = new Date(Date.UTC(parts.year, parts.month - 1 + direction, 1, 12));
@@ -362,16 +385,19 @@ export function formatCalendarCompactDay(date: string): string {
 }
 
 export function emptyPersonalExamDraft(): PersonalExamDraft {
-  return { title: "", date: null, time: null };
+  return { title: "", date: null, time: null, locationNote: "" };
 }
 
 export function personalExamDraftFromRecord(exam: CalendarPersonalExam): PersonalExamDraft {
   const date = new Date(exam.examDate);
-  if (Number.isNaN(date.getTime())) return { title: exam.title, date: null, time: null };
+  if (Number.isNaN(date.getTime())) {
+    return { title: exam.title, date: null, time: null, locationNote: exam.locationNote ?? "" };
+  }
   return {
     title: exam.title,
     date: localDateOnly(date),
     time: `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`,
+    locationNote: exam.locationNote ?? "",
   };
 }
 
@@ -422,16 +448,22 @@ export function applyTimeSelection(draft: PersonalExamDraft, selected: Date): Pe
 
 export function formatSelectedDate(date: string | null): string {
   if (!date || !validDateOnly(date)) return "Tarih seçilmedi";
-  return new Intl.DateTimeFormat("tr-TR", {
+  const value = dateOnlyAtNoonUtc(date);
+  const dateLabel = new Intl.DateTimeFormat("tr-TR", {
     day: "numeric",
     month: "long",
     year: "numeric",
     timeZone: "UTC",
-  }).format(dateOnlyAtNoonUtc(date));
+  }).format(value);
+  const weekdayLabel = new Intl.DateTimeFormat("tr-TR", {
+    weekday: "long",
+    timeZone: "UTC",
+  }).format(value);
+  return `${dateLabel}, ${weekdayLabel}`;
 }
 
 export function formatSelectedTime(time: string | null): string {
-  return time ? `Saat ${time}` : "Saat seçilmedi";
+  return time ?? "Saat seçilmedi";
 }
 
 function calendarItemOverlapsPeriod(item: CalendarItem, startDate: string, endDate: string): boolean {
