@@ -101,7 +101,14 @@ export class NotificationsService {
       ...(enabled ? { deliveryConsentVersion: NOTIFICATION_DELIVERY_CONSENT_VERSION } : {}),
       categories: Object.fromEntries(Object.entries(preferences.categories).filter((entry): entry is [string, boolean] => entry[1] !== undefined)),
       reminderOffsets: preferences.reminderOffsets,
-      ...(preferences.reminderRules ? { reminderRules: preferences.reminderRules } : {}),
+      ...(preferences.reminderRules ? {
+        reminderRules: preferences.reminderRules.map((rule) => ({
+          trigger: rule.trigger,
+          amount: rule.amount,
+          unit: rule.unit,
+          enabled: rule.enabled
+        }))
+      } : {}),
       ...(preferences.quietHours ? { quietHours: preferences.quietHours } : {})
     };
   }

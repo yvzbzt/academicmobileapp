@@ -159,6 +159,30 @@ describe("NotificationsService", () => {
     }));
   });
 
+  it("removes Mongo subdocument metadata from reminder preference responses", async () => {
+    const repository = new InMemoryNotificationRepository();
+    const service = new NotificationsService(repository);
+    const preferences = await repository.upsertPreferences({
+      userId: studentUser.id,
+      enabled: false,
+      categories: { final_exam: true },
+      reminderOffsets: [1],
+      reminderRules: [{ trigger: "before", amount: 1, unit: "days", enabled: true }]
+    });
+    const reminderRule = preferences.reminderRules?.[0];
+
+    expect(reminderRule).toBeDefined();
+    const dto = service.toPreferenceDto({
+      ...preferences,
+      reminderRules: [{ ...reminderRule!, _id: "mongo-subdocument-id" }] as unknown as NonNullable<typeof preferences.reminderRules>
+    });
+
+    expect(dto.reminderRules).toEqual([
+      { trigger: "before", amount: 1, unit: "days", enabled: true }
+    ]);
+    expect(dto.reminderRules?.[0]).not.toHaveProperty("_id");
+  });
+
   it("treats legacy enabled rows as disabled and requires the current consent marker when enabling", async () => {
     const repository = new InMemoryNotificationRepository();
     const service = new NotificationsService(repository);

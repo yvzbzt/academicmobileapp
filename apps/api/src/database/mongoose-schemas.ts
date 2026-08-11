@@ -508,6 +508,7 @@ export const notificationPreferenceSchema = new Schema(
     reminderOffsets: [{ type: Number, required: true, min: 0, max: 30 }],
     reminderRules: [
       {
+        _id: false,
         trigger: { type: String, required: true, enum: ["before", "at_time", "approaching"] },
         amount: { type: Number, required: true, min: 0, max: 720 },
         unit: { type: String, required: true, enum: ["days", "hours"] },

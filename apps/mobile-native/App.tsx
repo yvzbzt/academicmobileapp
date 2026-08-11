@@ -91,6 +91,7 @@ import {
   createPendingNotificationDestinationRecord,
   isSamePendingNotificationDestinationRecord,
   openNotificationSettings,
+  notificationReminderRulesForMutation,
   parsePendingNotificationDestinationRecord,
   resolveNotificationDestination,
   serializePendingNotificationDestinationRecord,
@@ -5362,7 +5363,7 @@ function MainApplication() {
           ...(enabled ? { deliveryConsentVersion: "phase3-v1" } : {}),
           categories: existing.categories,
           reminderOffsets: existing.reminderOffsets.length ? existing.reminderOffsets : DEFAULT_REMINDER_OFFSETS,
-          reminderRules: existing.reminderRules?.length ? existing.reminderRules : DEFAULT_REMINDER_RULES,
+          reminderRules: notificationReminderRulesForMutation(existing.reminderRules, DEFAULT_REMINDER_RULES),
           quietHours: existing.quietHours ?? {
             enabled: true,
             start: "22:00",
@@ -6109,7 +6110,7 @@ function MainApplication() {
 
     const existing = preferences.data;
     const reminderOffsets = existing?.reminderOffsets.length ? existing.reminderOffsets : DEFAULT_REMINDER_OFFSETS;
-    const reminderRules = existing?.reminderRules?.length ? existing.reminderRules : DEFAULT_REMINDER_RULES;
+    const reminderRules = notificationReminderRulesForMutation(existing?.reminderRules, DEFAULT_REMINDER_RULES);
 
     try {
       setBusy(true);
