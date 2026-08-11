@@ -647,17 +647,17 @@ export function NotificationSettingsScreen({
       ) : null}
 
       <ProfileReferenceSection title="BİLDİRİM TÜRLERİ">
-        {!preferenceEnabled ? (
-          <NotificationPreferenceRow
-            disabled={busy}
-            icon="notifications-outline"
-            label="Akademik hatırlatmalar"
-            onValueChange={onPreferenceEnabledChange}
-            supportingText="Bildirim tercihlerini etkinleştir"
-            tone="primary"
-            value={preferenceEnabled}
-          />
-        ) : null}
+        <NotificationPreferenceRow
+          disabled={busy}
+          icon="notifications-outline"
+          label="Akademik hatırlatmalar"
+          onValueChange={onPreferenceEnabledChange}
+          supportingText={preferenceEnabled
+            ? "Bildirim teslimatını devre dışı bırak"
+            : "Bildirim tercihlerini etkinleştir"}
+          tone="primary"
+          value={preferenceEnabled}
+        />
         {groupedCategories.map((group) => {
           return (
             <NotificationPreferenceRow

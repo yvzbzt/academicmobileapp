@@ -278,6 +278,7 @@ describe("Phase 10 profile and settings presentation", () => {
 
   it("keeps granted permission actionable and the clean save control visually active without resaving", async () => {
     const onOpenSettings = jest.fn();
+    const onPreferenceEnabledChange = jest.fn();
     const onSave = jest.fn();
     const truth = resolveNotificationTruth({
       permission: "granted",
@@ -293,7 +294,7 @@ describe("Phase 10 profile and settings presentation", () => {
         onCategoryChange={jest.fn()}
         onModeChange={jest.fn()}
         onOpenSettings={onOpenSettings}
-        onPreferenceEnabledChange={jest.fn()}
+        onPreferenceEnabledChange={onPreferenceEnabledChange}
         onSave={onSave}
         preferenceEnabled
         saveState="saved"
@@ -305,6 +306,7 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(permission).toBeEnabled();
     fireEvent.press(permission);
     await waitFor(() => expect(onOpenSettings).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(permission).toBeEnabled());
 
     const art = screen.getByTestId("notification-hero-art", { includeHiddenElements: true });
     expect(screen.getByTestId("notification-settings-hero")).toHaveStyle({ flexDirection: "column" });
@@ -313,6 +315,11 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(artStyle).toMatchObject({ height: 144, width: "100%" });
     expect(typeof artStyle.height).toBe("number");
     expect(Number.isFinite(artStyle.height as number)).toBe(true);
+
+    const masterPreference = screen.getByRole("switch", { name: "Akademik hatırlatmalar bildirimi" });
+    expect(masterPreference).toBeEnabled();
+    fireEvent.press(masterPreference);
+    expect(onPreferenceEnabledChange).toHaveBeenCalledWith(false);
 
     const save = screen.getByRole("button", { name: "Tercihleri kaydet" });
     expect(save).toBeEnabled();
