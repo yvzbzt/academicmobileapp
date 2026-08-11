@@ -1,0 +1,2 @@
+﻿
+    mResumedActivity: ActivityRecord{c4354fc u0 com.anssoft.akademiktakvim/.MainActivity t61}

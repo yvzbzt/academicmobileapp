@@ -1,8 +1,10 @@
 import { Body, Controller, Get, Headers, Inject, Ip, Post, Query, Res, UseGuards } from "@nestjs/common";
 import type { Response } from "express";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
+import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "./auth.types.js";
 import { AuthApplicationService } from "./auth-application.service.js";
-import { GoogleLoginDto, LoginDto, RefreshTokenDto, RegisterDto, ResendVerificationCodeDto, VerifyEmailDto, VerifyEmailQueryDto } from "./auth.dto.js";
+import { GoogleLoginDto, LoginDto, PasswordRecoveryConfirmDto, PasswordRecoveryRequestDto, RecentAuthenticationDto, RefreshTokenDto, RegisterDto, ResendVerificationCodeDto, VerifyEmailDto, VerifyEmailQueryDto } from "./auth.dto.js";
 
 @Controller("auth")
 export class AuthController {
@@ -21,6 +23,16 @@ export class AuthController {
   @Post("resend-verification-code")
   resendVerificationCode(@Body() body: ResendVerificationCodeDto) {
     return this.authService.resendVerificationCode(body.email);
+  }
+
+  @Post("password-recovery/request")
+  requestPasswordRecovery(@Body() body: PasswordRecoveryRequestDto) {
+    return this.authService.requestPasswordRecovery(body.email);
+  }
+
+  @Post("password-recovery/confirm")
+  confirmPasswordRecovery(@Body() body: PasswordRecoveryConfirmDto) {
+    return this.authService.confirmPasswordRecovery(body);
   }
 
   @Get("verify-email")
@@ -46,6 +58,25 @@ export class AuthController {
   @Post("refresh-token")
   refresh(@Body() body: RefreshTokenDto, @Ip() ipAddress: string, @Headers("user-agent") userAgent?: string) {
     return this.authService.refresh({ ...body, ipAddress, ...(userAgent ? { userAgent } : {}) });
+  }
+
+  @Post("recent-authentication")
+  @UseGuards(JwtAuthGuard)
+  createRecentAuthenticationProof(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: RecentAuthenticationDto
+  ) {
+    return body.method === "password"
+      ? this.authService.createRecentAuthenticationProof(user.id, {
+          method: "password",
+          password: body.password!,
+          purpose: body.purpose
+        })
+      : this.authService.createRecentAuthenticationProof(user.id, {
+          method: "google",
+          idToken: body.idToken!,
+          purpose: body.purpose
+        });
   }
 
   @Post("logout")

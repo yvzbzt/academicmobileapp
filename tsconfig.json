@@ -14,6 +14,11 @@
     "resolveJsonModule": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["apps/**/*.ts", "packages/**/*.ts"],
+  "include": [
+    "apps/**/*.ts",
+    "packages/**/*.ts",
+    "scripts/reconcile-announcement-content.ts",
+    "scripts/measure-mobile-native-feed-performance.ts"
+  ],
   "exclude": ["apps/mobile-native/**"]
 }

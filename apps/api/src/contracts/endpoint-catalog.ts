@@ -1,7 +1,7 @@
 import type { UserRole } from "../../../../packages/shared/src/contracts.js";
 
 export interface EndpointContract {
-  method: "GET" | "POST" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   authRequired: boolean;
   roles: UserRole[] | "public";
@@ -13,15 +13,26 @@ export const endpointCatalog: EndpointContract[] = [
   { method: "POST", path: "/auth/verify-email", authRequired: false, roles: "public", rateLimit: "strict" },
   { method: "GET", path: "/auth/verify-email", authRequired: false, roles: "public", rateLimit: "strict" },
   { method: "POST", path: "/auth/login", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/google", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/resend-verification-code", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/password-recovery/request", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/password-recovery/confirm", authRequired: false, roles: "public", rateLimit: "strict" },
   { method: "POST", path: "/auth/logout", authRequired: true, roles: ["student", "content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
   { method: "POST", path: "/auth/refresh-token", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/recent-authentication", authRequired: true, roles: ["student", "content_editor", "university_admin", "super_admin"], rateLimit: "strict" },
+  { method: "GET", path: "/account-deletion", authRequired: false, roles: "public", rateLimit: "standard" },
+  { method: "POST", path: "/account-deletion/request-code", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/account-deletion/confirm", authRequired: false, roles: "public", rateLimit: "strict" },
   { method: "GET", path: "/me", authRequired: true, roles: ["student", "content_editor", "university_admin", "super_admin"], rateLimit: "standard" },
+  { method: "DELETE", path: "/me", authRequired: true, roles: ["student", "content_editor", "university_admin", "super_admin"], rateLimit: "strict" },
+  { method: "DELETE", path: "/me/data", authRequired: true, roles: ["student", "content_editor", "university_admin", "super_admin"], rateLimit: "strict" },
   { method: "PATCH", path: "/me/university", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/universities", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/universities/:id", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/universities/:id/faculties", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/faculties/:id/departments", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/calendar/my", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/calendar/my/trusted/:eventId", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/calendar/integrations", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/calendar/integrations/feed/:token.ics", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/calendar/my/course-schedules", authRequired: true, roles: ["student"], rateLimit: "standard" },
@@ -31,7 +42,14 @@ export const endpointCatalog: EndpointContract[] = [
   { method: "GET", path: "/calendar/upcoming", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/calendar/events", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "GET", path: "/announcements/my", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/announcements/my/trusted", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/announcements/my/trusted/:announcementId", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/announcements/my/saved/:announcementId", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "PUT", path: "/announcements/my/saved/:announcementId", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "DELETE", path: "/announcements/my/saved/:announcementId", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "GET", path: "/announcements/yok/trusted", authRequired: false, roles: "public", rateLimit: "standard" },
   { method: "POST", path: "/devices/register", authRequired: true, roles: ["student"], rateLimit: "standard" },
+  { method: "DELETE", path: "/devices/current", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/notification-preferences", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "PATCH", path: "/notification-preferences", authRequired: true, roles: ["student"], rateLimit: "standard" },
   { method: "GET", path: "/notification-alarms", authRequired: true, roles: ["student"], rateLimit: "standard" },

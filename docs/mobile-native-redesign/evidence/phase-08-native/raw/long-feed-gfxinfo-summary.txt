@@ -1,0 +1,7 @@
+SCOPE=debug APK + Metro + Android API 24 x86_64 emulator; observational only; no production/release threshold asserted
+Total frames rendered: 547
+Janky frames: 528 (96.53%)
+50th percentile: 26ms
+90th percentile: 42ms
+95th percentile: 46ms
+99th percentile: 61ms

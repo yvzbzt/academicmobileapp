@@ -1,0 +1,772 @@
+﻿--------- beginning of main
+08-05 17:14:05.279 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:14:05.279 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:14:05.279 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:14:05.279 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:14:05.279 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:14:05.279 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:15:10.754 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:15:10.757 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:15:10.764 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:15:10.772 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:15:10.772 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:15:11.315 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:15:11.316 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:15:11.316 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:15:11.316 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:15:11.316 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:15:11.316 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:15:11.316 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:15:11.378 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:15:11.378 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:15:11.378 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:15:11.378 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:15:11.378 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:15:11.379 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:15:11.379 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:15:20.723 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:15:20.732 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:15:20.744 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:15:20.746 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:15:21.181 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:15:21.181 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:15:21.182 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:15:21.182 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:15:21.182 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:15:21.182 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:15:21.182 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:15:21.249 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:15:21.249 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:15:21.249 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:15:21.249 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:15:21.250 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:15:21.250 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:15:21.250 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:15:29.819 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:29.878 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:29.908 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:29.950 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:29.962 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:38.438 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:15:38.450 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:15:38.458 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:15:38.466 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:15:38.466 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:15:38.844 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:38.929 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:39.229 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:15:39.229 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:15:39.229 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:15:39.229 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:15:39.229 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:15:39.229 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:15:39.229 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:15:39.268 11098 11109 I art     : Background sticky concurrent mark sweep GC freed 53509(1754KB) AllocSpace objects, 0(0B) LOS objects, 10% free, 14MB/16MB, paused 5.101ms total 68.810ms
+08-05 17:15:39.348 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:15:39.348 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:15:39.348 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:15:39.348 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:15:39.348 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:15:39.348 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:15:39.348 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:15:49.725 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:49.753 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:49.763 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:54.230 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:54.237 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:54.325 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:54.336 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:58.820 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:15:58.824 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:15:58.835 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:15:58.846 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:15:59.031 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:59.070 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:15:59.396 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:15:59.396 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:15:59.396 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:15:59.396 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:15:59.396 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:15:59.397 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:15:59.397 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:15:59.432 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:15:59.432 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:15:59.433 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:15:59.433 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:15:59.433 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:15:59.433 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:15:59.433 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:16:07.164 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:07.191 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:07.205 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:07.267 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:08.795 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:14.824 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:16:14.827 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:16:14.831 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:16:14.834 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:16:15.096 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:15.131 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:15.479 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:16:15.479 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:16:15.479 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:16:15.479 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:16:15.479 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:16:15.479 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:16:15.479 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:16:15.506 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:16:15.506 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:16:15.506 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:16:15.506 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:16:15.506 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:16:15.506 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:16:15.506 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:16:25.843 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:25.870 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:25.904 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:25.945 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:27.030 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:30.295 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:30.302 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:30.417 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:16:30.462 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:17:52.725 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:17:52.729 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:17:52.734 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:17:52.737 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:17:52.737 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:17:52.930 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:17:52.954 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:17:53.229 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:17:53.229 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:17:53.229 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:17:53.229 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:17:53.229 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:17:53.229 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:17:53.229 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:17:53.816 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:17:53.821 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:17:53.828 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:17:53.832 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:17:54.215 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:17:54.216 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:17:54.216 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:17:54.216 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:17:54.216 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:17:54.216 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:17:54.216 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:17:54.283 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:17:54.283 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:17:54.283 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:17:54.283 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:17:54.283 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:17:54.283 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:17:54.284 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:18:03.144 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:18:03.224 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:18:03.247 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:18:03.287 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:18:03.296 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:18:42.078 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:18:42.081 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:18:42.104 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:18:42.110 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:18:42.432 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:18:42.484 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:18:42.911 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:18:42.911 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:18:42.911 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:18:42.911 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:18:42.911 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:18:42.911 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:18:42.911 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:18:43.005 11098 11109 W art     : Suspending all threads took: 14.228ms
+08-05 17:18:43.067 11098 11109 I art     : Background sticky concurrent mark sweep GC freed 84935(2MB) AllocSpace objects, 0(0B) LOS objects, 15% free, 14MB/16MB, paused 16.686ms total 118.291ms
+08-05 17:18:43.429 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:18:43.435 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:18:43.441 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:18:43.445 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:18:43.898 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:18:43.899 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:18:43.899 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:18:43.899 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:18:43.899 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:18:43.899 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:18:43.899 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:18:44.161 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:18:44.161 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:18:44.161 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:18:44.161 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:18:44.161 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:18:44.161 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:18:44.161 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:19:20.350 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:19:20.352 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:19:20.379 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:19:20.796 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:19:20.796 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:19:20.803 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:19:20.804 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:19:20.805 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":11,"initialProps":{},"fabric":true}
+08-05 17:19:20.838 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:19:20.842 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:19:20.842 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:19:20.885 11098 11098 I Choreographer: Skipped 31 frames!  The application may be doing too much work on its main thread.
+08-05 17:19:20.961 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 1): Schedule
+08-05 17:19:20.961 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 1)
+08-05 17:19:20.976 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 1): Execute
+08-05 17:19:20.976 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:19:20.976 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [1]
+08-05 17:19:20.988 11098 11098 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.uimanager.RootViewManager
+08-05 17:19:21.015 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:19:21.033 11098 11098 E unknown:SurfaceMountingManager: Surface [1] was stopped on SurfaceMountingManager.
+08-05 17:19:21.035 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [1].
+08-05 17:19:21.104 11098 11109 W art     : Suspending all threads took: 32.883ms
+08-05 17:19:21.192 11098 11109 I art     : Background partial concurrent mark sweep GC freed 103450(3MB) AllocSpace objects, 0(0B) LOS objects, 23% free, 13MB/17MB, paused 35.740ms total 796.898ms
+08-05 17:19:21.265 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:19:21.287 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:19:21.315 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:19:21.347 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:19:21.347 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:19:21.351 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:19:21.351 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:19:21.369 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:19:21.371 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:19:21.371 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:19:21.447 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 11): Schedule
+08-05 17:19:21.447 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 11)
+08-05 17:19:21.447 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:19:21.447 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 11): Execute
+08-05 17:19:21.447 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [11]
+08-05 17:19:21.454 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [11].
+08-05 17:19:21.458 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:19:21.484 11098 11098 E unknown:SurfaceMountingManager: Surface [11] was stopped on SurfaceMountingManager.
+08-05 17:19:21.656 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":21,"initialProps":{},"fabric":true}
+08-05 17:19:22.227 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:19:22.227 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:19:22.227 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:19:22.227 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:19:22.228 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:19:22.228 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:19:22.228 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:19:22.701 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:19:22.701 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:19:22.701 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:19:22.701 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:19:22.701 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:19:22.701 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:19:22.701 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:19:54.484 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:19:54.488 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:19:54.496 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:19:54.501 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:19:54.795 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:19:54.795 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:19:54.795 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:19:54.795 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:19:54.795 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:19:54.795 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:19:54.795 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:19:54.927 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:19:54.927 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:19:54.927 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:19:54.927 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:19:54.927 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:19:54.927 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:19:54.927 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:20:29.091 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:20:29.095 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:20:29.131 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:20:29.138 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:20:29.677 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:20:29.677 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:20:29.677 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:20:29.677 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:20:29.677 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:20:29.677 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:20:29.677 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:20:29.827 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:20:29.827 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:20:29.827 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:20:29.827 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:20:29.827 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:20:29.827 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:20:29.827 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:20:52.236 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:20:52.239 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:20:52.259 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:20:52.261 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:20:52.261 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:20:52.627 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:20:52.627 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:20:52.627 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:20:52.627 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:20:52.627 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:20:52.627 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:20:52.627 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:20:52.729 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:20:52.729 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:20:52.729 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:20:52.729 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:20:52.729 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:20:52.729 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:20:52.729 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:22:34.548 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:22:34.555 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:22:34.584 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:22:34.588 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:22:35.112 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:22:35.112 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:22:35.112 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:22:35.112 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:22:35.112 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:22:35.112 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:22:35.113 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:22:35.195 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:22:35.195 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:22:35.195 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:22:35.196 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:22:35.196 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:22:35.196 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:22:35.196 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:22:51.334 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:22:51.370 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:22:51.389 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:22:51.411 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:22:51.419 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:23:14.450 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:23:14.455 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:23:14.467 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:23:14.469 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:23:14.469 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:23:14.750 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:23:14.789 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:23:15.214 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:23:15.215 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:23:15.215 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:23:15.215 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:23:15.215 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:23:15.215 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:23:15.215 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:23:15.245 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:23:15.245 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:23:15.245 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:23:15.246 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:23:15.246 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:23:15.246 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:23:15.246 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:23:34.474 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:23:34.496 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:23:34.507 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:24:23.383 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:24:23.387 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:24:23.404 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:24:23.465 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:24:23.465 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:24:23.469 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:24:23.470 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:24:23.474 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":31,"initialProps":{},"fabric":true}
+08-05 17:24:23.482 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:24:23.497 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:24:23.605 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 21): Schedule
+08-05 17:24:23.605 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 21)
+08-05 17:24:23.605 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:24:23.605 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 21): Execute
+08-05 17:24:23.605 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [21]
+08-05 17:24:23.668 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [21].
+08-05 17:24:23.700 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:24:23.715 11098 11098 E unknown:SurfaceMountingManager: Surface [21] was stopped on SurfaceMountingManager.
+08-05 17:24:24.437 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:24:24.437 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:24:24.437 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:24:24.437 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:24:24.437 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:24:24.437 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:24:24.437 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:24:24.690 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:24:24.712 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:24:24.717 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:24:24.753 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:24:24.753 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:24:24.753 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:24:24.754 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:24:24.785 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:24:24.787 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:24:25.003 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:24:25.003 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:24:25.003 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:24:25.003 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:24:25.003 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:24:25.003 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:24:25.003 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:24:25.152 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 31): Schedule
+08-05 17:24:25.152 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 31)
+08-05 17:24:25.154 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 31): Execute
+08-05 17:24:25.154 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [31]
+08-05 17:24:25.158 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:24:25.159 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [31].
+08-05 17:24:25.167 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:24:25.184 11098 11098 E unknown:SurfaceMountingManager: Surface [31] was stopped on SurfaceMountingManager.
+08-05 17:24:25.199 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":41,"initialProps":{},"fabric":true}
+08-05 17:24:25.611 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:24:25.611 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:24:25.611 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:24:25.611 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:24:25.611 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:24:25.611 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:24:25.611 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:24:25.930 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:24:25.930 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:24:25.930 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:24:25.931 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:24:25.931 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:24:25.931 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:24:25.931 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:24:45.787 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:24:45.792 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:24:45.815 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:24:45.819 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:24:45.819 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:24:51.016 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:24:51.019 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:24:51.022 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:24:51.029 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:24:51.380 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:24:51.381 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:24:51.381 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:24:51.381 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:24:51.381 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:24:51.381 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:24:51.381 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:24:51.513 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:24:51.513 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:24:51.513 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:24:51.513 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:24:51.513 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:24:51.513 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:24:51.513 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:25:23.634 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:25:23.641 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:25:23.654 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:25:23.704 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:25:23.704 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:25:23.704 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:25:23.705 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:25:23.707 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":51,"initialProps":{},"fabric":true}
+08-05 17:25:23.755 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:25:23.758 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:25:23.851 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 41): Schedule
+08-05 17:25:23.851 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 41)
+08-05 17:25:23.864 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:25:23.864 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 41): Execute
+08-05 17:25:23.864 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [41]
+08-05 17:25:23.875 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:25:23.888 11098 11098 E unknown:SurfaceMountingManager: Surface [41] was stopped on SurfaceMountingManager.
+08-05 17:25:23.913 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [41].
+08-05 17:25:24.328 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:25:24.365 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:25:24.371 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:25:24.399 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:25:24.399 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:25:24.404 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:25:24.404 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:25:24.428 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:25:24.431 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:25:24.431 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:25:24.508 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 51): Schedule
+08-05 17:25:24.508 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 51)
+08-05 17:25:24.508 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 51): Execute
+08-05 17:25:24.508 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [51]
+08-05 17:25:24.510 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:25:24.514 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [51].
+08-05 17:25:24.526 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:25:24.551 11098 11098 E unknown:SurfaceMountingManager: Surface [51] was stopped on SurfaceMountingManager.
+08-05 17:25:24.783 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":61,"initialProps":{},"fabric":true}
+08-05 17:25:25.104 11098 11109 W art     : Suspending all threads took: 14.722ms
+08-05 17:25:25.137 11098 11109 I art     : Background sticky concurrent mark sweep GC freed 32534(1099KB) AllocSpace objects, 0(0B) LOS objects, 8% free, 14MB/15MB, paused 17.080ms total 71.796ms
+08-05 17:25:25.685 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:25:25.685 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:25:25.685 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:25:25.685 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:25:25.685 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:25:25.686 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:25:25.686 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:25:26.146 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:25:26.146 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:25:26.146 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:25:26.146 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:25:26.146 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:25:26.146 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:25:26.146 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:25:28.967 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:25:28.970 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:25:28.984 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:25:28.987 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:25:33.776 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:25:33.780 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:25:33.785 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:25:33.788 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:25:33.788 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:25:34.048 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:25:34.048 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:25:34.048 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:25:34.048 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:25:34.048 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:25:34.048 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:25:34.048 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:25:34.197 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:25:34.197 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:25:34.197 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:25:34.198 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:25:34.198 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:25:34.198 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:25:34.198 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:25:38.498 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:25:38.518 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:25:38.532 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:25:38.592 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:25:38.592 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:25:38.599 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:25:38.600 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:25:38.601 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":71,"initialProps":{},"fabric":true}
+08-05 17:25:38.640 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:25:38.642 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:25:38.754 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 61): Schedule
+08-05 17:25:38.754 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 61)
+08-05 17:25:38.755 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 61): Execute
+08-05 17:25:38.755 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [61]
+08-05 17:25:38.763 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:25:38.796 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:25:38.809 11098 11098 E unknown:SurfaceMountingManager: Surface [61] was stopped on SurfaceMountingManager.
+08-05 17:25:38.810 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [61].
+08-05 17:25:39.348 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:25:39.599 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:25:39.609 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:25:39.657 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:25:39.657 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:25:39.662 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:25:39.663 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:25:39.713 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:25:39.718 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:25:39.718 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:25:39.886 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:25:39.886 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:25:39.887 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:25:39.887 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:25:39.887 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:25:39.887 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:25:39.887 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:25:39.896 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":81,"initialProps":{},"fabric":true}
+08-05 17:25:40.055 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 71): Schedule
+08-05 17:25:40.056 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 71)
+08-05 17:25:40.058 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 71): Execute
+08-05 17:25:40.058 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [71]
+08-05 17:25:40.063 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:25:40.086 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:25:40.135 11098 11098 E unknown:SurfaceMountingManager: Surface [71] was stopped on SurfaceMountingManager.
+08-05 17:25:40.136 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [71].
+08-05 17:25:40.676 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:25:40.676 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:25:40.676 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:25:40.676 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:25:40.676 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:25:40.676 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:25:40.676 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:25:41.164 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:25:41.165 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:25:41.165 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:25:41.165 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:25:41.165 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:25:41.165 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:25:41.165 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:28:33.763 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:28:33.766 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:28:33.773 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:28:33.778 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:28:38.280 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:28:38.282 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:28:38.295 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:28:38.297 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:28:38.298 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:28:38.596 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:28:38.596 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:28:38.596 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:28:38.596 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:28:38.596 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:28:38.596 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:28:38.596 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:28:43.076 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:28:43.080 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:28:43.085 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:28:43.087 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:28:43.416 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:28:43.416 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:28:43.416 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:28:43.416 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:28:43.416 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:28:43.416 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:28:43.416 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:28:43.745 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:28:43.745 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:28:43.745 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:28:43.745 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:28:43.745 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:28:43.745 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:28:43.745 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:29:34.397 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:29:34.400 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:29:34.406 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:29:34.452 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:29:34.453 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:29:34.453 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:29:34.453 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:29:34.455 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":91,"initialProps":{},"fabric":true}
+08-05 17:29:34.471 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:29:34.476 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:29:34.478 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:29:34.539 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 81): Schedule
+08-05 17:29:34.539 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 81)
+08-05 17:29:34.543 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 81): Execute
+08-05 17:29:34.543 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [81]
+08-05 17:29:34.549 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:29:34.564 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [81].
+08-05 17:29:34.579 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:29:34.606 11098 11098 E unknown:SurfaceMountingManager: Surface [81] was stopped on SurfaceMountingManager.
+08-05 17:29:35.429 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:29:35.429 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:29:35.429 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:29:35.429 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:29:35.429 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:29:35.429 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:29:35.429 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:29:35.707 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:29:35.710 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:29:35.713 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:29:35.755 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:29:35.755 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:29:35.756 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:29:35.756 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:29:35.784 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:29:35.787 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:29:36.018 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:29:36.018 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:29:36.019 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:29:36.019 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:29:36.019 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:29:36.019 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:29:36.019 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:29:36.220 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 91): Schedule
+08-05 17:29:36.220 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 91)
+08-05 17:29:36.220 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 91): Execute
+08-05 17:29:36.220 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [91]
+08-05 17:29:36.222 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":101,"initialProps":{},"fabric":true}
+08-05 17:29:36.232 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:29:36.237 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [91].
+08-05 17:29:36.238 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [91].
+08-05 17:29:36.242 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:29:36.263 11098 11098 E unknown:SurfaceMountingManager: Surface [91] was stopped on SurfaceMountingManager.
+08-05 17:29:36.417 11098 11109 I art     : Background sticky concurrent mark sweep GC freed 98994(3MB) AllocSpace objects, 0(0B) LOS objects, 16% free, 13MB/16MB, paused 3.918ms total 507.724ms
+08-05 17:29:36.732 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:29:36.732 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:29:36.732 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:29:36.732 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:29:36.732 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:29:36.732 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:29:36.733 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:29:37.114 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:29:37.115 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:29:37.115 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:29:37.115 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:29:37.115 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:29:37.116 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:29:37.116 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:29:39.194 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:29:39.199 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:29:39.203 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:29:39.206 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:29:39.206 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:29:44.017 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:29:44.021 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:29:44.035 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:29:44.044 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:29:44.449 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:29:44.450 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:29:44.450 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:29:44.450 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:29:44.450 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:29:44.450 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:29:44.450 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:29:44.665 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:29:44.666 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:29:44.666 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:29:44.666 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:29:44.666 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:29:44.666 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:29:44.666 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:30:14.663 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:30:14.680 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:30:14.745 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:30:14.838 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:30:14.838 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:30:14.839 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:30:14.839 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:30:14.843 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":111,"initialProps":{},"fabric":true}
+08-05 17:30:14.857 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:30:14.860 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:30:14.950 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 101): Schedule
+08-05 17:30:14.950 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 101)
+08-05 17:30:14.950 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 101): Execute
+08-05 17:30:14.951 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [101]
+08-05 17:30:14.960 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:30:14.994 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:30:15.017 11098 11098 E unknown:SurfaceMountingManager: Surface [101] was stopped on SurfaceMountingManager.
+08-05 17:30:15.027 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [101].
+08-05 17:30:16.283 11098 11098 W art     : Long monitor contention with owner AsyncTask #41 (16050) at boolean android.os.MessageQueue.enqueueMessage(android.os.Message, long)(MessageQueue.java:541) waiters=0 in android.os.Message android.os.MessageQueue.next() for 633ms
+08-05 17:30:16.284 11098 11098 I Choreographer: Skipped 37 frames!  The application may be doing too much work on its main thread.
+08-05 17:30:16.284 11098 11153 W art     : Long monitor contention with owner AsyncTask #41 (16050) at boolean android.os.MessageQueue.enqueueMessage(android.os.Message, long)(MessageQueue.java:541) waiters=2 in boolean android.os.MessageQueue.enqueueMessage(android.os.Message, long) for 325ms
+08-05 17:30:16.286 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:30:16.286 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:30:16.286 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:30:16.286 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:30:16.286 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:30:16.286 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:30:16.286 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:30:16.293 11098 14398 W art     : Long monitor contention with owner AsyncTask #41 (16050) at boolean android.os.MessageQueue.enqueueMessage(android.os.Message, long)(MessageQueue.java:541) waiters=1 in boolean android.os.MessageQueue.enqueueMessage(android.os.Message, long) for 377ms
+08-05 17:30:16.520 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:30:16.523 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:30:16.531 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:30:16.572 11098 11098 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-05 17:30:16.572 11098 11098 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-05 17:30:16.574 11098 11124 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-05 17:30:16.574 11098 11124 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-05 17:30:16.604 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:30:16.607 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-05 17:30:16.814 11098 11098 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 111): Schedule
+08-05 17:30:16.814 11098 11098 W unknown:BridgelessReact: ReactHost{0}.detachSurface(surfaceId = 111)
+08-05 17:30:16.814 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostDestroy(activity)
+08-05 17:30:16.816 11098 11124 W unknown:BridgelessReact: ReactHost{0}.stopSurface(surfaceId = 111): Execute
+08-05 17:30:16.816 11098 11124 E unknown:SurfaceMountingManager: Stopping surface [111]
+08-05 17:30:16.842 11098 11109 I art     : Background sticky concurrent mark sweep GC freed 62308(2MB) AllocSpace objects, 0(0B) LOS objects, 13% free, 13MB/15MB, paused 7.183ms total 186.171ms
+08-05 17:30:16.845 11098 11126 D EGL_emulation: eglMakeCurrent: 0x79b995bf7ba0: ver 2 0 (tinfo 0x79b97a737360)
+08-05 17:30:16.859 11098 11098 E unknown:SurfaceMountingManager: Surface [111] was stopped on SurfaceMountingManager.
+08-05 17:30:16.908 11098 11098 E unknown:IntBufferBatchMountItem: Skipping batch of MountItems; was stopped [111].
+08-05 17:30:16.972 11098 11150 I ReactNativeJS: Running "main" with {"rootTag":121,"initialProps":{},"fabric":true}
+08-05 17:30:17.529 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:30:17.530 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:30:17.530 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:30:17.530 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:30:17.530 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:30:17.530 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:30:17.530 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:30:18.080 11098 11098 W [RNScreens]: backTitle prop is not available on Android
+08-05 17:30:18.080 11098 11098 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-05 17:30:18.081 11098 11098 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-05 17:30:18.081 11098 11098 W [RNScreens]: backTitleVisible prop is not available on Android
+08-05 17:30:18.081 11098 11098 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-05 17:30:18.081 11098 11098 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-05 17:30:18.081 11098 11098 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-05 17:31:00.332 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-05 17:31:00.336 11098 11098 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-05 17:31:00.344 11098 11098 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-05 17:31:00.345 11098 11098 W unknown:ReactNative: Packager connection already open, nooping.
+08-05 17:31:00.345 11098 11098 W unknown:BridgelessReact: ReactContext.onHostResume()

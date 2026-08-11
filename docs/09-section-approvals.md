@@ -1,5 +1,7 @@
 # Section Approval Log
 
+> **Historical evidence notice — 4 August 2026:** This file is a dated, append-only approval log. Its earlier Redis/BullMQ, repository-selector, Firestore, deployment, and test-count entries describe their named checkpoints; they are not current runtime requirements. The current Phase 1–8 API uses MongoDB as its only required database, requires no Redis, BullMQ, or Mongo replica set for notification delivery, and fences each provider attempt durably in Mongo. Current architecture and verification are recorded in [`mobile-native-redesign/README.md`](./mobile-native-redesign/README.md) and [`mobile-native-redesign/TEST_MATRIX.md`](./mobile-native-redesign/TEST_MATRIX.md).
+
 ## 2026-05-09 - Foundation And Domain Core
 
 ### Section

@@ -6,7 +6,11 @@ export type AcademicCalendarEventInput = {
   category?: string;
   startDate: string;
   endDate?: string;
+  temporalKind?: "date" | "timestamp";
+  endTemporalKind?: "date" | "timestamp";
+  timezone?: string;
   description?: string;
+  location?: string;
   url?: string;
   recurrenceRule?: NativeCalendarSyncEvent["recurrenceRule"];
 };
@@ -15,6 +19,7 @@ export type ManualExamEventInput = {
   id: string;
   title: string;
   examDate: string;
+  locationNote?: string;
 };
 
 export type NativeCalendarMappingOptions = {
@@ -30,11 +35,20 @@ export function mapAcademicEventsToNativeCalendarEvents(
   options: NativeCalendarMappingOptions = {}
 ): NativeCalendarSyncEvent[] {
   return events.flatMap((event) => {
-    const startDate = normalizeDateInput(event.startDate);
+    const startIsDateOnly = event.temporalKind === "date"
+      || (event.temporalKind === undefined && isExactDateOnly(event.startDate));
+    const endKind = event.endTemporalKind
+      ?? (event.endDate && isExactDateOnly(event.endDate) ? "date" : "timestamp");
+    const hasTimestampEnd = endKind === "timestamp" && Boolean(event.endDate);
+    const allDay = startIsDateOnly && !hasTimestampEnd;
+    const startDate = allDay
+      ? normalizeCalendarDate(event.startDate)
+      : startIsDateOnly
+        ? normalizeIstanbulCalendarStart(event.startDate)
+        : normalizeTimestamp(event.startDate);
     if (!startDate) return [];
 
-    const allDay = isAllDayCandidate(event.startDate);
-    const endDate = normalizeEventEndDate(startDate, event.endDate, allDay);
+    const endDate = normalizeEventEndDate(startDate, event, allDay);
     const category = event.category ?? "academic_event";
     const categoryLabel = options.categoryLabel?.(category) ?? category;
 
@@ -45,8 +59,9 @@ export function mapAcademicEventsToNativeCalendarEvents(
         startDate,
         endDate,
         allDay,
-        timezone: options.timezone ?? DEFAULT_TIMEZONE,
+        timezone: options.timezone ?? event.timezone ?? DEFAULT_TIMEZONE,
         notes: event.description ?? `Academic event category: ${categoryLabel}`,
+        location: event.location,
         url: event.url,
         category,
         recurrenceRule: event.recurrenceRule,
@@ -61,7 +76,7 @@ export function mapManualExamsToNativeCalendarEvents(
   options: NativeCalendarMappingOptions = {}
 ): NativeCalendarSyncEvent[] {
   return exams.flatMap((exam) => {
-    const startDate = normalizeDateInput(exam.examDate);
+    const startDate = normalizeTimestamp(exam.examDate);
     if (!startDate) return [];
 
     return [
@@ -73,6 +88,7 @@ export function mapManualExamsToNativeCalendarEvents(
         allDay: false,
         timezone: options.timezone ?? DEFAULT_TIMEZONE,
         notes: "Manual exam reminder",
+        location: exam.locationNote,
         category: "manual_exam",
         reminderMinutesBefore: options.reminderMinutesBefore ?? []
       }
@@ -85,21 +101,56 @@ export function normalizeReminderMinutes(value: number): number[] {
   return [Math.max(0, Math.round(value))];
 }
 
-function normalizeDateInput(input: string): string | null {
+function normalizeTimestamp(input: string): string | null {
+  if (isExactDateOnly(input)) return null;
   const parsed = new Date(input);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
 }
 
-function normalizeEventEndDate(startIsoDate: string, inputEndDate: string | undefined, allDay: boolean): string {
-  const parsedEndDate = inputEndDate ? new Date(inputEndDate) : null;
-  if (parsedEndDate && !Number.isNaN(parsedEndDate.getTime())) return parsedEndDate.toISOString();
-
-  return allDay ? addDays(startIsoDate, 1) : addMinutes(startIsoDate, 60);
+function normalizeCalendarDate(input: string): string | null {
+  if (!isExactDateOnly(input)) return null;
+  return `${input}T00:00:00.000Z`;
 }
 
-function isAllDayCandidate(input: string): boolean {
-  return !/T\d{2}:\d{2}/.test(input);
+function normalizeIstanbulCalendarStart(input: string): string | null {
+  if (!isExactDateOnly(input)) return null;
+  return new Date(`${input}T00:00:00.000+03:00`).toISOString();
+}
+
+function normalizeEventEndDate(
+  startIsoDate: string,
+  event: AcademicCalendarEventInput,
+  allDay: boolean
+): string {
+  const inferredEndKind = event.endTemporalKind
+    ?? (event.endDate && isExactDateOnly(event.endDate) ? "date" : "timestamp");
+  if (allDay) {
+    const inclusiveEnd = inferredEndKind === "date" && event.endDate
+      ? normalizeCalendarDate(event.endDate)
+      : null;
+    return addDays(inclusiveEnd ?? startIsoDate, 1);
+  }
+  if (inferredEndKind === "date" && event.endDate) {
+    const exclusiveEnd = exclusiveIstanbulEnd(event.endDate);
+    if (exclusiveEnd && Date.parse(exclusiveEnd) > Date.parse(startIsoDate)) return exclusiveEnd;
+  }
+  const parsedEndDate = event.endDate ? normalizeTimestamp(event.endDate) : null;
+  if (parsedEndDate && Date.parse(parsedEndDate) > Date.parse(startIsoDate)) return parsedEndDate;
+  return addMinutes(startIsoDate, 60);
+}
+
+function isExactDateOnly(input: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(input)) return false;
+  const parsed = new Date(`${input}T12:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === input;
+}
+
+function exclusiveIstanbulEnd(inclusiveEnd: string): string | null {
+  const normalized = normalizeCalendarDate(inclusiveEnd);
+  if (!normalized) return null;
+  const exclusiveDate = addDays(normalized, 1).slice(0, 10);
+  return new Date(`${exclusiveDate}T00:00:00.000+03:00`).toISOString();
 }
 
 function addDays(isoDate: string, days: number): string {

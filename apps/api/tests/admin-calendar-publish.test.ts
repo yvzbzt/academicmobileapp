@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AdminCalendarService } from "../src/modules/calendars/admin-calendar.service.js";
 import { InMemoryCalendarRepository } from "../src/modules/calendars/in-memory-calendar.repository.js";
 import { InMemoryPdfRepository } from "../src/modules/pdf/in-memory-pdf.repository.js";
@@ -35,6 +35,90 @@ async function createApprovedExtractedEvents() {
 }
 
 describe("AdminCalendarService", () => {
+  it("preserves explicit course and location metadata on manually authored events", async () => {
+    const service = new AdminCalendarService(
+      new InMemoryCalendarRepository(),
+      new InMemoryPdfRepository()
+    );
+
+    const draft = await service.createManualDraft({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "Located events",
+      createdBy: "admin-1",
+      events: [{
+        title: "Veri Yapıları Final Sınavı",
+        courseName: "  Veri Yapıları  ",
+        category: "final_exam",
+        term: "fall",
+        startDate: "2026-11-10T09:30:00+03:00",
+        endDate: "2026-11-10T11:00:00+03:00",
+        location: "  Mühendislik Fak. – A Blok 201  "
+      }]
+    });
+
+    expect(draft.events[0]).toMatchObject({
+      courseName: "Veri Yapıları",
+      location: "Mühendislik Fak. – A Blok 201",
+      startDate: new Date("2026-11-10T06:30:00.000Z"),
+      endDate: new Date("2026-11-10T08:00:00.000Z")
+    });
+  });
+
+  it.each([
+    ["ambiguous instant", { startDate: "2026-09-01T09:30:00", endDate: "2026-09-01T11:00:00+03:00" }],
+    ["reverse date range", { startDate: "2026-09-03", endDate: "2026-09-01" }],
+    ["reverse instant range", { startDate: "2026-09-03T11:00:00+03:00", endDate: "2026-09-03T10:59:59+03:00" }]
+  ])("rejects a manual calendar %s before creating its parent draft", async (_label, temporal) => {
+    const calendarRepository = new InMemoryCalendarRepository();
+    const createCalendar = vi.spyOn(calendarRepository, "createCalendar");
+    const service = new AdminCalendarService(calendarRepository, new InMemoryPdfRepository());
+
+    await expect(service.createManualDraft({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "Invalid temporal draft",
+      createdBy: "admin-1",
+      events: [{
+        title: "Invalid event",
+        category: "course_registration",
+        term: "fall",
+        ...temporal
+      }]
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(createCalendar).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid approved extracted range before creating its parent draft", async () => {
+    const { pdfRepository, source } = await createApprovedExtractedEvents();
+    const [approved] = await pdfRepository.listExtractedEvents({
+      pdfSourceId: source.id,
+      status: "approved",
+      limit: 10,
+      offset: 0
+    });
+    await pdfRepository.updateExtractedEvent(approved!.id, {
+      temporalKind: "date",
+      dateOnlyStart: "2026-09-03",
+      startDate: new Date("2026-09-03T00:00:00.000Z"),
+      endTemporalKind: "date",
+      dateOnlyEnd: "2026-09-01",
+      endDate: new Date("2026-09-01T23:59:59.999Z")
+    });
+    const calendarRepository = new InMemoryCalendarRepository();
+    const createCalendar = vi.spyOn(calendarRepository, "createCalendar");
+    const service = new AdminCalendarService(calendarRepository, pdfRepository);
+
+    await expect(service.createDraftFromApprovedExtractedEvents({
+      universityId: source.universityId,
+      academicYear: source.academicYear,
+      title: "Invalid extracted draft",
+      sourcePdfId: source.id,
+      createdBy: "admin-1"
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(createCalendar).not.toHaveBeenCalled();
+  });
+
   it("creates a draft calendar from approved extracted events", async () => {
     const { pdfRepository, source } = await createApprovedExtractedEvents();
     const calendarRepository = new InMemoryCalendarRepository();
@@ -52,6 +136,35 @@ describe("AdminCalendarService", () => {
     expect(draft.calendar.version).toBe(1);
     expect(draft.events).toHaveLength(2);
     expect(draft.events.every((event) => event.status === "approved")).toBe(true);
+  });
+
+  it("carries a date-only start and real timestamp end through the approved draft", async () => {
+    const pdfRepository = new InMemoryPdfRepository();
+    const pdfService = new PdfProcessingService(pdfRepository, disabledOcrService);
+    const source = await pdfService.createPdfSource({
+      ...validPdfInput,
+      fileName: "inverse-mixed-publish-flow.pdf",
+      rawText: "Basvuru sonuclari 01.09.2026 - 03.09.2026 17:00"
+    });
+    const processed = await pdfService.processPdfSource(source.id);
+    await pdfService.approveExtractedEvent(processed.extractedEvents[0]!.id, "admin-1");
+    const service = new AdminCalendarService(new InMemoryCalendarRepository(), pdfRepository);
+
+    const draft = await service.createDraftFromApprovedExtractedEvents({
+      universityId: source.universityId,
+      academicYear: source.academicYear,
+      title: "Karma zaman araligi",
+      sourcePdfId: source.id,
+      createdBy: "admin-1"
+    });
+
+    expect(draft.events[0]).toMatchObject({
+      temporalKind: "date",
+      endTemporalKind: "timestamp",
+      dateOnlyStart: "2026-09-01",
+      startDate: new Date("2026-09-01T00:00:00.000Z"),
+      endDate: new Date("2026-09-03T14:00:00.000Z")
+    });
   });
 
   it("publishes draft calendar and archives previous published calendar", async () => {

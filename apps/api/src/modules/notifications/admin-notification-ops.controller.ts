@@ -9,6 +9,12 @@ import { NotificationWorkerService } from "./notification-worker.service.js";
 export class AdminNotificationOpsController {
   constructor(@Inject(NotificationWorkerService) private readonly worker: NotificationWorkerService) {}
 
+  @Get("health")
+  @Roles("super_admin")
+  health() {
+    return this.worker.health();
+  }
+
   @Post("process-due")
   @Roles("super_admin")
   processDue(@Query("limit") limit?: string) {

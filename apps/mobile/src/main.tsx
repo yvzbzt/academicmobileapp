@@ -62,6 +62,7 @@ interface AffiliationOptionsPayload { emailDomain?: string; university?: Univers
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://academic-api.anssoft.com.tr";
 const adminDashboardUrl = import.meta.env.VITE_ADMIN_DASHBOARD_URL ?? "https://academic-api.anssoft.com.tr/admin/";
 const calendarListPreviewLimit = 5;
+const webInstallationStorageKey = "academic-mobile.web-installation-id.v1";
 const categoryLabels: Record<string, string> = {
   academic_year_start: "Akademik yıl başlangıcı",
   academic_year_end: "Akademik yıl bitişi",
@@ -136,6 +137,22 @@ function foldForClassMatch(value: string): string {
     .replace(/\s+/gu, " ")
     .trim()
     .toLocaleLowerCase("en-US");
+}
+
+function getOrCreateWebInstallationId(): string {
+  const createId = () => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return `web-${crypto.randomUUID()}`;
+    return `web-${Date.now()}-${Math.round(Math.random() * 1_000_000)}`;
+  };
+  try {
+    const existing = window.localStorage.getItem(webInstallationStorageKey)?.trim();
+    if (existing && existing.length >= 8 && existing.length <= 256) return existing;
+    const created = createId();
+    window.localStorage.setItem(webInstallationStorageKey, created);
+    return created;
+  } catch {
+    return createId();
+  }
 }
 
 function findDepartmentById(departments: DepartmentRecord[], id?: string): DepartmentRecord | null {
@@ -355,10 +372,7 @@ function App() {
   const [showAllExamScheduleEvents, setShowAllExamScheduleEvents] = useState(false);
   const [googleAuthLoading, setGoogleAuthLoading] = useState(false);
   const [handoffState, setHandoffState] = useState<ApiState<ProfilePayload>>({ loading: Boolean(initialHandoffToken) });
-  const clientDeviceId = useMemo(() => {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return `web-${crypto.randomUUID()}`;
-    return `web-${Date.now()}-${Math.round(Math.random() * 1_000_000)}`;
-  }, []);
+  const clientDeviceId = useMemo(getOrCreateWebInstallationId, []);
   const isAuthenticated = Boolean(session);
   const isAdmin = Boolean(session && adminRoles.has(session.user.role));
   const headers = useMemo(() => (session ? { Authorization: `Bearer ${session.accessToken}` } : {}), [session]);
@@ -772,7 +786,9 @@ function App() {
           ? [{ trigger: "approaching" as const, amount: 0, unit: "days" as const, enabled: true }]
           : [{ trigger: "at_time" as const, amount: 0, unit: "days" as const, enabled: true }];
     const body = {
-      enabled: values.enabled !== "disabled",
+      // This responsive web client has no real Web Push subscription flow.
+      // Never create a fake device registration or claim delivery here.
+      enabled: false,
       categories: {
         course_registration: true,
         course_schedule: true,
@@ -792,12 +808,6 @@ function App() {
     await runAction(setPreferences, () => request<PreferencesPayload>("/notification-preferences", { method: "PATCH", body: JSON.stringify(body) }), "Tercihler kaydedildi");
   }
 
-  async function registerDevice() {
-    if (!ensureSession()) return;
-    await request("/devices/register", { method: "POST", body: JSON.stringify({ platform: "web", token: `web-demo-${Date.now()}` }) });
-    setMessage("Cihaz kaydedildi");
-  }
-
   async function createStudentAlarm(input: { eventType: "exam" | "calendar_event" | "announcement" | "course"; targetId: string; title: string; scheduledFor: string; trigger: "at_time" | "before"; amount: number; unit: "days" | "hours"; sourceUrl?: string }) {
     if (!ensureSession()) return;
     await request("/notification-alarms", {
@@ -813,6 +823,7 @@ function App() {
   }
 
   function logout() {
+    const closingSession = session;
     setSession(null);
     setStudentPage("landing");
     setShowAdminDecision(false);
@@ -837,6 +848,27 @@ function App() {
     setProfileDepartments({ loading: false, data: [] });
     setAuthNotice({ kind: "info", text: "Çıkış yaptınız." });
     setMessage("");
+
+    if (!closingSession) return;
+    const authenticatedHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${closingSession.accessToken}`
+    };
+    const detachRequests: Promise<Response>[] = [
+      fetch(`${apiBaseUrl}/devices/current`, {
+        method: "DELETE",
+        headers: authenticatedHeaders,
+        body: JSON.stringify({ deviceId: clientDeviceId })
+      })
+    ];
+    if (closingSession.refreshToken) {
+      detachRequests.push(fetch(`${apiBaseUrl}/auth/logout`, {
+        method: "POST",
+        headers: authenticatedHeaders,
+        body: JSON.stringify({ refreshToken: closingSession.refreshToken })
+      }));
+    }
+    void Promise.allSettled(detachRequests);
   }
 
   function universityName(id?: string) {
@@ -1571,11 +1603,11 @@ function App() {
           {preferences.loading && <PanelState kind="loading" text="Tercihler yükleniyor..." />}
           <form className="settingsGrid" onSubmit={savePreferences}>
             <label className="fieldLabel">Bildirim durumu
-              <select name="enabled" defaultValue={preferences.data?.enabled === false ? "disabled" : "enabled"}>
-                <option value="enabled">Etkin</option>
+              <select name="enabled" value="disabled" disabled>
                 <option value="disabled">Kapalı</option>
               </select>
             </label>
+            <p className="helperText">Web Push bu istemcide yapılandırılmadı. Gerçek cihaz teslimatı yalnızca desteklenen native uygulamada, açık iznin ardından etkinleştirilebilir.</p>
             <label className="fieldLabel">Varsayılan hatırlatma
               <select name="reminderMode" defaultValue={defaultReminderMode}>
                 <option value="at_time">Tam saatinde</option>
@@ -1595,7 +1627,6 @@ function App() {
             <label className="fieldLabel">Sessiz başlangıç<input name="start" type="time" defaultValue={preferences.data?.quietHours?.start ?? "22:00"} /></label>
             <label className="fieldLabel">Sessiz bitiş<input name="end" type="time" defaultValue={preferences.data?.quietHours?.end ?? "07:00"} /></label>
             <button className="btn btn-primary" disabled={!isAuthenticated}><Check size={18} /> Tercihleri Kaydet</button>
-            <button className="btn btn-secondary" type="button" onClick={registerDevice} disabled={!isAuthenticated}><Smartphone size={18} /> Cihazı Kaydet</button>
           </form>
           {preferences.error && <PanelState kind="error" text={preferences.error} />}
         </section>

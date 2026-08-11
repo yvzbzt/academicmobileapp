@@ -1,0 +1,11 @@
+COMMAND=.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon
+RESULT=BUILD SUCCESSFUL in 1m 48s; 245 actionable tasks: 7 executed, 238 up-to-date
+INSTALL=adb install -r -d app-debug.apk -> Success
+APK=<REPO_ROOT>\apps\mobile-native\android\app\build\outputs\apk\debug\app-debug.apk
+BYTES=56804991
+LAST_WRITE=2026-08-01T01:18:17.6963952+03:00
+SHA256=72B5EB3EE7AE19777BF1CF1FB6D9E2929EE4C37B0A83076DDA95C2548992F4B7
+FINAL_INCREMENTAL_COMMAND=.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon
+FINAL_INCREMENTAL_RESULT=BUILD SUCCESSFUL in 1m 7s; 245 actionable tasks: 7 executed, 238 up-to-date
+FINAL_INCREMENTAL_BYTES=56804991
+FINAL_INCREMENTAL_SHA256=72B5EB3EE7AE19777BF1CF1FB6D9E2929EE4C37B0A83076DDA95C2548992F4B7

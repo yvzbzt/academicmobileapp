@@ -4,6 +4,7 @@ import { mapAcademicEventCategory } from "../../domain/category-mapper.js";
 import { calculateConfidenceScore } from "../../domain/confidence-score.js";
 import { normalizeAcademicDate } from "../../domain/date-normalizer.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
+import { academicTemporalFields, academicTemporalFieldsFromRecord, istanbulTimestamp, storedAcademicTemporalEndValue, storedAcademicTemporalStartValue } from "../calendars/calendar-temporal.js";
 import type { CreatePdfSourceInput, ExtractedEventRecord, ExtractedEventStatus, PdfRepository, PdfSourceRecord } from "./pdf.types.js";
 import { PdfOcrService } from "./pdf-ocr.service.js";
 
@@ -145,9 +146,33 @@ export class PdfProcessingService {
 
   async updateExtractedEvent(
     id: string,
-    input: { normalizedTitle?: string; normalizedCategory?: AcademicEventCategory; startDate?: Date; endDate?: Date; adminNote?: string }
+    input: { normalizedTitle?: string; normalizedCategory?: AcademicEventCategory; startDate?: string; endDate?: string; adminNote?: string }
   ): Promise<ExtractedEventRecord> {
-    const updated = await this.pdfRepository.updateExtractedEvent(id, input);
+    const current = await this.pdfRepository.findExtractedEventById(id);
+    if (!current) throw new NotFoundException("Extracted event not found.");
+    if (
+      (input.startDate !== undefined && typeof input.startDate !== "string")
+      || (input.endDate !== undefined && typeof input.endDate !== "string")
+    ) {
+      throw new BadRequestException("Calendar temporal values must be strings when provided.");
+    }
+    const temporalInputProvided = input.startDate !== undefined || input.endDate !== undefined;
+    let temporal: Partial<ReturnType<typeof academicTemporalFields>> = {};
+    if (temporalInputProvided) {
+      const requestedStart = input.startDate !== undefined
+        ? input.startDate
+        : storedAcademicTemporalStartValue(current);
+      const requestedEnd = input.endDate !== undefined
+        ? input.endDate
+        : storedAcademicTemporalEndValue(current);
+      temporal = academicTemporalFields(requestedStart, requestedEnd);
+    }
+    const updated = await this.pdfRepository.updateExtractedEvent(id, {
+      ...(input.normalizedTitle ? { normalizedTitle: input.normalizedTitle } : {}),
+      ...(input.normalizedCategory ? { normalizedCategory: input.normalizedCategory } : {}),
+      ...temporal,
+      ...(input.adminNote ? { adminNote: input.adminNote } : {})
+    });
     if (!updated) throw new NotFoundException("Extracted event not found.");
     return updated;
   }
@@ -156,6 +181,7 @@ export class PdfProcessingService {
     const event = await this.pdfRepository.findExtractedEventById(id);
     if (!event) throw new NotFoundException("Extracted event not found.");
     if (!event.startDate) throw new BadRequestException("Extracted event must have a start date before approval.");
+    academicTemporalFieldsFromRecord(event);
     const updated = await this.pdfRepository.updateExtractedEvent(id, {
       status: "approved",
       reviewedBy,
@@ -226,6 +252,15 @@ export class PdfProcessingService {
       duplicateRisk: 0,
       sourcePageClarity: sourcePage > 0 ? 100 : 0
     });
+    const includeEnd = Boolean(endDate && (endDate !== startDate || normalizedDate.endTime));
+    const temporal = startDate
+      ? extractedAcademicTemporalFields(
+          startDate,
+          normalizedDate.startTime,
+          includeEnd ? endDate : undefined,
+          normalizedDate.endTime
+        )
+      : undefined;
 
     return {
       pdfSourceId: source.id,
@@ -235,8 +270,7 @@ export class PdfProcessingService {
       originalDateText,
       normalizedTitle: title,
       normalizedCategory: category,
-      ...(startDate ? { startDate: toEventDate(startDate, normalizedDate.startTime) } : {}),
-      ...(endDate && endDate !== startDate ? { endDate: toEventDate(endDate, normalizedDate.endTime, true) } : {}),
+      ...(temporal ?? {}),
       ...(normalizedDate.startTime ? { startTime: normalizedDate.startTime } : {}),
       ...(normalizedDate.endTime ? { endTime: normalizedDate.endTime } : {}),
       ...(normalizedDate.hasExplicitTime ? { hasExplicitTime: true } : {}),
@@ -261,6 +295,25 @@ export class PdfProcessingService {
       .replace(/(?<=\p{L})1(?=\p{L})/gu, "i")
       .replace(/(?<=\p{L})0(?=\p{L})/gu, "o");
     return stripNavigationChrome(title);
+  }
+}
+
+function extractedAcademicTemporalFields(
+  startDate: string,
+  startTime: string | undefined,
+  endDate: string | undefined,
+  endTime: string | undefined
+): ReturnType<typeof academicTemporalFields> | undefined {
+  const temporalValue = (dateOnly: string, time: string | undefined): string =>
+    time ? istanbulTimestamp(dateOnly, time).toISOString() : dateOnly;
+  try {
+    return academicTemporalFields(
+      temporalValue(startDate, startTime),
+      endDate ? temporalValue(endDate, endTime) : undefined
+    );
+  } catch (error) {
+    if (error instanceof BadRequestException) return undefined;
+    throw error;
   }
 }
 
@@ -686,24 +739,6 @@ function areDuplicateTitles(left: string, right: string): boolean {
 
 function dateKey(value?: Date): string {
   return value ? value.toISOString().slice(0, 10) : "";
-}
-
-function toEventDate(isoDate: string, time?: string, endOfDay = false): Date {
-  if (!time) return new Date(`${isoDate}T${endOfDay ? "23:59:59.000" : "00:00:00.000"}Z`);
-  const dateMatch = isoDate.match(/^(20\d{2})-(\d{2})-(\d{2})$/u);
-  const timeMatch = time.match(/^([01]\d|2[0-3]):([0-5]\d)$/u);
-  if (!dateMatch?.[1] || !dateMatch[2] || !dateMatch[3] || !timeMatch?.[1] || !timeMatch[2]) return new Date(`${isoDate}T00:00:00.000Z`);
-
-  const turkeyUtcOffsetHours = 3;
-  return new Date(Date.UTC(
-    Number(dateMatch[1]),
-    Number(dateMatch[2]) - 1,
-    Number(dateMatch[3]),
-    Number(timeMatch[1]) - turkeyUtcOffsetHours,
-    Number(timeMatch[2]),
-    0,
-    0
-  ));
 }
 
 function foldEventText(value: string): string {

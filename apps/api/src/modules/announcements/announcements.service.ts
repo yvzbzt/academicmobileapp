@@ -1,29 +1,28 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
-import { createHash } from "node:crypto";
-import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
+import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
-import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
-import { fetchSourceItems as fetchParsedAnnouncementItems, toAnnouncementItems } from "./announcement-parser.js";
-import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
-
-interface ParsedAnnouncementItem {
-  title: string;
-  link: string;
-  publishedAt?: Date;
-  summary?: string;
-}
+import { AnnouncementIngestionService, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
+import { academicContentLogicalIdentityKey, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
+import { fetchSourceItems, toAnnouncementItems, type ParsedAnnouncementItem } from "./announcement-parser.js";
+import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, SavedAnnouncementStatus } from "./announcements.types.js";
+import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 @Injectable()
 export class AnnouncementsService {
   constructor(
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
-    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
-    @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService
+    @Optional() @Inject("CatalogRepository") _catalogRepository?: CatalogRepository,
+    @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService,
+    @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
   ) {}
 
-  async getMyAnnouncements(userId: string, limit = 20): Promise<AnnouncementItem[]> {
+  async getMyAnnouncements(userId: string, limit = 20): Promise<TrustedAcademicContentDto[]> {
+    return (await this.getMyAnnouncementsCollection(userId, limit)).items;
+  }
+
+  async getMyAnnouncementsCollection(userId: string, limit = 20): Promise<TrustedAcademicContentCollectionDto> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
     if (!user.universityId) throw new BadRequestException("User must select a university first.");
@@ -33,33 +32,107 @@ export class AnnouncementsService {
       ...(user.facultyId ? { facultyId: user.facultyId } : {}),
       ...(user.departmentId ? { departmentId: user.departmentId } : {})
     };
-
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
     await this.announcementIngestionService?.ensureStaticAnnouncementSources();
-    let sources = await this.announcementRepository.listSourcesByScope(scopeInput);
-
+    const sources = await this.announcementRepository.listSourcesByScope(scopeInput);
     if (sources.length === 0) {
-      await this.discoverAndStoreUniversitySource(user.universityId);
-      sources = await this.announcementRepository.listSourcesByScope(scopeInput);
+      // Source discovery probes multiple external candidates and belongs to the
+      // scheduled/admin ingestion path. A student feed read must stay bounded
+      // when a university has not been configured or ingested yet.
+      return toContentCollection([], 0, 0);
     }
 
-    const cachedItems = await this.announcementRepository.listItemsByScope({ ...scopeInput, limit: boundedLimit });
+    const cachedItems = await this.announcementRepository.listItemsByScope({ ...scopeInput, limit: Math.max(boundedLimit * 4, 100) });
     const cachedSourceIds = new Set(cachedItems.map((item) => item.sourceId));
     const hasUncachedSources = sources.some((source) => !cachedSourceIds.has(source.id));
-    if (!hasUncachedSources && cachedItems.length > 0 && areAnnouncementItemsFresh(cachedItems)) return cachedItems;
+    if (!hasUncachedSources && cachedItems.length > 0 && areAnnouncementItemsFresh(cachedItems)) {
+      return toContentCollection(
+        presentTrustedItems(cachedItems, sources).slice(0, boundedLimit),
+        sources.length,
+        persistedFailedSourceCount(sources)
+      );
+    }
 
-    if (sources.length === 0) return cachedItems;
-
-    const refreshedItems = await this.refreshSources(sources);
-    const merged = refreshedItems.length > 0 ? refreshedItems : cachedItems;
-
-    const deduped = dedupeAnnouncements(merged);
-    deduped.sort(compareAnnouncementItems);
-
-    return deduped.slice(0, boundedLimit);
+    if (sources.length === 0) {
+      return toContentCollection(presentTrustedItems(cachedItems, sources).slice(0, boundedLimit), 0, 0);
+    }
+    const refreshed = await this.refreshSources(sources, cachedItems);
+    const merged = refreshed.items;
+    return toContentCollection(
+      presentTrustedItems(merged, sources).slice(0, boundedLimit),
+      sources.length,
+      refreshed.failedSourceCount
+    );
   }
 
-  async getYokAnnouncements(limit = 60): Promise<AnnouncementItem[]> {
+  async getMyTrustedAnnouncement(userId: string, announcementId: string): Promise<TrustedAcademicContentDto> {
+    const user = await this.authRepository.findUserById(userId);
+    if (!user) throw new NotFoundException("User not found.");
+    const userScope = user.universityId ? {
+      universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {})
+    } : undefined;
+    const match = (userScope
+      ? await this.announcementRepository.findTrustedItemByIdInScope({ announcementId, ...userScope })
+      : null)
+      ?? await this.announcementRepository.findTrustedItemByIdInScope({
+        announcementId,
+        universityId: YOK_ANNOUNCEMENT_SCOPE_ID
+      });
+    if (!match) {
+      if (!userScope) throw new BadRequestException("User must select a university first.");
+      throw new NotFoundException("Trusted announcement not found.");
+    }
+    const presented = toTrustedAcademicContentDto(match.item, match.source);
+    if (!presented) throw new NotFoundException("Trusted announcement not found.");
+    const trustedPresentation: TrustedAcademicContentDto = presented;
+    const presentationScope = match.source.scopeType === "university"
+      && match.source.scopeId === YOK_ANNOUNCEMENT_SCOPE_ID
+      ? { universityId: YOK_ANNOUNCEMENT_SCOPE_ID }
+      : userScope!;
+    const sources = await this.announcementRepository.listSourcesByScope(presentationScope);
+    const scopedItems = await this.announcementRepository.listItemsByScope({
+      ...presentationScope,
+      limit: 1_000
+    });
+    const trustedPresentationIdentity = academicContentLogicalIdentityKey(trustedPresentation);
+    const logical = trustedPresentationIdentity
+      ? presentTrustedItems(scopedItems, sources).find((item) =>
+        academicContentLogicalIdentityKey(item) === trustedPresentationIdentity)
+      : undefined;
+    return logical ? {
+      ...trustedPresentation,
+      ...(logical.canonicalUrlAliases ? { canonicalUrlAliases: logical.canonicalUrlAliases } : {}),
+      ...(logical.sourceRelationships ? { sourceRelationships: logical.sourceRelationships } : {})
+    } : trustedPresentation;
+  }
+
+  async getMySavedAnnouncementStatus(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
+    await this.assertUserExists(userId);
+    const saved = await this.announcementRepository.findSavedAnnouncement(userId, announcementId);
+    return saved
+      ? { announcementId, saved: true, savedAt: saved.savedAt.toISOString() }
+      : { announcementId, saved: false };
+  }
+
+  async saveMyAnnouncement(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
+    await this.getMyTrustedAnnouncement(userId, announcementId);
+    const saved = await this.announcementRepository.saveAnnouncement(userId, announcementId, new Date());
+    return { announcementId, saved: true, savedAt: saved.savedAt.toISOString() };
+  }
+
+  async deleteMySavedAnnouncement(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
+    await this.assertUserExists(userId);
+    await this.announcementRepository.deleteSavedAnnouncement(userId, announcementId);
+    return { announcementId, saved: false };
+  }
+
+  async getYokAnnouncements(limit = 60): Promise<TrustedAcademicContentDto[]> {
+    return (await this.getYokAnnouncementsCollection(limit)).items;
+  }
+
+  async getYokAnnouncementsCollection(limit = 60): Promise<TrustedAcademicContentCollectionDto> {
     const source = await this.announcementRepository.upsertSource({
       scopeType: "university",
       scopeId: YOK_ANNOUNCEMENT_SCOPE_ID,
@@ -70,323 +143,212 @@ export class AnnouncementsService {
       priority: 100,
       status: "active",
       homepageUrl: "https://www.yok.gov.tr/tr",
-      discoveryMethod: "manual",
-      healthStatus: "pending",
-      consecutiveFailures: 0,
-      itemCount: 0
+      discoveryMethod: "manual"
     });
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
-    const cachedItems = (await this.announcementRepository.listItemsByScope({ universityId: YOK_ANNOUNCEMENT_SCOPE_ID, limit: boundedLimit }))
-      .filter(isUsefulYokAnnouncement);
-    if (cachedItems.length > 0) return cachedItems;
-
-    const fetchedAt = new Date();
-    const parsedItems = await this.fetchSourceItemsSafe(source);
-    const items = toAnnouncementItems(source, parsedItems, fetchedAt).filter(isUsefulYokAnnouncement);
-    items.sort(compareAnnouncementItems);
-    await this.announcementRepository.replaceItemsForSource(source, items);
-    return items.slice(0, boundedLimit);
-  }
-
-  private async fetchSourceItemsSafe(source: AnnouncementSourceRecord): Promise<ParsedAnnouncementItem[]> {
-    try {
-      return await fetchParsedAnnouncementItems(source.sourceUrl, source.parser);
-    } catch {
-      return [];
+    const cachedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
+    if (cachedItems.length > 0 && areAnnouncementItemsFresh(cachedItems)) {
+      return toContentCollection(
+        presentTrustedItems(cachedItems, [source]).slice(0, boundedLimit),
+        1,
+        persistedFailedSourceCount([source])
+      );
     }
-  }
 
-  private async discoverAndStoreUniversitySource(universityId: string): Promise<AnnouncementSourceRecord | null> {
-    const university = await this.catalogRepository?.findUniversityById(universityId);
-    if (!university) return null;
-    const result = await discoverAnnouncementSourceForUniversity(university, { timeoutMs: readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000) });
-    if (result.status !== "source_found" || !result.sourceUrl) return null;
-
-    return this.announcementRepository.upsertSource({
-      scopeType: "university",
-      scopeId: university.id,
-      sourceName: `${university.name} Duyurular`,
-      sourceUrl: result.sourceUrl,
-      contentType: "announcement",
-      parser: result.parser ?? "auto",
-      priority: 20,
-      status: "active",
-      ...(result.homepageUrl ? { homepageUrl: result.homepageUrl } : {}),
-      discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
-      healthStatus: result.itemCount > 0 ? "healthy" : "degraded",
-      lastCheckedAt: new Date(),
-      ...(result.itemCount > 0 ? { lastSuccessAt: new Date() } : {}),
-      consecutiveFailures: result.itemCount > 0 ? 0 : 1,
-      itemCount: result.itemCount
-    });
-  }
-
-  private async refreshSources(sources: AnnouncementSourceRecord[]): Promise<AnnouncementItem[]> {
     const fetchedAt = new Date();
-    const groups = await Promise.all(sources.map((source) => this.refreshSource(source, fetchedAt)));
-    return groups.flat();
+    try {
+      const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser);
+      const items = toAnnouncementItems(source, parsedItems, fetchedAt);
+      if (parsedItems.length === 0) {
+        const delta = await this.announcementRepository.replaceItemsForSource(source, [], { authoritativeEmpty: true });
+        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
+        const persistedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
+        return toContentCollection(presentTrustedItems(persistedItems, [source]).slice(0, boundedLimit), 1, 0);
+      }
+      if (items.length > 0) {
+        const delta = await this.announcementRepository.replaceItemsForSource(source, items);
+        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
+        const persistedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
+        return toContentCollection(presentTrustedItems(persistedItems, [source]).slice(0, boundedLimit), 1, 0);
+      }
+    } catch {
+      // A stale, previously trusted cache is safer and more honest than a
+      // crawler timestamp fabricated as publication time.
+    }
+    return toContentCollection(presentTrustedItems(cachedItems.map(markStale), [source]).slice(0, boundedLimit), 1, 1);
   }
 
-  private async refreshSource(source: AnnouncementSourceRecord, fetchedAt: Date): Promise<AnnouncementItem[]> {
+  private async assertUserExists(userId: string): Promise<void> {
+    if (!await this.authRepository.findUserById(userId)) throw new NotFoundException("User not found.");
+  }
+
+  private async refreshSources(
+    sources: AnnouncementSourceRecord[],
+    cachedItems: AnnouncementItem[]
+  ): Promise<{ items: AnnouncementItem[]; failedSourceCount: number }> {
+    const fetchedAt = new Date();
+    const cachedBySource = new Map<string, AnnouncementItem[]>();
+    for (const item of cachedItems) cachedBySource.set(item.sourceId, [...(cachedBySource.get(item.sourceId) ?? []), item]);
+    const groups = await Promise.all(sources.map((source) => this.refreshSource(source, fetchedAt, cachedBySource.get(source.id) ?? [])));
+    return {
+      items: groups.flatMap((group) => group.items),
+      failedSourceCount: groups.filter((group) => group.failed).length
+    };
+  }
+
+  private async refreshSource(
+    source: AnnouncementSourceRecord,
+    fetchedAt: Date,
+    cachedItems: AnnouncementItem[]
+  ): Promise<{ items: AnnouncementItem[]; failed: boolean }> {
     try {
-      const parsedItems = await fetchParsedAnnouncementItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000));
+      const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7_000));
       const items = toAnnouncementItems(source, parsedItems, fetchedAt);
-      await this.announcementRepository.replaceItemsForSource(source, items);
+      const authoritativeEmpty = parsedItems.length === 0;
+      const succeeded = items.length > 0 || authoritativeEmpty;
       await this.announcementRepository.recordSourceCheck(source.id, {
-        healthStatus: items.length > 0 ? "healthy" : "degraded",
+        healthStatus: succeeded ? "healthy" : "degraded",
         lastCheckedAt: fetchedAt,
-        ...(items.length > 0 ? { lastSuccessAt: fetchedAt } : {}),
-        ...(items.length > 0 ? {} : { lastError: "No announcement items parsed." }),
-        consecutiveFailures: items.length > 0 ? 0 : (source.consecutiveFailures ?? 0) + 1,
+        ...(succeeded ? { lastSuccessAt: fetchedAt } : {}),
+        ...(succeeded ? {} : { lastError: "No trusted announcement items parsed." }),
+        consecutiveFailures: succeeded ? 0 : (source.consecutiveFailures ?? 0) + 1,
         itemCount: items.length
       });
-      if (items.length > 0) return items;
+      if (succeeded) {
+        const delta = await this.announcementRepository.replaceItemsForSource(
+          source,
+          items,
+          authoritativeEmpty ? { authoritativeEmpty: true } : {}
+        );
+        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
+        return {
+          items: await this.announcementRepository.listItemsForSource(source.id, 1_000),
+          failed: false
+        };
+      }
     } catch (error) {
       await this.announcementRepository.recordSourceCheck(source.id, {
         healthStatus: "degraded",
         lastCheckedAt: fetchedAt,
-        lastError: error instanceof Error ? error.message : String(error),
+        lastError: controlledSourceError(error),
         consecutiveFailures: (source.consecutiveFailures ?? 0) + 1,
         itemCount: 0
       });
     }
 
-    return fallbackItemsForSource(source, fetchedAt);
+    const fallbackItems = toAnnouncementItems(source, fallbackParsedItems(source), fetchedAt).map(markStale);
+    return { items: (cachedItems.length > 0 ? cachedItems : fallbackItems).map(markStale), failed: true };
   }
 }
 
-function areAnnouncementItemsFresh(items: AnnouncementItem[], now = Date.now()): boolean {
-  const latestFetchedAt = Math.max(...items.map((item) => Date.parse(item.fetchedAt ?? "")).filter((timestamp) => Number.isFinite(timestamp)), 0);
-  return latestFetchedAt > 0 && now - latestFetchedAt <= readPositiveInteger(process.env.ANNOUNCEMENT_CACHE_TTL_MS, 10 * 60 * 1000);
+function fallbackParsedItems(source: AnnouncementSourceRecord): ParsedAnnouncementItem[] {
+  return (source.fallbackItems ?? []).map((item) => ({
+    title: item.title,
+    rawTitle: item.rawTitle ?? item.title,
+    link: item.link,
+    ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
+    ...(item.publishedDate ? { publishedDate: item.publishedDate, publicationKind: item.publicationKind ?? "date" as const } : {}),
+    ...(item.sourceUpdatedAt ? { sourceUpdatedAt: item.sourceUpdatedAt } : {}),
+    ...(item.summary ? { summary: item.summary } : {}),
+    ...(item.body?.length ? { body: item.body } : {}),
+    ...(item.keyDates?.length ? { keyDates: item.keyDates } : {})
+  }));
 }
 
-function fallbackItemsForSource(source: AnnouncementSourceRecord, fetchedAt: Date): AnnouncementItem[] {
-  return (source.fallbackItems ?? [])
-    .filter((item) => isFreshAcademicContent({ title: item.title, url: item.link, publishedAt: item.publishedAt, fetchedAt }).accepted)
-    .map((item) => ({
-    id: createAnnouncementId(source.id, item.link, item.title),
-    sourceId: source.id,
-    sourceName: source.sourceName,
-    contentType: source.contentType ?? "announcement",
-    scopeType: source.scopeType,
-    scopeId: source.scopeId,
-    title: item.title,
-    link: item.link,
-    ...(item.publishedAt ? { publishedAt: item.publishedAt.toISOString() } : {}),
-    ...(item.summary ? { summary: item.summary } : {}),
-    fetchedAt: fetchedAt.toISOString()
-  }));
+function presentTrustedItems(items: AnnouncementItem[], sources: AnnouncementSourceRecord[]): TrustedAcademicContentDto[] {
+  const sourcesById = new Map(sources.map((source) => [source.id, source]));
+  const unique = new Map<string, TrustedAcademicContentDto>();
+  for (const item of items) {
+    const presented = toTrustedAcademicContentDto(item, sourcesById.get(item.sourceId));
+    if (!presented) continue;
+    const key = academicContentLogicalIdentityKey(presented);
+    if (!key) continue;
+    const existing = unique.get(key);
+    if (!existing) {
+      unique.set(key, presented);
+      continue;
+    }
+    const preferred = compareAcademicContentDuplicateRecency(presented, existing) > 0 ? presented : existing;
+    unique.set(key, {
+      ...preferred,
+      canonicalUrlAliases: [...new Set([
+        existing.canonicalUrl,
+        ...(existing.canonicalUrlAliases ?? []),
+        presented.canonicalUrl,
+        ...(presented.canonicalUrlAliases ?? [])
+      ])].sort((left, right) => left.localeCompare(right, "en-US")),
+      sourceRelationships: mergeSourceRelationships(existing, presented)
+    });
+  }
+  return [...unique.values()].sort((left, right) => contentTimestamp(right) - contentTimestamp(left));
+}
+
+function toContentCollection(
+  items: TrustedAcademicContentDto[],
+  sourceCount: number,
+  failedSourceCount: number
+): TrustedAcademicContentCollectionDto {
+  const staleCount = items.filter((item) => item.freshness === "stale").length;
+  const state = failedSourceCount > 0 || (staleCount > 0 && staleCount < items.length)
+    ? "partial"
+    : staleCount > 0
+      ? "stale"
+      : "fresh";
+  return { items, state, sourceCount, failedSourceCount };
+}
+
+function persistedFailedSourceCount(sources: AnnouncementSourceRecord[]): number {
+  return sources.filter((source) =>
+    source.healthStatus === "degraded"
+    || source.healthStatus === "failed"
+    || (source.consecutiveFailures ?? 0) > 0
+  ).length;
+}
+
+function contentTimestamp(item: TrustedAcademicContentDto): number {
+  return Math.max(...[item.publishedAt, item.sourceUpdatedAt, item.discoveredAt, item.publishedDate ? `${item.publishedDate}T12:00:00+03:00` : undefined]
+    .map((value) => value ? Date.parse(value) : 0)
+    .filter(Number.isFinite), 0);
+}
+
+function mergeSourceRelationships(
+  left: TrustedAcademicContentDto,
+  right: TrustedAcademicContentDto
+): NonNullable<TrustedAcademicContentDto["sourceRelationships"]> {
+  const relationships = [...(left.sourceRelationships ?? []), ...(right.sourceRelationships ?? [])];
+  return [...new Map(relationships.map((relationship) => [
+    [relationship.scopeType, relationship.scopeId, relationship.sourceId, relationship.canonicalUrl].join("\u0000"),
+    relationship
+  ])).values()].sort((first, second) =>
+    first.scopeType.localeCompare(second.scopeType, "en-US")
+    || first.scopeId.localeCompare(second.scopeId, "en-US")
+    || first.sourceId.localeCompare(second.sourceId, "en-US")
+    || first.canonicalUrl.localeCompare(second.canonicalUrl, "en-US"));
+}
+
+function areAnnouncementItemsFresh(items: AnnouncementItem[], now = Date.now()): boolean {
+  const latestFetchedAtBySource = new Map<string, number>();
+  for (const item of items) {
+    const fetchedAt = Date.parse(item.fetchedAt ?? "");
+    if (!Number.isFinite(fetchedAt)) return false;
+    latestFetchedAtBySource.set(item.sourceId, Math.max(latestFetchedAtBySource.get(item.sourceId) ?? 0, fetchedAt));
+  }
+  const ttlMs = readPositiveInteger(process.env.ANNOUNCEMENT_CACHE_TTL_MS, 10 * 60 * 1_000);
+  return latestFetchedAtBySource.size > 0
+    && [...latestFetchedAtBySource.values()].every((fetchedAt) => fetchedAt > 0 && now - fetchedAt <= ttlMs);
+}
+
+function markStale(item: AnnouncementItem): AnnouncementItem {
+  return { ...item, freshness: "stale" };
+}
+
+function controlledSourceError(error: unknown): string {
+  if (!(error instanceof Error)) return "SOURCE_REFRESH_FAILED";
+  const code = error.message.match(/^[A-Z][A-Z\d_:-]+$/u)?.[0];
+  return code?.slice(0, 160) ?? "SOURCE_REFRESH_FAILED";
 }
 
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-async function fetchSourceItems(sourceUrl: string, parser: AnnouncementSourceParser): Promise<ParsedAnnouncementItem[]> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 7000);
-
-  try {
-    const response = await fetch(sourceUrl, {
-      method: "GET",
-      headers: { Accept: "text/html,application/rss+xml,application/xml;q=0.9,*/*;q=0.8" },
-      redirect: "follow",
-      signal: controller.signal
-    });
-
-    if (!response.ok) throw new Error(`SOURCE_FETCH_FAILED:${response.status}`);
-    const body = await response.text();
-
-    const resolvedParser = parser === "auto" ? (looksLikeXmlFeed(body) ? "rss" : "html") : parser;
-    if (resolvedParser === "rss") return parseRssOrAtom(body).slice(0, 20);
-    return parseHtmlAnchors(body, sourceUrl).slice(0, 20);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function looksLikeXmlFeed(input: string): boolean {
-  const text = input.toLocaleLowerCase("en-US");
-  return text.includes("<rss") || text.includes("<feed") || text.includes("<channel");
-}
-
-function parseRssOrAtom(input: string): ParsedAnnouncementItem[] {
-  const rssItems = [...input.matchAll(/<item\b[\s\S]*?<\/item>/gi)]
-    .map((match) => parseRssItem(match[0]))
-    .filter((item): item is ParsedAnnouncementItem => Boolean(item));
-
-  const atomItems = [...input.matchAll(/<entry\b[\s\S]*?<\/entry>/gi)]
-    .map((match) => parseAtomEntry(match[0]))
-    .filter((item): item is ParsedAnnouncementItem => Boolean(item));
-
-  return [...rssItems, ...atomItems];
-}
-
-function parseRssItem(input: string): ParsedAnnouncementItem | null {
-  const title = cleanText(extractTagValue(input, "title"));
-  const link = cleanText(extractTagValue(input, "link"));
-  if (!title || !link) return null;
-
-  const published = cleanText(extractTagValue(input, "pubDate"));
-  const summary = cleanText(extractTagValue(input, "description"));
-
-  const publishedAt = published ? parseDateMaybe(published) : undefined;
-
-  return {
-    title,
-    link,
-    ...(publishedAt ? { publishedAt } : {}),
-    ...(summary ? { summary } : {})
-  };
-}
-
-function parseAtomEntry(input: string): ParsedAnnouncementItem | null {
-  const title = cleanText(extractTagValue(input, "title"));
-  const linkFromHref = input.match(/<link[^>]*href=["']([^"']+)["'][^>]*>/i)?.[1];
-  const link = cleanText(linkFromHref ?? extractTagValue(input, "link"));
-  if (!title || !link) return null;
-
-  const published = cleanText(extractTagValue(input, "updated") ?? extractTagValue(input, "published"));
-  const summary = cleanText(extractTagValue(input, "summary") ?? extractTagValue(input, "content"));
-
-  const publishedAt = published ? parseDateMaybe(published) : undefined;
-
-  return {
-    title,
-    link,
-    ...(publishedAt ? { publishedAt } : {}),
-    ...(summary ? { summary } : {})
-  };
-}
-
-function parseHtmlAnchors(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
-  const anchors = [...input.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
-  const results: ParsedAnnouncementItem[] = [];
-
-  for (const anchor of anchors) {
-    const href = cleanText(anchor[1]);
-    const title = cleanText(stripHtml(anchor[2] ?? ""));
-    if (!href || !title || title.length < 8) continue;
-
-    const normalizedLink = toAbsoluteUrl(href, sourceUrl);
-    if (!normalizedLink) continue;
-
-    if (!containsAnnouncementHint(title, normalizedLink)) continue;
-
-    const publishedAt = parseDateMaybe(title);
-    results.push({ title, link: normalizedLink, ...(publishedAt ? { publishedAt } : {}) });
-    if (results.length >= 50) break;
-  }
-
-  return results;
-}
-
-function containsAnnouncementHint(title: string, link: string): boolean {
-  const haystack = `${title} ${link}`.toLocaleLowerCase("tr-TR");
-  return ["duyuru", "announcement", "ilan", "haber", "exam", "sinav", "notice"].some((hint) => haystack.includes(hint));
-}
-
-function extractTagValue(input: string, tagName: string): string | undefined {
-  const match = input.match(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i"));
-  if (!match?.[1]) return undefined;
-  return match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
-}
-
-function parseDateMaybe(input: string): Date | undefined {
-  const timestamp = Date.parse(input);
-  if (!Number.isNaN(timestamp)) return new Date(timestamp);
-  return parseTurkishDate(input);
-}
-
-function parseTurkishDate(input: string): Date | undefined {
-  const normalized = input
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\u0131/g, "i")
-    .replace(/\u0130/g, "I")
-    .toLocaleLowerCase("en-US");
-  const match = normalized.match(/\b(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(20\d{2})\b/u);
-  if (!match?.[1] || !match[2] || !match[3]) return undefined;
-  const month = turkishMonths[match[2]];
-  if (!month) return undefined;
-  return new Date(Date.UTC(Number(match[3]), month - 1, Number(match[1])));
-}
-
-function toAbsoluteUrl(candidate: string, base: string): string | null {
-  try {
-    return new URL(candidate, base).toString();
-  } catch {
-    return null;
-  }
-}
-
-function stripHtml(input: string): string {
-  return input.replace(/<[^>]+>/g, " ");
-}
-
-function cleanText(input?: string): string {
-  if (!input) return "";
-  return decodeHtmlEntities(input).replace(/\s+/g, " ").trim();
-}
-
-function decodeHtmlEntities(input: string): string {
-  return input
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", "\"")
-    .replaceAll("&#39;", "'")
-    .replaceAll("&nbsp;", " ");
-}
-
-function createAnnouncementId(sourceId: string, link: string, title: string): string {
-  return createHash("sha1").update(`${sourceId}|${link}|${title}`).digest("hex").slice(0, 20);
-}
-
-function dedupeAnnouncements(items: AnnouncementItem[]): AnnouncementItem[] {
-  const unique = new Map<string, AnnouncementItem>();
-  for (const item of items) {
-    const key = item.link.toLocaleLowerCase("en-US");
-    if (!unique.has(key)) {
-      unique.set(key, item);
-      continue;
-    }
-
-    const existing = unique.get(key);
-    const existingTime = existing?.publishedAt ? Date.parse(existing.publishedAt) : 0;
-    const nextTime = item.publishedAt ? Date.parse(item.publishedAt) : 0;
-    if (nextTime > existingTime) unique.set(key, item);
-  }
-  return [...unique.values()];
-}
-
-const turkishMonths: Record<string, number> = {
-  ocak: 1,
-  subat: 2,
-  mart: 3,
-  nisan: 4,
-  mayis: 5,
-  haziran: 6,
-  temmuz: 7,
-  agustos: 8,
-  eylul: 9,
-  ekim: 10,
-  kasim: 11,
-  aralik: 12
-};
-
-function compareAnnouncementItems(left: AnnouncementItem, right: AnnouncementItem): number {
-  const leftTime = left.publishedAt ? Date.parse(left.publishedAt) : left.fetchedAt ? Date.parse(left.fetchedAt) : 0;
-  const rightTime = right.publishedAt ? Date.parse(right.publishedAt) : right.fetchedAt ? Date.parse(right.fetchedAt) : 0;
-  return rightTime - leftTime;
-}
-
-function isUsefulYokAnnouncement(item: AnnouncementItem): boolean {
-  const normalized = item.title
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("en-US")
-    .trim();
-  return !["duyurular", "duyuru", "haberler", "haber"].includes(normalized);
 }

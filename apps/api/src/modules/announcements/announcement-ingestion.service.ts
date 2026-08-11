@@ -1,8 +1,10 @@
-import { Inject, Injectable, OnApplicationBootstrap, OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchSourceItems, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
+import { canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
 import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
+import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 export interface AnnouncementDiscoveryResult {
   universityId: string;
@@ -39,7 +41,8 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
 
   constructor(
     @Inject("CatalogRepository") private readonly catalogRepository: CatalogRepository,
-    @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository
+    @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
+    @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
   ) {}
 
   onApplicationBootstrap() {
@@ -61,6 +64,13 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     const discoveryResults = await runWithConcurrency(universities, input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_CONCURRENCY, 4), async (university) => {
       const result = await discoverAnnouncementSourceForUniversity(university, { timeoutMs: readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000) });
       if (result.status !== "source_found" || !result.sourceUrl) return result;
+      const officialHomepage = university.websiteUrl ?? result.homepageUrl;
+      if (!officialHomepage || !isOfficialContentUrl(result.sourceUrl, officialHomepage)) {
+        const { sourceUrl: _sourceUrl, parser: _parser, ...rest } = result;
+        void _sourceUrl;
+        void _parser;
+        return { ...rest, status: "homepage_found_no_items" as const, itemCount: 0, sampleTitles: [], error: "SOURCE_DOMAIN_NOT_OFFICIAL" };
+      }
 
       await this.announcementRepository.upsertSource({
         scopeType: "university",
@@ -71,7 +81,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
         parser: result.parser ?? "auto",
         priority: 20,
         status: "active",
-        ...(result.homepageUrl ? { homepageUrl: result.homepageUrl } : {}),
+        homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
         discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
         healthStatus: result.itemCount > 0 ? "healthy" : "degraded",
         lastCheckedAt: new Date(),
@@ -131,17 +141,19 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       priority: 100,
       status: "active",
       homepageUrl: "https://www.yok.gov.tr/tr",
-      discoveryMethod: "manual",
-      healthStatus: "pending",
-      consecutiveFailures: 0,
-      itemCount: 0
+      discoveryMethod: "manual"
     });
 
     const verifiedSources = await listVerifiedUniversitySources();
-    await Promise.all(verifiedSources.flatMap((source) => {
-      return verifiedContentSourceDefinitions(source).map((definition) => {
-        const homepageUrl = homepageFromUrl(definition.url);
-        return this.announcementRepository.upsertSource({
+    await Promise.all(verifiedSources.map(async (source) => {
+      const university = await this.catalogRepository.findUniversityById(source.universityId);
+      if (!university) return;
+      const definitions = verifiedContentSourceDefinitions(source);
+      const officialHomepage = university.websiteUrl ?? knownOfficialUniversityUrls(university.id)[0] ?? knownOfficialUniversityUrls(university.slug)[0];
+      if (!officialHomepage) return;
+      await Promise.all(definitions
+        .filter((definition) => isOfficialContentUrl(definition.url, officialHomepage))
+        .map((definition) => this.announcementRepository.upsertSource({
           scopeType: "university",
           scopeId: source.universityId,
           sourceName: `${source.universityName} ${definition.label}`,
@@ -150,23 +162,45 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
           parser: "auto",
           priority: definition.priority,
           status: "active",
-          ...(homepageUrl ? { homepageUrl } : {}),
-          discoveryMethod: "manual",
-          healthStatus: "pending",
-          consecutiveFailures: 0,
-          itemCount: 0
-        });
-      });
+          homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
+          discoveryMethod: "manual"
+        })));
     }));
 
     const verifiedAcademicUnitSources = await listVerifiedAcademicUnitSources();
-    await Promise.all(verifiedAcademicUnitSources.flatMap((source) => {
+    const facultyCache = new Map<string, Promise<FacultyRecord[]>>();
+    const departmentCache = new Map<string, Promise<DepartmentRecord[]>>();
+    await Promise.all(verifiedAcademicUnitSources.map(async (source) => {
       const scopeId = source.scopeType === "department" ? source.departmentId : source.facultyId;
-      if (!scopeId) return [];
-      return verifiedContentSourceDefinitions(source).map((definition) => {
+      if (!scopeId) return;
+      const university = await this.catalogRepository.findUniversityById(source.universityId);
+      if (!university) return;
+      const faculties = await (facultyCache.get(university.id) ?? (() => {
+        const request = this.catalogRepository.listFaculties(university.id, "active");
+        facultyCache.set(university.id, request);
+        return request;
+      })());
+      const facultyId = source.facultyId;
+      if (!facultyId || !faculties.some((faculty) => faculty.id === facultyId)) return;
+      if (source.scopeType === "department") {
+        const departments = await (departmentCache.get(facultyId) ?? (() => {
+          const request = this.catalogRepository.listDepartments(facultyId, "active");
+          departmentCache.set(facultyId, request);
+          return request;
+        })());
+        if (!source.departmentId || !departments.some((department) => department.id === source.departmentId)) return;
+      }
+      const definitions = verifiedContentSourceDefinitions(source);
+      const universityAuthority = university.websiteUrl ?? knownOfficialUniversityUrls(university.id)[0] ?? knownOfficialUniversityUrls(university.slug)[0];
+      if (!universityAuthority) return;
+      const officialHomepage = source.websiteUrl && isOfficialContentUrl(source.websiteUrl, universityAuthority)
+        ? source.websiteUrl
+        : universityAuthority;
+      await Promise.all(definitions
+        .filter((definition) => isOfficialContentUrl(definition.url, officialHomepage))
+        .map((definition) => {
         const unitName = source.scopeType === "department" ? source.departmentName ?? "Bölüm" : source.facultyName ?? "Fakülte";
         const sourceName = `${source.universityName ?? source.universityId} ${unitName} ${definition.label}`;
-        const homepageUrl = homepageFromUrl(definition.url);
         return this.announcementRepository.upsertSource({
           scopeType: source.scopeType,
           scopeId,
@@ -176,13 +210,10 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
           parser: "auto",
           priority: definition.priority + (source.scopeType === "department" ? 15 : 10),
           status: "active",
-          ...(homepageUrl ? { homepageUrl } : {}),
-          discoveryMethod: "manual",
-          healthStatus: "pending",
-          consecutiveFailures: 0,
-          itemCount: 0
+          homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
+          discoveryMethod: "manual"
         });
-      });
+      }));
     }));
   }
 
@@ -215,14 +246,23 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     try {
       const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000));
       const items = toAnnouncementItems(source, parsedItems, checkedAt);
-      await this.announcementRepository.replaceItemsForSource(source, items);
-      const status = items.length > 0 ? "healthy" : "degraded";
+      const authoritativeEmpty = parsedItems.length === 0;
+      const succeeded = items.length > 0 || authoritativeEmpty;
+      if (succeeded) {
+        const delta = await this.announcementRepository.replaceItemsForSource(
+          source,
+          items,
+          authoritativeEmpty ? { authoritativeEmpty: true } : {}
+        );
+        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, checkedAt);
+      }
+      const status = succeeded ? "healthy" : "degraded";
       await this.announcementRepository.recordSourceCheck(source.id, {
         healthStatus: status,
         lastCheckedAt: checkedAt,
-        ...(items.length > 0 ? { lastSuccessAt: checkedAt } : {}),
-        ...(items.length > 0 ? {} : { lastError: "No announcement items parsed." }),
-        consecutiveFailures: items.length > 0 ? 0 : (source.consecutiveFailures ?? 0) + 1,
+        ...(succeeded ? { lastSuccessAt: checkedAt } : {}),
+        ...(succeeded ? {} : { lastError: "No trusted announcement items parsed." }),
+        consecutiveFailures: succeeded ? 0 : (source.consecutiveFailures ?? 0) + 1,
         itemCount: items.length
       });
       return { sourceId: source.id, sourceName: source.sourceName, sourceUrl: source.sourceUrl, status, itemCount: items.length, sampleTitles: items.slice(0, 3).map((item) => item.title) };
@@ -824,6 +864,10 @@ const unitSlugStopWords = new Set([
   "programi",
   "program"
 ]);
+
+export function knownOfficialUniversityUrls(universityIdOrSlug: string): string[] {
+  return (knownUniversityDomains[universityIdOrSlug] ?? []).map((domain) => `https://${domain}`);
+}
 
 const knownUniversityDomains: Record<string, string[]> = {
   "abdullah-gul-universitesi-kayseri": ["agu.edu.tr", "w3.agu.edu.tr"],

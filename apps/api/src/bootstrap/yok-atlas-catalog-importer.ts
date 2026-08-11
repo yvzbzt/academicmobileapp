@@ -1,8 +1,12 @@
 import { readFile } from "node:fs/promises";
+import {
+  safeOutboundRequest,
+  YOK_ATLAS_SEARCH_URL
+} from "../common/network/safe-outbound-request.js";
 import type { EducationLevel, UniversityType } from "../modules/catalog/catalog.types.js";
 import { createSlug } from "../modules/catalog/slug.js";
 
-const yokAtlasSearchUrl = "https://yokatlas.yok.gov.tr/api/tercih-kilavuz/search";
+const yokAtlasSearchUrl = YOK_ATLAS_SEARCH_URL;
 
 export interface CatalogSeedDepartment {
   name: string;
@@ -147,15 +151,28 @@ export function buildTurkiyeCatalogFromYokAtlasRows(rows: unknown[]): TurkiyeCat
   };
 }
 
-async function fetchJsonWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+export async function fetchJsonWithTimeout(
+  url: string,
+  init: { method: "POST"; headers: Record<string, string>; body: string },
+  timeoutMs: number
+): Promise<unknown> {
+  const response = await safeOutboundRequest(url, {
+    timeoutMs,
+    method: init.method,
+    headers: init.headers,
+    body: init.body,
+    maximumRedirects: 0,
+    maximumRequestBytes: 256 * 1024,
+    maximumResponseBytes: 32 * 1024 * 1024,
+    providerPolicy: "yok-atlas"
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`YOK_ATLAS_REQUEST_FAILED_${response.status}`);
+  }
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    if (!response.ok) throw new Error(`YOK_ATLAS_REQUEST_FAILED_${response.status}`);
-    return response.json() as Promise<unknown>;
-  } finally {
-    clearTimeout(timeout);
+    return JSON.parse(response.body.toString("utf8")) as unknown;
+  } catch {
+    throw new Error("YOK_ATLAS_RESPONSE_INVALID_JSON");
   }
 }
 

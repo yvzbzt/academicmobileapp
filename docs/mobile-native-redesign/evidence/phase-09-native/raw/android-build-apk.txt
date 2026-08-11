@@ -1,0 +1,8 @@
+Command: .\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=x86_64 --no-daemon
+Working directory: apps/mobile-native/android
+Result: BUILD SUCCESSFUL
+Final incremental duration/tasks: 1m22s; 268 actionable tasks (7 executed, 261 up-to-date)
+APK bytes: 56804991
+APK SHA-256: 57DC2F1BDCD7D7C3B02429EF260DF29A3EEEBCC374C55B90D34334793FEFAAFD
+Install result: Success
+Architecture: x86_64

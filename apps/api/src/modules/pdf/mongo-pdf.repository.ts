@@ -44,7 +44,13 @@ export class MongoPdfRepository implements PdfRepository {
   }
 
   async updateExtractedEvent(id: string, input: Partial<Omit<ExtractedEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<ExtractedEventRecord | null> {
-    const document = await (await this.model("ExtractedEvent", extractedEventSchema)).findByIdAndUpdate(id, omitUndefined(input), { new: true });
+    const unset: Record<string, 1> = {};
+    if (input.temporalKind === "timestamp") unset.dateOnlyStart = 1;
+    if (input.endTemporalKind === "timestamp") unset.dateOnlyEnd = 1;
+    const document = await (await this.model("ExtractedEvent", extractedEventSchema)).findByIdAndUpdate(id, {
+      $set: omitUndefined(input),
+      ...(Object.keys(unset).length > 0 ? { $unset: unset } : {})
+    }, { new: true });
     return document ? toDomainRecord<ExtractedEventRecord>(document) : null;
   }
 

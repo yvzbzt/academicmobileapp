@@ -1,0 +1,33 @@
+PHASE 12 ENTRY AND PROVENANCE RECORD
+Date: 2026-08-06 Europe/Istanbul
+Repository: <REPO_ROOT>
+Branch: agent/google-play-readiness-20260724
+Accepted Phase 11 baseline: f50a45bddcd7d476c4f1797bede77da65fc4c6fc
+Starting HEAD: f50a45bddcd7d476c4f1797bede77da65fc4c6fc
+merge-base --is-ancestor result: PASS (exit 0)
+Commits after accepted baseline at entry: 0
+Tracked worktree at entry: clean
+Index at entry: clean
+Untracked files at entry: 22
+Related Phase 12 report stub adopted into the scoped work: 1
+Unrelated untracked files preserved: 21
+History operations prohibited and not used: reset, rebase, amend, clean, stash, discard
+Remote/publication operations performed: none
+Production account/provider/data access performed: none
+
+Authoritative implementation ancestry:
+P01 b5f50add -> a215716c -> 457ea0e -> 4769c963 -> 18a93d4; repairs 641d7bee and 1dd36d1
+P02 d722f909; repairs 5a6ac1a and 1dd36d1
+P03 b74bdcc; repairs 5a6ac1a and c5c4744
+P04 abbf1b7
+P05 abdf0cc; repair 2e366454
+P06 00e03ac; repair 2e366454
+P07 f346d85; reconciliation d96dff5; repairs 5a6ac1a and 2e366454
+P08 7b64c9c; repairs 5a6ac1a and 2e366454
+P09 b8f77c8; acceptance repair 2e8a77f
+P10 8dbe5e1
+P11 f50a45b
+P12 one local scoped closure commit recorded by Git history after this record
+Cross-phase documentation/evidence reconciliations: ffde279964dfd67689eef469cbd3c7c1c755a00e, fd54f63669f0ef18230dfe0e9df64281310ac5a7, 7f7a3cab9dacdb70a188b2d7620571f72fd42855
+
+All listed phase milestones and repairs are ancestors of the Phase 12 starting HEAD.

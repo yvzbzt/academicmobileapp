@@ -1,8 +1,8 @@
 {
   "generatedAt": "2026-07-15T12:25:47.899Z",
   "input": {
-    "linksPath": "C:\\Users\\buyuk\\academicmobileapp\\data\\yok-university-links.json",
-    "yokTextPath": "C:\\Users\\buyuk\\academicmobileapp\\YÖK Üniversiteler.txt",
+    "linksPath": "<REPO_ROOT>\\data\\yok-university-links.json",
+    "yokTextPath": "<REPO_ROOT>\\YÖK Üniversiteler.txt",
     "workerCount": 4,
     "timeoutMs": 8000,
     "maxPagesPerUniversity": 12,
@@ -15424,7 +15424,7 @@
         "beforeFacultyCount": 0,
         "afterFacultyCount": 27,
         "removedFacultyCount": 0,
-        "manuallySeededFrom": "C:/Users/buyuk/.codex/attachments/5cee91a7-0678-460c-b826-5b3d6af4bf9e/pasted-text.txt"
+        "manuallySeededFrom": "<SOURCE_ATTACHMENT_ROOT>/5cee91a7-0678-460c-b826-5b3d6af4bf9e/pasted-text.txt"
       },
       "crawlStatus": "manual_seeded",
       "error": null

@@ -1,0 +1,340 @@
+--------- beginning of main
+08-06 10:12:14.286 12214 12214 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+08-06 10:12:14.287 12214 12214 D AndroidRuntime: CheckJNI is OFF
+08-06 10:12:14.299 12214 12214 W art     : Unexpected CPU variant for X86 using defaults: x86_64
+08-06 10:12:14.301 12214 12214 D ICU     : No timezone override file found: /data/misc/zoneinfo/current/icu/icu_tzdata.dat
+08-06 10:12:14.310 12214 12214 E memtrack: Couldn't load memtrack module (No such file or directory)
+08-06 10:12:14.310 12214 12214 E android.os.Debug: failed to load memtrack module: -2
+08-06 10:12:14.311 12214 12214 I Radio-JNI: register_android_hardware_Radio DONE
+08-06 10:12:14.315 12214 12214 D AndroidRuntime: Calling main entry com.android.commands.input.Input
+08-06 10:12:14.316 12214 12214 I Input   : injectKeyEvent: KeyEvent { action=ACTION_DOWN, keyCode=KEYCODE_BACK, scanCode=0, metaState=0, flags=0x0, repeatCount=0, eventTime=3730073, downTime=3730073, deviceId=-1, source=0x101 }
+08-06 10:12:14.319 12214 12214 I Input   : injectKeyEvent: KeyEvent { action=ACTION_UP, keyCode=KEYCODE_BACK, scanCode=0, metaState=0, flags=0x0, repeatCount=0, eventTime=3730073, downTime=3730073, deviceId=-1, source=0x101 }
+08-06 10:12:14.319 12214 12214 D AndroidRuntime: Shutting down VM
+08-06 10:12:14.363 11866 11907 D EGL_emulation: eglMakeCurrent: 0x798bc38cd9a0: ver 2 0 (tinfo 0x798bd55bc120)
+--------- beginning of system
+08-06 10:12:14.365  1601  1613 I WindowManager: Destroying surface Surface(name=com.anssoft.akademiktakvim/com.anssoft.akademiktakvim.MainActivity) called by com.android.server.wm.WindowStateAnimator.destroySurface:2016 com.android.server.wm.WindowStateAnimator.destroySurfaceLocked:882 com.android.server.wm.WindowState.removeLocked:1456 com.android.server.wm.WindowManagerService.removeWindowInnerLocked:2484 com.android.server.wm.WindowManagerService.removeWindowLocked:2442 com.android.server.wm.WindowManagerService.removeWindowLocked:2311 com.android.server.wm.WindowManagerService.removeWindow:2306 com.android.server.wm.Session.remove:202
+08-06 10:12:14.368 11866 11907 D EGL_emulation: eglMakeCurrent: 0x798bc38cd9a0: ver 2 0 (tinfo 0x798bd55bc120)
+08-06 10:12:14.451 12224 12224 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+08-06 10:12:14.452 12224 12224 D AndroidRuntime: CheckJNI is OFF
+08-06 10:12:14.466 12224 12224 W art     : Unexpected CPU variant for X86 using defaults: x86_64
+08-06 10:12:14.468 12224 12224 D ICU     : No timezone override file found: /data/misc/zoneinfo/current/icu/icu_tzdata.dat
+08-06 10:12:14.474 12224 12224 E memtrack: Couldn't load memtrack module (No such file or directory)
+08-06 10:12:14.475 12224 12224 E android.os.Debug: failed to load memtrack module: -2
+08-06 10:12:14.475 12224 12224 I Radio-JNI: register_android_hardware_Radio DONE
+08-06 10:12:14.480 12224 12224 D AndroidRuntime: Calling main entry com.android.commands.am.Am
+08-06 10:12:14.484  1601  1612 I ActivityManager: Force stopping com.anssoft.akademiktakvim appid=10081 user=0: from pid 12224
+08-06 10:12:14.484  1601  1612 I ActivityManager: Killing 11866:com.anssoft.akademiktakvim/u0a81 (adj 0): stop com.anssoft.akademiktakvim
+08-06 10:12:14.485  1601  1612 D ActivityManager: cleanUpApplicationRecord -- 11866
+08-06 10:12:14.485  1601  1612 W ActivityManager: Force removing ActivityRecord{d4462db u0 com.anssoft.akademiktakvim/.MainActivity t93}: app died, no saved state
+08-06 10:12:14.486  1601  1612 I WindowManager: Destroying surface Surface(name=com.anssoft.akademiktakvim/com.anssoft.akademiktakvim.MainActivity) called by com.android.server.wm.WindowStateAnimator.destroySurface:2016 com.android.server.wm.WindowStateAnimator.destroySurfaceLocked:882 com.android.server.wm.WindowState.removeLocked:1456 com.android.server.wm.WindowManagerService.removeWindowInnerLocked:2484 com.android.server.wm.WindowManagerService.removeWindowLocked:2442 com.android.server.wm.WindowManagerService.removeWindowLocked:2311 com.android.server.wm.AppWindowToken.removeAllWindows:530 com.android.server.wm.AppWindowToken.removeAppFromTaskLocked:326
+08-06 10:12:14.497 12224 12224 D AndroidRuntime: Shutting down VM
+08-06 10:12:14.499  1821  1821 D CarrierSvcBindHelper: No carrier app for: 0
+08-06 10:12:14.523  1601  1866 E JavaBinder: !!! FAILED BINDER TRANSACTION !!!  (parcel size = 104)
+08-06 10:12:14.523  1601  1866 W InputMethodManagerService: Got RemoteException sending setActive(false) notification to pid 11866 uid 10081
+08-06 10:12:14.527  1601  1866 E JavaBinder: !!! FAILED BINDER TRANSACTION !!!  (parcel size = 108)
+08-06 10:12:14.529  1601  1666 D ConnectivityService: ConnectivityService NetworkRequestInfo binderDied(NetworkRequest [ id=24, legacyType=-1, [ Capabilities: NOT_RESTRICTED&TRUSTED&NOT_VPN] ], android.os.BinderProxy@1779357)
+08-06 10:12:14.529  1601  1666 D GraphicsStats: Buffer count: 2
+08-06 10:12:14.532  1601  1656 E ConnectivityService: RemoteException caught trying to send a callback msg for NetworkRequest [ id=24, legacyType=-1, [ Capabilities: NOT_RESTRICTED&TRUSTED&NOT_VPN] ]
+08-06 10:12:14.536 11836 11857 D EGL_emulation: eglMakeCurrent: 0x798bc5e97200: ver 2 0 (tinfo 0x798bc5ec0d80)
+08-06 10:12:14.645 12236 12236 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+08-06 10:12:14.645 12236 12236 D AndroidRuntime: CheckJNI is OFF
+08-06 10:12:14.656 12236 12236 W art     : Unexpected CPU variant for X86 using defaults: x86_64
+08-06 10:12:14.659 12236 12236 D ICU     : No timezone override file found: /data/misc/zoneinfo/current/icu/icu_tzdata.dat
+08-06 10:12:14.666 12236 12236 E memtrack: Couldn't load memtrack module (No such file or directory)
+08-06 10:12:14.666 12236 12236 E android.os.Debug: failed to load memtrack module: -2
+08-06 10:12:14.667 12236 12236 I Radio-JNI: register_android_hardware_Radio DONE
+08-06 10:12:14.670 12236 12236 D AndroidRuntime: Calling main entry com.android.commands.am.Am
+08-06 10:12:14.674  1601  1866 I ActivityManager: START u0 {flg=0x10000000 cmp=com.anssoft.akademiktakvim/.MainActivity} from uid 2000 on display 0
+08-06 10:12:14.681 12236 12236 D AndroidRuntime: Shutting down VM
+08-06 10:12:14.685 12246 12246 I art     : Late-enabling -Xcheck:jni
+08-06 10:12:14.685 12246 12246 W art     : Unexpected CPU variant for X86 using defaults: x86_64
+08-06 10:12:14.693  1601  1612 I ActivityManager: Start proc 12246:com.anssoft.akademiktakvim/u0a81 for activity com.anssoft.akademiktakvim/.MainActivity
+08-06 10:12:14.728  1304  1320 D gralloc_ranchu: gralloc_alloc: Creating ashmem region of size 3686400
+08-06 10:12:14.763 11836 11857 D EGL_emulation: eglMakeCurrent: 0x798bc5e97200: ver 2 0 (tinfo 0x798bc5ec0d80)
+08-06 10:12:14.765  1601  2083 I WindowManager: Destroying surface Surface(name=com.android.launcher3/com.android.launcher3.Launcher) called by com.android.server.wm.WindowStateAnimator.destroySurface:2016 com.android.server.wm.WindowStateAnimator.destroySurfaceLocked:882 com.android.server.wm.WindowState.destroyOrSaveSurface:2100 com.android.server.wm.WindowManagerService.tryStartExitingAnimation:3024 com.android.server.wm.WindowManagerService.relayoutWindow:2904 com.android.server.wm.Session.relayout:224 android.view.IWindowSession$Stub.onTransact:286 com.android.server.wm.Session.onTransact:145
+08-06 10:12:14.768 12246 12246 I FirebaseApp: Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+08-06 10:12:14.787 12246 12246 I FirebaseInitProvider: FirebaseApp initialization successful
+08-06 10:12:14.789 12246 12246 D ReactNativeFirebaseApp: received application context.
+08-06 10:12:14.804 12246 12261 W GooglePlayServicesUtil: Google Play services out of date for com.anssoft.akademiktakvim.  Requires 261200000 but found 202414023
+08-06 10:12:14.805 12246 12261 W GoogleApiManager: The service for com.google.android.gms.internal.cloudmessaging.zzd is not available: ConnectionResult{statusCode=SERVICE_VERSION_UPDATE_REQUIRED, resolution=null, message=null, clientMethodKey=null}
+08-06 10:12:14.808 12246 12246 W SoLoader: Initializing SoLoader: 0
+08-06 10:12:14.808 12246 12246 W SoLoader: Recording new base apk path: /data/app/com.anssoft.akademiktakvim-1/base.apk
+08-06 10:12:14.808 12246 12246 W SoLoader: Previously recorded 0 base apk paths.
+08-06 10:12:14.809 12246 12246 I SoLoader: Preparing SO source: DirectorySoSource[root = /system/vendor/lib64 flags = 2]
+08-06 10:12:14.809 12246 12246 I SoLoader: Preparing SO source: DirectorySoSource[root = /system/lib64 flags = 2]
+08-06 10:12:14.809 12246 12246 I SoLoader: Preparing SO source: DirectApkSoSource[root = [/data/app/com.anssoft.akademiktakvim-1/base.apk!/lib/x86_64]]
+08-06 10:12:14.817 12246 12246 I SoLoader: Preparing SO source: ApplicationSoSource[DirectorySoSource[root = /data/app/com.anssoft.akademiktakvim-1/lib/x86_64 flags = 0]]
+08-06 10:12:14.817 12246 12246 I SoLoader: init finish: 4 SO sources prepared
+08-06 10:12:14.817 12246 12246 W SoLoader: SoLoader initialized: 8
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Entering merged library JNI_OnLoad.
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing 12 pre-merged libs (including stub)
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libfabricjni_so.  onload_func: 0x798bc2ecd550
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libreact_devsupportjni_so.  onload_func: 0x798bc30bac30
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libreact_featureflagsjni_so.  onload_func: 0x798bc30c8780
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libreact_newarchdefaults_so.  onload_func: 0x798bc312d1f0
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libreactnativeblob_so.  onload_func: 0x798bc3315400
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libreactnativejni_so.  onload_func: 0x798bc335fcb0
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libreactnativejni_common_so.  onload_func: 0x798bc336fab0
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register librninstance_so.  onload_func: 0x798bc33b5920
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libturbomodulejsijni_so.  onload_func: 0x798bc34d46a0
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libuimanagerjni_so.  onload_func: 0x798bc34ec920
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: Preparing to register libyoga_so.  onload_func: 0x798bc34fb8b0
+08-06 10:12:14.897 12246 12246 D jni_lib_merge: About to register 11 actual methods.
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Entering merged library JNI_OnLoad.
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing 12 pre-merged libs (including stub)
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libfabricjni_so.  onload_func: 0x798bc2ecd550
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libreact_devsupportjni_so.  onload_func: 0x798bc30bac30
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libreact_featureflagsjni_so.  onload_func: 0x798bc30c8780
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libreact_newarchdefaults_so.  onload_func: 0x798bc312d1f0
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libreactnativeblob_so.  onload_func: 0x798bc3315400
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libreactnativejni_so.  onload_func: 0x798bc335fcb0
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libreactnativejni_common_so.  onload_func: 0x798bc336fab0
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register librninstance_so.  onload_func: 0x798bc33b5920
+08-06 10:12:14.920 12246 12251 I art     : Do partial code cache collection, code=30KB, data=30KB
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libturbomodulejsijni_so.  onload_func: 0x798bc34d46a0
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libuimanagerjni_so.  onload_func: 0x798bc34ec920
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: Preparing to register libyoga_so.  onload_func: 0x798bc34fb8b0
+08-06 10:12:14.920 12246 12246 D jni_lib_merge: About to register 11 actual methods.
+08-06 10:12:14.920 12246 12251 I art     : After code cache collection, code=30KB, data=30KB
+08-06 10:12:14.920 12246 12251 I art     : Increasing code cache capacity to 128KB
+08-06 10:12:14.939 12246 12246 D AppCompatDelegate: Checking for metadata for AppLocalesMetadataHolderService : Service not found
+08-06 10:12:14.945 12246 12246 W art     : Before Android 4.1, method android.graphics.PorterDuffColorFilter androidx.vectordrawable.graphics.drawable.VectorDrawableCompat.updateTintFilter(android.graphics.PorterDuffColorFilter, android.content.res.ColorStateList, android.graphics.PorterDuff$Mode) would have incorrectly overridden the package-private method in android.graphics.drawable.Drawable
+08-06 10:12:14.963 12246 12246 D NetworkSecurityConfig: No Network Security Config specified, using platform default
+08-06 10:12:14.975 12246 12246 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Schedule
+08-06 10:12:14.975 12246 12246 W unknown:BridgelessReact: ReactHost{0}.attachSurface(surfaceId = 0)
+08-06 10:12:14.976 12246 12277 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask()
+08-06 10:12:14.976 12246 12277 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask(): Start
+08-06 10:12:14.976 12246 12277 W unknown:BridgelessReact: ReactHost{0}.getJSBundleLoader()
+08-06 10:12:14.976 12246 12277 W unknown:BridgelessReact: ReactHost{0}.isMetroRunning()
+08-06 10:12:14.989 12246 12279 W unknown:BridgelessReact: ReactHost{0}.isMetroRunning(): Async result = true
+08-06 10:12:14.991 12246 12277 W unknown:BridgelessReact: ReactHost{0}.loadJSBundleFromMetro()
+08-06 10:12:14.991 12246 12246 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-06 10:12:14.991 12246 12246 W unknown:ReactNative: Packager connection already open, nooping.
+08-06 10:12:14.997  1304  6169 E SurfaceFlinger: ro.sf.lcd_density must be defined as a build property
+08-06 10:12:15.000 12246 12246 D         : HostConnection::get() New Host Connection established 0x798bc3c286e0, tid 12246
+08-06 10:12:15.018 12246 12286 D         : HostConnection::get() New Host Connection established 0x798bc3c28920, tid 12286
+08-06 10:12:15.019 12246 12286 I OpenGLRenderer: Initialized EGL, version 1.4
+08-06 10:12:15.019 12246 12286 D OpenGLRenderer: Swap behavior 1
+08-06 10:12:15.019 12246 12286 W OpenGLRenderer: Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+08-06 10:12:15.019 12246 12286 D OpenGLRenderer: Swap behavior 0
+08-06 10:12:15.032 12246 12286 D EGL_emulation: eglCreateContext: 0x798bdf1f7ba0: maj 2 min 0 rcv 2
+08-06 10:12:15.036 12246 12286 D EGL_emulation: eglMakeCurrent: 0x798bdf1f7ba0: ver 2 0 (tinfo 0x798bd55348e0)
+08-06 10:12:15.052 12246 12286 D EGL_emulation: eglMakeCurrent: 0x798bdf1f7ba0: ver 2 0 (tinfo 0x798bd55348e0)
+08-06 10:12:15.134 12246 12246 W unknown:BridgelessReact: ReactHost{0}.raiseSoftException(onWindowFocusChange(hasFocus = "true")): Tried to access onWindowFocusChange while context is not ready
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: Unhandled SoftException
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: com.facebook.react.bridge.ReactNoCrashSoftException: raiseSoftException(onWindowFocusChange(hasFocus = "true")): Tried to access onWindowFocusChange while context is not ready
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.facebook.react.runtime.ReactHostImpl.raiseSoftException(ReactHostImpl.kt:787)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.facebook.react.runtime.ReactHostImpl.raiseSoftException$default(ReactHostImpl.kt:779)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.facebook.react.runtime.ReactHostImpl.onWindowFocusChange(ReactHostImpl.kt:589)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.facebook.react.ReactDelegate.onWindowFocusChanged(ReactDelegate.kt:217)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.facebook.react.ReactActivityDelegate.onWindowFocusChanged(ReactActivityDelegate.java:236)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at expo.modules.ReactActivityDelegateWrapper$onWindowFocusChanged$1.invokeSuspend(ReactActivityDelegateWrapper.kt:353)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at expo.modules.ReactActivityDelegateWrapper$onWindowFocusChanged$1.invoke(ReactActivityDelegateWrapper.kt)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at expo.modules.ReactActivityDelegateWrapper$onWindowFocusChanged$1.invoke(ReactActivityDelegateWrapper.kt)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at expo.modules.ReactActivityDelegateWrapper$launchLifecycleScopeWithLock$1.invokeSuspend(ReactActivityDelegateWrapper.kt:485)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlinx.coroutines.internal.DispatchedContinuationKt.resumeCancellableWith(DispatchedContinuation.kt:359)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlinx.coroutines.intrinsics.CancellableKt.startCoroutineCancellable(Cancellable.kt:26)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlinx.coroutines.CoroutineStart.invoke(CoroutineStart.kt:358)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlinx.coroutines.AbstractCoroutine.start(AbstractCoroutine.kt:124)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlinx.coroutines.BuildersKt__Builders_commonKt.launch(Builders.common.kt:52)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlinx.coroutines.BuildersKt.launch(Unknown Source)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlinx.coroutines.BuildersKt__Builders_commonKt.launch$default(Builders.common.kt:43)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at kotlinx.coroutines.BuildersKt.launch$default(Unknown Source)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at expo.modules.ReactActivityDelegateWrapper.launchLifecycleScopeWithLock(ReactActivityDelegateWrapper.kt:483)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at expo.modules.ReactActivityDelegateWrapper.launchLifecycleScopeWithLock$default(ReactActivityDelegateWrapper.kt:479)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at expo.modules.ReactActivityDelegateWrapper.onWindowFocusChanged(ReactActivityDelegateWrapper.kt:351)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.facebook.react.ReactActivity.onWindowFocusChanged(ReactActivity.java:158)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at androidx.appcompat.view.WindowCallbackWrapper.onWindowFocusChanged(WindowCallbackWrapper.java:124)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.android.internal.policy.DecorView.onWindowFocusChanged(DecorView.java:1414)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at android.view.View.dispatchWindowFocusChanged(View.java:10177)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at android.view.ViewGroup.dispatchWindowFocusChanged(ViewGroup.java:1192)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at android.view.ViewRootImpl$ViewRootHandler.handleMessage(ViewRootImpl.java:3598)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at android.os.Handler.dispatchMessage(Handler.java:102)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at android.os.Looper.loop(Looper.java:154)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at android.app.ActivityThread.main(ActivityThread.java:6077)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at java.lang.reflect.Method.invoke(Native Method)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.android.internal.os.ZygoteInit$MethodAndArgsCaller.run(ZygoteInit.java:866)
+08-06 10:12:15.135 12246 12246 E unknown:ReactHost: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:756)
+08-06 10:12:15.144 12246 12286 D EGL_emulation: eglMakeCurrent: 0x798bdf1f7ba0: ver 2 0 (tinfo 0x798bd55348e0)
+08-06 10:12:15.160  1601  1622 I WindowManager: Destroying surface Surface(name=Starting com.anssoft.akademiktakvim) called by com.android.server.wm.WindowStateAnimator.destroySurface:2016 com.android.server.wm.WindowStateAnimator.destroySurfaceLocked:882 com.android.server.wm.WindowState.destroyOrSaveSurface:2100 com.android.server.wm.AppWindowToken.destroySurfaces:363 com.android.server.wm.WindowStateAnimator.finishExit:565 com.android.server.wm.WindowStateAnimator.stepAnimationLocked:491 com.android.server.wm.WindowAnimator.updateWindowsLocked:303 com.android.server.wm.WindowAnimator.animateLocked:704
+08-06 10:12:15.168 12246 12286 D EGL_emulation: eglMakeCurrent: 0x798bdf1f7ba0: ver 2 0 (tinfo 0x798bd55348e0)
+08-06 10:12:15.170  1601  1622 I ActivityManager: Displayed com.anssoft.akademiktakvim/.MainActivity: +489ms
+08-06 10:12:15.173 11836 11857 W OpenGLRenderer: Incorrectly called buildLayer on View: ShortcutAndWidgetContainer, destroying layer...
+08-06 10:12:15.467 12246 12279 W unknown:BridgelessReact: ReactHost{0}.loadJSBundleFromMetro(): Creating BundleLoader
+08-06 10:12:15.470  1601  1666 I WindowManager: Destroying surface Surface(name=PopupWindow:68a01b1) called by com.android.server.wm.WindowStateAnimator.destroySurface:2016 com.android.server.wm.WindowStateAnimator.destroySurfaceLocked:882 com.android.server.wm.WindowState.removeLocked:1456 com.android.server.wm.WindowManagerService.removeWindowInnerLocked:2484 com.android.server.wm.WindowManagerService.removeWindowLocked:2442 com.android.server.wm.WindowManagerService.removeWindowLocked:2311 com.android.server.wm.WindowManagerService.removeWindow:2306 com.android.server.wm.Session.remove:202
+08-06 10:12:15.471 12246 12277 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactContext(): Creating BridgelessReactContext
+08-06 10:12:15.471 12246 12277 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask(): Creating ReactInstance
+08-06 10:12:15.481 12246 12277 D jni_lib_merge: Entering merged library JNI_OnLoad.
+08-06 10:12:15.481 12246 12277 D jni_lib_merge: Preparing 4 pre-merged libs (including stub)
+08-06 10:12:15.481 12246 12277 D jni_lib_merge: Preparing to register libhermes_executor_so.  onload_func: 0x798bc00c3ce0
+08-06 10:12:15.481 12246 12277 D jni_lib_merge: Preparing to register libhermesinstancejni_so.  onload_func: 0x798bc00f6700
+08-06 10:12:15.481 12246 12277 D jni_lib_merge: Preparing to register libjsijniprofiler_so.  onload_func: 0x798bc00f8470
+08-06 10:12:15.481 12246 12277 D jni_lib_merge: About to register 3 actual methods.
+08-06 10:12:15.522 12246 12251 I art     : Do partial code cache collection, code=60KB, data=55KB
+08-06 10:12:15.526 12246 12277 I ExpoModulesCore: ✅ AppContext was initialized
+08-06 10:12:15.535 12246 12251 I art     : After code cache collection, code=58KB, data=54KB
+08-06 10:12:15.535 12246 12251 I art     : Increasing code cache capacity to 256KB
+08-06 10:12:15.558 12246 12277 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask(): Loading JS Bundle
+08-06 10:12:15.558 12246 12277 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask(): Calling DevSupportManagerBase.onNewReactContextCreated(reactContext)
+08-06 10:12:15.566 12246 12289 I RNFB_EMITTER: ReactContext changed: @0 -> @19805673
+08-06 10:12:15.569 12246 12246 W unknown:ReactNative: Packager connection already open, nooping.
+08-06 10:12:15.569 12246 12246 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-06 10:12:15.571 12246 12277 W unknown:BridgelessReact: ReactHost{0}.startSurface(surfaceId = 0): Execute
+08-06 10:12:15.573 12246 12246 W unknown:BridgelessReact: ReactHost{0}.getOrCreateReactInstanceTask(): Executing ReactInstanceEventListeners
+08-06 10:12:15.760 12246 12289 W System  : ClassLoader referenced unknown path: /system/app/Chrome/lib/x86_64
+08-06 10:12:15.771 12246 12289 I WebViewFactory: Loading com.android.chrome version 69.0.3497.100 (code 349710067)
+08-06 10:12:15.803 12246 12289 I art     : Rejecting re-init on previously-failed class java.lang.Class<uJ>: java.lang.NoClassDefFoundError: Failed resolution of: Landroid/webkit/TracingController;
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class java.lang.Class.classForName!(java.lang.String, boolean, java.lang.ClassLoader) (Class.java:-2)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class java.lang.Class.forName(java.lang.String, boolean, java.lang.ClassLoader) (Class.java:400)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class android.webkit.WebViewFactory.getProviderClass() (WebViewFactory.java:349)
+08-06 10:12:15.803 12246 12289 I art     :   at android.webkit.WebViewFactoryProvider android.webkit.WebViewFactory.getProvider() (WebViewFactory.java:194)
+08-06 10:12:15.803 12246 12289 I art     :   at android.webkit.CookieManager android.webkit.CookieManager.getInstance() (CookieManager.java:39)
+08-06 10:12:15.803 12246 12289 I art     :   at android.webkit.CookieManager com.facebook.react.modules.network.ForwardingCookieHandler.getCookieManager() (ForwardingCookieHandler.kt:73)
+08-06 10:12:15.803 12246 12289 I art     :   at java.util.Map com.facebook.react.modules.network.ForwardingCookieHandler.get(java.net.URI, java.util.Map) (ForwardingCookieHandler.kt:30)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.String com.facebook.react.modules.websocket.WebSocketModule.getCookie(java.lang.String) (WebSocketModule.kt:347)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.modules.websocket.WebSocketModule.connect(java.lang.String, com.facebook.react.bridge.ReadableArray, com.facebook.react.bridge.ReadableMap, double) (WebSocketModule.kt:94)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.jni.NativeRunnable.run() (NativeRunnable.java:-2)
+08-06 10:12:15.803 12246 12289 I art     :   at void android.os.Handler.handleCallback(android.os.Message) (Handler.java:751)
+08-06 10:12:15.803 12246 12289 I art     :   at void android.os.Handler.dispatchMessage(android.os.Message) (Handler.java:95)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.bridge.queue.MessageQueueThreadHandler.dispatchMessage(android.os.Message) (MessageQueueThreadHandler.kt:21)
+08-06 10:12:15.803 12246 12289 I art     :   at void android.os.Looper.loop() (Looper.java:154)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.bridge.queue.MessageQueueThreadImpl$Companion.startNewBackgroundThread$lambda$1(com.facebook.react.common.futures.SimpleSettableFuture) (MessageQueueThreadImpl.kt:175)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.bridge.queue.MessageQueueThreadImpl$Companion.$r8$lambda$ldnZnqelhYFctGaUKkOKYj5rxo4(com.facebook.react.common.futures.SimpleSettableFuture) (MessageQueueThreadImpl.kt:-1)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.bridge.queue.MessageQueueThreadImpl$Companion$$ExternalSyntheticLambda0.run() (D8$$SyntheticClass:0)
+08-06 10:12:15.803 12246 12289 I art     :   at void java.lang.Thread.run() (Thread.java:761)
+08-06 10:12:15.803 12246 12289 I art     : Caused by: java.lang.ClassNotFoundException: Didn't find class "android.webkit.TracingController" on path: DexPathList[[zip file "/system/app/Chrome/Chrome.apk"],nativeLibraryDirectories=[/system/app/Chrome/lib/x86_64, /system/app/Chrome/Chrome.apk!/lib/x86_64, /system/lib64, /vendor/lib64, /system/lib64, /vendor/lib64]]
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class dalvik.system.BaseDexClassLoader.findClass(java.lang.String) (BaseDexClassLoader.java:56)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class java.lang.ClassLoader.loadClass(java.lang.String, boolean) (ClassLoader.java:380)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class java.lang.ClassLoader.loadClass(java.lang.String) (ClassLoader.java:312)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class java.lang.Class.classForName!(java.lang.String, boolean, java.lang.ClassLoader) (Class.java:-2)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class java.lang.Class.forName(java.lang.String, boolean, java.lang.ClassLoader) (Class.java:400)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.Class android.webkit.WebViewFactory.getProviderClass() (WebViewFactory.java:349)
+08-06 10:12:15.803 12246 12289 I art     :   at android.webkit.WebViewFactoryProvider android.webkit.WebViewFactory.getProvider() (WebViewFactory.java:194)
+08-06 10:12:15.803 12246 12289 I art     :   at android.webkit.CookieManager android.webkit.CookieManager.getInstance() (CookieManager.java:39)
+08-06 10:12:15.803 12246 12289 I art     :   at android.webkit.CookieManager com.facebook.react.modules.network.ForwardingCookieHandler.getCookieManager() (ForwardingCookieHandler.kt:73)
+08-06 10:12:15.803 12246 12289 I art     :   at java.util.Map com.facebook.react.modules.network.ForwardingCookieHandler.get(java.net.URI, java.util.Map) (ForwardingCookieHandler.kt:30)
+08-06 10:12:15.803 12246 12289 I art     :   at java.lang.String com.facebook.react.modules.websocket.WebSocketModule.getCookie(java.lang.String) (WebSocketModule.kt:347)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.modules.websocket.WebSocketModule.connect(java.lang.String, com.facebook.react.bridge.ReadableArray, com.facebook.react.bridge.ReadableMap, double) (WebSocketModule.kt:94)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.jni.NativeRunnable.run() (NativeRunnable.java:-2)
+08-06 10:12:15.803 12246 12289 I art     :   at void android.os.Handler.handleCallback(android.os.Message) (Handler.java:751)
+08-06 10:12:15.803 12246 12289 I art     :   at void android.os.Handler.dispatchMessage(android.os.Message) (Handler.java:95)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.bridge.queue.MessageQueueThreadHandler.dispatchMessage(android.os.Message) (MessageQueueThreadHandler.kt:21)
+08-06 10:12:15.803 12246 12289 I art     :   at void android.os.Looper.loop() (Looper.java:154)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.bridge.queue.MessageQueueThreadImpl$Companion.startNewBackgroundThread$lambda$1(com.facebook.react.common.futures.SimpleSettableFuture) (MessageQueueThreadImpl.kt:175)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.bridge.queue.MessageQueueThreadImpl$Companion.$r8$lambda$ldnZnqelhYFctGaUKkOKYj5rxo4(com.facebook.react.common.futures.SimpleSettableFuture) (MessageQueueThreadImpl.kt:-1)
+08-06 10:12:15.803 12246 12289 I art     :   at void com.facebook.react.bridge.queue.MessageQueueThreadImpl$Companion$$ExternalSyntheticLambda0.run() (D8$$SyntheticClass:0)
+08-06 10:12:15.803 12246 12289 I art     :   at void java.lang.Thread.run() (Thread.java:761)
+08-06 10:12:15.803 12246 12289 I art     :
+08-06 10:12:15.829 12246 12289 I cr_LibraryLoader: Time to load native libraries: 18 ms (timestamps 1568-1586)
+08-06 10:12:15.837 12246 12302 E cr_VariationsUtils: Failed reading seed file "/data/user/0/com.anssoft.akademiktakvim/app_webview/variations_seed_new": /data/user/0/com.anssoft.akademiktakvim/app_webview/variations_seed_new (No such file or directory)
+08-06 10:12:15.838 12246 12289 I chromium: [INFO:library_loader_hooks.cc(36)] Chromium logging enabled: level = 0, default verbosity = 0
+08-06 10:12:15.838 12246 12289 I cr_LibraryLoader: Expected native library version number "69.0.3497.100", actual native library version number "69.0.3497.100"
+08-06 10:12:15.876 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.ScreenFooterManager
+08-06 10:12:15.879 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.uimanager.LayoutShadowNode
+08-06 10:12:15.881 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.reactnativegooglesignin.RNGoogleSigninButtonViewManager
+08-06 10:12:15.881 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.ScreenContentWrapperManager
+08-06 10:12:15.881 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.gamma.tabs.TabsHostViewManager
+08-06 10:12:15.882 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.ModalScreenViewManager
+08-06 10:12:15.883 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.ScreenContainerViewManager
+08-06 10:12:15.884 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.ScreenStackHeaderSubviewManager
+08-06 10:12:15.884 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.ScreenStackHeaderConfigViewManager
+08-06 10:12:15.885 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.SearchBarManager
+08-06 10:12:15.886 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.gamma.tabs.TabScreenViewManager
+08-06 10:12:15.886 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.ScreenViewManager
+08-06 10:12:15.887 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.swmansion.rnscreens.ScreenStackViewManager
+08-06 10:12:15.887 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.th3rdwave.safeareacontext.SafeAreaProviderManager
+08-06 10:12:15.887 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.th3rdwave.safeareacontext.SafeAreaViewManager
+08-06 10:12:15.888 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.th3rdwave.safeareacontext.SafeAreaViewShadowNode
+08-06 10:12:15.915 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.progressbar.ReactProgressBarViewManager
+08-06 10:12:15.916 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.progressbar.ProgressBarShadowNode
+08-06 10:12:15.918 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.text.ReactVirtualTextViewManager
+08-06 10:12:15.918 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.text.ReactVirtualTextShadowNode
+08-06 10:12:15.920 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.scroll.ReactHorizontalScrollContainerViewManager
+08-06 10:12:15.922 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.debuggingoverlay.DebuggingOverlayManager
+08-06 10:12:15.926 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.scroll.ReactScrollViewManager
+08-06 10:12:15.929 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.unimplementedview.ReactUnimplementedViewManager
+08-06 10:12:15.930 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.text.frescosupport.FrescoBasedReactTextInlineImageViewManager
+08-06 10:12:15.931 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.text.frescosupport.FrescoBasedReactTextInlineImageShadowNode
+08-06 10:12:15.934 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.swiperefresh.SwipeRefreshLayoutManager
+08-06 10:12:15.937 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.text.ReactTextViewManager
+08-06 10:12:15.937 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.text.ReactTextShadowNode
+08-06 10:12:15.942 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.textinput.ReactTextInputManager
+08-06 10:12:15.944 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.textinput.ReactTextInputShadowNode
+08-06 10:12:15.948 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.modal.ReactModalHostManager
+08-06 10:12:15.950 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.switchview.ReactSwitchManager
+08-06 10:12:15.951 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.switchview.ReactSwitchShadowNode
+08-06 10:12:15.952 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.text.ReactRawTextManager
+08-06 10:12:15.952 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.text.ReactRawTextShadowNode
+08-06 10:12:15.952 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.safeareaview.ReactSafeAreaViewManager
+08-06 10:12:15.953 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.safeareaview.ReactSafeAreaViewShadowNode
+08-06 10:12:15.955 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.scroll.ReactHorizontalScrollViewManager
+08-06 10:12:15.966 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.view.ReactViewManager
+08-06 10:12:15.968 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.image.ReactImageManager
+08-06 10:12:15.971 12246 12288 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.facebook.react.views.drawer.ReactDrawerLayoutManager
+08-06 10:12:16.002 12246 12288 W BridgelessReactContext: [WARNING] Bridgeless doesn't support CatalystInstance. Accessing an API that's not part of the new architecture is not encouraged usage.
+08-06 10:12:16.007 12246 12288 I ExpoModulesCore: ✅ JSI interop was installed
+08-06 10:12:16.013 12246 12288 I ExpoModulesCore: ✅ Constants were exported
+08-06 10:12:16.332 12246 12288 I ReactNativeJS: Running "main" with {"rootTag":1,"initialProps":{},"fabric":true}
+08-06 10:12:16.703 12246 12246 W [RNScreens]: backTitle prop is not available on Android
+08-06 10:12:16.703 12246 12246 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-06 10:12:16.703 12246 12246 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-06 10:12:16.703 12246 12246 W [RNScreens]: backTitleVisible prop is not available on Android
+08-06 10:12:16.703 12246 12246 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-06 10:12:16.703 12246 12246 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-06 10:12:16.703 12246 12246 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-06 10:12:16.808 12246 12251 I art     : Do full code cache collection, code=123KB, data=122KB
+08-06 10:12:16.812 12246 12251 I art     : After code cache collection, code=94KB, data=74KB
+08-06 10:12:16.858 12246 12251 I art     : Do partial code cache collection, code=105KB, data=98KB
+08-06 10:12:16.859 12246 12251 I art     : After code cache collection, code=105KB, data=98KB
+08-06 10:12:16.859 12246 12251 I art     : Increasing code cache capacity to 512KB
+08-06 10:12:16.972 12246 12246 W [RNScreens]: backTitle prop is not available on Android
+08-06 10:12:16.972 12246 12246 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-06 10:12:16.972 12246 12246 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-06 10:12:16.972 12246 12246 W [RNScreens]: backTitleVisible prop is not available on Android
+08-06 10:12:16.972 12246 12246 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-06 10:12:16.972 12246 12246 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-06 10:12:16.972 12246 12246 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-06 10:12:18.889 12315 12315 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+08-06 10:12:18.889 12315 12315 D AndroidRuntime: CheckJNI is OFF
+08-06 10:12:18.905 12315 12315 W art     : Unexpected CPU variant for X86 using defaults: x86_64
+08-06 10:12:18.907 12315 12315 D ICU     : No timezone override file found: /data/misc/zoneinfo/current/icu/icu_tzdata.dat
+08-06 10:12:18.917 12315 12315 E memtrack: Couldn't load memtrack module (No such file or directory)
+08-06 10:12:18.917 12315 12315 E android.os.Debug: failed to load memtrack module: -2
+08-06 10:12:18.917 12315 12315 I Radio-JNI: register_android_hardware_Radio DONE
+08-06 10:12:18.920 12315 12315 D AndroidRuntime: Calling main entry com.android.commands.am.Am
+08-06 10:12:18.923  1601  2153 I ActivityManager: START u0 {act=android.intent.action.VIEW dat=academicpulse://phase10-profile/google-partial?theme=dark flg=0x10000000 pkg=com.anssoft.akademiktakvim cmp=com.anssoft.akademiktakvim/.MainActivity} from uid 2000 on display 0
+08-06 10:12:18.925 12246 12246 W unknown:BridgelessReact: ReactHost{0}.onHostPause(activity)
+08-06 10:12:18.927 12246 12246 W unknown:BridgelessReact: ReactContext.onHostPause()
+08-06 10:12:18.928 12315 12315 D AndroidRuntime: Shutting down VM
+08-06 10:12:18.929 12246 12246 W unknown:BridgelessReact: ReactHost{0}.onHostResume(activity)
+08-06 10:12:18.929 12246 12246 W unknown:ReactNative: Packager connection already open, nooping.
+08-06 10:12:18.929 12246 12246 W unknown:BridgelessReact: ReactContext.onHostResume()
+08-06 10:12:19.063 12246 12246 W [RNScreens]: backTitle prop is not available on Android
+08-06 10:12:19.063 12246 12246 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-06 10:12:19.063 12246 12246 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-06 10:12:19.063 12246 12246 W [RNScreens]: backTitleVisible prop is not available on Android
+08-06 10:12:19.063 12246 12246 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-06 10:12:19.063 12246 12246 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-06 10:12:19.063 12246 12246 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-06 10:12:19.071 12246 12251 I art     : Do full code cache collection, code=246KB, data=208KB
+08-06 10:12:19.072 12246 12251 I art     : After code cache collection, code=206KB, data=154KB
+08-06 10:12:19.130 12246 12246 W [RNScreens]: backTitle prop is not available on Android
+08-06 10:12:19.130 12246 12246 W [RNScreens]: backTitleFontFamily prop is not available on Android
+08-06 10:12:19.130 12246 12246 W [RNScreens]: disableBackButtonMenu prop is not available on Android
+08-06 10:12:19.130 12246 12246 W [RNScreens]: backTitleVisible prop is not available on Android
+08-06 10:12:19.130 12246 12246 W [RNScreens]: largeTitleHideShadow prop is not available on Android
+08-06 10:12:19.130 12246 12246 W [RNScreens]: largeTitleFontWeight prop is not available on Android
+08-06 10:12:19.130 12246 12246 W [RNScreens]: largeTitleFontFamily prop is not available on Android
+08-06 10:12:20.547 12246 12324 D ProfileInstaller: Installing profile for com.anssoft.akademiktakvim
+08-06 10:12:22.088 12325 12325 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+08-06 10:12:22.089 12325 12325 D AndroidRuntime: CheckJNI is OFF
+08-06 10:12:22.102 12325 12325 W art     : Unexpected CPU variant for X86 using defaults: x86_64
+08-06 10:12:22.104 12325 12325 D ICU     : No timezone override file found: /data/misc/zoneinfo/current/icu/icu_tzdata.dat
+08-06 10:12:22.113 12325 12325 E memtrack: Couldn't load memtrack module (No such file or directory)
+08-06 10:12:22.113 12325 12325 E android.os.Debug: failed to load memtrack module: -2
+08-06 10:12:22.113 12325 12325 I Radio-JNI: register_android_hardware_Radio DONE
+08-06 10:12:22.117 12325 12325 D AndroidRuntime: Calling main entry com.android.commands.input.Input
+08-06 10:12:22.118 12325 12325 I Input   : injectKeyEvent: KeyEvent { action=ACTION_DOWN, keyCode=KEYCODE_BACK, scanCode=0, metaState=0, flags=0x0, repeatCount=0, eventTime=3737874, downTime=3737874, deviceId=-1, source=0x101 }
+08-06 10:12:22.120 12325 12325 I Input   : injectKeyEvent: KeyEvent { action=ACTION_UP, keyCode=KEYCODE_BACK, scanCode=0, metaState=0, flags=0x0, repeatCount=0, eventTime=3737874, downTime=3737874, deviceId=-1, source=0x101 }
+08-06 10:12:22.125 12325 12325 D AndroidRuntime: Shutting down VM

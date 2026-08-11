@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import type { AuthRepository } from "../modules/auth/auth.types.js";
 import type { CatalogRepository, FacultyRecord, UniversityRecord } from "../modules/catalog/catalog.types.js";
-import { FirestoreCatalogRepository } from "../modules/catalog/firestore-catalog.repository.js";
 import { PasswordHasher } from "../modules/auth/password-hasher.js";
 import { loadBundledTurkiyeCatalogSeed, loadTurkiyeCatalogFromYokAtlas, type CatalogSeedDepartment, type CatalogSeedFaculty, type CatalogSeedUniversity, type TurkiyeCatalogSeed } from "./yok-atlas-catalog-importer.js";
 
@@ -36,9 +35,6 @@ export class BootstrapSeedService implements OnApplicationBootstrap {
     try {
       const { source, fallbackReason } = await this.loadCatalogSeedSource();
       if (fallbackReason) this.logger.warn(`Using bundled Turkey catalog seed because live YOK Atlas loading failed: ${fallbackReason}`);
-      if (this.catalogRepository instanceof FirestoreCatalogRepository) {
-        return this.catalogRepository.seedCatalog(source, process.env.BOOTSTRAP_CATALOG_SEED_REFRESH === "true");
-      }
 
       let createdUniversities = 0;
       let createdFaculties = 0;

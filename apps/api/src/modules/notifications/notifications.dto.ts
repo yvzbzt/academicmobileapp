@@ -1,5 +1,7 @@
-import { IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsObject, IsOptional, IsString, IsUrl, Matches, Max, Min, MinLength, ValidateNested } from "class-validator";
+import { Equals, IsArray, IsBoolean, IsEnum, IsInt, IsObject, IsOptional, IsString, IsUrl, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
+import { IsExplicitOffsetTimestamp } from "../calendars/calendar-temporal.js";
+import { NOTIFICATION_DELIVERY_CONSENT_VERSION } from "./notification.types.js";
 import type { QuietHoursRecord, ReminderPreferenceRuleRecord } from "./notification.types.js";
 
 export class RegisterDeviceDto {
@@ -8,7 +10,20 @@ export class RegisterDeviceDto {
 
   @IsString()
   @MinLength(16)
+  @MaxLength(4096)
   token!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(256)
+  deviceId!: string;
+}
+
+export class UnregisterDeviceDto {
+  @IsString()
+  @MinLength(8)
+  @MaxLength(256)
+  deviceId!: string;
 }
 
 class QuietHoursDto implements QuietHoursRecord {
@@ -47,6 +62,10 @@ export class UpdateNotificationPreferencesDto {
   @IsBoolean()
   enabled!: boolean;
 
+  @IsOptional()
+  @Equals(NOTIFICATION_DELIVERY_CONSENT_VERSION)
+  deliveryConsentVersion?: typeof NOTIFICATION_DELIVERY_CONSENT_VERSION;
+
   @IsObject()
   categories!: Partial<Record<string, boolean>>;
 
@@ -81,7 +100,7 @@ export class CreateStudentAlarmDto {
   @MinLength(1)
   title?: string;
 
-  @IsDateString()
+  @IsExplicitOffsetTimestamp()
   scheduledFor!: string;
 
   @IsEnum(["at_time", "before"])

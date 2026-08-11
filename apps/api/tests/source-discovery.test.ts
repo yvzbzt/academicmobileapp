@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { findVerifiedUniversitySource, listVerifiedUniversitySources } from "../src/bootstrap/verified-source-registry.js";
+import {
+  setSafeOutboundRequestDependenciesForTesting,
+  type ResolvedOutboundAddress,
+  type SafeOutboundHopResponse
+} from "../src/common/network/safe-outbound-request.js";
 import { inferAcademicYear, isAcceptableAcademicYear } from "../src/modules/calendars/calendar-ingestion.service.js";
 import { CatalogService } from "../src/modules/catalog/catalog.service.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
@@ -145,11 +150,18 @@ describe("AcademicSourceDiscoveryService", () => {
         <img src="/wp-content/uploads/sites/190/2026/02/2.-SINIF.jpg" alt="2. sınıf ders programı" />
       `]
     ]);
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const publicAddress: ResolvedOutboundAddress = { address: "93.184.216.34", family: 4 };
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [publicAddress],
+      requestHop: async (url, pinnedAddress): Promise<SafeOutboundHopResponse> => {
       const text = htmlByUrl.get(url);
-      if (text === undefined) return new Response("not found", { status: 404, statusText: "Not Found" });
-      return new Response(text, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+        return {
+          status: text === undefined ? 404 : 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+          body: Buffer.from(text ?? "not found"),
+          remoteAddress: pinnedAddress.address
+        };
+      }
     });
 
     try {
@@ -202,7 +214,7 @@ describe("AcademicSourceDiscoveryService", () => {
       ]));
       expect(result.candidates.some((candidate) => candidate.scopeType !== "university" && candidate.sourceType === "academic_calendar")).toBe(false);
     } finally {
-      fetchMock.mockRestore();
+      setSafeOutboundRequestDependenciesForTesting(undefined);
     }
   });
 });

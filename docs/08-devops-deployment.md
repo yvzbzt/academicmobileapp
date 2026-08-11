@@ -2,10 +2,10 @@
 
 ## 1. Development Environment
 
-The local environment uses Docker Compose for platform dependencies:
+The current API requires MongoDB. Docker Compose also provides optional adapters and development tools:
 
 - MongoDB for application data.
-- Redis for cache and BullMQ queues.
+- Redis for optional cache/BullMQ/rate-limit adapter smoke tests; it is not required by notification delivery.
 - MinIO for private object storage compatible with S3 clients.
 - ClamAV for PDF antivirus scanning.
 
@@ -36,20 +36,32 @@ The smoke test verifies MongoDB ping/write/read, Redis ping and BullMQ enqueue a
 Production-style local packaging:
 
 ```powershell
-$env:JWT_ACCESS_SECRET="change-this-access-secret-32-plus-chars"
-$env:JWT_REFRESH_SECRET="change-this-refresh-secret-32-plus-chars"
-npm run compose:prod:config
-npm run compose:prod:build
+function New-DeploymentSecret {
+  $secretBytes = New-Object byte[] 48
+  $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $generator.GetBytes($secretBytes)
+    [Convert]::ToBase64String($secretBytes)
+  } finally {
+    $generator.Dispose()
+  }
+}
+$env:JWT_ACCESS_SECRET = New-DeploymentSecret
+$env:JWT_REFRESH_SECRET = New-DeploymentSecret
+$env:CALENDAR_FEED_SECRET = New-DeploymentSecret
+Remove-Item Function:\New-DeploymentSecret
+npm.cmd run compose:prod:config
+npm.cmd run compose:prod:build
 docker compose -f docker-compose.prod.yml up
 ```
 
 Windows fallback for Docker Compose Buildx/Bake path issues:
 
 ```powershell
-npm run compose:prod:build:classic
+npm.cmd run compose:prod:build:classic
 ```
 
-The production compose file builds three application containers: API, admin static web and student mobile web. MongoDB and Redis remain managed service candidates for production; the included containers are for staging-like validation and self-hosted MVP deployments.
+The production compose file builds three application containers: API, admin static web and student mobile web. MongoDB is the required database; Redis remains an optional adapter only when an operator deliberately selects a Redis/BullMQ mode. Production startup rejects missing, short, whitespace-only, checked-in placeholder, or reused access-token/calendar-feed signing values. The included containers are for staging-like validation and self-hosted MVP deployments.
 
 ## 2. Production Recommendation
 
@@ -57,8 +69,8 @@ The production compose file builds three application containers: API, admin stat
 |---|---|
 | Backend API | Containerized NestJS service behind reverse proxy/load balancer |
 | Admin Panel | Containerized Next.js app or static/SSR hosting depending on auth strategy |
-| MongoDB | Managed MongoDB Atlas or hardened replica set |
-| Redis | Managed Redis with TLS/auth and private network |
+| MongoDB | Supported standalone or managed MongoDB deployment; a replica set is not required by the Phase 1–8 contract |
+| Redis | Optional only for deliberately selected Redis/BullMQ adapters; not required for notification jobs or delivery-attempt fencing |
 | Object Storage | S3, Azure Blob Storage or compatible private bucket |
 | Workers | Separately scalable containers by worker type |
 | Logs | Centralized structured logs with retention policy |
@@ -72,12 +84,11 @@ The production compose file builds three application containers: API, admin stat
 - Production secrets must come from a secret manager.
 - Rotate JWT, FCM and object storage credentials on incident.
 - Separate credentials per environment.
-- Infrastructure runtime modes are explicit:
-	- `REPOSITORY_MODE=memory|mongo`
+- API persistence is MongoDB-only; queue and rate-limit runtime modes remain explicit:
 	- `QUEUE_MODE=memory|bullmq`
 	- `RATE_LIMIT_STORE=memory|redis`
-- `MONGODB_URI` is required when `REPOSITORY_MODE=mongo`.
-- `REDIS_URL` is required when `QUEUE_MODE=bullmq` or `RATE_LIMIT_STORE=redis`.
+- `MONGODB_URI` is required for every API runtime.
+- `REDIS_URL` is required only when an optional `bullmq` or `redis` adapter is deliberately selected; checked-in deployments may retain both `memory` modes.
 - `BOOTSTRAP_SEED_ENABLED=true` enables startup seeding for the sample catalog and first admin account.
 - `BOOTSTRAP_ADMIN_PASSWORD` must be supplied before first-admin seeding can create a user.
 
@@ -109,14 +120,14 @@ Recommended deployment stages still pending for production rollout:
 | Service | Endpoint/Check |
 |---|---|
 | API | `/health/live`, `/health/ready` |
-| PDF Worker | Redis heartbeat plus active job metric |
-| Notification Worker | Redis heartbeat plus provider connectivity check |
+| PDF Worker | Worker heartbeat plus active job metric; Redis queue health only when that optional mode is configured |
+| Notification Worker | Mongo-backed due-job health plus `sending`, expired-lease, and `ambiguous` delivery-attempt counts; provider acceptance remains separate evidence |
 | Scheduler | Last successful schedule timestamp |
-| MongoDB | Ping and replica health |
-| Redis | Ping and queue latency |
+| MongoDB | Ping; replica health only when a replica topology is independently configured |
+| Redis | Optional ping and queue latency when Redis-backed modes are configured |
 | Object Storage | Bucket access check |
 
-`/health/ready` is mode-aware. In in-memory development mode it returns MongoDB and Redis as `skipped`; in Mongo/Redis-backed modes it pings the configured dependencies and returns `degraded` if any required dependency is down.
+`/health/ready` always checks MongoDB. Redis is reported as `skipped` unless required by queue or rate-limit configuration; an unavailable required dependency returns `degraded`.
 
 ## 6. Backup And Retention
 
@@ -134,6 +145,6 @@ Recommended deployment stages still pending for production rollout:
 
 ## 8. Graceful Shutdown
 
-- API stops accepting new requests, finishes in-flight requests, closes DB/Redis connections.
-- Workers pause queue consumption, finish active jobs if within timeout, then close connections.
+- API stops accepting new requests, finishes in-flight requests, and closes Mongo plus any explicitly configured optional adapter connections.
+- Workers stop new cycles, drain the active cycle within their bound, and retain Mongo job/attempt fences across restart.
 - Long PDF/OCR jobs must be idempotent and retryable.

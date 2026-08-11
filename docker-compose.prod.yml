@@ -8,7 +8,6 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: 3000
-      REPOSITORY_MODE: mongo
       QUEUE_MODE: bullmq
       RATE_LIMIT_STORE: redis
       MONGODB_URI: mongodb://mongodb:27017/akademik_takvim
@@ -16,6 +15,7 @@ services:
       CORS_ORIGIN: http://localhost:8080,http://localhost:8081
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      CALENDAR_FEED_SECRET: ${CALENDAR_FEED_SECRET:?set CALENDAR_FEED_SECRET}
       FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
       BOOTSTRAP_SEED_ENABLED: ${BOOTSTRAP_SEED_ENABLED:-false}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}

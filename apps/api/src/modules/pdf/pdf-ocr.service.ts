@@ -1,4 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
+import {
+  GOOGLE_METADATA_TOKEN_URL,
+  safeOutboundRequest
+} from "../../common/network/safe-outbound-request.js";
+import { isOfficialContentUrl } from "../announcements/announcement-content-trust.js";
 import type { PdfSourceRecord } from "./pdf.types.js";
 
 export interface PdfOcrResult {
@@ -74,21 +79,34 @@ export class PdfOcrService {
     const location = processorName.match(/\/locations\/([^/]+)\//u)?.[1] ?? process.env.DOCUMENT_AI_LOCATION ?? "eu";
     const endpoint = `https://${location}-documentai.googleapis.com/v1/${processorName}:process`;
     this.logger.log(`Running Document AI OCR for PDF source ${input.pdfSource.id}.`);
-    const response = await fetch(endpoint, {
+    const requestBody = JSON.stringify({
+      rawDocument: {
+        content: pdfData.toString("base64"),
+        mimeType: "application/pdf"
+      }
+    });
+    const response = await safeOutboundRequest(endpoint, {
+      timeoutMs: readBoundedPositiveInteger(process.env.OCR_PROVIDER_TIMEOUT_MS, 30_000, 60_000),
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        rawDocument: {
-          content: pdfData.toString("base64"),
-          mimeType: "application/pdf"
-        }
-      })
+      body: requestBody,
+      maximumRedirects: 0,
+      maximumRequestBytes: 80 * 1024 * 1024,
+      maximumResponseBytes: 16 * 1024 * 1024,
+      providerPolicy: "google-document-ai"
     });
-    const body = await response.json() as DocumentAiResponse;
-    if (!response.ok) throw new Error(body.error?.message ?? `DOCUMENT_AI_OCR_FAILED_${response.status}`);
+    let body: DocumentAiResponse;
+    try {
+      body = JSON.parse(response.body.toString("utf8")) as DocumentAiResponse;
+    } catch {
+      throw new Error("DOCUMENT_AI_OCR_RESPONSE_INVALID");
+    }
+    if (response.status < 200 || response.status >= 300 || body.error) {
+      throw new Error(`DOCUMENT_AI_OCR_FAILED_${response.status}`);
+    }
 
     const text = documentAiPageText(body);
     this.logger.log(`Document AI OCR completed for PDF source ${input.pdfSource.id}: ${text.length} characters.`);
@@ -107,41 +125,44 @@ function readDocumentAiProcessorName(): string | undefined {
   return `projects/${project}/locations/${location}/processors/${processorId}`;
 }
 
-async function readGoogleAccessToken(): Promise<string | undefined> {
+export async function readGoogleAccessToken(): Promise<string | undefined> {
   const explicit = process.env.GOOGLE_OAUTH_ACCESS_TOKEN;
   if (explicit?.trim()) return explicit.trim();
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
   try {
-    const response = await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", {
+    const response = await safeOutboundRequest(GOOGLE_METADATA_TOKEN_URL, {
+      timeoutMs: 2_500,
+      method: "GET",
       headers: { "Metadata-Flavor": "Google" },
-      signal: controller.signal
+      maximumRedirects: 0,
+      maximumResponseBytes: 32 * 1024,
+      providerPolicy: "google-metadata-token"
     });
-    if (!response.ok) return undefined;
-    const body = await response.json() as { access_token?: string };
-    return body.access_token;
+    if (response.status < 200 || response.status >= 300) return undefined;
+    const body = JSON.parse(response.body.toString("utf8")) as { access_token?: unknown };
+    return typeof body.access_token === "string" && body.access_token.trim()
+      ? body.access_token.trim()
+      : undefined;
   } catch {
     return undefined;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
-async function downloadPdfData(url?: string): Promise<Buffer | undefined> {
+export async function downloadPdfData(url?: string): Promise<Buffer | undefined> {
   if (!url) return undefined;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), readPositiveInteger(process.env.OCR_SOURCE_TIMEOUT_MS, 20000));
-  try {
-    const response = await fetch(url, {
-      headers: { Accept: "application/pdf,*/*;q=0.8" },
-      signal: controller.signal
-    });
-    if (!response.ok) return undefined;
-    return Buffer.from(await response.arrayBuffer());
-  } finally {
-    clearTimeout(timeout);
-  }
+  const response = await safeOutboundRequest(url, {
+    timeoutMs: readPositiveInteger(process.env.OCR_SOURCE_TIMEOUT_MS, 20000),
+    maximumRedirects: 5,
+    maximumResponseBytes: 50 * 1024 * 1024,
+    headers: { Accept: "application/pdf,*/*;q=0.8" },
+    validateUrl: (candidate) => {
+      if (!isOfficialContentUrl(candidate, url)) throw new Error("OCR_SOURCE_DOMAIN_UNTRUSTED");
+      return candidate;
+    }
+  });
+  if (response.status < 200 || response.status >= 300) return undefined;
+  if (!response.body.subarray(0, 4).equals(Buffer.from("%PDF"))) return undefined;
+  return response.body;
 }
 
 function documentAiPageText(response: DocumentAiResponse): string {
@@ -207,4 +228,9 @@ function foldForContainment(value: string): string {
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readBoundedPositiveInteger(value: string | undefined, fallback: number, maximum: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= maximum ? parsed : fallback;
 }

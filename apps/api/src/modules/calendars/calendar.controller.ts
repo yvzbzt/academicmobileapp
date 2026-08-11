@@ -6,6 +6,7 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { CalendarService } from "./calendar.service.js";
+import { academicTemporalFilterFields, toAcademicEventDto } from "./calendar-temporal.js";
 import { SearchEventsQueryDto, UniversityCalendarQueryDto, UpcomingEventsQueryDto } from "./calendar.dto.js";
 
 @Controller("calendar")
@@ -15,8 +16,19 @@ export class CalendarController {
   @Get("my")
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("student")
-  getMyCalendar(@CurrentUser() user: AuthenticatedUser) {
-    return this.calendarService.getMyCalendar(user.id);
+  async getMyCalendar(@CurrentUser() user: AuthenticatedUser) {
+    const response = await this.calendarService.getMyCalendar(user.id);
+    return { ...response, events: response.events.map(toAcademicEventDto) };
+  }
+
+  @Get("my/trusted/:eventId")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  async getMyTrustedCalendarEvent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("eventId") eventId: string
+  ) {
+    return toAcademicEventDto(await this.calendarService.getMyTrustedCalendarEvent(user.id, eventId));
   }
 
   @Get("integrations")
@@ -37,52 +49,62 @@ export class CalendarController {
   }
 
   @Get("university/:universityId")
-  getUniversityCalendar(@Param("universityId") universityId: string, @Query() query: UniversityCalendarQueryDto) {
-    return this.calendarService.getUniversityCalendar(universityId, query.academicYear);
+  async getUniversityCalendar(@Param("universityId") universityId: string, @Query() query: UniversityCalendarQueryDto) {
+    const response = await this.calendarService.getUniversityCalendar(universityId, query.academicYear);
+    return { ...response, events: response.events.map(toAcademicEventDto) };
   }
 
   @Get("upcoming")
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("student")
-  getUpcomingEvents(@CurrentUser() user: AuthenticatedUser, @Query() query: UpcomingEventsQueryDto) {
-    return this.calendarService.getUpcomingEvents(user.id, query.limit);
+  async getUpcomingEvents(@CurrentUser() user: AuthenticatedUser, @Query() query: UpcomingEventsQueryDto) {
+    return (await this.calendarService.getUpcomingEvents(user.id, query.limit)).map(toAcademicEventDto);
   }
 
   @Get("my/course-schedules")
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("student")
-  getMyCourseSchedules(@CurrentUser() user: AuthenticatedUser) {
-    return this.calendarService.getMyCourseSchedules(user.id);
+  async getMyCourseSchedules(@CurrentUser() user: AuthenticatedUser) {
+    const response = await this.calendarService.getMyCourseSchedules(user.id);
+    return { ...response, events: response.events.map(toAcademicEventDto) };
   }
 
   @Get("my/exam-schedules")
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("student")
-  getMyExamSchedules(@CurrentUser() user: AuthenticatedUser) {
-    return this.calendarService.getMyExamSchedules(user.id);
+  async getMyExamSchedules(@CurrentUser() user: AuthenticatedUser) {
+    const response = await this.calendarService.getMyExamSchedules(user.id);
+    return { ...response, events: response.events.map(toAcademicEventDto) };
   }
 
   @Get("summer-school/my")
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("student")
-  getMySummerSchool(@CurrentUser() user: AuthenticatedUser) {
-    return this.calendarService.getMySummerSchool(user.id);
+  async getMySummerSchool(@CurrentUser() user: AuthenticatedUser) {
+    const response = await this.calendarService.getMySummerSchool(user.id);
+    return {
+      ...response,
+      sameDepartmentOptions: response.sameDepartmentOptions.map((option) => ({
+        ...option,
+        events: option.events.map(toAcademicEventDto)
+      }))
+    };
   }
 
   @Get("events")
-  searchEvents(@Query() query: SearchEventsQueryDto) {
-    return this.calendarService.searchEvents({
+  async searchEvents(@Query() query: SearchEventsQueryDto) {
+    const temporalFilters = academicTemporalFilterFields(query.startDate, query.endDate);
+    return (await this.calendarService.searchEvents({
       ...(query.category ? { category: query.category } : {}),
-      ...(query.startDate ? { startDate: new Date(query.startDate) } : {}),
-      ...(query.endDate ? { endDate: new Date(query.endDate) } : {}),
+      ...temporalFilters,
       ...(query.limit ? { limit: query.limit } : {}),
       ...(query.offset !== undefined ? { offset: query.offset } : {})
-    });
+    })).map(toAcademicEventDto);
   }
 
   @Get("events/:eventId")
-  getEventDetail(@Param("eventId") eventId: string) {
-    return this.calendarService.getEventDetail(eventId);
+  async getEventDetail(@Param("eventId") eventId: string) {
+    return toAcademicEventDto(await this.calendarService.getEventDetail(eventId));
   }
 }
 

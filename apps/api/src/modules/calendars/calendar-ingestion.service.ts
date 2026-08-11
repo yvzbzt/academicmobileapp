@@ -1,13 +1,16 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { PDFParse } from "pdf-parse";
 import { findVerifiedUniversitySource } from "../../bootstrap/verified-source-registry.js";
+import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
 import { mapAcademicEventCategory } from "../../domain/category-mapper.js";
 import type { AcademicTerm } from "../../domain/academic-event.types.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import type { CatalogRepository, UniversityRecord } from "../catalog/catalog.types.js";
 import { buildHomepageCandidates, isLikelyUniversityHomepage } from "../announcements/announcement-ingestion.service.js";
 import { cleanText, fetchText } from "../announcements/announcement-parser.js";
+import { isOfficialContentUrl } from "../announcements/announcement-content-trust.js";
 import { AdminCalendarService } from "./admin-calendar.service.js";
+import { academicTemporalFields, istanbulCalendarDate } from "./calendar-temporal.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
 import { PdfProcessingService } from "../pdf/pdf-processing.service.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
@@ -69,8 +72,9 @@ const academicCalendarPaths = [
 ];
 
 type AcademicEventInput = Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">;
+type PreparedAcademicEventInput = Omit<AcademicEventInput, "calendarId">;
 
-interface AtuCalendarRow {
+export interface AtuCalendarRow {
   ID?: number;
   DonemAciklama?: string;
   Aciklama?: string;
@@ -97,6 +101,7 @@ const atuCalendarODataUrl = "https://odata.atu.edu.tr/odata/DataService.svc/V_Ak
 export class CalendarIngestionService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(CalendarIngestionService.name);
   private timer: NodeJS.Timeout | null = null;
+  private initialTimer: NodeJS.Timeout | null = null;
   private readonly inFlight = new Map<string, Promise<{ calendar: AcademicCalendarRecord; events: AcademicEventRecord[] } | null>>();
 
   constructor(
@@ -107,17 +112,72 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
   ) {}
 
-  onApplicationBootstrap() {
+  async onApplicationBootstrap(): Promise<void> {
+    await this.reconcilePublishedCalendarNotifications();
     if (process.env.CALENDAR_AUTO_INGEST_ENABLED !== "true") return;
     const initialDelayMs = readPositiveInteger(process.env.CALENDAR_INGEST_INITIAL_DELAY_MS, 15000);
     const scheduleTimes = parseDailyScheduleTimes(process.env.CALENDAR_INGEST_SCHEDULE_TIMES ?? "06:30");
     if (scheduleTimes.length > 0) this.scheduleNextCycle(scheduleTimes);
     else this.timer = setInterval(() => void this.runScheduledCycle(), readPositiveInteger(process.env.CALENDAR_INGEST_INTERVAL_MS, 24 * 60 * 60 * 1000));
-    setTimeout(() => void this.runScheduledCycle(), initialDelayMs);
+    this.initialTimer = setTimeout(() => {
+      this.initialTimer = null;
+      void this.runScheduledCycle();
+    }, initialDelayMs);
+  }
+
+  async reconcilePublishedCalendarNotifications(input: { batchSize?: number; maximumCalendars?: number } = {}): Promise<{
+    checked: number;
+    reconciled: number;
+    failed: number;
+  }> {
+    if (!this.notificationSchedulingService) return { checked: 0, reconciled: 0, failed: 0 };
+    const maximumCalendars = Math.min(
+      input.maximumCalendars ?? readPositiveInteger(process.env.CALENDAR_NOTIFICATION_RECONCILIATION_LIMIT, 500),
+      5_000
+    );
+    const batchSize = Math.min(input.batchSize ?? 100, maximumCalendars, 500);
+    let checked = 0;
+    let reconciled = 0;
+    let failed = 0;
+
+    while (checked < maximumCalendars) {
+      const limit = Math.min(batchSize, maximumCalendars - checked);
+      let calendars: AcademicCalendarRecord[];
+      try {
+        calendars = await this.calendarRepository.listPublishedCalendars({ limit, offset: checked });
+      } catch (error) {
+        this.logger.warn(`Calendar notification reconciliation scan failed: ${error instanceof Error ? error.message : String(error)}`);
+        break;
+      }
+      if (calendars.length === 0) break;
+      checked += calendars.length;
+
+      for (const calendar of calendars) {
+        try {
+          const current = await this.calendarRepository.findCalendarById(calendar.id);
+          if (!current || current.status !== "published") continue;
+          const events = await this.listAllPublishedEvents(current);
+          const revalidated = await this.calendarRepository.findCalendarById(current.id);
+          if (!revalidated || revalidated.status !== "published") continue;
+          await this.notificationSchedulingService.scheduleCalendarPublished(revalidated, events);
+          reconciled += 1;
+        } catch (error) {
+          failed += 1;
+          this.logger.warn(`Calendar notification reconciliation failed for ${calendar.id}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      if (calendars.length < limit) break;
+    }
+
+    return { checked, reconciled, failed };
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) clearTimeout(this.timer);
+    if (this.initialTimer) clearTimeout(this.initialTimer);
+    this.timer = null;
+    this.initialTimer = null;
   }
 
   async ensurePublishedCalendarForUniversity(universityId: string, academicYear?: string): Promise<{ calendar: AcademicCalendarRecord; events: AcademicEventRecord[] } | null> {
@@ -206,8 +266,23 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
 
     const existing = await this.calendarRepository.findPublishedCalendar(universityId, academicYear);
     if (existing && (academicYear || isAcceptableAcademicYear(existing.academicYear))) {
-      const events = await this.calendarRepository.listPublishedEvents({ calendarId: existing.id, universityId, limit: 500, offset: 0 });
+      const events = await this.listAllPublishedEvents(existing);
       if (events.length > 0 || !options.retrySourceOnly || !await this.shouldRetrySourceOnlyCalendar({ calendar: existing, events })) {
+        try {
+          // This scan is also the durable reconciliation path for a publication that
+          // committed before notification scheduling completed or acknowledged.
+          await this.notificationSchedulingService?.scheduleCalendarPublished(existing, events);
+        } catch (error) {
+          return {
+            universityId,
+            universityName: university.name,
+            status: "failed",
+            academicYear: existing.academicYear,
+            ...(existing.sourceUrl ? { sourceUrl: existing.sourceUrl } : {}),
+            eventCount: events.length,
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
         return {
           universityId,
           universityName: university.name,
@@ -265,8 +340,30 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     const calendar = await this.calendarRepository.findPublishedCalendar(universityId, academicYear);
     if (!calendar) return null;
     if (!academicYear && !isAcceptableAcademicYear(calendar.academicYear)) return null;
-    const events = await this.calendarRepository.listPublishedEvents({ calendarId: calendar.id, universityId, limit: 200, offset: 0 });
+    const events = await this.listAllPublishedEvents(calendar);
+    await this.notificationSchedulingService?.scheduleCalendarPublished(calendar, events);
     return { calendar, events };
+  }
+
+  private async listAllPublishedEvents(calendar: AcademicCalendarRecord): Promise<AcademicEventRecord[]> {
+    const maximumEvents = Math.min(
+      readPositiveInteger(process.env.CALENDAR_NOTIFICATION_RECONCILIATION_EVENT_LIMIT, 5_000),
+      20_000
+    );
+    const events: AcademicEventRecord[] = [];
+    const pageSize = 500;
+    while (events.length <= maximumEvents) {
+      const page = await this.calendarRepository.listPublishedEvents({
+        calendarId: calendar.id,
+        universityId: calendar.universityId,
+        limit: Math.min(pageSize, maximumEvents + 1 - events.length),
+        offset: events.length
+      });
+      events.push(...page);
+      if (page.length < pageSize || events.length > maximumEvents) break;
+    }
+    if (events.length > maximumEvents) throw new Error(`CALENDAR_NOTIFICATION_RECONCILIATION_EVENT_LIMIT:${calendar.id}`);
+    return events;
   }
 
   private async publishSourceOnlyCalendar(
@@ -329,10 +426,8 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
 
   private async ingestAtuODataCalendar(university: UniversityRecord, requestedAcademicYear?: string): Promise<CalendarIngestionResult> {
     const sourceUrl = atuCalendarODataUrl;
-    const response = await fetch(sourceUrl, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000)) });
-    if (!response.ok) throw new Error(`ATU_CALENDAR_FETCH_FAILED:${response.status}`);
-    const payload = await response.json() as { d?: AtuCalendarRow[] };
-    const activeRows = (payload.d ?? []).filter((row) => row.Durum === 1 || row.Durum === true).filter((row) => row.AdTR && row.BaslamaTarihi && row.Yil);
+    const rowsFromSource = await fetchAtuCalendarRows(readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000));
+    const activeRows = rowsFromSource.filter((row) => row.Durum === 1 || row.Durum === true).filter((row) => row.AdTR && row.BaslamaTarihi && row.Yil);
     const availableYears = [...new Set(activeRows.map((row) => row.Yil).filter((year): year is number => Number.isInteger(year)))].sort((left, right) => right - left);
     const selectedStartYear = requestedAcademicYear
       ? Number(requestedAcademicYear.slice(0, 4))
@@ -343,6 +438,12 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     if (rows.length === 0) return { universityId: university.id, universityName: university.name, status: "no_events", academicYear: `${selectedStartYear}-${selectedStartYear + 1}`, sourceUrl, eventCount: 0 };
 
     const academicYear = `${selectedStartYear}-${selectedStartYear + 1}`;
+    const preparedEventInputs = rows
+      .map((row) => toAtuAcademicEvent(row, university.id, academicYear, sourceUrl))
+      .filter((event): event is PreparedAcademicEventInput => Boolean(event));
+    if (preparedEventInputs.length === 0) {
+      return { universityId: university.id, universityName: university.name, status: "no_events", academicYear, sourceUrl, eventCount: 0 };
+    }
     const existing = await this.calendarRepository.findPublishedCalendar(university.id, academicYear);
     const calendar = await this.calendarRepository.createCalendar({
       universityId: university.id,
@@ -354,9 +455,7 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
       createdBy: "system-calendar-ingestion"
     });
 
-    const eventInputs = rows
-      .map((row) => toAtuAcademicEvent(row, calendar.id, university.id, academicYear, sourceUrl))
-      .filter((event): event is AcademicEventInput => Boolean(event));
+    const eventInputs = preparedEventInputs.map((event) => ({ ...event, calendarId: calendar.id }));
     const events = await this.calendarRepository.createEvents(eventInputs);
     if (events.length === 0) {
       await this.calendarRepository.updateCalendar(calendar.id, { status: "archived" });
@@ -429,21 +528,50 @@ export async function discoverAtuAcademicCalendarPdf(
   requestedAcademicYear?: string,
   timeoutMs = 12000
 ): Promise<DiscoveredCalendarPdf | null> {
-  const response = await fetch(atuCalendarPageApiUrl, {
+  const payload = await fetchCalendarJson<AtuCalendarPagePayload>(atuCalendarPageApiUrl, timeoutMs, "ATU_CALENDAR_PAGE_FETCH_FAILED", {
     headers: {
       Accept: "application/json",
       "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.6",
       "User-Agent": "AcademicCalendarPdfCrawler/1.0"
-    },
-    signal: AbortSignal.timeout(timeoutMs)
+    }
   });
-  if (!response.ok) throw new Error(`ATU_CALENDAR_PAGE_FETCH_FAILED:${response.status}`);
-
-  const payload = await response.json() as AtuCalendarPagePayload;
   const html = payload.d?.HTMLicerik ?? payload.d?.MetinIcerik;
   if (!html) return null;
 
   return selectAtuAcademicCalendarPdf(html, requestedAcademicYear);
+}
+
+export async function fetchAtuCalendarRows(timeoutMs = 12000): Promise<AtuCalendarRow[]> {
+  const payload = await fetchCalendarJson<{ d?: AtuCalendarRow[] }>(
+    atuCalendarODataUrl,
+    timeoutMs,
+    "ATU_CALENDAR_FETCH_FAILED",
+    { headers: { Accept: "application/json" } }
+  );
+  return Array.isArray(payload.d) ? payload.d : [];
+}
+
+async function fetchCalendarJson<T>(
+  sourceUrl: string,
+  timeoutMs: number,
+  errorCode: string,
+  input: { headers: Record<string, string> }
+): Promise<T> {
+  const response = await safeOutboundRequest(sourceUrl, {
+    timeoutMs,
+    maximumRedirects: 5,
+    maximumResponseBytes: 5 * 1024 * 1024,
+    headers: input.headers,
+    validateUrl: (candidate) => requireOfficialCalendarSourceUrl(candidate, sourceUrl)
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`${errorCode}:${response.status}`);
+  }
+  try {
+    return JSON.parse(response.body.toString("utf8")) as T;
+  } catch {
+    throw new Error(`${errorCode}:INVALID_JSON`);
+  }
 }
 
 export function selectAtuAcademicCalendarPdf(
@@ -487,7 +615,7 @@ export function buildYearAwareAcademicCalendarCandidates(university: Pick<Univer
   return [`https://ogrenci.aku.edu.tr/${currentAcademicYear(date)}/`];
 }
 
-async function discoverAcademicCalendarPdfFromHomepages(
+export async function discoverAcademicCalendarPdfFromHomepages(
   university: UniversityRecord,
   homepageCandidates: string[],
   timeoutMs: number,
@@ -506,14 +634,17 @@ async function discoverAcademicCalendarPdfFromHomepages(
       const page = await fetchText(candidate, timeoutMs);
       if (!isExplicitCalendarUrl && !isLikelyHomepage(page)) continue;
       if (looksLikePdfUrl(page.finalUrl) && containsCalendarHint(page.finalUrl, page.finalUrl) && isAcceptableCalendarSource({ sourceUrl: page.finalUrl, title: page.finalUrl })) return { sourceUrl: page.finalUrl, title: "Akademik Takvim" };
-      const links = extractAcademicCalendarLinks(page.text, page.finalUrl);
+      const links = extractAcademicCalendarLinks(page.text, page.finalUrl)
+        .filter((link) => isOfficialContentUrl(link.sourceUrl, page.finalUrl));
       const directPdf = links.find((link) => looksLikePdfUrl(link.sourceUrl) && isAcceptableCalendarSource(link));
       if (directPdf) return directPdf;
 
       for (const link of links.slice(0, 6)) {
         try {
           const nested = await fetchText(link.sourceUrl, timeoutMs);
-          const nestedPdf = extractAcademicCalendarLinks(nested.text, nested.finalUrl).find((nestedLink) => looksLikePdfUrl(nestedLink.sourceUrl) && isAcceptableCalendarSource(nestedLink));
+          const nestedPdf = extractAcademicCalendarLinks(nested.text, nested.finalUrl)
+            .filter((nestedLink) => isOfficialContentUrl(nestedLink.sourceUrl, page.finalUrl))
+            .find((nestedLink) => looksLikePdfUrl(nestedLink.sourceUrl) && isAcceptableCalendarSource(nestedLink));
           if (nestedPdf) return nestedPdf;
         } catch {
           continue;
@@ -524,7 +655,9 @@ async function discoverAcademicCalendarPdfFromHomepages(
         const calendarPageUrl = new URL(path, page.finalUrl).toString();
         try {
           const nested = await fetchText(calendarPageUrl, timeoutMs);
-          const nestedPdf = extractAcademicCalendarLinks(nested.text, nested.finalUrl).find((nestedLink) => looksLikePdfUrl(nestedLink.sourceUrl) && isAcceptableCalendarSource(nestedLink));
+          const nestedPdf = extractAcademicCalendarLinks(nested.text, nested.finalUrl)
+            .filter((nestedLink) => isOfficialContentUrl(nestedLink.sourceUrl, page.finalUrl))
+            .find((nestedLink) => looksLikePdfUrl(nestedLink.sourceUrl) && isAcceptableCalendarSource(nestedLink));
           if (nestedPdf) return nestedPdf;
         } catch {
           continue;
@@ -538,22 +671,26 @@ async function discoverAcademicCalendarPdfFromHomepages(
   return null;
 }
 
-function toAtuAcademicEvent(row: AtuCalendarRow, calendarId: string, universityId: string, academicYear: string, sourceUrl: string): AcademicEventInput | null {
+function toAtuAcademicEvent(row: AtuCalendarRow, universityId: string, academicYear: string, sourceUrl: string): PreparedAcademicEventInput | null {
   const startDate = parseODataDate(row.BaslamaTarihi);
   if (!startDate) return null;
   const endDate = parseODataDate(row.BitisTarihi);
+  const dateOnlyStart = istanbulCalendarDate(startDate);
+  const dateOnlyEnd = endDate ? istanbulCalendarDate(endDate) : undefined;
+  const temporal = academicTemporalFields(
+    dateOnlyStart,
+    dateOnlyEnd && dateOnlyEnd !== dateOnlyStart ? dateOnlyEnd : undefined
+  );
   const title = cleanText(row.AdTR?.replace(/\r?\n/g, " ")) || cleanText(row.Aciklama) || "Akademik Takvim Etkinliği";
   return {
-    calendarId,
     universityId,
     academicYear,
     term: mapTerm(row.DonemAciklama ?? row.Aciklama ?? title),
     category: mapAcademicEventCategory(`${title} ${row.Aciklama ?? ""}`),
     title,
-    startDate,
-    ...(endDate && endDate.getTime() !== startDate.getTime() ? { endDate } : {}),
+    ...temporal,
     timezone: "Europe/Istanbul",
-    originalDateText: `${startDate.toISOString().slice(0, 10)}${endDate ? ` - ${endDate.toISOString().slice(0, 10)}` : ""}`,
+    originalDateText: `${dateOnlyStart}${dateOnlyEnd ? ` - ${dateOnlyEnd}` : ""}`,
     originalText: `${title} ${row.Aciklama ?? ""}`.trim(),
     sourcePage: 1,
     confidenceScore: 98,
@@ -590,26 +727,37 @@ function toCalendarLink(href: string | undefined, title: string | undefined, bas
   }
 }
 
-async function downloadPdf(sourceUrl: string, timeoutMs: number): Promise<DownloadedPdf> {
-  const response = await fetch(sourceUrl, {
+export async function downloadPdf(sourceUrl: string, timeoutMs: number): Promise<DownloadedPdf> {
+  const response = await safeOutboundRequest(sourceUrl, {
+    timeoutMs,
+    maximumRedirects: 5,
+    maximumResponseBytes: 50 * 1024 * 1024,
     headers: {
       Accept: "application/pdf,*/*;q=0.8",
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
       "User-Agent": "AcademicCalendarPdfCrawler/1.0"
     },
-    redirect: "follow",
-    signal: AbortSignal.timeout(timeoutMs)
+    validateUrl: (candidate) => requireOfficialCalendarSourceUrl(candidate, sourceUrl)
   });
-  if (!response.ok) throw new Error(`CALENDAR_PDF_FETCH_FAILED:${response.status}`);
-  const data = Buffer.from(await response.arrayBuffer());
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`CALENDAR_PDF_FETCH_FAILED:${response.status}`);
+  }
+  const data = response.body;
   const magicBytesHex = data.subarray(0, 8).toString("hex");
   if (!magicBytesHex.startsWith("25504446")) throw new Error("CALENDAR_SOURCE_IS_NOT_PDF");
   return {
-    finalUrl: response.url || sourceUrl,
+    finalUrl: response.finalUrl,
     data,
-    fileName: fileNameFromUrl(response.url || sourceUrl),
+    fileName: fileNameFromUrl(response.finalUrl),
     magicBytesHex
   };
+}
+
+function requireOfficialCalendarSourceUrl(candidate: string, officialSourceUrl: string): string {
+  if (!isOfficialContentUrl(candidate, officialSourceUrl)) {
+    throw new Error("CALENDAR_SOURCE_DOMAIN_UNTRUSTED");
+  }
+  return candidate;
 }
 
 async function extractPdfText(data: Buffer): Promise<ExtractedPdfText> {

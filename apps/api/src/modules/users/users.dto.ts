@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsIn, IsInt, IsOptional, IsString, Max, Min, MinLength } from "class-validator";
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min, MinLength } from "class-validator";
 import type { UserRole } from "../../../../../packages/shared/src/contracts.js";
 import type { AuthUserRecord } from "../auth/auth.types.js";
 
@@ -62,6 +62,12 @@ export class FollowAcademicScopeDto {
   @IsOptional()
   @IsString()
   departmentId?: string;
+}
+
+export class DeleteMyAccountDto {
+  @IsOptional()
+  @IsBoolean()
+  deleteData?: boolean;
 }
 
 export class ListUsersQueryDto {

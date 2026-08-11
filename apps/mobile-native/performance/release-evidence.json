@@ -1,0 +1,185 @@
+{
+  "recordedAt": "2026-08-06",
+  "repository": {
+    "gitHead": "8dbe5e1efdb0c5fab665345188228ff66a0f84f6",
+    "sourceState": "Accepted Phase 10 HEAD plus the scoped uncommitted Phase 11 working-tree patch measured before its single final commit"
+  },
+  "contract": {
+    "buildVariant": "release",
+    "entryFile": "index.feed-performance.ts",
+    "nodeEnv": "production",
+    "architecture": "x86_64",
+    "fixtureRecords": 100,
+    "reactNativeRuntime": {
+      "jsEngine": "Hermes",
+      "renderer": "Fabric",
+      "hermesEnabled": true,
+      "newArchitectureEnabled": true
+    },
+    "standardDeviceProfile": {
+      "width": 720,
+      "height": 1280,
+      "densityDpi": 320,
+      "fontScale": 1,
+      "animationScale": 1
+    },
+    "postBuildSettlingMs": 15000,
+    "warmupTrials": 1,
+    "measuredTrials": 5,
+    "activityStartSource": "adb shell am start -W -n com.anssoft.akademiktakvim/.MainActivity",
+    "frameSource": "adb shell dumpsys gfxinfo com.anssoft.akademiktakvim framestats",
+    "percentileMethod": "nearest-rank",
+    "thresholds": {
+      "minimumFramesPerTrial": 100,
+      "maximumAggregateP90Ms": 32,
+      "maximumAggregateP95Ms": 50,
+      "frozenFrameThresholdMs": 700,
+      "maximumFrozenFrames": 0
+    }
+  },
+  "acceptedRun": {
+    "accepted": true,
+    "freshBuild": {
+      "gradleTasksExecuted": 430,
+      "apkBytes": 29525380,
+      "apkSha256": "6f32ed35453881073664c516792b69fae2a6af82e18109a7535fce92be2ede63",
+      "abis": [
+        "x86_64"
+      ],
+      "debuggable": false,
+      "metroRequired": false
+    },
+    "runtime": {
+      "serial": "emulator-5554",
+      "avdName": "AcademicPhase1Low",
+      "apiLevel": 24,
+      "deviceAbi": "x86_64",
+      "model": "Android SDK built for x86_64",
+      "buildFingerprint": "Android/sdk_google_phone_x86_64/generic_x86_64:7.0/NYC/6696031:userdebug/dev-keys",
+      "screen": {
+        "width": 720,
+        "height": 1280,
+        "densityDpi": 320,
+        "fontScale": 1,
+        "refreshRateHz": 60.000004
+      },
+      "graphicsRenderer": "Google (Intel), Android Emulator OpenGL ES Translator (Intel(R) Iris(R) Xe Graphics), OpenGL ES 2.0 (4.5.0 - Build 30.0.101.3111)",
+      "harnessMarkerObserved": true,
+      "embeddedRecordCount": 100,
+      "metroConnectionErrorObserved": false,
+      "activityStartTimingMs": {
+        "thisTimeMs": 630,
+        "totalTimeMs": 630,
+        "waitTimeMs": 660
+      }
+    },
+    "aggregate": {
+      "frameCount": 600,
+      "p90Ms": 18.965375,
+      "p95Ms": 19.595379,
+      "frozenFrames": 0
+    },
+    "trials": [
+      {
+        "trial": 1,
+        "frameCount": 120,
+        "p90Ms": 7.166861,
+        "p95Ms": 7.442539,
+        "frozenFrames": 0
+      },
+      {
+        "trial": 2,
+        "frameCount": 120,
+        "p90Ms": 19.530443,
+        "p95Ms": 19.916671,
+        "frozenFrames": 0
+      },
+      {
+        "trial": 3,
+        "frameCount": 120,
+        "p90Ms": 7.755749,
+        "p95Ms": 8.640418,
+        "frozenFrames": 0
+      },
+      {
+        "trial": 4,
+        "frameCount": 120,
+        "p90Ms": 8.037565,
+        "p95Ms": 8.332312,
+        "frozenFrames": 0
+      },
+      {
+        "trial": 5,
+        "frameCount": 120,
+        "p90Ms": 19.87342,
+        "p95Ms": 20.26665,
+        "frozenFrames": 0
+      }
+    ]
+  },
+  "historicalRendererControl": {
+    "recordedAt": "2026-08-04",
+    "reason": "The earlier SwiftShader AVD run measured software-renderer overhead rather than a proven feed bottleneck.",
+    "swiftShaderAggregate": {
+      "accepted": false,
+      "frameCount": 592,
+      "p90Ms": 70.649202,
+      "p95Ms": 77.171868,
+      "frozenFrames": 0
+    },
+    "revertedVirtualizationExperimentAggregate": {
+      "accepted": false,
+      "frameCount": 598,
+      "p90Ms": 73.497194,
+      "p95Ms": 82.665697,
+      "frozenFrames": 0,
+      "conclusion": "The smaller render batches were not a proven improvement and were reverted before acceptance."
+    }
+  },
+  "teardown": {
+    "forceStopped": true,
+    "benchmarkPackageUninstalled": true,
+    "alternateEntryApkRemoved": true,
+    "preexistingReleaseArtifactRestored": true,
+    "preexistingPackageRemovedInEphemeralSession": true,
+    "standardDeviceConfigurationApplied": true,
+    "deviceConfigurationChangedForMeasurement": true,
+    "deviceConfigurationRestored": true,
+    "originalDeviceConfiguration": {
+      "size": {
+        "physical": {
+          "width": 720,
+          "height": 1280
+        }
+      },
+      "density": {
+        "physical": 320
+      },
+      "fontScale": "1.0",
+      "animationScales": {
+        "window": null,
+        "transition": null,
+        "animator": null
+      }
+    },
+    "restoredDeviceConfiguration": {
+      "size": {
+        "physical": {
+          "width": 720,
+          "height": 1280
+        }
+      },
+      "density": {
+        "physical": 320
+      },
+      "fontScale": "1.0",
+      "animationScales": {
+        "window": null,
+        "transition": null,
+        "animator": null
+      }
+    },
+    "adbReverseAdded": false
+  },
+  "scopeLimit": "This release harness measures one activity start and the synthetic 100-record Announcements feed. It does not provide release-mode timing distributions for the shell, Home, Calendar, personal-exam editor, selectors, or Profile."
+}

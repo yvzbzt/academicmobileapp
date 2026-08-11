@@ -1,4 +1,5 @@
-import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, MinLength } from "class-validator";
+import { IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, MinLength, ValidateIf } from "class-validator";
+import { AUTH_PASSWORD_MIN_LENGTH } from "./auth.constants.js";
 
 export class RegisterDto {
   @IsOptional()
@@ -10,7 +11,7 @@ export class RegisterDto {
   email!: string;
 
   @IsString()
-  @MinLength(10)
+  @MinLength(AUTH_PASSWORD_MIN_LENGTH)
   password!: string;
 
   @IsString()
@@ -85,6 +86,46 @@ export class VerifyEmailDto {
 export class ResendVerificationCodeDto {
   @IsEmail()
   email!: string;
+}
+
+export class PasswordRecoveryRequestDto {
+  @IsEmail()
+  email!: string;
+}
+
+export class PasswordRecoveryConfirmDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  code!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  newPassword!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  passwordConfirmation!: string;
+}
+
+export class RecentAuthenticationDto {
+  @IsIn(["delete_personal_data", "delete_account"])
+  purpose!: "delete_personal_data" | "delete_account";
+
+  @IsIn(["password", "google"])
+  method!: "password" | "google";
+
+  @ValidateIf((input: RecentAuthenticationDto) => input.method === "password")
+  @IsString()
+  @IsNotEmpty()
+  password?: string;
+
+  @ValidateIf((input: RecentAuthenticationDto) => input.method === "google")
+  @IsString()
+  @IsNotEmpty()
+  idToken?: string;
 }
 
 export class VerifyEmailQueryDto {

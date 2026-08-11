@@ -2,6 +2,10 @@
 
 Date: 2026-07-01
 
+> **Superseding note — 30 July 2026:** This report preserves the adapter inventory and deployment evidence that existed on 1 July. Phase 1 R1C1 later deleted the Firestore database infrastructure and announcement repository adapter; MongoDB is now the only API runtime database. The historical Firestore wording below is not current architecture. R1C1 ran no migration or deployment and accessed no production data. Firebase Authentication, FCM, Hosting, and Google Sign-In/OAuth remain supported independently of database persistence.
+
+> **Security superseding note — 4 August 2026:** Every current ingestion request uses the shared safe outbound boundary and requires valid TLS in development, test, QA, staging, and production. The former invalid-certificate fallback and its environment switch were removed; there is no supported configuration that disables certificate verification. The deployment identifiers and measurements below remain dated historical evidence, not current deployment instructions.
+
 ## What was added
 
 - Background announcement discovery and ingestion service for university announcement pages.
@@ -20,7 +24,7 @@ Date: 2026-07-01
 - Revision deployed: `academic-calendar-api-00015-xed`
 - Min instances: `1`
 - Announcement ingestion enabled with a 30 minute interval.
-- Invalid-TLS fallback is disabled in production: `ANNOUNCEMENT_ALLOW_INVALID_TLS=false`.
+- TLS certificate validation was enabled for this dated run; the current implementation has no invalid-certificate fallback.
 
 ## Verification
 
@@ -30,7 +34,6 @@ Command:
 $env:ANNOUNCEMENT_VERIFY_LIMIT='205'
 $env:ANNOUNCEMENT_VERIFY_CONCURRENCY='4'
 $env:ANNOUNCEMENT_VERIFY_TIMEOUT_MS='12000'
-$env:ANNOUNCEMENT_ALLOW_INVALID_TLS='false'
 npm run verify:announcements
 ```
 
@@ -45,7 +48,7 @@ Result:
 
 ## Remaining Gaps
 
-These need custom adapters, official feed URLs, Cloudflare/server allowlisting, or a decision to permit invalid-TLS fallback.
+These need custom adapters, official feed URLs, safe provider-specific integration, or correction of the public server certificate chain. Disabling TLS validation is not an option.
 
 ### Homepage Found But No Items
 
@@ -89,5 +92,5 @@ These need custom adapters, official feed URLs, Cloudflare/server allowlisting, 
 
 ## Notes
 
-- The production-safe audit intentionally disables invalid certificate fallback. Enabling it raises coverage for some universities, but it weakens crawler TLS validation and should be approved explicitly before use.
+- The current crawler always validates certificates. A source with a broken public certificate chain must be fixed upstream or handled through a separately reviewed safe integration; it is never retried with certificate validation disabled.
 - Cloud Run min instances is set to `1`. If Google Cloud Console shows CPU throttling enabled, true timer-based continuous ingestion should be moved to Cloud Scheduler or CPU-always allocation should be enabled from the console.

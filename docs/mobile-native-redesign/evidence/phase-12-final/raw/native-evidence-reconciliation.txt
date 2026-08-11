@@ -1,0 +1,42 @@
+PHASE 12 CURRENT-SOURCE NATIVE EVIDENCE RECONCILIATION
+Date: 2026-08-06 Europe/Istanbul
+
+Production UI source changed in Phase 12: no
+Phase 12 UI screenshots newly captured: no
+Reason: the existing Phase 11 matrix is current-source visual evidence; duplicating unchanged captures would not add a distinct evidence claim
+
+Phase 11 inventory:
+PNG files: 32
+Matching UIAutomator XML files: 32
+Raw records: 33
+Integrity rows: 97
+Integrity-index SHA-256: AD1F872742FCD8819A25B61CBC8EE22F90234EA03BAA44EB32C96D629F2AA419
+
+Representative coverage reconciled from the Phase 11 README/index:
+- Login and Registration, including keyboard-open Login and large-text Registration
+- verification/onboarding production contracts (current renderer/source evidence; native screenshots are older Phase 6 provenance)
+- Home light/dark/large text
+- feed, detail, official handoff boundary, and same-process ordinary Back
+- Agenda default, Week, Month, event detail/Back
+- personal-exam editor, keyboard, native date/time dialogs, cancellation coverage
+- Profile/settings, notification states, Google Calendar states, destructive reachability
+- light/dark themes and warm theme changes
+- 320, 360, 393, 430, and approximately 853 dp
+- 100%, 130%, 150%, and 200% font scales
+- reduced-motion animation scales at zero
+
+Phase 12 current native/build additions:
+- native introspection and prebuild verify SecureStore backup exclusions and notification manifest metadata
+- x86_64 debug APK assembly/signature verification
+- signed all-ABI AAB assembly/signature and merged-manifest verification
+- API 24 x86_64 nondebuggable release-feed performance run
+
+Explicitly unverified:
+- Android 13 notification permission and API 33+ predictive Back
+- TalkBack traversal/order
+- iOS/Xcode, VoiceOver, Dynamic Type, native swipe Back, Liquid Glass, Reduce Transparency
+- installed authenticated relaunch/account-switch E2E
+- live Google Calendar, FCM, APNs, SMTP, or authenticated-content provider flows
+- physical-device/tablet/foldable and production-fleet performance
+
+API 24 evidence is not used to claim any of the modern Android or assistive-technology items above.

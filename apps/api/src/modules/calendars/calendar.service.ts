@@ -1,13 +1,17 @@
 import { createHmac } from "node:crypto";
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional, UnauthorizedException } from "@nestjs/common";
+import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
 import { findVerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
-import type { AnnouncementItem, AnnouncementRepository } from "../announcements/announcements.types.js";
+import { academicContentLogicalIdentityKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, isOfficialContentUrl, normalizeDisplayText, toTrustedAcademicContentDto } from "../announcements/announcement-content-trust.js";
+import type { AnnouncementRepository, AnnouncementSourceRecord } from "../announcements/announcements.types.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import type { CalendarScopeView } from "./calendar.dto.js";
+import { isProductionSecret } from "../../config/production-secret.js";
 import { CalendarIngestionService, isAcceptableAcademicYear, isUnitSpecificCalendarSource } from "./calendar-ingestion.service.js";
-import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
+import { compareEventStart, instantBoundaryForIstanbulCalendarDate, temporalStartValue } from "./calendar-temporal.js";
+import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository, CalendarTemporalFilterBoundary } from "./calendar.types.js";
 
 export interface CalendarWithEventsResponse {
   calendar: AcademicCalendarRecord;
@@ -29,7 +33,7 @@ export interface DepartmentScheduleResponse {
 
 export interface SummerSchoolRequirementRecord {
   message: string;
-  date?: Date;
+  date?: string;
   sourceUrl?: string;
   eventId?: string;
 }
@@ -61,10 +65,16 @@ export interface MySummerSchoolResponse {
     departmentName?: string;
   };
   requirements: SummerSchoolRequirementRecord[];
-  ownAnnouncements: AnnouncementItem[];
-  sameDepartmentAnnouncements: AnnouncementItem[];
+  ownAnnouncements: TrustedAcademicContentDto[];
+  sameDepartmentAnnouncements: TrustedAcademicContentDto[];
+  announcementStatus: Pick<TrustedAcademicContentCollectionDto, "state" | "sourceCount" | "failedSourceCount">;
   sameDepartmentOptions: SummerSchoolUniversityOption[];
   generatedAt: Date;
+}
+
+interface SummerSchoolAnnouncementSelection {
+  items: TrustedAcademicContentDto[];
+  sources: AnnouncementSourceRecord[];
 }
 
 export interface CalendarIntegrationLinksResponse {
@@ -106,11 +116,35 @@ export class CalendarService {
     const events = (await this.calendarRepository.listPublishedEvents({
       calendarId: calendar.id,
       universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {}),
       limit: 500,
       offset: 0
-    })).filter(isUniversityAcademicCalendarEvent);
+    })).filter(isPrimaryAcademicCalendarEvent);
 
     return { calendar, events: events.slice(0, 200), scope: "university", sourceStatus: events.length > 0 ? "parsed" : "source_only" };
+  }
+
+  async getMyTrustedCalendarEvent(userId: string, eventId: string): Promise<AcademicEventRecord> {
+    const notFound = () => new NotFoundException("Trusted calendar event not found.");
+    const user = await this.authRepository.findUserById(userId);
+    if (!user?.universityId || !eventId.trim()) throw notFound();
+
+    const event = await this.calendarRepository.findPublishedEventByIdInScope(eventId, {
+      universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {})
+    });
+    if (!event) throw notFound();
+
+    const calendar = await this.calendarRepository.findCalendarById(event.calendarId);
+    if (
+      !calendar
+      || calendar.status !== "published"
+      || calendar.universityId !== user.universityId
+      || calendar.universityId !== event.universityId
+    ) throw notFound();
+    return event;
   }
 
   async getUniversityCalendar(universityId: string, academicYear?: string): Promise<CalendarWithEventsResponse> {
@@ -153,11 +187,11 @@ export class CalendarService {
     return event;
   }
 
-  async searchEvents(input: { category?: AcademicEventCategory; startDate?: Date; endDate?: Date; limit?: number; offset?: number }): Promise<AcademicEventRecord[]> {
+  async searchEvents(input: { category?: AcademicEventCategory; startBoundary?: CalendarTemporalFilterBoundary; endBoundary?: CalendarTemporalFilterBoundary; limit?: number; offset?: number }): Promise<AcademicEventRecord[]> {
     return this.calendarRepository.listPublishedEvents({
       ...(input.category ? { category: input.category } : {}),
-      ...(input.startDate ? { startDate: input.startDate } : {}),
-      ...(input.endDate ? { endDate: input.endDate } : {}),
+      ...(input.startBoundary ? { startBoundary: input.startBoundary } : {}),
+      ...(input.endBoundary ? { endBoundary: input.endBoundary } : {}),
       limit: Math.min(Math.max(input.limit ?? 50, 1), 100),
       offset: Math.max(input.offset ?? 0, 0)
     });
@@ -181,14 +215,14 @@ export class CalendarService {
       .map((event) => {
         const sourceUrl = sourceUrlFromEvent(event, university);
         return {
-          message: event.title,
-          date: event.startDate,
+          message: normalizeDisplayText(event.title, 320) || "Resmî yaz okulu bilgisi",
+          date: temporalStartValue(event),
           eventId: event.id,
           ...(sourceUrl ? { sourceUrl } : {})
         };
       });
 
-    const [ownAnnouncements, sameDepartmentAnnouncements, sameDepartmentOptions] = await Promise.all([
+    const [ownAnnouncementSelection, sameDepartmentAnnouncementSelection, sameDepartmentOptions] = await Promise.all([
       this.findOwnSummerSchoolAnnouncements({
         universityId: user.universityId,
         ...(user.facultyId ? { facultyId: user.facultyId } : {}),
@@ -200,7 +234,7 @@ export class CalendarService {
           ...(user.facultyId ? { facultyId: user.facultyId } : {}),
           ...(user.departmentId ? { departmentId: user.departmentId } : {})
         })
-        : Promise.resolve([]),
+        : Promise.resolve({ items: [], sources: [] } satisfies SummerSchoolAnnouncementSelection),
       department
         ? this.findSameDepartmentSummerSchoolOptions(department, user.universityId)
         : Promise.resolve([])
@@ -216,8 +250,9 @@ export class CalendarService {
         ...(department ? { departmentName: department.name } : {})
       },
       requirements,
-      ownAnnouncements,
-      sameDepartmentAnnouncements,
+      ownAnnouncements: ownAnnouncementSelection.items,
+      sameDepartmentAnnouncements: sameDepartmentAnnouncementSelection.items,
+      announcementStatus: summerSchoolAnnouncementStatus([ownAnnouncementSelection, sameDepartmentAnnouncementSelection]),
       sameDepartmentOptions,
       generatedAt: new Date()
     };
@@ -308,7 +343,7 @@ export class CalendarService {
       .flat()
       .filter((event) => event.departmentId === departmentId)
       .filter((event) => isAcceptableAcademicYear(event.academicYear))
-      .sort((left, right) => left.startDate.getTime() - right.startDate.getTime())
+      .sort(compareEventStart)
       .slice(0, 200);
 
     const sourceUrl = await this.findDepartmentScheduleSource({
@@ -380,7 +415,7 @@ export class CalendarService {
     return groups
       .flat()
       .filter((event) => isAcceptableAcademicYear(event.academicYear))
-      .sort((left, right) => left.startDate.getTime() - right.startDate.getTime());
+      .sort(compareEventStart);
   }
 
   private async findSameDepartmentSummerSchoolOptions(department: DepartmentRecord, selectedUniversityId: string): Promise<SummerSchoolUniversityOption[]> {
@@ -416,7 +451,7 @@ export class CalendarService {
       const matchingDepartments = matchingDepartmentsByUniversity.get(universityId) ?? [];
       options.push({
         universityId,
-        universityName: university?.name ?? universityId,
+        universityName: normalizeDisplayText(university?.name ?? universityId, 160),
         academicYear,
         ...(sourceUrl ? { sourceUrl } : {}),
         events,
@@ -457,28 +492,44 @@ export class CalendarService {
     return matchesByUniversity;
   }
 
-  private async findOwnSummerSchoolAnnouncements(input: { universityId: string; facultyId?: string; departmentId?: string }): Promise<AnnouncementItem[]> {
-    if (!this.announcementRepository) return [];
-    const items = await this.announcementRepository.listItemsByScope({ ...input, limit: 200 });
-    return dedupeAnnouncementItems(items)
+  private async findOwnSummerSchoolAnnouncements(input: { universityId: string; facultyId?: string; departmentId?: string }): Promise<SummerSchoolAnnouncementSelection> {
+    if (!this.announcementRepository) return { items: [], sources: [] };
+    const [items, sources] = await Promise.all([
+      this.announcementRepository.listItemsByScope({ ...input, limit: 200 }),
+      this.announcementRepository.listSourcesByScope(input)
+    ]);
+    const sourcesById = new Map(sources.map((source) => [source.id, source]));
+    const trustedItems = dedupeAnnouncementItems(items.flatMap((item) => {
+      const presented = toTrustedAcademicContentDto(item, sourcesById.get(item.sourceId));
+      return presented ? [presented] : [];
+    }))
       .filter(isSummerSchoolAnnouncement)
       .slice(0, 80);
+    return { items: trustedItems, sources };
   }
 
-  private async findSameDepartmentSummerSchoolAnnouncements(department: DepartmentRecord, selectedScope: { universityId: string; facultyId?: string; departmentId?: string }): Promise<AnnouncementItem[]> {
-    if (!this.announcementRepository) return [];
+  private async findSameDepartmentSummerSchoolAnnouncements(department: DepartmentRecord, selectedScope: { universityId: string; facultyId?: string; departmentId?: string }): Promise<SummerSchoolAnnouncementSelection> {
+    if (!this.announcementRepository) return { items: [], sources: [] };
     const departmentMatchers = [
       foldForMatch(department.name),
       foldForMatch(department.slug.replace(/-/gu, " "))
     ].filter((value, index, values) => value.length > 2 && values.indexOf(value) === index);
-    if (departmentMatchers.length === 0) return [];
+    if (departmentMatchers.length === 0) return { items: [], sources: [] };
     const selectedScopeIds = new Set([selectedScope.universityId, selectedScope.facultyId, selectedScope.departmentId].filter((value): value is string => Boolean(value)));
-    const items = await this.announcementRepository.listAllItems({ limit: 5000, offset: 0 });
-    return dedupeAnnouncementItems(items)
+    const [items, sources] = await Promise.all([
+      this.announcementRepository.listAllItems({ limit: 5000, offset: 0 }),
+      this.announcementRepository.listAllSources({ status: "active", limit: 5000, offset: 0 })
+    ]);
+    const sourcesById = new Map(sources.map((source) => [source.id, source]));
+    const trustedItems = dedupeAnnouncementItems(items.flatMap((item) => {
+      const presented = toTrustedAcademicContentDto(item, sourcesById.get(item.sourceId));
+      return presented ? [presented] : [];
+    }))
       .filter(isSummerSchoolAnnouncement)
       .filter((item) => !isSelectedUniversityAnnouncementScope(item, selectedScope.universityId, selectedScopeIds))
       .filter((item) => departmentMatchers.some((matcher) => announcementMatchesDepartment(item, matcher)))
       .slice(0, 120);
+    return { items: trustedItems, sources };
   }
 
   private async resolveAcademicProfile(universityId: string, facultyId?: string, departmentId?: string): Promise<[UniversityRecord | null, FacultyRecord | null, DepartmentRecord | null]> {
@@ -489,6 +540,28 @@ export class CalendarService {
     const department = departments.find((item) => item.id === departmentId) ?? null;
     return [university, faculty, department];
   }
+}
+
+function summerSchoolAnnouncementStatus(
+  selections: SummerSchoolAnnouncementSelection[]
+): MySummerSchoolResponse["announcementStatus"] {
+  const sources = new Map<string, AnnouncementSourceRecord>();
+  for (const selection of selections) {
+    for (const source of selection.sources) sources.set(source.id, source);
+  }
+  const failedSourceCount = [...sources.values()].filter((source) =>
+    source.healthStatus === "degraded"
+    || source.healthStatus === "failed"
+    || (source.consecutiveFailures ?? 0) > 0
+  ).length;
+  const items = selections.flatMap((selection) => selection.items);
+  const staleCount = items.filter((item) => item.freshness === "stale").length;
+  const state = failedSourceCount > 0 || (staleCount > 0 && staleCount < items.length)
+    ? "partial"
+    : staleCount > 0
+      ? "stale"
+      : "fresh";
+  return { state, sourceCount: sources.size, failedSourceCount };
 }
 
 function groupEventsByUniversityAndYear(events: AcademicEventRecord[]): Map<string, AcademicEventRecord[]> {
@@ -529,7 +602,14 @@ function signCalendarFeedPayload(payload: string): string {
 }
 
 function calendarFeedSecret(): string {
-  return process.env.CALENDAR_FEED_SECRET ?? process.env.JWT_ACCESS_SECRET ?? "development-calendar-feed-secret-change-me-32-chars";
+  const configuredSecret = process.env.CALENDAR_FEED_SECRET;
+  if (
+    process.env.NODE_ENV === "production"
+    && (!isProductionSecret(configuredSecret) || configuredSecret === process.env.JWT_ACCESS_SECRET)
+  ) {
+    throw new Error("CALENDAR_FEED_SECRET_NOT_CONFIGURED");
+  }
+  return configuredSecret || process.env.JWT_ACCESS_SECRET || "development-calendar-feed-secret-change-me-32-chars";
 }
 
 function dedupeCalendarEvents(events: AcademicEventRecord[]): AcademicEventRecord[] {
@@ -539,7 +619,7 @@ function dedupeCalendarEvents(events: AcademicEventRecord[]): AcademicEventRecor
     const existing = unique.get(event.id);
     if (!existing || event.updatedAt.getTime() > existing.updatedAt.getTime()) unique.set(event.id, event);
   }
-  return [...unique.values()].sort((left, right) => left.startDate.getTime() - right.startDate.getTime() || left.title.localeCompare(right.title, "tr-TR"));
+  return [...unique.values()].sort(compareEventStart);
 }
 
 function renderIcsCalendar(input: { name: string; description: string; events: AcademicEventRecord[] }): string {
@@ -563,14 +643,31 @@ function renderIcsCalendar(input: { name: string; description: string; events: A
 }
 
 function renderIcsEvent(event: AcademicEventRecord): string[] {
-  const startDate = icsDate(event.startDate);
-  const endDate = icsDate(addDays(event.endDate ?? event.startDate, 1));
   const description = [
     event.description,
     `Kategori: ${event.category}`,
     `Akademik yil: ${event.academicYear}`,
     event.originalDateText ? `Kaynak tarih: ${event.originalDateText}` : undefined
   ].filter((value): value is string => Boolean(value));
+
+  const hasDateOnlyStart = event.temporalKind === "date" && Boolean(event.dateOnlyStart);
+  const hasTimestampEnd = event.endTemporalKind === "timestamp" && Boolean(event.endDate);
+  const temporalLines = hasDateOnlyStart && !hasTimestampEnd
+    ? [
+        `DTSTART;VALUE=DATE:${icsCalendarDate(event.dateOnlyStart!)}`,
+        `DTEND;VALUE=DATE:${icsCalendarDate(addCalendarDays(event.dateOnlyEnd ?? event.dateOnlyStart!, 1))}`
+      ]
+    : hasDateOnlyStart && hasTimestampEnd
+      ? [
+          `DTSTART:${icsTimestamp(istanbulCalendarStart(event.dateOnlyStart!))}`,
+          `DTEND:${icsTimestamp(event.endDate!)}`
+        ]
+    : [
+        `DTSTART:${icsTimestamp(event.startDate)}`,
+        ...(event.endTemporalKind === "date" && event.dateOnlyEnd
+          ? [`DTEND:${icsTimestamp(exclusiveIstanbulCalendarEnd(event.dateOnlyEnd))}`]
+          : event.endDate ? [`DTEND:${icsTimestamp(event.endDate)}`] : [])
+      ];
 
   return [
     "BEGIN:VEVENT",
@@ -579,9 +676,9 @@ function renderIcsEvent(event: AcademicEventRecord): string[] {
     `LAST-MODIFIED:${icsTimestamp(event.updatedAt)}`,
     `SUMMARY:${escapeIcsText(event.title)}`,
     `DESCRIPTION:${escapeIcsText(description.join("\n"))}`,
+    ...(event.location ? [`LOCATION:${escapeIcsText(event.location)}`] : []),
     `CATEGORIES:${escapeIcsText(event.category)}`,
-    `DTSTART;VALUE=DATE:${startDate}`,
-    `DTEND;VALUE=DATE:${endDate}`,
+    ...temporalLines,
     "TRANSP:TRANSPARENT",
     "END:VEVENT"
   ];
@@ -599,10 +696,22 @@ function icsTimestamp(date: Date): string {
   return `${icsDate(date)}T${String(date.getUTCHours()).padStart(2, "0")}${String(date.getUTCMinutes()).padStart(2, "0")}${String(date.getUTCSeconds()).padStart(2, "0")}Z`;
 }
 
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
+function icsCalendarDate(dateOnly: string): string {
+  return dateOnly.replaceAll("-", "");
+}
+
+function addCalendarDays(dateOnly: string, days: number): string {
+  const next = new Date(`${dateOnly}T12:00:00.000Z`);
   next.setUTCDate(next.getUTCDate() + days);
-  return next;
+  return next.toISOString().slice(0, 10);
+}
+
+function exclusiveIstanbulCalendarEnd(inclusiveEnd: string): Date {
+  return instantBoundaryForIstanbulCalendarDate(addCalendarDays(inclusiveEnd, 1));
+}
+
+function istanbulCalendarStart(dateOnly: string): Date {
+  return instantBoundaryForIstanbulCalendarDate(dateOnly);
 }
 
 function escapeIcsText(value: string): string {
@@ -670,10 +779,13 @@ function canonicalDepartmentKey(value: string): string {
 
 function sourceUrlFromEvent(event: AcademicEventRecord, university: UniversityRecord | null): string | undefined {
   const match = `${event.description ?? ""} ${event.originalText ?? ""}`.match(/\bhttps?:\/\/[^\s)]+/u);
-  return match?.[0]?.replace(/[.,;:]+$/u, "") ?? university?.academicCalendarUrl;
+  const officialSourceUrl = university?.academicCalendarUrl ?? university?.websiteUrl;
+  if (!officialSourceUrl) return undefined;
+  const candidate = canonicalizeContentUrl(match?.[0]?.replace(/[.,;:]+$/u, "") ?? officialSourceUrl);
+  return candidate && isOfficialContentUrl(candidate, officialSourceUrl) ? candidate : undefined;
 }
 
-function isSummerSchoolAnnouncement(item: AnnouncementItem): boolean {
+function isSummerSchoolAnnouncement(item: Pick<TrustedAcademicContentDto, "title" | "summary" | "link" | "sourceName">): boolean {
   const searchable = foldForMatch(`${item.title} ${item.summary ?? ""} ${item.link} ${item.sourceName}`);
   return [
     "yaz okulu",
@@ -684,7 +796,7 @@ function isSummerSchoolAnnouncement(item: AnnouncementItem): boolean {
   ].some((keyword) => searchable.includes(keyword));
 }
 
-function announcementMatchesDepartment(item: AnnouncementItem, foldedDepartmentName: string): boolean {
+function announcementMatchesDepartment(item: Pick<TrustedAcademicContentDto, "title" | "summary" | "link" | "sourceName">, foldedDepartmentName: string): boolean {
   const searchable = foldForMatch(`${item.title} ${item.summary ?? ""} ${item.link} ${item.sourceName}`);
   if (searchable.includes(foldedDepartmentName)) return true;
 
@@ -695,28 +807,34 @@ function announcementMatchesDepartment(item: AnnouncementItem, foldedDepartmentN
   return departmentTokens.every((token) => searchable.includes(token));
 }
 
-function isSelectedUniversityAnnouncementScope(item: AnnouncementItem, selectedUniversityId: string, selectedScopeIds: Set<string>): boolean {
+function isSelectedUniversityAnnouncementScope(item: Pick<TrustedAcademicContentDto, "scopeId" | "scopeType">, selectedUniversityId: string, selectedScopeIds: Set<string>): boolean {
   if (selectedScopeIds.has(item.scopeId)) return true;
   return item.scopeType !== "university" && item.scopeId.startsWith(`${selectedUniversityId}__`);
 }
 
-function dedupeAnnouncementItems(items: AnnouncementItem[]): AnnouncementItem[] {
-  const unique = new Map<string, AnnouncementItem>();
+function dedupeAnnouncementItems(items: TrustedAcademicContentDto[]): TrustedAcademicContentDto[] {
+  const unique = new Map<string, TrustedAcademicContentDto>();
   for (const item of items) {
-    const key = item.link.toLocaleLowerCase("en-US");
+    const key = academicContentLogicalIdentityKey(item);
+    if (!key) continue;
     const existing = unique.get(key);
-    if (!existing || announcementTimestamp(item) > announcementTimestamp(existing)) unique.set(key, item);
+    if (!existing || compareAcademicContentDuplicateRecency(item, existing) > 0) unique.set(key, item);
   }
   return [...unique.values()].sort((left, right) => announcementTimestamp(right) - announcementTimestamp(left));
 }
 
-function announcementTimestamp(item: AnnouncementItem): number {
-  const timestamp = item.publishedAt ? Date.parse(item.publishedAt) : item.fetchedAt ? Date.parse(item.fetchedAt) : 0;
-  return Number.isFinite(timestamp) ? timestamp : 0;
+function announcementTimestamp(item: TrustedAcademicContentDto): number {
+  return Math.max(...[item.publishedAt, item.sourceUpdatedAt, item.discoveredAt]
+    .map((value) => value ? Date.parse(value) : 0)
+    .filter(Number.isFinite), 0);
 }
 
 function isUniversityAcademicCalendarEvent(event: AcademicEventRecord): boolean {
   if (event.facultyId || event.departmentId) return false;
+  return isPrimaryAcademicCalendarEvent(event);
+}
+
+function isPrimaryAcademicCalendarEvent(event: AcademicEventRecord): boolean {
   return event.category !== "course_schedule" && event.category !== "department_exam_schedule";
 }
 

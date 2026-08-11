@@ -1,0 +1,34 @@
+Phase 9 repository hygiene — 5 August 2026
+
+Whitespace
+- Command: git diff --check
+- Result: PASS; no whitespace error. Git emitted only configured LF-to-CRLF working-copy notices.
+
+Sensitive diagnostics
+- Command: rg -n -i "(console|logger)\.(log|warn|error|debug).*?(password|accessToken|refreshToken|verificationCode|recoveryCode|deviceToken|contentBody)" apps/api/src apps/mobile-native/App.tsx apps/mobile-native/src apps/mobile/src
+- Result: one pre-existing fixed non-secret SMTP-not-configured warning mentioned the feature name "Password recovery"; review confirmed it logs no password, code, token, address, or body. Phase 9 source had zero match.
+- Evidence scan for access/refresh/device token, verification/recovery code, Authorization/Bearer value, and password="true": zero match.
+
+Credentials and hosts
+- Credential literal scan for Google API keys, private-key headers, and client_secret assignments: zero match outside lockfiles.
+- Phase 9 source/test URL scan: zero HTTP/HTTPS host, therefore no production host or unsafe preview URL.
+
+Tests
+- Forbidden .skip/.only/.todo scan across test/spec files: zero match.
+- Snapshot matcher and tracked .snap inventory: zero match.
+- Constant-truth/vacuous expectation scan: zero match; named Phase 9 test callbacks were manually reviewed for behavioral assertions.
+
+Persistence and scope
+- FirestoreRepository/FirestoreDatabase/firebase-admin-firestore/import scan in apps/api/src: zero match.
+- Phase 9 fake-social vocabulary scan (like/comment/repost/follower/following/connections): zero match. A broader App.tsx scan found only the preserved technical Google Calendar connection model, not social UI.
+- Phase 10/profile-redesign scan in Phase 9 source/tests and staged path scan: zero match.
+
+Native artifacts
+- Screenshot PNG count: 33.
+- UI hierarchy XML count: 33.
+- Missing XML mates: 0.
+- Missing PNG mates: 0.
+- Final filtered runtime pattern matches: 0.
+
+Tooling inventory
+- MOBILE_NATIVE_LINT: NOT AVAILABLE.

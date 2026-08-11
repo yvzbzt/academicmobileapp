@@ -1,3 +1,4 @@
+import type { AcademicEventTemporalKind } from "../../../../../packages/shared/src/contracts.js";
 import type { AcademicEventCategory, AcademicTerm } from "../../domain/academic-event.types.js";
 
 export type CalendarStatus = "draft" | "published" | "archived";
@@ -37,9 +38,17 @@ export interface AcademicEventRecord {
   term: AcademicTerm;
   category: AcademicEventCategory;
   title: string;
+  courseName?: string;
   description?: string;
+  location?: string;
+  /** Compatibility/sort instant. Use dateOnlyStart when temporalKind is date. */
   startDate: Date;
+  /** Compatibility/sort instant. Use dateOnlyEnd when endTemporalKind is date. */
   endDate?: Date;
+  temporalKind?: AcademicEventTemporalKind;
+  endTemporalKind?: AcademicEventTemporalKind;
+  dateOnlyStart?: string;
+  dateOnlyEnd?: string;
   timezone: "Europe/Istanbul";
   originalDateText?: string;
   originalText?: string;
@@ -52,14 +61,18 @@ export interface AcademicEventRecord {
   updatedAt: Date;
 }
 
+export type CalendarTemporalFilterBoundary =
+  | { temporalKind: "date"; dateOnly: string }
+  | { temporalKind: "timestamp"; instant: Date };
+
 export interface CalendarEventFilters {
   calendarId?: string;
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
   category?: AcademicEventCategory;
-  startDate?: Date;
-  endDate?: Date;
+  startBoundary?: CalendarTemporalFilterBoundary;
+  endBoundary?: CalendarTemporalFilterBoundary;
   limit: number;
   offset: number;
 }
@@ -72,8 +85,15 @@ export interface UpcomingEventFilters {
   limit: number;
 }
 
+export interface CalendarEventScope {
+  universityId: string;
+  facultyId?: string;
+  departmentId?: string;
+}
+
 export interface CalendarRepository {
   findPublishedCalendar(universityId: string, academicYear?: string): Promise<AcademicCalendarRecord | null>;
+  listPublishedCalendars(input: { limit: number; offset: number }): Promise<AcademicCalendarRecord[]>;
   findCalendarById(calendarId: string): Promise<AcademicCalendarRecord | null>;
   createCalendar(input: Omit<AcademicCalendarRecord, "id" | "createdAt" | "updatedAt">): Promise<AcademicCalendarRecord>;
   updateCalendar(calendarId: string, input: Partial<Omit<AcademicCalendarRecord, "id" | "createdAt" | "updatedAt">>): Promise<AcademicCalendarRecord | null>;
@@ -84,4 +104,5 @@ export interface CalendarRepository {
   listPublishedEvents(filters: CalendarEventFilters): Promise<AcademicEventRecord[]>;
   listUpcomingEvents(filters: UpcomingEventFilters): Promise<AcademicEventRecord[]>;
   findPublishedEventById(eventId: string): Promise<AcademicEventRecord | null>;
+  findPublishedEventByIdInScope(eventId: string, scope: CalendarEventScope): Promise<AcademicEventRecord | null>;
 }

@@ -1,6 +1,7 @@
 import { Type } from "class-transformer";
-import { IsDateString, IsIn, IsInt, IsOptional, Max, Min } from "class-validator";
+import { IsIn, IsInt, IsOptional, Max, Min, ValidateIf } from "class-validator";
 import { academicEventCategories, type AcademicEventCategory } from "../../domain/academic-event.types.js";
+import { IsAcademicTemporalValue } from "./calendar-temporal.js";
 
 export const calendarScopeViews = ["university"] as const;
 export type CalendarScopeView = "university";
@@ -24,12 +25,12 @@ export class SearchEventsQueryDto {
   @IsIn(academicEventCategories)
   category?: AcademicEventCategory;
 
-  @IsOptional()
-  @IsDateString()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsAcademicTemporalValue()
   startDate?: string;
 
-  @IsOptional()
-  @IsDateString()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsAcademicTemporalValue()
   endDate?: string;
 
   @IsOptional()

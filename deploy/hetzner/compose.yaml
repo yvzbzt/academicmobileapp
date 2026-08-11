@@ -68,9 +68,9 @@ services:
       NODE_ENV: production
       PORT: "3000"
       TZ: Europe/Istanbul
-      REPOSITORY_MODE: mongo
       QUEUE_MODE: memory
       RATE_LIMIT_STORE: memory
+      TRUSTED_PROXY_CIDRS: 172.30.79.0/24
       MONGODB_URI: mongodb://${MONGO_APP_USERNAME}:${MONGO_APP_PASSWORD}@anssoft-mongodb:27017/${MONGO_APP_DATABASE}?authSource=${MONGO_APP_DATABASE}
       MONGODB_SELECTION_TIMEOUT_MS: "5000"
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}

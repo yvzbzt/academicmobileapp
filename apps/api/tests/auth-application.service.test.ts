@@ -1,12 +1,15 @@
-import { BadRequestException, UnauthorizedException } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { BadRequestException, HttpException, HttpStatus, UnauthorizedException } from "@nestjs/common";
+import { describe, expect, it, vi } from "vitest";
 import { AuthApplicationService } from "../src/modules/auth/auth-application.service.js";
+import { AUTH_ERROR_CODES, type AuthErrorCode } from "../src/modules/auth/auth.constants.js";
 import { EmailVerificationSenderService, type SendVerificationEmailInput } from "../src/modules/auth/email-verification-sender.service.js";
 import type { GoogleIdentityVerifier, VerifiedGoogleIdentity } from "../src/modules/auth/firebase-google-identity.verifier.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
 import { InMemoryCatalogRepository } from "../src/modules/catalog/in-memory-catalog.repository.js";
+import { InMemoryNotificationRepository } from "../src/modules/notifications/in-memory-notification.repository.js";
+import { hashNotificationDeviceId } from "../src/modules/notifications/notifications.service.js";
 
 class FakeEmailVerificationSenderService extends EmailVerificationSenderService {
   public readonly sent: SendVerificationEmailInput[] = [];
@@ -28,18 +31,69 @@ class FakeGoogleIdentityVerifier implements GoogleIdentityVerifier {
 function createAuthService(googleIdentity?: VerifiedGoogleIdentity, catalogRepository?: InMemoryCatalogRepository) {
   const sender = new FakeEmailVerificationSenderService();
   const authRepository = new InMemoryAuthRepository();
+  const notificationRepository = new InMemoryNotificationRepository();
   const service = new AuthApplicationService(
     authRepository,
     new PasswordHasher(),
     new TokenService(),
     sender,
     googleIdentity ? new FakeGoogleIdentityVerifier(googleIdentity) : undefined,
-    catalogRepository
+    catalogRepository,
+    notificationRepository
   );
-  return { service, sender, authRepository };
+  return { service, sender, authRepository, notificationRepository };
+}
+
+function setStoredCredentialGeneration(
+  repository: InMemoryAuthRepository,
+  userId: string,
+  credentialGeneration: number
+): void {
+  type StoredUser = Record<string, unknown> & { credentialGeneration: number };
+  const users = (repository as unknown as { users: Map<string, StoredUser> }).users;
+  const user = users.get(userId);
+  if (!user) throw new Error("Expected a stored test user.");
+  users.set(userId, { ...user, credentialGeneration });
+}
+
+async function captureHttpException(action: () => Promise<unknown>): Promise<HttpException> {
+  try {
+    await action();
+  } catch (error) {
+    expect(error).toBeInstanceOf(HttpException);
+    return error as HttpException;
+  }
+  throw new Error("Expected an HTTP exception.");
+}
+
+function expectAuthError(error: HttpException, errorCode: AuthErrorCode, message: string): void {
+  expect(error.getStatus()).toBe(HttpStatus.UNAUTHORIZED);
+  expect(error.getResponse()).toEqual(
+    expect.objectContaining({
+      statusCode: HttpStatus.UNAUTHORIZED,
+      errorCode,
+      message
+    })
+  );
 }
 
 describe("AuthApplicationService", () => {
+  it("rejects registration passwords that do not satisfy the advertised composition rule", async () => {
+    const { service: authService } = createAuthService();
+
+    const error = await captureHttpException(() => authService.register({
+      email: "weak-password@example.edu.tr",
+      password: "abcdefgh",
+      passwordConfirmation: "abcdefgh"
+    }));
+
+    expect(error.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    expect(error.getResponse()).toEqual(expect.objectContaining({
+      errorCode: AUTH_ERROR_CODES.PASSWORD_INVALID,
+      message: expect.stringContaining("at least 3")
+    }));
+  });
+
   it("registers a student and returns a verification-required response", async () => {
     const { service: authService, sender } = createAuthService();
 
@@ -72,13 +126,13 @@ describe("AuthApplicationService", () => {
   it("registers non-university email domains", async () => {
     const { service: authService } = createAuthService();
     const registerResult = await authService.register({
-      email: "demo@example.com",
+      email: "INFO@example.com",
       password: "StrongPass123!",
       passwordConfirmation: "StrongPass123!"
     });
 
     expect(registerResult.status).toBe("verification_required");
-    expect(registerResult.email).toBe("demo@example.com");
+    expect(registerResult.email).toBe("info@example.com");
   });
 
   it("stores a valid university, faculty and department selected during registration", async () => {
@@ -131,13 +185,164 @@ describe("AuthApplicationService", () => {
 
     await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
 
-    await expect(
+    const error = await captureHttpException(() =>
       authService.login({
         email: "student@campus.edu.tr",
         password: "wrong-password",
         deviceId: "device-1"
       })
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    );
+    const missingUserError = await captureHttpException(() =>
+      authService.login({
+        email: "missing@campus.edu.tr",
+        password: "wrong-password",
+        deviceId: "device-1"
+      })
+    );
+
+    expectAuthError(error, AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Invalid credentials.");
+    expectAuthError(missingUserError, AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Invalid credentials.");
+  });
+
+  it("returns a distinct error for an unverified account", async () => {
+    const { service: authService } = createAuthService();
+    await authService.register({
+      email: "unverified@campus.edu.tr",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+
+    const error = await captureHttpException(() =>
+      authService.login({
+        email: "unverified@campus.edu.tr",
+        password: "StrongPass123!",
+        deviceId: "device-1"
+      })
+    );
+
+    expectAuthError(error, AUTH_ERROR_CODES.EMAIL_NOT_VERIFIED, "Email verification is required before login.");
+  });
+
+  it("returns distinct invalid and expired verification-code errors", async () => {
+    const { service: authService, authRepository } = createAuthService();
+    const invalidError = await captureHttpException(() =>
+      authService.verifyEmail({ email: "missing@example.com", code: "not-a-code", deviceId: "device-1" })
+    );
+    const expiredUser = await authRepository.createUser({
+      fullName: "Expired Code Student",
+      email: "expired-code@example.com",
+      passwordHash: "unused",
+      role: "student",
+      status: "inactive"
+    });
+    const expiredCode = "7395";
+    await authRepository.createEmailVerificationToken({
+      userId: expiredUser.id,
+      tokenHash: new TokenService().hashOpaqueToken(expiredCode),
+      expiresAt: new Date(Date.now() - 1000),
+      resendAvailableAt: new Date(Date.now() - 1000)
+    });
+    const expiredError = await captureHttpException(() =>
+      authService.verifyEmail({ email: expiredUser.email, code: expiredCode, deviceId: "device-1" })
+    );
+
+    expectAuthError(invalidError, AUTH_ERROR_CODES.VERIFICATION_CODE_INVALID, "Invalid verification code.");
+    expectAuthError(expiredError, AUTH_ERROR_CODES.VERIFICATION_CODE_EXPIRED, "Verification code has expired.");
+  });
+
+  it("returns a disabled-account error without exposing account internals", async () => {
+    const { service: authService, sender, authRepository } = createAuthService();
+    const registerResult = await authService.register({
+      email: "disabled@campus.edu.tr",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+    await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
+    const user = await authRepository.findUserByEmail(registerResult.email);
+    await authRepository.updateUserByAdmin(user!.id, { status: "locked" });
+
+    const error = await captureHttpException(() =>
+      authService.login({ email: registerResult.email, password: "StrongPass123!", deviceId: "device-1" })
+    );
+
+    expectAuthError(error, AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
+  });
+
+  it("returns rate-limit cooldown details for verification resend", async () => {
+    const { service: authService } = createAuthService();
+    const registerResult = await authService.register({
+      email: "resend-cooldown@campus.edu.tr",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+
+    const error = await captureHttpException(() => authService.resendVerificationCode(registerResult.email));
+    const response = error.getResponse();
+
+    expect(error.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(response).toEqual(
+      expect.objectContaining({
+        errorCode: AUTH_ERROR_CODES.RATE_LIMITED,
+        resendAvailableAt: registerResult.resendAvailableAt,
+        details: { resendAvailableAt: registerResult.resendAvailableAt }
+      })
+    );
+  });
+
+  it("returns a controlled non-session error for an unknown verification resend request", async () => {
+    const { service: authService } = createAuthService();
+
+    const error = await captureHttpException(() => authService.resendVerificationCode("missing@example.com"));
+
+    expectAuthError(
+      error,
+      AUTH_ERROR_CODES.VERIFICATION_REQUEST_INVALID,
+      "Verification request is not valid."
+    );
+  });
+
+  it("issues a fresh verification code after the resend cooldown", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-29T08:00:00.000Z"));
+    try {
+      const { service: authService, sender } = createAuthService();
+      const registerResult = await authService.register({
+        email: "resend-success@campus.edu.tr",
+        password: "StrongPass123!",
+        passwordConfirmation: "StrongPass123!"
+      });
+
+      vi.advanceTimersByTime(61_000);
+      const resendResult = await authService.resendVerificationCode(registerResult.email);
+
+      expect(resendResult.status).toBe("verification_required");
+      expect(resendResult.email).toBe(registerResult.email);
+      expect(Date.parse(resendResult.verificationExpiresAt)).toBeGreaterThan(Date.now());
+      expect(Date.parse(resendResult.resendAvailableAt)).toBeGreaterThan(Date.now());
+      expect(sender.sent).toHaveLength(2);
+      expect(sender.sent[1]?.email).toBe(registerResult.email);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns an expired-session error for an expired refresh token", async () => {
+    const { service: authService, authRepository } = createAuthService();
+    const rawRefreshToken = "expired-refresh-token";
+    await authRepository.createRefreshToken({
+      userId: "unused-user-id",
+      credentialGeneration: 0,
+      tokenHash: new TokenService().hashRefreshToken(rawRefreshToken),
+      familyId: "expired-family",
+      deviceId: "device-1",
+      expiresAt: new Date(Date.now() - 1000)
+    });
+
+    const error = await captureHttpException(() =>
+      authService.refresh({ refreshToken: rawRefreshToken, deviceId: "device-1" })
+    );
+
+    expectAuthError(error, AUTH_ERROR_CODES.SESSION_EXPIRED, "Session has expired.");
   });
 
   it("creates an active student session from a verified Google account", async () => {
@@ -244,8 +449,46 @@ describe("AuthApplicationService", () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it("revokes refresh token on logout", async () => {
-    const { service: authService, sender } = createAuthService();
+  it("stamps refresh records and rejects a generation mismatch without rotating it", async () => {
+    const { service: authService, sender, authRepository } = createAuthService();
+    const registerResult = await authService.register({
+      email: "generation-session@campus.edu.tr",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+    await authService.verifyEmail({
+      email: registerResult.email,
+      code: sender.sent[0]!.code,
+      deviceId: "generation-device"
+    });
+    const user = await authRepository.findUserByEmail(registerResult.email);
+    expect(user).not.toBeNull();
+    setStoredCredentialGeneration(authRepository, user!.id, 7);
+
+    const firstSession = await authService.login({
+      email: registerResult.email,
+      password: "StrongPass123!",
+      deviceId: "generation-device"
+    });
+    const tokenService = new TokenService();
+    await expect(authRepository.findRefreshTokenByHash(
+      tokenService.hashRefreshToken(firstSession.refreshToken)
+    )).resolves.toEqual(expect.objectContaining({ credentialGeneration: 7 }));
+
+    setStoredCredentialGeneration(authRepository, user!.id, 9);
+    await expect(authService.refresh({
+      refreshToken: firstSession.refreshToken,
+      deviceId: "generation-device"
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+    const unrotated = await authRepository.findRefreshTokenByHash(
+      tokenService.hashRefreshToken(firstSession.refreshToken)
+    );
+    expect(unrotated).toEqual(expect.objectContaining({ credentialGeneration: 7 }));
+    expect(unrotated).not.toHaveProperty("revokedAt");
+  });
+
+  it("revokes the refresh token and detaches its hashed device installation on logout", async () => {
+    const { service: authService, sender, notificationRepository } = createAuthService();
 
     const registerResult = await authService.register({
       email: "logout@campus.edu.tr",
@@ -255,8 +498,16 @@ describe("AuthApplicationService", () => {
 
     await authService.verifyEmail({ email: registerResult.email, code: sender.sent[0]!.code, deviceId: "device-1" });
     const session = await authService.login({ email: "logout@campus.edu.tr", password: "StrongPass123!", deviceId: "device-1" });
+    await notificationRepository.upsertDeviceToken({
+      userId: session.user.id,
+      platform: "android",
+      token: "logout-device-token",
+      installationHash: hashNotificationDeviceId("device-1")
+    });
 
     await authService.logout(session.refreshToken);
+
+    await expect(notificationRepository.listActiveDeviceTokens(10, 0)).resolves.toEqual([]);
 
     await expect(
       authService.refresh({

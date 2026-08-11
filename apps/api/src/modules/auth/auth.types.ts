@@ -2,6 +2,17 @@ import type { UserRole } from "../../../../../packages/shared/src/contracts.js";
 
 export interface AuthUserRecord {
   id: string;
+  credentialGeneration: number;
+  passwordRecoveryAttempt?: {
+    tokenHash: string;
+    credentialGeneration: number;
+    expiresAt: Date;
+  };
+  passwordRecoveryCompletion?: {
+    operationKey: string;
+    completedAt: Date;
+    credentialGeneration: number;
+  };
   fullName: string;
   email: string;
   emailVerifiedAt?: Date;
@@ -24,6 +35,7 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   role: UserRole;
+  credentialGeneration?: number;
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
@@ -32,6 +44,7 @@ export interface AuthenticatedUser {
 export interface RefreshTokenRecord {
   id: string;
   userId: string;
+  credentialGeneration: number;
   tokenHash: string;
   familyId: string;
   deviceId: string;
@@ -44,7 +57,7 @@ export interface RefreshTokenRecord {
 }
 
 export interface AuthSessionResult {
-  user: Pick<AuthUserRecord, "id" | "fullName" | "email" | "role">;
+  user: Pick<AuthUserRecord, "id" | "fullName" | "email" | "role" | "authProvider">;
   accessToken: string;
   refreshToken: string;
   expiresInSeconds: number;
@@ -58,6 +71,76 @@ export interface EmailVerificationTokenRecord {
   resendAvailableAt: Date;
   consumedAt?: Date;
   createdAt: Date;
+}
+
+export interface PasswordRecoveryTokenRecord {
+  id: string;
+  userId: string;
+  credentialGeneration: number;
+  tokenHash: string;
+  expiresAt: Date;
+  resendAvailableAt: Date;
+  consumedAt?: Date;
+  invalidatedAt?: Date;
+  createdAt: Date;
+}
+
+export type RecentAuthenticationPurpose = "delete_personal_data" | "delete_account";
+
+export interface RecentAuthenticationProofRecord {
+  ownerId: string;
+  credentialGeneration: number;
+  purpose: RecentAuthenticationPurpose;
+  jtiDigest: string;
+  createdAt: Date;
+  expiresAt: Date;
+  consumedAt?: Date;
+}
+
+export type CreateRecentAuthenticationProofInput = Omit<RecentAuthenticationProofRecord, "consumedAt">;
+
+export interface ConsumeRecentAuthenticationProofInput {
+  ownerId: string;
+  credentialGeneration: number;
+  purpose: RecentAuthenticationPurpose;
+  jtiDigest: string;
+  consumedAt: Date;
+}
+
+export interface PasswordRecoveryRequestResult {
+  status: "recovery_requested";
+  message: string;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+  previewRecoveryCode?: string;
+}
+
+export interface PasswordRecoveryConfirmInput {
+  email: string;
+  code: string;
+  newPassword: string;
+  passwordConfirmation: string;
+}
+
+export type RecentAuthenticationInput =
+  | { method: "password"; password: string; purpose: RecentAuthenticationPurpose }
+  | { method: "google"; idToken: string; purpose: RecentAuthenticationPurpose };
+
+export interface RecentAuthenticationResult {
+  proof: string;
+  expiresInSeconds: number;
+}
+
+export type PasswordRecoveryCompletionResult = "completed" | "already_completed" | "conflict";
+
+export interface CompletePasswordRecoveryInput {
+  userId: string;
+  expectedCredentialGeneration: number;
+  tokenHash: string;
+  operationKey: string;
+  passwordHash: string;
+  completedAt: Date;
+  authProvider: NonNullable<AuthUserRecord["authProvider"]>;
 }
 
 export interface RegisterResult {
@@ -115,8 +198,14 @@ export interface VerifyEmailByLinkInput {
   token: string;
 }
 
+export type CreateAuthUserInput = Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt" | "credentialGeneration">;
+
+export type CreateRefreshTokenInput = Omit<RefreshTokenRecord, "id" | "createdAt">;
+
+export type CreatePasswordRecoveryTokenInput = Omit<PasswordRecoveryTokenRecord, "id" | "createdAt">;
+
 export interface AuthRepository {
-  createUser(input: Omit<AuthUserRecord, "id" | "createdAt" | "updatedAt">): Promise<AuthUserRecord>;
+  createUser(input: CreateAuthUserInput): Promise<AuthUserRecord>;
   listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]>;
   findUserByEmail(email: string): Promise<AuthUserRecord | null>;
   findUserById(id: string): Promise<AuthUserRecord | null>;
@@ -130,7 +219,19 @@ export interface AuthRepository {
     input: Partial<Pick<AuthUserRecord, "fullName" | "role" | "status" | "universityId" | "facultyId" | "departmentId" | "classLevel">>
   ): Promise<AuthUserRecord | null>;
   deleteUserByAdmin(id: string): Promise<void>;
+  clearUserAppData(id: string): Promise<AuthUserRecord | null>;
+  deleteUserAccount(
+    id: string,
+    input: {
+      deletedAt: Date;
+      anonymizedEmail: string;
+      anonymizedFullName: string;
+      anonymizedPasswordHash: string;
+    }
+  ): Promise<void>;
   updateUserProfile(id: string, input: { fullName?: string; classLevel?: number }): Promise<AuthUserRecord | null>;
+  updateUserPassword(id: string, passwordHash: string): Promise<AuthUserRecord | null>;
+  completePasswordRecovery(input: CompletePasswordRecoveryInput): Promise<PasswordRecoveryCompletionResult>;
   updateUserAcademicSelection(
     id: string,
     input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }
@@ -139,9 +240,19 @@ export interface AuthRepository {
   findEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationTokenRecord | null>;
   findLatestEmailVerificationTokenByUserId(userId: string): Promise<EmailVerificationTokenRecord | null>;
   consumeEmailVerificationToken(id: string, consumedAt: Date): Promise<void>;
-  createRefreshToken(input: Omit<RefreshTokenRecord, "id" | "createdAt">): Promise<RefreshTokenRecord>;
+  createPasswordRecoveryToken(input: CreatePasswordRecoveryTokenInput): Promise<PasswordRecoveryTokenRecord>;
+  findPasswordRecoveryTokenByHash(tokenHash: string): Promise<PasswordRecoveryTokenRecord | null>;
+  findLatestPasswordRecoveryTokenByUserId(userId: string): Promise<PasswordRecoveryTokenRecord | null>;
+  invalidatePasswordRecoveryTokensByUserId(userId: string, invalidatedAt: Date): Promise<void>;
+  consumePasswordRecoveryToken(id: string, consumedAt: Date): Promise<boolean>;
+  deletePasswordRecoveryTokensByUserId(userId: string): Promise<void>;
+  createRecentAuthenticationProof(input: CreateRecentAuthenticationProofInput): Promise<void>;
+  consumeRecentAuthenticationProof(input: ConsumeRecentAuthenticationProofInput): Promise<boolean>;
+  createRefreshToken(input: CreateRefreshTokenInput): Promise<RefreshTokenRecord>;
   findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null>;
   revokeRefreshToken(id: string, revokedAt: Date): Promise<void>;
   markRefreshTokenReused(id: string, reusedAt: Date): Promise<void>;
   revokeRefreshTokenFamily(familyId: string, revokedAt: Date): Promise<void>;
+  revokeRefreshTokensByUserId(userId: string, revokedAt: Date): Promise<void>;
+  deleteEmailVerificationTokensByUserId(userId: string): Promise<void>;
 }

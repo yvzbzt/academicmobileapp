@@ -1,0 +1,4 @@
+OBSERVATION=Two Cannot connect to Metro warnings were emitted only after intentionally stopping scoped preview servers between captures.
+CLASSIFICATION=Expected debug-client teardown noise; preserved transparently and excluded from the live-server runtime acceptance log.
+LIVE_SERVER_RUNTIME_SCAN=PASS
+TEARDOWN_FATAL_EXCEPTION_SCAN=PASS
