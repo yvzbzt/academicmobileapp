@@ -233,6 +233,13 @@ describe("Phase 9 Calendar experience", () => {
     }));
   });
 
+  it("uses a compact add action in month view so calendar cells remain readable", async () => {
+    await renderCalendar(props({ initialView: "month" }));
+
+    expect(screen.getByRole("button", { name: "Kişisel sınav ekle" })).toHaveStyle({ width: 56 });
+    expect(screen.queryByText("Kişisel sınav ekle")).not.toBeOnTheScreen();
+  });
+
   it("creates a personal exam only after native date and time selection", async () => {
     await renderCalendar();
     fireEvent.press(screen.getByRole("button", { name: "Kişisel sınav ekle" }));

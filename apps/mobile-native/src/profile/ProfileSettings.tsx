@@ -170,7 +170,7 @@ export function ProfileOverviewScreen({
               <Text style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>{normalizedName}</Text>
               <Text
                 ellipsizeMode="middle"
-                numberOfLines={layout.largeText ? 3 : 2}
+                numberOfLines={layout.largeText ? 3 : 1}
                 style={[theme.typography.body, { color: theme.colors.text.secondary }]}
               >
                 {normalizedEmail}

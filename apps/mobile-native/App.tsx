@@ -2492,6 +2492,7 @@ function MainApplication() {
 
     GoogleSignin.configure({
       scopes: ["email", "profile"],
+      offlineAccess: false,
       ...(GOOGLE_WEB_CLIENT_ID ? { webClientId: GOOGLE_WEB_CLIENT_ID } : {}),
       ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {})
     });
@@ -3447,7 +3448,9 @@ function MainApplication() {
       ? [
           loadMyCalendar(token, ownerSnapshot),
           loadUpcoming(token, ownerSnapshot),
-          loadAnnouncements(token, profileUniversityId, ownerSnapshot)
+          loadAnnouncements(token, profileUniversityId, ownerSnapshot),
+          loadYokAnnouncements(true, contentFeedLimit),
+          loadSummerSchool(token, profileUniversityId, ownerSnapshot, false)
         ]
       : [loadAnnouncements(token, "", ownerSnapshot)];
 
@@ -3619,7 +3622,6 @@ function MainApplication() {
       setGoogleBusy(true);
       const nativeAuth = await enqueueGoogleSdkOperation(async () => {
         await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-        await clearGoogleAccountSelection();
         const result = await GoogleSignin.signIn();
         if (isCancelledResponse(result)) return { cancelled: true as const, idToken: null };
 

@@ -17,6 +17,7 @@ import {
   PasswordRecoveryConfirmScreen,
   PasswordRecoveryRequestScreen,
   RegistrationScreen,
+  resolveLoginViewportLayout,
   VerificationScreen,
   type AcademicOnboardingScreenProps,
   type LoginScreenProps,
@@ -275,9 +276,9 @@ describe("Phase 6 rendered authentication screens", () => {
     it("fits the hero to the safe viewport while preserving title scale and the Google mark", async () => {
       await renderAuth(<LoginScreen {...loginProps()} />);
 
-      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ minHeight: 828 });
-      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 253.2 });
-      expect(screen.getByTestId("login-form-sheet")).toHaveStyle({ flexGrow: 1 });
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 844 });
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 844 * 0.28 });
+      expect(screen.getByTestId("login-form-sheet")).toHaveStyle({ flex: 1 });
       expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 32, lineHeight: 38 });
       expect(screen.getByTestId("google-color-mark", { includeHiddenElements: true })).toBeOnTheScreen();
       expect(screen.queryByText("E-postamı doğrula")).toBeNull();
@@ -286,9 +287,26 @@ describe("Phase 6 rendered authentication screens", () => {
     it("uses a bounded hero on a short 320 by 568 phone viewport", async () => {
       await renderAuth(<LoginScreen {...loginProps()} />, {}, { width: 320, height: 568 });
 
-      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ minHeight: 552 });
-      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 176 });
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 568 });
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 124.96 });
+      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 26, lineHeight: 31 });
       expect(screen.getByTestId("login-form-sheet")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Şifremi unuttum" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
+    });
+
+    it.each([
+      [568, 124.96, true],
+      [640, 160, true],
+      [932, 260, false],
+      [1280, 260, false],
+    ])("resolves a bounded one-page layout for a %ipx safe height", (height, heroHeight, compact) => {
+      const layout = resolveLoginViewportLayout(height);
+
+      expect(layout.heroHeight).toBe(heroHeight);
+      expect(layout.compact).toBe(compact);
+      expect(layout.heroHeight - layout.overlap).toBeLessThan(height);
+      expect(layout.sheetPadding).toBeGreaterThanOrEqual(8);
     });
 
     it("focuses the first invalid field and moves IME focus to password", async () => {

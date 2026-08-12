@@ -27,6 +27,7 @@ export interface ButtonProps
   disabled?: boolean;
   fullWidth?: boolean;
   compact?: boolean;
+  maxFontSizeMultiplier?: number;
   leadingIcon?: ReactNode;
   trailingIcon?: ReactNode;
   style?: StyleProp<ViewStyle>;
@@ -108,6 +109,7 @@ export const Button = forwardRef<NativeView, ButtonProps>(function Button({
   disabled = false,
   fullWidth = false,
   compact = false,
+  maxFontSizeMultiplier,
   leadingIcon,
   trailingIcon,
   style,
@@ -189,6 +191,7 @@ export const Button = forwardRef<NativeView, ButtonProps>(function Button({
         ) : null}
         <Text
           allowFontScaling
+          maxFontSizeMultiplier={maxFontSizeMultiplier}
           style={[
             theme.typography.bodyStrong,
             styles.label,

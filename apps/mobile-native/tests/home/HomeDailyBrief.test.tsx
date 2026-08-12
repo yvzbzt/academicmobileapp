@@ -128,6 +128,7 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getByRole("header", { name: "Ana Sayfa" })).toBeOnTheScreen();
     expect(screen.getByText("Bugünkü Odak")).toBeOnTheScreen();
     expect(screen.getByTestId("home-focus-card")).toBeOnTheScreen();
+    expect(screen.getAllByText(/Ağustos 2026/u).some((node) => node.props.numberOfLines === 1)).toBe(true);
     expect(screen.getByRole("header", { name: "Önemli duyuru" })).toHaveTextContent("Öne çıkan duyurular");
 
     fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));

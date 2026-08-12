@@ -7,6 +7,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   Text,
 } from "react-native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -467,6 +468,16 @@ describe("AppNavigator", () => {
         text: darkTheme.colors.text.primary,
       },
     });
+  });
+
+  it("renders Login as a fixed viewport without a scrolling container", async () => {
+    await renderNavigator({
+      activeRoute: "Login",
+      rootSurface: "auth",
+    });
+
+    await expectVisibleRoute("Login");
+    expect(screen.UNSAFE_queryAllByType(ScrollView)).toHaveLength(0);
   });
 
   it("exposes Introduction and replaces it with the auth root without back history", async () => {

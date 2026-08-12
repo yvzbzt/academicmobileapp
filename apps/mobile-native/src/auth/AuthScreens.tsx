@@ -69,6 +69,64 @@ interface AuthScaffoldProps {
   children: ReactNode;
 }
 
+export interface LoginViewportLayout {
+  compact: boolean;
+  crestSize: number;
+  heroHeight: number;
+  overlap: number;
+  sheetGap: number;
+  sheetPadding: number;
+  sheetTopPadding: number;
+  titleFontSize: number;
+  titleLineHeight: number;
+}
+
+export function resolveLoginViewportLayout(safeViewportHeight: number): LoginViewportLayout {
+  const height = Number.isFinite(safeViewportHeight) ? Math.max(0, safeViewportHeight) : 0;
+  const short = height < 620;
+  const compact = height < 760;
+
+  if (short) {
+    return {
+      compact: true,
+      crestSize: 44,
+      heroHeight: Math.max(96, Math.min(138, height * 0.22)),
+      overlap: 20,
+      sheetGap: 4,
+      sheetPadding: 8,
+      sheetTopPadding: 26,
+      titleFontSize: 26,
+      titleLineHeight: 31,
+    };
+  }
+
+  if (compact) {
+    return {
+      compact: true,
+      crestSize: 50,
+      heroHeight: Math.min(180, height * 0.25),
+      overlap: 24,
+      sheetGap: 8,
+      sheetPadding: 12,
+      sheetTopPadding: 30,
+      titleFontSize: 28,
+      titleLineHeight: 34,
+    };
+  }
+
+  return {
+    compact: false,
+    crestSize: 58,
+    heroHeight: Math.min(260, height * 0.28),
+    overlap: 32,
+    sheetGap: 12,
+    sheetPadding: 20,
+    sheetTopPadding: 34,
+    titleFontSize: 32,
+    titleLineHeight: 38,
+  };
+}
+
 function AuthScaffold({
   title,
   description,
@@ -79,18 +137,13 @@ function AuthScaffold({
   children,
 }: AuthScaffoldProps) {
   const theme = useTheme();
-  const adaptation = usePlatformAdaptation();
   const safeAreaFrame = useSafeAreaFrame();
   const safeAreaInsets = useSafeAreaInsets();
   const safeViewportHeight = Math.max(
     0,
     safeAreaFrame.height - safeAreaInsets.top - safeAreaInsets.bottom,
   );
-  const compactViewport = safeViewportHeight < 720;
-  const heroHeight = Math.min(
-    310,
-    Math.max(176, safeViewportHeight * (compactViewport ? 0.27 : 0.3)),
-  );
+  const loginLayout = resolveLoginViewportLayout(safeViewportHeight);
 
   if (hero) {
     return (
@@ -99,9 +152,7 @@ function AuthScaffold({
           styles.screenStack,
           styles.heroScreenStack,
           {
-            marginHorizontal: -adaptation.screenGutter,
-            marginTop: -theme.spacing.md,
-            minHeight: Math.max(0, safeViewportHeight - theme.spacing.md),
+            height: safeViewportHeight,
           },
         ]}
         testID="login-hero-stack"
@@ -116,7 +167,7 @@ function AuthScaffold({
               backgroundColor: theme.colors.background.subtle,
               borderColor: theme.colors.border.subtle,
               borderRadius: theme.radii.prominent,
-              height: heroHeight,
+              height: loginLayout.heroHeight,
             },
           ]}
         >
@@ -135,9 +186,11 @@ function AuthScaffold({
               backgroundColor: theme.colors.background.surface,
               borderColor: theme.colors.border.subtle,
               borderRadius: theme.radii.prominent,
-              flexGrow: 1,
-              gap: compactViewport ? theme.spacing.sm : theme.spacing.md,
-              padding: compactViewport ? theme.spacing.md : theme.spacing.lg,
+              flex: 1,
+              gap: loginLayout.sheetGap,
+              marginTop: -loginLayout.overlap,
+              padding: loginLayout.sheetPadding,
+              paddingTop: loginLayout.sheetTopPadding,
             },
           ]}
           testID="login-form-sheet"
@@ -152,12 +205,19 @@ function AuthScaffold({
                 backgroundColor: theme.colors.action.primary,
                 borderColor: theme.colors.background.surface,
                 borderRadius: theme.radii.card,
+                height: loginLayout.crestSize,
+                top: -(loginLayout.crestSize / 2),
+                width: loginLayout.crestSize,
               },
             ]}
           >
-            <Ionicons color={theme.colors.action.onPrimary} name="calendar-outline" size={29} />
+            <Ionicons
+              color={theme.colors.action.onPrimary}
+              name="calendar-outline"
+              size={loginLayout.compact ? 24 : 29}
+            />
           </View>
-          <View style={[styles.heroIdentity, { gap: theme.spacing.xs }]}>
+          <View style={[styles.heroIdentity, { gap: loginLayout.compact ? theme.spacing.xxs : theme.spacing.xs }]}>
             {eyebrow ? (
               <Text style={[theme.typography.label, { color: theme.colors.text.link }]}>
                 {eyebrow}
@@ -165,14 +225,33 @@ function AuthScaffold({
             ) : null}
             <Text
               accessibilityRole="header"
+              maxFontSizeMultiplier={1.3}
               testID="auth-hero-title"
-              style={[theme.typography.screenTitle, styles.heroTitle, { color: theme.colors.text.primary }]}
+              style={[
+                theme.typography.screenTitle,
+                styles.heroTitle,
+                {
+                  color: theme.colors.text.primary,
+                  fontSize: loginLayout.titleFontSize,
+                  lineHeight: loginLayout.titleLineHeight,
+                },
+              ]}
             >
               {title}
             </Text>
-            <Text style={[theme.typography.body, styles.heroDescription, { color: theme.colors.text.secondary }]}>
-              {description}
-            </Text>
+            {!feedback ? (
+              <Text
+                maxFontSizeMultiplier={1.2}
+                style={[
+                  theme.typography.body,
+                  styles.heroDescription,
+                  loginLayout.compact && styles.heroDescriptionCompact,
+                  { color: theme.colors.text.secondary },
+                ]}
+              >
+                {description}
+              </Text>
+            ) : null}
           </View>
 
           {feedback ? (
@@ -300,6 +379,7 @@ export function LoginScreen(props: LoginScreenProps) {
         keyboardType="email-address"
         label="E-posta adresi"
         labelVisuallyHidden
+        maxFontSizeMultiplier={1.2}
         onChangeText={props.onEmailChange}
         onSubmitEditing={() => passwordRef.current?.focus()}
         placeholder="E-posta adresiniz"
@@ -316,6 +396,7 @@ export function LoginScreen(props: LoginScreenProps) {
         ref={passwordRef}
         label="Şifre"
         labelVisuallyHidden
+        maxFontSizeMultiplier={1.2}
         onChangeText={props.onPasswordChange}
         onSubmitEditing={submit}
         placeholder="Şifreniz"
@@ -329,6 +410,7 @@ export function LoginScreen(props: LoginScreenProps) {
         label="Giriş yap"
         leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="arrow-forward-circle" size={22} />}
         loading={props.busy}
+        maxFontSizeMultiplier={1.2}
         onPress={submit}
         style={styles.loginPillButton}
       />
@@ -339,6 +421,7 @@ export function LoginScreen(props: LoginScreenProps) {
           label="Google ile devam et"
           leadingIcon={<GoogleColorMark />}
           loading={props.googleBusy}
+          maxFontSizeMultiplier={1.2}
           onPress={props.onGoogleSubmit}
           style={[
             styles.loginPillButton,
@@ -357,65 +440,20 @@ export function LoginScreen(props: LoginScreenProps) {
           compact
           disabled={interactionBusy}
           label="Şifremi unuttum"
+          maxFontSizeMultiplier={1.2}
           onPress={props.onForgotPassword}
           variant="ghost"
         />
-        <View style={[styles.accountSwitch, { gap: theme.spacing.xxs }]}>
-          <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Hesabın yok mu?</Text>
-          <Button compact disabled={interactionBusy} label="Kayıt ol" onPress={props.onRegister} variant="ghost" />
-        </View>
-      </View>
-      <View
-        accessible
-        accessibilityLabel="Güvenilir akademik içerik. Verileriniz güvende. Resmi kaynaklardan güncellenir."
-        style={[
-          styles.loginTrustStrip,
-          {
-            backgroundColor: theme.colors.background.subtle,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.radii.card,
-          },
-        ]}
-      >
-        <TrustItem icon="shield-checkmark-outline" label={"Güvenilir\nakademik içerik"} tone="success" />
-        <TrustItem icon="lock-closed" label={"Verileriniz\ngüvende"} tone="primary" />
-        <TrustItem icon="ribbon-outline" label={"Resmi kaynaklardan\ngüncellenir"} tone="error" />
-      </View>
-      <View style={[styles.loginFooter, { gap: theme.spacing.xs }]}>
-        <Ionicons color={referencePalette.heart} name="heart" size={19} />
-        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Öğrenciler için tasarlandı, başarıya giden yolda seninle.</Text>
+        <Button
+          compact
+          disabled={interactionBusy}
+          label="Kayıt ol"
+          maxFontSizeMultiplier={1.2}
+          onPress={props.onRegister}
+          variant="ghost"
+        />
       </View>
     </AuthScaffold>
-  );
-}
-
-function TrustItem({
-  icon,
-  label,
-  tone,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  tone: "primary" | "success" | "error";
-}) {
-  const theme = useTheme();
-  const color = tone === "success"
-    ? theme.colors.status.success
-    : tone === "error"
-      ? theme.colors.status.error
-      : theme.colors.action.primary;
-  const backgroundColor = tone === "success"
-    ? theme.colors.status.successContainer
-    : tone === "error"
-      ? theme.colors.status.errorContainer
-      : theme.colors.action.secondary;
-  return (
-    <View style={[styles.trustItem, { gap: theme.spacing.xxs }]}>
-      <View style={[styles.trustIcon, { backgroundColor, borderRadius: theme.radii.pill }]}>
-        <Ionicons color={color} name={icon} size={20} />
-      </View>
-      <Text style={[theme.typography.meta, styles.trustLabel, { color: theme.colors.text.secondary }]}>{label}</Text>
-    </View>
   );
 }
 
@@ -1267,6 +1305,7 @@ const styles = StyleSheet.create({
   },
   heroScreenStack: {
     alignSelf: "stretch",
+    minHeight: 0,
     width: "auto",
   },
   heroFrame: {
@@ -1282,30 +1321,28 @@ const styles = StyleSheet.create({
   heroSheet: {
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    marginTop: -36,
+    minHeight: 0,
     overflow: "visible",
-    paddingTop: 34,
   },
   heroSheetCrest: {
     alignItems: "center",
     alignSelf: "center",
     borderWidth: 5,
-    height: 58,
     justifyContent: "center",
     position: "absolute",
-    top: -29,
-    width: 58,
   },
   heroTitle: {
-    fontSize: 32,
     fontWeight: "800",
     letterSpacing: 0,
-    lineHeight: 38,
     textAlign: "center",
   },
   heroDescription: {
     maxWidth: 390,
     textAlign: "center",
+  },
+  heroDescriptionCompact: {
+    fontSize: 14,
+    lineHeight: 19,
   },
   loginPillButton: {
     borderRadius: 999,
@@ -1346,37 +1383,7 @@ const styles = StyleSheet.create({
   loginLinks: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
     justifyContent: "space-between",
-  },
-  loginTrustStrip: {
-    alignItems: "stretch",
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    overflow: "hidden",
-    paddingVertical: 12,
-  },
-  trustItem: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "flex-start",
-    paddingHorizontal: 4,
-  },
-  trustIcon: {
-    alignItems: "center",
-    height: 38,
-    justifyContent: "center",
-    width: 38,
-  },
-  trustLabel: {
-    textAlign: "center",
-  },
-  loginFooter: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "center",
-    marginTop: "auto",
-    paddingTop: 6,
   },
   identityMark: {
     alignItems: "center",

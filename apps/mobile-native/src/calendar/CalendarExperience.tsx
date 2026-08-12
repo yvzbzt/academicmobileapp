@@ -154,6 +154,7 @@ export function CalendarExperience({
     networkState.isConnected === false || networkState.isInternetReachable === false
   );
   const gutter = width < 375 ? 16 : 20;
+  const compactCreateButton = view === "month";
   const today = todayDateOnly(now);
 
   const allItems = useMemo(() => buildCalendarItems({
@@ -445,6 +446,7 @@ export function CalendarExperience({
             right: gutter,
             shadowColor: theme.colors.action.primary,
           },
+          compactCreateButton && styles.floatingCreateButtonCompact,
           pressed && adaptation.pressFeedback !== "ripple" ? styles.floatingCreateButtonPressed : null,
         ]}
       >
@@ -453,10 +455,12 @@ export function CalendarExperience({
           name="add"
           size={25}
         />
-        <Text maxFontSizeMultiplier={1.35} style={[
-          theme.typography.bodyStrong,
-          { color: personalExamsReady ? theme.colors.action.onPrimary : theme.colors.action.onDisabled },
-        ]}>Kişisel sınav ekle</Text>
+        {!compactCreateButton ? (
+          <Text maxFontSizeMultiplier={1.35} style={[
+            theme.typography.bodyStrong,
+            { color: personalExamsReady ? theme.colors.action.onPrimary : theme.colors.action.onDisabled },
+          ]}>Kişisel sınav ekle</Text>
+        ) : null}
       </Pressable>
 
       <PersonalExamEditor
@@ -1330,5 +1334,9 @@ const styles = StyleSheet.create({
   },
   floatingCreateButtonPressed: {
     transform: [{ scale: 0.98 }],
+  },
+  floatingCreateButtonCompact: {
+    paddingHorizontal: 0,
+    width: 56,
   },
 });

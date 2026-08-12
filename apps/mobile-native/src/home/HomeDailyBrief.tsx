@@ -425,7 +425,9 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                   <View style={styles.heroScheduleLine}>
                     <Ionicons color={REFERENCE_COLORS.white} name="calendar-outline" size={17} />
                     <Text
-                      style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.white }]}
+                      ellipsizeMode="tail"
+                      numberOfLines={1}
+                      style={[theme.typography.metaStrong, styles.heroScheduleText, { color: REFERENCE_COLORS.white }]}
                     >
                       {nextItem ? compactTemporalDate(nextItem.date) : "Takvimi görüntüle"}
                     </Text>
@@ -433,7 +435,9 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                   <View style={styles.heroScheduleLine}>
                     <Ionicons color={REFERENCE_COLORS.white} name="time-outline" size={17} />
                     <Text
-                      style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.white }]}
+                      ellipsizeMode="tail"
+                      numberOfLines={1}
+                      style={[theme.typography.metaStrong, styles.heroScheduleText, { color: REFERENCE_COLORS.white }]}
                     >
                       {nextItem
                         ? compactTemporalTime(nextItem.date, nextItem.temporalKind, nextItem.timezone)
@@ -1252,7 +1256,9 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   heroScheduleCopy: {
+    flex: 1,
     gap: 6,
+    minWidth: 0,
   },
   heroScheduleLine: {
     alignItems: "center",
@@ -1266,6 +1272,10 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 10,
     width: "58%",
+  },
+  heroScheduleText: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   heroTitle: {
     fontSize: 25,
