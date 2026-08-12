@@ -7,9 +7,7 @@ describe("mobile runtime performance contracts", () => {
     path.resolve(__dirname, "../../src/navigation/AppNavigator.tsx"),
     "utf8",
   );
-  const entrySource = fs.readFileSync(path.resolve(__dirname, "../../index.ts"), "utf8");
-
-  it("warms every primary authenticated destination before first use", () => {
+  it("warms only Home data while the initial shell becomes interactive", () => {
     const warmup = appSource.slice(
       appSource.indexOf("function warmAuthenticatedContext"),
       appSource.indexOf("async function bootstrapAuthenticatedContext"),
@@ -17,14 +15,28 @@ describe("mobile runtime performance contracts", () => {
 
     expect(warmup).toContain("loadMyCalendar");
     expect(warmup).toContain("loadAnnouncements");
-    expect(warmup).toContain("loadYokAnnouncements");
-    expect(warmup).toContain("loadSummerSchool");
-    expect(navigatorSource).toContain("navigation.preload(route)");
+    expect(warmup).toContain("InteractionManager.runAfterInteractions");
+    expect(warmup).toContain("}, 1_500)");
+    expect(warmup).not.toContain("loadYokAnnouncements");
+    expect(warmup).not.toContain("loadSummerSchool");
   });
 
-  it("freezes inactive tabs after their staggered preload", () => {
-    expect(entrySource).toContain("enableFreeze(true)");
-    expect(navigatorSource).toContain("freezeOnBlur: FREEZE_INACTIVE_TABS");
+  it("restores independent authenticated startup state concurrently", () => {
+    const hydration = appSource.slice(
+      appSource.indexOf("async function hydrateApplication"),
+      appSource.indexOf("async function restoreSession"),
+    );
+
+    expect(hydration).toContain("restoreSession(storedSessionValue)");
+    expect(hydration).toContain("const [contextReady] = await Promise.all([");
+    expect(hydration).toContain("bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot)");
+    expect(hydration).toContain("restoreManualExams(restoredSession.user.id, snapshot).catch");
+    expect(hydration).toContain("restoreGoogleCalendarConnection(restoredSession.user.id, snapshot).catch");
+  });
+
+  it("does not pre-mount or freeze inactive tabs during startup", () => {
+    expect(navigatorSource).not.toContain("navigation.preload(route)");
+    expect(navigatorSource).not.toContain("freezeOnBlur:");
     expect(navigatorSource).toContain("lazy: true");
   });
 

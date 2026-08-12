@@ -15,7 +15,6 @@ import {
   BottomTabBarHeightCallbackContext,
   createBottomTabNavigator,
   type BottomTabBarProps,
-  type BottomTabNavigationProp,
 } from "@react-navigation/bottom-tabs";
 import {
   useSafeAreaInsets,
@@ -186,7 +185,6 @@ const CalendarStack = createNativeStackNavigator<CalendarStackParamList>();
 const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 const MainTabs = createBottomTabNavigator<MainTabParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
-const FREEZE_INACTIVE_TABS = process.env.NODE_ENV !== "test";
 
 interface RouteContentValue {
   screens: AppScreenSlots;
@@ -494,27 +492,6 @@ function HomeNavigator() {
   );
 }
 
-function WarmedHomeNavigator() {
-  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList, "HomeTab">>();
-
-  useEffect(() => {
-    if (process.env.NODE_ENV === "test") return undefined;
-
-    const routes: Array<keyof MainTabParamList> = [
-      "AnnouncementsTab",
-      "CalendarTab",
-      "ProfileTab",
-    ];
-    const timers = routes.map((route, index) => setTimeout(() => {
-      navigation.preload(route);
-    }, 500 + (index * 250)));
-
-    return () => timers.forEach(clearTimeout);
-  }, [navigation]);
-
-  return <HomeNavigator />;
-}
-
 function AnnouncementsNavigator() {
   const { navigationLocked } = useRouteContent();
   const reducedMotion = useReducedMotion();
@@ -784,7 +761,7 @@ function ShellTabLabel({
 }
 
 const tabNavigators: Record<keyof MainTabParamList, () => React.JSX.Element> = {
-  HomeTab: WarmedHomeNavigator,
+  HomeTab: HomeNavigator,
   AnnouncementsTab: AnnouncementsNavigator,
   CalendarTab: CalendarNavigator,
   ProfileTab: SettingsNavigator,
@@ -815,7 +792,6 @@ function AuthenticatedNavigator() {
         const focusedContentRoute = getFocusedRouteNameFromRoute(route) ?? definition.rootRoute;
         const contentOwnsBottomChrome = focusedContentRoute !== definition.rootRoute;
         return {
-          freezeOnBlur: FREEZE_INACTIVE_TABS,
           headerShown: false,
           lazy: true,
           sceneStyle: { backgroundColor: theme.colors.background.canvas },

@@ -20,6 +20,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  InteractionManager,
   Linking,
   NativeModules,
   Platform,
@@ -685,7 +686,7 @@ const UNIVERSITY_TYPE_LABELS: Record<string, string> = {
 
 const PRODUCTION_API_BASE_URL = "https://academic-api.anssoft.com.tr";
 const DEFAULT_GOOGLE_WEB_CLIENT_ID = "315186329318-911ks4c825vjrd5lpk608ugie7m8lujj.apps.googleusercontent.com";
-const DEFAULT_GOOGLE_ANDROID_CLIENT_ID = "315186329318-mbbpc4rjd1ipirfnsl3vdetjfi8ir2ff.apps.googleusercontent.com";
+const DEFAULT_GOOGLE_ANDROID_CLIENT_ID = "315186329318-u6gd6lklnfkddc6kmsq7qvls8vgoei1k.apps.googleusercontent.com";
 
 const GOOGLE_EXPO_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID);
 const GOOGLE_WEB_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) ?? GOOGLE_EXPO_CLIENT_ID ?? DEFAULT_GOOGLE_WEB_CLIENT_ID;
@@ -2569,8 +2570,8 @@ function MainApplication() {
     setHydrationError(null);
     setCleanupIssue(null);
     try {
-      await restoreDeviceId();
-      const [storedWelcomeCompletion, storedSessionValue] = await Promise.all([
+      const [, storedWelcomeCompletion, storedSessionValue] = await Promise.all([
+        restoreDeviceId(),
         getStoredValue(PRELOGIN_WELCOME_COMPLETION_STORAGE_KEY),
         getStoredValue(SESSION_STORAGE_KEY),
       ]);
@@ -2587,7 +2588,7 @@ function MainApplication() {
       } else {
         setPreloginWelcomeGate(resolvedWelcomeGate);
       }
-      let restoredSession = await restoreSession();
+      let restoredSession = await restoreSession(storedSessionValue);
       const recoverableTargets: AccountCleanupTarget[] = [];
 
       if (restoredSession) {
@@ -2643,28 +2644,29 @@ function MainApplication() {
         }
       }
 
+      let authenticatedContextReady: boolean | null = null;
       if (restoredSession) {
         const snapshot = accountGuardRef.current.capture();
         if (!snapshot) throw new StaleAccountRequestError();
-        try {
-          await restoreManualExams(restoredSession.user.id, snapshot);
-        } catch (error) {
-          if (error instanceof StaleAccountRequestError) throw error;
-          personalExamRuntime.reset();
-          recoverableTargets.push("manual_exam_storage");
-        }
-        try {
-          await restoreGoogleCalendarConnection(restoredSession.user.id, snapshot);
-        } catch (error) {
-          if (error instanceof StaleAccountRequestError) throw error;
-          setGoogleCalendarIntegration(null);
-          recoverableTargets.push("google_connection_storage");
-        }
-        try {
-          await clearPendingVerification();
-        } catch {
-          recoverableTargets.push("pending_verification_storage");
-        }
+        const [contextReady] = await Promise.all([
+          bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot),
+          Promise.all([
+            restoreManualExams(restoredSession.user.id, snapshot).catch((error: unknown) => {
+              if (error instanceof StaleAccountRequestError) throw error;
+              personalExamRuntime.reset();
+              recoverableTargets.push("manual_exam_storage");
+            }),
+            restoreGoogleCalendarConnection(restoredSession.user.id, snapshot).catch((error: unknown) => {
+              if (error instanceof StaleAccountRequestError) throw error;
+              setGoogleCalendarIntegration(null);
+              recoverableTargets.push("google_connection_storage");
+            }),
+            clearPendingVerification().catch(() => {
+              recoverableTargets.push("pending_verification_storage");
+            }),
+          ]),
+        ]);
+        authenticatedContextReady = contextReady;
       } else {
         accountGuardRef.current.invalidate();
         setSessionOwner(null);
@@ -2699,7 +2701,8 @@ function MainApplication() {
         void loadUniversities();
         const snapshot = accountGuardRef.current.capture();
         if (snapshot) {
-          const contextReady = await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
+          const contextReady = authenticatedContextReady
+            ?? await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
           if (!contextReady && sessionRef.current?.user.id === restoredSession.user.id) {
             setHydrationError("Hesap bağlamı hazırlanamadı. Bağlantını kontrol edip tekrar dene.");
             setHydrationStatus("error");
@@ -2732,8 +2735,10 @@ function MainApplication() {
     }
   }
 
-  async function restoreSession(): Promise<SessionPayload | null> {
-    const stored = await getStoredValue(SESSION_STORAGE_KEY);
+  async function restoreSession(storedValue?: string | null): Promise<SessionPayload | null> {
+    const stored = storedValue === undefined
+      ? await getStoredValue(SESSION_STORAGE_KEY)
+      : storedValue;
     if (!stored) return null;
     if (stored === SESSION_INVALIDATED_STORAGE_VALUE) {
       await deleteStoredValue(SESSION_STORAGE_KEY).catch(() => undefined);
@@ -3429,32 +3434,36 @@ function MainApplication() {
     profileUniversityId: string,
     ownerSnapshot: AccountGenerationSnapshot
   ): void {
-    const preferenceWarmup = async () => {
-      const loadedPreferences = await loadPreferences(token, ownerSnapshot);
-      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
-      const coordinator = notificationCoordinatorRef.current;
-      const notificationSession = sessionRef.current;
-      if (coordinator && loadedPreferences && notificationSession?.user.id === ownerSnapshot.ownerId) {
-        await coordinator.activateOwner(ownerSnapshot.ownerId, loadedPreferences.enabled);
-        await reconcileNotificationDelivery(
-          { ...notificationSession, accessToken: token },
-          coordinator,
-          loadedPreferences,
-          ownerSnapshot
-        );
-      }
-    };
-    const contentWarmups = profileUniversityId
-      ? [
-          loadMyCalendar(token, ownerSnapshot),
-          loadUpcoming(token, ownerSnapshot),
-          loadAnnouncements(token, profileUniversityId, ownerSnapshot),
-          loadYokAnnouncements(true, contentFeedLimit),
-          loadSummerSchool(token, profileUniversityId, ownerSnapshot, false)
-        ]
-      : [loadAnnouncements(token, "", ownerSnapshot)];
+    setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
 
-    void Promise.allSettled([preferenceWarmup(), ...contentWarmups]);
+        const preferenceWarmup = async () => {
+          const loadedPreferences = await loadPreferences(token, ownerSnapshot);
+          if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+          const coordinator = notificationCoordinatorRef.current;
+          const notificationSession = sessionRef.current;
+          if (coordinator && loadedPreferences && notificationSession?.user.id === ownerSnapshot.ownerId) {
+            await coordinator.activateOwner(ownerSnapshot.ownerId, loadedPreferences.enabled);
+            await reconcileNotificationDelivery(
+              { ...notificationSession, accessToken: token },
+              coordinator,
+              loadedPreferences,
+              ownerSnapshot
+            );
+          }
+        };
+        const contentWarmups = profileUniversityId
+          ? [
+              loadMyCalendar(token, ownerSnapshot),
+              loadUpcoming(token, ownerSnapshot),
+              loadAnnouncements(token, profileUniversityId, ownerSnapshot)
+            ]
+          : [loadAnnouncements(token, "", ownerSnapshot)];
+
+        void Promise.allSettled([preferenceWarmup(), ...contentWarmups]);
+      });
+    }, 1_500);
   }
 
   async function bootstrapAuthenticatedContext(

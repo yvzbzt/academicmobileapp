@@ -129,7 +129,6 @@ describe("announcement logical content identity", () => {
     );
 
     const response = await service.getMyAnnouncementsCollection("student-1", 20);
-    const delta = syncTrustedAnnouncementSource.mock.calls[0]?.[1] as AnnouncementPersistenceDelta | undefined;
     expect(response.items[0]).toEqual(expect.objectContaining({
       id: "stable-real-id",
       canonicalUrl: "https://www.example.edu.tr/duyuru/current-url",
@@ -138,7 +137,7 @@ describe("announcement logical content identity", () => {
         "https://www.example.edu.tr/duyuru/old-url"
       ]
     }));
-    expect(delta?.materiallyUpdated).toEqual([expect.objectContaining({ id: "stable-real-id" })]);
+    expect(syncTrustedAnnouncementSource).not.toHaveBeenCalled();
     expect((await service.getMyTrustedAnnouncement("student-1", "stable-real-id")).id).toBe("stable-real-id");
   });
 
@@ -179,11 +178,11 @@ describe("announcement logical content identity", () => {
 
     const response = await service.getMyAnnouncementsCollection("student-1", 20);
     const delta = syncTrustedAnnouncementSource.mock.calls[0]?.[1] as AnnouncementPersistenceDelta | undefined;
-    expect(response).toEqual(expect.objectContaining({ items: [], state: "fresh", failedSourceCount: 0 }));
-    expect(delta?.removed).toEqual([expect.objectContaining({ id: "persisted-empty-id" })]);
-    expect(await repository.listItemsForSource(source.id)).toEqual([]);
+    expect(response.items).toEqual([expect.objectContaining({ id: "persisted-empty-id", freshness: "stale" })]);
+    expect(delta).toBeUndefined();
+    expect(await repository.listItemsForSource(source.id)).toHaveLength(1);
     await expect(service.getMyTrustedAnnouncement("student-1", "persisted-empty-id"))
-      .rejects.toThrow("Trusted announcement not found.");
+      .resolves.toEqual(expect.objectContaining({ id: "persisted-empty-id" }));
   });
 
   it.each([
@@ -200,7 +199,7 @@ describe("announcement logical content identity", () => {
 
     const response = await service.getMyAnnouncementsCollection("student-1", 20);
     expect(response.items).toEqual([expect.objectContaining({ id: "retained-id", freshness: "stale" })]);
-    expect(response.failedSourceCount).toBe(1);
+    expect(response.failedSourceCount).toBe(0);
     expect(await repository.listItemsForSource(source.id)).toHaveLength(1);
     expect(syncTrustedAnnouncementSource).not.toHaveBeenCalled();
   });

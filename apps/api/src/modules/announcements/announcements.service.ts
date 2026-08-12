@@ -4,7 +4,6 @@ import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import { AnnouncementIngestionService, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
 import { academicContentLogicalIdentityKey, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
-import { fetchSourceItems, toAnnouncementItems, type ParsedAnnouncementItem } from "./announcement-parser.js";
 import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, SavedAnnouncementStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
@@ -15,7 +14,7 @@ export class AnnouncementsService {
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
     @Optional() @Inject("CatalogRepository") _catalogRepository?: CatalogRepository,
     @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService,
-    @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
+    @Optional() @Inject(NotificationSchedulingService) _notificationSchedulingService?: NotificationSchedulingService
   ) {}
 
   async getMyAnnouncements(userId: string, limit = 20): Promise<TrustedAcademicContentDto[]> {
@@ -43,25 +42,11 @@ export class AnnouncementsService {
     }
 
     const cachedItems = await this.announcementRepository.listItemsByScope({ ...scopeInput, limit: Math.max(boundedLimit * 4, 100) });
-    const cachedSourceIds = new Set(cachedItems.map((item) => item.sourceId));
-    const hasUncachedSources = sources.some((source) => !cachedSourceIds.has(source.id));
-    if (!hasUncachedSources && cachedItems.length > 0 && areAnnouncementItemsFresh(cachedItems)) {
-      return toContentCollection(
-        presentTrustedItems(cachedItems, sources).slice(0, boundedLimit),
-        sources.length,
-        persistedFailedSourceCount(sources)
-      );
-    }
-
-    if (sources.length === 0) {
-      return toContentCollection(presentTrustedItems(cachedItems, sources).slice(0, boundedLimit), 0, 0);
-    }
-    const refreshed = await this.refreshSources(sources, cachedItems);
-    const merged = refreshed.items;
+    const presentedItems = markExpiredAnnouncementItems(cachedItems);
     return toContentCollection(
-      presentTrustedItems(merged, sources).slice(0, boundedLimit),
+      presentTrustedItems(presentedItems, sources).slice(0, boundedLimit),
       sources.length,
-      refreshed.failedSourceCount
+      persistedFailedSourceCount(sources)
     );
   }
 
@@ -147,112 +132,18 @@ export class AnnouncementsService {
     });
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
     const cachedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
-    if (cachedItems.length > 0 && areAnnouncementItemsFresh(cachedItems)) {
-      return toContentCollection(
-        presentTrustedItems(cachedItems, [source]).slice(0, boundedLimit),
-        1,
-        persistedFailedSourceCount([source])
-      );
-    }
-
-    const fetchedAt = new Date();
-    try {
-      const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser);
-      const items = toAnnouncementItems(source, parsedItems, fetchedAt);
-      if (parsedItems.length === 0) {
-        const delta = await this.announcementRepository.replaceItemsForSource(source, [], { authoritativeEmpty: true });
-        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
-        const persistedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
-        return toContentCollection(presentTrustedItems(persistedItems, [source]).slice(0, boundedLimit), 1, 0);
-      }
-      if (items.length > 0) {
-        const delta = await this.announcementRepository.replaceItemsForSource(source, items);
-        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
-        const persistedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
-        return toContentCollection(presentTrustedItems(persistedItems, [source]).slice(0, boundedLimit), 1, 0);
-      }
-    } catch {
-      // A stale, previously trusted cache is safer and more honest than a
-      // crawler timestamp fabricated as publication time.
-    }
-    return toContentCollection(presentTrustedItems(cachedItems.map(markStale), [source]).slice(0, boundedLimit), 1, 1);
+    const presentedItems = markExpiredAnnouncementItems(cachedItems);
+    return toContentCollection(
+      presentTrustedItems(presentedItems, [source]).slice(0, boundedLimit),
+      1,
+      persistedFailedSourceCount([source])
+    );
   }
 
   private async assertUserExists(userId: string): Promise<void> {
     if (!await this.authRepository.findUserById(userId)) throw new NotFoundException("User not found.");
   }
 
-  private async refreshSources(
-    sources: AnnouncementSourceRecord[],
-    cachedItems: AnnouncementItem[]
-  ): Promise<{ items: AnnouncementItem[]; failedSourceCount: number }> {
-    const fetchedAt = new Date();
-    const cachedBySource = new Map<string, AnnouncementItem[]>();
-    for (const item of cachedItems) cachedBySource.set(item.sourceId, [...(cachedBySource.get(item.sourceId) ?? []), item]);
-    const groups = await Promise.all(sources.map((source) => this.refreshSource(source, fetchedAt, cachedBySource.get(source.id) ?? [])));
-    return {
-      items: groups.flatMap((group) => group.items),
-      failedSourceCount: groups.filter((group) => group.failed).length
-    };
-  }
-
-  private async refreshSource(
-    source: AnnouncementSourceRecord,
-    fetchedAt: Date,
-    cachedItems: AnnouncementItem[]
-  ): Promise<{ items: AnnouncementItem[]; failed: boolean }> {
-    try {
-      const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7_000));
-      const items = toAnnouncementItems(source, parsedItems, fetchedAt);
-      const authoritativeEmpty = parsedItems.length === 0;
-      const succeeded = items.length > 0 || authoritativeEmpty;
-      await this.announcementRepository.recordSourceCheck(source.id, {
-        healthStatus: succeeded ? "healthy" : "degraded",
-        lastCheckedAt: fetchedAt,
-        ...(succeeded ? { lastSuccessAt: fetchedAt } : {}),
-        ...(succeeded ? {} : { lastError: "No trusted announcement items parsed." }),
-        consecutiveFailures: succeeded ? 0 : (source.consecutiveFailures ?? 0) + 1,
-        itemCount: items.length
-      });
-      if (succeeded) {
-        const delta = await this.announcementRepository.replaceItemsForSource(
-          source,
-          items,
-          authoritativeEmpty ? { authoritativeEmpty: true } : {}
-        );
-        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, fetchedAt);
-        return {
-          items: await this.announcementRepository.listItemsForSource(source.id, 1_000),
-          failed: false
-        };
-      }
-    } catch (error) {
-      await this.announcementRepository.recordSourceCheck(source.id, {
-        healthStatus: "degraded",
-        lastCheckedAt: fetchedAt,
-        lastError: controlledSourceError(error),
-        consecutiveFailures: (source.consecutiveFailures ?? 0) + 1,
-        itemCount: 0
-      });
-    }
-
-    const fallbackItems = toAnnouncementItems(source, fallbackParsedItems(source), fetchedAt).map(markStale);
-    return { items: (cachedItems.length > 0 ? cachedItems : fallbackItems).map(markStale), failed: true };
-  }
-}
-
-function fallbackParsedItems(source: AnnouncementSourceRecord): ParsedAnnouncementItem[] {
-  return (source.fallbackItems ?? []).map((item) => ({
-    title: item.title,
-    rawTitle: item.rawTitle ?? item.title,
-    link: item.link,
-    ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
-    ...(item.publishedDate ? { publishedDate: item.publishedDate, publicationKind: item.publicationKind ?? "date" as const } : {}),
-    ...(item.sourceUpdatedAt ? { sourceUpdatedAt: item.sourceUpdatedAt } : {}),
-    ...(item.summary ? { summary: item.summary } : {}),
-    ...(item.body?.length ? { body: item.body } : {}),
-    ...(item.keyDates?.length ? { keyDates: item.keyDates } : {})
-  }));
 }
 
 function presentTrustedItems(items: AnnouncementItem[], sources: AnnouncementSourceRecord[]): TrustedAcademicContentDto[] {
@@ -326,26 +217,28 @@ function mergeSourceRelationships(
     || first.canonicalUrl.localeCompare(second.canonicalUrl, "en-US"));
 }
 
-function areAnnouncementItemsFresh(items: AnnouncementItem[], now = Date.now()): boolean {
+function markExpiredAnnouncementItems(items: AnnouncementItem[], now = Date.now()): AnnouncementItem[] {
   const latestFetchedAtBySource = new Map<string, number>();
   for (const item of items) {
     const fetchedAt = Date.parse(item.fetchedAt ?? "");
-    if (!Number.isFinite(fetchedAt)) return false;
-    latestFetchedAtBySource.set(item.sourceId, Math.max(latestFetchedAtBySource.get(item.sourceId) ?? 0, fetchedAt));
+    latestFetchedAtBySource.set(
+      item.sourceId,
+      Number.isFinite(fetchedAt)
+        ? Math.max(latestFetchedAtBySource.get(item.sourceId) ?? 0, fetchedAt)
+        : 0,
+    );
   }
   const ttlMs = readPositiveInteger(process.env.ANNOUNCEMENT_CACHE_TTL_MS, 10 * 60 * 1_000);
-  return latestFetchedAtBySource.size > 0
-    && [...latestFetchedAtBySource.values()].every((fetchedAt) => fetchedAt > 0 && now - fetchedAt <= ttlMs);
+  const staleSources = new Set(
+    [...latestFetchedAtBySource.entries()]
+      .filter(([, fetchedAt]) => fetchedAt <= 0 || now - fetchedAt > ttlMs)
+      .map(([sourceId]) => sourceId),
+  );
+  return items.map((item) => staleSources.has(item.sourceId) ? markStale(item) : item);
 }
 
 function markStale(item: AnnouncementItem): AnnouncementItem {
   return { ...item, freshness: "stale" };
-}
-
-function controlledSourceError(error: unknown): string {
-  if (!(error instanceof Error)) return "SOURCE_REFRESH_FAILED";
-  const code = error.message.match(/^[A-Z][A-Z\d_:-]+$/u)?.[0];
-  return code?.slice(0, 160) ?? "SOURCE_REFRESH_FAILED";
 }
 
 function readPositiveInteger(value: string | undefined, fallback: number): number {
