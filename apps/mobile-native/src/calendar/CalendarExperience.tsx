@@ -6,6 +6,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -27,6 +28,7 @@ import {
   usePlatformAdaptation,
   useTheme,
 } from "../design-system";
+import { runtimeDiagnostic } from "../performance/runtime-diagnostics";
 import { isDateOnlyValue } from "../temporal/academic-temporal";
 import {
   formatCalendarClock,
@@ -102,7 +104,7 @@ export interface CalendarExperienceProps {
 
 type CalendarListEntry = {
   item: CalendarItem;
-  heading?: string;
+  headingDate?: string;
   today?: boolean;
 };
 
@@ -110,6 +112,20 @@ const compactWeekdayFormatter = new Intl.DateTimeFormat("tr-TR", {
   weekday: "short",
   timeZone: "UTC",
 });
+const agendaDayHeadingFormatter = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "long",
+  weekday: "long",
+  timeZone: "UTC",
+});
+const selectedDayHeadingFormatter = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  weekday: "long",
+  timeZone: "UTC",
+});
+const agendaDayHeadingCache = new Map<string, string>();
 
 export function CalendarExperience({
   academicEvents,
@@ -154,14 +170,24 @@ export function CalendarExperience({
     networkState.isConnected === false || networkState.isInternetReachable === false
   );
   const gutter = width < 375 ? 16 : 20;
-  const compactCreateButton = view === "month";
+  const compactCreateButton = view === "month" || width <= 375 || fontScale >= 1.3;
   const today = todayDateOnly(now);
 
-  const allItems = useMemo(() => buildCalendarItems({
-    academicEvents,
-    personalExams: personalExamsReady ? personalExams : [],
-    academicSourceLabel: calendarTitle ?? universityName ?? "Resmî akademik takvim",
-  }), [academicEvents, calendarTitle, personalExams, personalExamsReady, universityName]);
+  const allItems = useMemo(() => {
+    const startedAt = Date.now();
+    const result = buildCalendarItems({
+      academicEvents,
+      personalExams: personalExamsReady ? personalExams : [],
+      academicSourceLabel: calendarTitle ?? universityName ?? "Resmî akademik takvim",
+    });
+    runtimeDiagnostic("calendar.model", {
+      phase: "build_items",
+      inputCount: academicEvents.length + (personalExamsReady ? personalExams.length : 0),
+      outputCount: result.length,
+      elapsedMs: Date.now() - startedAt,
+    });
+    return result;
+  }, [academicEvents, calendarTitle, personalExams, personalExamsReady, universityName]);
   const filteredItems = useMemo(
     () => filterCalendarItems(allItems, searchQuery),
     [allItems, searchQuery],
@@ -178,10 +204,17 @@ export function CalendarExperience({
       : periodItems,
     [anchorDate, filteredItems, now, periodItems, view],
   );
-  const entries = useMemo(
-    () => listEntries(visibleItems, view === "agenda" || view === "week", today),
-    [today, view, visibleItems],
-  );
+  const entries = useMemo(() => {
+    const startedAt = Date.now();
+    const result = listEntries(visibleItems, view === "agenda" || view === "week", today);
+    runtimeDiagnostic("calendar.model", {
+      phase: "build_entries",
+      inputCount: visibleItems.length,
+      outputCount: result.length,
+      elapsedMs: Date.now() - startedAt,
+    });
+    return result;
+  }, [today, view, visibleItems]);
   const state = resolveCalendarPresentationState({
     loading,
     attempted,
@@ -226,7 +259,7 @@ export function CalendarExperience({
 
   const renderItem: ListRenderItem<CalendarListEntry> = ({ item: entry }) => (
     <View style={[styles.entry, { gap: theme.spacing.xs }]}>
-      {entry.heading ? (
+      {entry.headingDate ? (
         <View style={[styles.dayHeading, { gap: theme.spacing.xs }]}>
           <Ionicons
             accessibilityElementsHidden
@@ -239,7 +272,7 @@ export function CalendarExperience({
             accessibilityRole="header"
             style={[theme.typography.bodyStrong, styles.flexOne, { color: theme.colors.text.link }]}
           >
-            {entry.heading}
+            {formatAgendaDayHeading(entry.headingDate)}
           </Text>
           {entry.today ? (
             <View style={[styles.todayPill, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.pill }]}>
@@ -379,7 +412,7 @@ export function CalendarExperience({
           },
         ]}
         data={entries}
-        initialNumToRender={12}
+        initialNumToRender={5}
         keyExtractor={(entry) => entry.item.key}
         ListEmptyComponent={(
           <View>
@@ -414,12 +447,15 @@ export function CalendarExperience({
           </View>
         )}
         ListHeaderComponent={listHeader}
+        maxToRenderPerBatch={4}
         onRefresh={onRefresh}
+        removeClippedSubviews={Platform.OS === "android"}
         refreshing={loading && allItems.length > 0}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
         style={{ backgroundColor: theme.colors.background.canvas }}
-        windowSize={7}
+        updateCellsBatchingPeriod={50}
+        windowSize={5}
       />
 
       <Pressable
@@ -781,9 +817,25 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
       <View style={styles.eventCardLayout}>
         <View style={[styles.eventAccent, { backgroundColor: palette.accent }]} />
         <View style={[styles.timeColumn, { paddingVertical: theme.spacing.md }]}>
-          <Text maxFontSizeMultiplier={1.25} style={[theme.typography.metaStrong, { color: theme.colors.text.primary }]}>{startTime}</Text>
+          <Text
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.25}
+            minimumFontScale={0.82}
+            numberOfLines={1}
+            style={[theme.typography.metaStrong, styles.timeLabel, { color: theme.colors.text.primary }]}
+          >
+            {startTime}
+          </Text>
           {endTime ? (
-            <Text maxFontSizeMultiplier={1.25} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{endTime}</Text>
+            <Text
+              adjustsFontSizeToFit
+              maxFontSizeMultiplier={1.25}
+              minimumFontScale={0.82}
+              numberOfLines={1}
+              style={[theme.typography.meta, styles.timeLabel, { color: theme.colors.text.secondary }]}
+            >
+              {endTime}
+            </Text>
           ) : null}
         </View>
         <View
@@ -1021,9 +1073,9 @@ function listEntries(
   let previousDate = "";
   return items.map((item) => {
     const date = calendarItemStartDateOnly(item);
-    const heading = showHeadings && date !== previousDate ? formatAgendaDayHeading(date) : undefined;
+    const headingDate = showHeadings && date !== previousDate ? date : undefined;
     previousDate = date;
-    return { item, ...(heading ? { heading, today: date === today } : {}) };
+    return { item, ...(headingDate ? { headingDate, today: date === today } : {}) };
   });
 }
 
@@ -1039,22 +1091,16 @@ function filterCalendarItems(items: readonly CalendarItem[], query: string): Cal
 }
 
 function formatAgendaDayHeading(date: string): string {
-  return new Intl.DateTimeFormat("tr-TR", {
-    day: "numeric",
-    month: "long",
-    weekday: "long",
-    timeZone: "UTC",
-  }).format(new Date(`${date}T12:00:00.000Z`));
+  const cached = agendaDayHeadingCache.get(date);
+  if (cached) return cached;
+  const heading = agendaDayHeadingFormatter.format(new Date(`${date}T12:00:00.000Z`));
+  if (agendaDayHeadingCache.size >= 512) agendaDayHeadingCache.clear();
+  agendaDayHeadingCache.set(date, heading);
+  return heading;
 }
 
 function formatSelectedDayHeading(date: string): string {
-  return new Intl.DateTimeFormat("tr-TR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    weekday: "long",
-    timeZone: "UTC",
-  }).format(new Date(`${date}T12:00:00.000Z`));
+  return selectedDayHeadingFormatter.format(new Date(`${date}T12:00:00.000Z`));
 }
 
 function formatEndClock(item: CalendarItem, dateOnly: boolean): string | undefined {
@@ -1215,6 +1261,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 12,
     width: 70,
+  },
+  timeLabel: {
+    width: "100%",
   },
   eventIcon: {
     alignItems: "center",

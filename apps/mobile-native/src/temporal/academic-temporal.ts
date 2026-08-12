@@ -8,18 +8,54 @@ export interface AcademicTemporalValue {
 }
 
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/u;
+const ACADEMIC_DAY_CACHE_LIMIT = 2_048;
+const academicDayCache = new Map<string, number | null>();
+const istanbulDayCache = new WeakMap<Date, { timestamp: number; day: number }>();
+const istanbulDatePartsFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Istanbul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
+const turkishDateFormatter = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC"
+});
+const turkishTimestampFormatter = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "Europe/Istanbul"
+});
 
 export function isDateOnlyValue(value: string): boolean {
   return validDateOnlyParts(value) !== null;
 }
 
 export function academicCalendarDayNumber(value: string): number | null {
+  if (academicDayCache.has(value)) return academicDayCache.get(value) ?? null;
+
   const dateOnly = validDateOnlyParts(value);
-  if (dateOnly) return Date.UTC(dateOnly.year, dateOnly.month - 1, dateOnly.day);
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  const parts = istanbulDateParts(parsed);
-  return Date.UTC(parts.year, parts.month - 1, parts.day);
+  let day: number | null;
+  if (dateOnly) {
+    day = Date.UTC(dateOnly.year, dateOnly.month - 1, dateOnly.day);
+  } else {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      day = null;
+    } else {
+      const parts = istanbulDateParts(parsed);
+      day = Date.UTC(parts.year, parts.month - 1, parts.day);
+    }
+  }
+
+  if (academicDayCache.size >= ACADEMIC_DAY_CACHE_LIMIT) academicDayCache.clear();
+  academicDayCache.set(value, day);
+  return day;
 }
 
 export function isAcademicTemporalCurrentOrFuture(value: AcademicTemporalValue, now: Date): boolean {
@@ -100,23 +136,11 @@ function formatTemporalEndpoint(value: string, kind: AcademicTemporalKind): stri
   if (kind === "date") {
     const parts = validDateOnlyParts(value);
     if (!parts) return "Tarih belirtilmemiş";
-    return new Intl.DateTimeFormat("tr-TR", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-      timeZone: "UTC"
-    }).format(new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12)));
+    return turkishDateFormatter.format(new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12)));
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Tarih belirtilmemiş";
-  return new Intl.DateTimeFormat("tr-TR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Istanbul"
-  }).format(date);
+  return turkishTimestampFormatter.format(date);
 }
 
 function remainingDurationLabel(difference: number): string {
@@ -135,17 +159,18 @@ function remainingDayLabel(days: number): string {
 }
 
 function istanbulCalendarDayNumber(value: Date): number {
+  const timestamp = value.getTime();
+  const cached = istanbulDayCache.get(value);
+  if (cached?.timestamp === timestamp) return cached.day;
+
   const parts = istanbulDateParts(value);
-  return Date.UTC(parts.year, parts.month - 1, parts.day);
+  const day = Date.UTC(parts.year, parts.month - 1, parts.day);
+  istanbulDayCache.set(value, { timestamp, day });
+  return day;
 }
 
 function istanbulDateParts(value: Date): { year: number; month: number; day: number } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Istanbul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(value);
+  const parts = istanbulDatePartsFormatter.formatToParts(value);
   const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((entry) => entry.type === type)?.value);
   return { year: part("year"), month: part("month"), day: part("day") };
 }

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, type ReactNode, type RefObject } from "
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -121,12 +123,13 @@ export function BottomSheet({
           style={[styles.backdrop, { backgroundColor: theme.colors.state.scrim }]}
           testID={`${testID}-backdrop`}
         />
-        <SafeAreaView
-          edges={["left", "right", "bottom"]}
-          pointerEvents="box-none"
-          style={styles.safeArea}
-        >
-          <View
+        <KeyboardAwareSheetViewport>
+          <SafeAreaView
+            edges={["left", "right", "bottom"]}
+            pointerEvents="box-none"
+            style={styles.safeArea}
+          >
+            <View
             accessibilityLabel={accessibilityLabel ?? title}
             accessibilityState={{ busy: loading }}
             accessibilityViewIsModal
@@ -250,10 +253,31 @@ export function BottomSheet({
             ) : (
               <View style={styles.content}>{children}</View>
             )}
-          </View>
-        </SafeAreaView>
+            </View>
+          </SafeAreaView>
+        </KeyboardAwareSheetViewport>
       </View>
     </Modal>
+  );
+}
+
+function KeyboardAwareSheetViewport({ children }: { children: ReactNode }) {
+  if (Platform.OS === "ios") {
+    return (
+      <KeyboardAvoidingView
+        behavior="padding"
+        pointerEvents="box-none"
+        style={styles.keyboardAvoidingView}
+      >
+        {children}
+      </KeyboardAvoidingView>
+    );
+  }
+
+  return (
+    <View pointerEvents="box-none" style={styles.keyboardAvoidingView}>
+      {children}
+    </View>
   );
 }
 
@@ -310,7 +334,13 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
   },
+  keyboardAvoidingView: {
+    flex: 1,
+    justifyContent: "flex-end",
+    width: "100%",
+  },
   safeArea: {
+    flex: 1,
     justifyContent: "flex-end",
     width: "100%",
   },

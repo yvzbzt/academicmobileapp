@@ -134,6 +134,7 @@ const personalExamDateTimeFormatter = new Intl.DateTimeFormat("en-GB-u-ca-gregor
   second: "2-digit",
   hourCycle: "h23",
 });
+const calendarDatePartsFormatterCache = new Map<string, Intl.DateTimeFormat>();
 
 export const CALENDAR_VIEW_OPTIONS = [
   { value: "agenda", label: "Ajanda" },
@@ -568,12 +569,18 @@ function dateOnlyAtNoonUtc(value: string): Date {
 }
 
 function formatDateParts(value: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(value);
+  let formatter = calendarDatePartsFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    if (calendarDatePartsFormatterCache.size >= 8) calendarDatePartsFormatterCache.clear();
+    calendarDatePartsFormatterCache.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(value);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
 }

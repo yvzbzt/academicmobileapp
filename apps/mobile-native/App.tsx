@@ -41,6 +41,10 @@ import {
 } from "./src/navigation/AppNavigator";
 import { AppShellPreview } from "./src/navigation/AppShellPreview";
 import {
+  nextRuntimeDiagnosticId,
+  runtimeDiagnostic,
+} from "./src/performance/runtime-diagnostics";
+import {
   BootstrapErrorState,
   BootstrapLoadingState,
   UnknownRouteState,
@@ -222,6 +226,7 @@ import {
   selectUniversityAcademicCalendarEvents,
   type CalendarItem
 } from "./src/calendar/calendar-model";
+import { normalizeLegacyAllDayCalendarEvent } from "./src/calendar/calendar-display-normalization";
 import {
   PersonalExamRuntime,
   StalePersonalExamOperationError,
@@ -945,13 +950,13 @@ function normalizeEventRecordsForDisplay(events: EventRecord[]): EventRecord[] {
       location: _location,
       ...baseEvent
     } = event;
-    return [{
+    return [normalizeLegacyAllDayCalendarEvent({
       ...baseEvent,
       title,
       ...(courseName ? { courseName } : {}),
       ...(description ? { description } : {}),
       ...(location ? { location } : {})
-    }];
+    })];
   });
 }
 
@@ -1226,6 +1231,9 @@ async function deleteStoredValue(key: string): Promise<void> {
 }
 
 function MainApplication() {
+  const renderDiagnosticStartedAt = Date.now();
+  const renderDiagnosticSequenceRef = useRef(0);
+  const renderDiagnosticId = ++renderDiagnosticSequenceRef.current;
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authStage, setAuthStage] = useState<AuthStage>("auth");
   const [preloginWelcomeGate, setPreloginWelcomeGate] = useState<
@@ -1396,6 +1404,10 @@ function MainApplication() {
   const notificationForegroundUnsubscribeRef = useRef<(() => void) | null>(null);
   const notificationTapAdapterRef = useRef<FirebaseNotificationTapAdapter | null>(null);
   const notificationFailClosedPromiseRef = useRef<Promise<void> | null>(null);
+  const notificationReconcilePromiseRef = useRef<{
+    ownerId: string;
+    operation: Promise<void>;
+  } | null>(null);
   const notificationNavigationRequestRef = useRef<{
     requestKey: string;
     record: ReturnType<typeof createPendingNotificationDestinationRecord>;
@@ -1405,6 +1417,14 @@ function MainApplication() {
   const authOperationInProgressRef = useRef(false);
   const activationAttemptRef = useRef(0);
   const hydrationInProgressRef = useRef(false);
+
+  useEffect(() => {
+    runtimeDiagnostic("render.commit", {
+      id: renderDiagnosticId,
+      activeTab,
+      elapsedMs: Date.now() - renderDiagnosticStartedAt,
+    });
+  });
   const personalExamRuntimeRef = useRef<PersonalExamRuntime | null>(null);
   if (!personalExamRuntimeRef.current) {
     personalExamRuntimeRef.current = new PersonalExamRuntime({
@@ -1460,6 +1480,10 @@ function MainApplication() {
     () => (calendar.data?.events ?? []).filter((event) => event.category.startsWith("summer_school")),
     [calendar.data?.events]
   );
+  const universityAcademicCalendarEvents = useMemo(
+    () => selectUniversityAcademicCalendarEvents(calendar.data?.events ?? []),
+    [calendar.data?.events]
+  );
   const summerSchoolAnnouncements = useMemo(
     () => normalizeTrustedContentCollection([
       ...(summerSchool.data?.ownAnnouncements ?? []),
@@ -1472,12 +1496,21 @@ function MainApplication() {
     || summerSchoolAnnouncements.length > 0;
   const contentFeedHasMore = trustedContentCollectionHasMore(announcements.data, contentFeedLimit)
     || trustedContentCollectionHasMore(yokAnnouncements.data, contentFeedLimit);
-  const contentFeedSourceErrors = [announcements.error, yokAnnouncements.error, summerSchool.error]
+  const contentFeedSecondaryErrors = [yokAnnouncements.error, summerSchool.error]
     .filter((value): value is string => Boolean(value));
+  const contentFeedSourceErrors = [
+    announcements.error,
+    ...(contentFeedHasRetainedData ? contentFeedSecondaryErrors : [])
+  ].filter((value): value is string => Boolean(value));
   const contentFeedError = contentFeedSourceErrors.join(" ") || undefined;
   const contentFeedPartial = announcements.data?.state === "partial"
-    || yokAnnouncements.data?.state === "partial"
-    || summerSchool.data?.contentState === "partial"
+    || (
+      contentFeedHasRetainedData
+      && (
+        yokAnnouncements.data?.state === "partial"
+        || summerSchool.data?.contentState === "partial"
+      )
+    )
     || (
       contentFeedHasRetainedData
       && contentFeedSourceErrors.length > 0
@@ -1485,20 +1518,24 @@ function MainApplication() {
     );
   const contentFeedStale = Boolean(
     announcements.stale
-    || yokAnnouncements.stale
-    || summerSchool.stale
     || announcements.data?.state === "stale"
-    || yokAnnouncements.data?.state === "stale"
-    || summerSchool.data?.contentState === "stale"
+    || (
+      contentFeedHasRetainedData
+      && (
+        yokAnnouncements.stale
+        || summerSchool.stale
+        || yokAnnouncements.data?.state === "stale"
+        || summerSchool.data?.contentState === "stale"
+      )
+    )
   );
-  const contentFeedLoading = announcements.loading
-    || yokAnnouncements.loading
+  const contentFeedSecondaryLoading = yokAnnouncements.loading
     || summerSchool.loading;
-  const contentFeedAttempted = Boolean(
-    announcements.attempted
-    && yokAnnouncements.attempted
-    && summerSchool.attempted
+  const contentFeedLoading = Boolean(
+    announcements.loading
+    || (contentFeedHasRetainedData && contentFeedSecondaryLoading)
   );
+  const contentFeedAttempted = Boolean(announcements.attempted);
   const yokAvailabilityMessage = contentAvailabilityMessage(yokAnnouncements.data?.state, yokAnnouncements.stale);
   const summerAvailabilityMessage = contentAvailabilityMessage(summerSchool.data?.contentState, summerSchool.stale);
   const summerDateAvailabilityMessage = contentAvailabilityMessage(undefined, calendar.stale);
@@ -2531,14 +2568,77 @@ function MainApplication() {
       || activeTab === "summer";
     if (!announcementsExperienceVisible) return;
 
-    if (!yokAnnouncements.loading && !yokAnnouncements.data) {
-      void loadYokAnnouncements(true, contentFeedLimit);
+    if (registerUniversityId && !announcements.loading && !announcements.data && !announcements.attempted) {
+      void loadAnnouncements(undefined, registerUniversityId);
+      return;
     }
 
-    if (registerUniversityId && !summerSchool.loading && !summerSchool.data) {
-      void loadSummerSchool();
-    }
-  }, [activeTab, contentFeedLimit, session?.user.id, registerUniversityId]);
+    if (announcements.loading || !announcements.attempted) return;
+
+    const shouldLoadYokAnnouncements = !yokAnnouncements.loading
+      && !yokAnnouncements.data
+      && !yokAnnouncements.attempted;
+    const shouldLoadSummerSchool = Boolean(
+      registerUniversityId
+      && !summerSchool.loading
+      && !summerSchool.data
+      && !summerSchool.attempted
+    );
+    if (!shouldLoadYokAnnouncements && !shouldLoadSummerSchool) return;
+
+    let cancelled = false;
+    let secondaryFeedWarmup: ReturnType<typeof InteractionManager.runAfterInteractions> | null = null;
+    const secondaryFeedTimer = setTimeout(() => {
+      secondaryFeedWarmup = InteractionManager.runAfterInteractions(() => {
+        if (cancelled) return;
+        if (shouldLoadYokAnnouncements) {
+          void loadYokAnnouncements(true, contentFeedLimit);
+        }
+        if (shouldLoadSummerSchool) {
+          void loadSummerSchool();
+        }
+      });
+    }, 1_200);
+    return () => {
+      cancelled = true;
+      clearTimeout(secondaryFeedTimer);
+      secondaryFeedWarmup?.cancel();
+    };
+  }, [
+    activeTab,
+    announcements.data,
+    announcements.attempted,
+    announcements.loading,
+    contentFeedLimit,
+    registerUniversityId,
+    session?.user.id,
+    summerSchool.data,
+    summerSchool.attempted,
+    summerSchool.loading,
+    yokAnnouncements.data,
+    yokAnnouncements.attempted,
+    yokAnnouncements.loading
+  ]);
+
+  useEffect(() => {
+    runtimeDiagnostic("feed.state", {
+      tab: activeTab,
+      visible: activeTab === "announcements" || activeTab === "yok" || activeTab === "summer",
+      primaryLoading: announcements.loading,
+      primaryAttempted: Boolean(announcements.attempted),
+      primaryItemCount: announcements.data?.items.length ?? 0,
+      primaryError: Boolean(announcements.error),
+      secondaryLoading: yokAnnouncements.loading || summerSchool.loading,
+    });
+  }, [
+    activeTab,
+    announcements.attempted,
+    announcements.data?.items.length,
+    announcements.error,
+    announcements.loading,
+    summerSchool.loading,
+    yokAnnouncements.loading,
+  ]);
 
   useEffect(() => {
     const needsPublicCatalog = (authMode === "register" && authStage === "auth")
@@ -3303,6 +3403,10 @@ function MainApplication() {
       timeoutMs?: number;
     } = {}
   ): Promise<T> {
+    const diagnosticId = nextRuntimeDiagnosticId();
+    const diagnosticStartedAt = Date.now();
+    const diagnosticPath = path.split("?", 1)[0] ?? path;
+    const diagnosticMethod = options.method ?? "GET";
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string> | undefined)
@@ -3317,6 +3421,13 @@ function MainApplication() {
     if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
     const effectiveTimeoutMs = requestOptions.timeoutMs ?? API_REQUEST_TIMEOUT_MS;
+    runtimeDiagnostic("api.start", {
+      id: diagnosticId,
+      method: diagnosticMethod,
+      path: diagnosticPath,
+      authenticated: Boolean(token),
+      timeoutMs: effectiveTimeoutMs,
+    });
     const controller = ownerSnapshot || effectiveTimeoutMs > 0 ? new AbortController() : null;
     const upstreamSignal = options.signal;
     const abortFromUpstream = () => controller?.abort();
@@ -3338,6 +3449,13 @@ function MainApplication() {
         ...options,
         headers,
         ...(controller ? { signal: controller.signal } : {})
+      });
+      runtimeDiagnostic("api.response", {
+        id: diagnosticId,
+        method: diagnosticMethod,
+        path: diagnosticPath,
+        status: response.status,
+        elapsedMs: Date.now() - diagnosticStartedAt,
       });
       if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
@@ -3377,8 +3495,24 @@ function MainApplication() {
 
       const data = (await response.json()) as T;
       if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      runtimeDiagnostic("api.success", {
+        id: diagnosticId,
+        method: diagnosticMethod,
+        path: diagnosticPath,
+        status: response.status,
+        elapsedMs: Date.now() - diagnosticStartedAt,
+      });
       return data;
     } catch (error) {
+      runtimeDiagnostic("api.failure", {
+        id: diagnosticId,
+        method: diagnosticMethod,
+        path: diagnosticPath,
+        timedOut: requestTimedOut,
+        aborted: Boolean(controller?.signal.aborted),
+        errorType: error instanceof Error ? error.name : "unknown",
+        elapsedMs: Date.now() - diagnosticStartedAt,
+      });
       if (requestTimedOut) {
         throw new ApiRequestError("Sunucu zamanında yanıt vermedi. Lütfen tekrar dene.", 0, "network_unavailable");
       }
@@ -3456,10 +3590,9 @@ function MainApplication() {
         const contentWarmups = profileUniversityId
           ? [
               loadMyCalendar(token, ownerSnapshot),
-              loadUpcoming(token, ownerSnapshot),
-              loadAnnouncements(token, profileUniversityId, ownerSnapshot)
+              loadUpcoming(token, ownerSnapshot)
             ]
-          : [loadAnnouncements(token, "", ownerSnapshot)];
+          : [];
 
         void Promise.allSettled([preferenceWarmup(), ...contentWarmups]);
       });
@@ -3613,15 +3746,23 @@ function MainApplication() {
   }
 
   async function handleGoogleAuth(): Promise<void> {
+    runtimeDiagnostic("google_auth.start", {
+      platform: Platform.OS,
+      configured: GOOGLE_AUTH_CONFIGURED,
+      deviceReady: Boolean(deviceId),
+    });
     if (accountCleanupInProgressRef.current || authOperationInProgressRef.current) {
+      runtimeDiagnostic("google_auth.blocked", { reason: "operation_in_progress" });
       setMessage({ text: "Başka bir hesap işlemi tamamlanıyor. Lütfen kısa bir süre bekle.", tone: "info" });
       return;
     }
     if (!GOOGLE_AUTH_CONFIGURED) {
+      runtimeDiagnostic("google_auth.blocked", { reason: "configuration_missing" });
       setMessage({ text: GOOGLE_AUTH_CONFIGURATION_MESSAGE, tone: "error" });
       return;
     }
     if (!deviceId) {
+      runtimeDiagnostic("google_auth.blocked", { reason: "device_id_pending" });
       setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
       return;
     }
@@ -3631,8 +3772,12 @@ function MainApplication() {
       setGoogleBusy(true);
       const nativeAuth = await enqueueGoogleSdkOperation(async () => {
         await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        runtimeDiagnostic("google_auth.play_services_ready");
         const result = await GoogleSignin.signIn();
-        if (isCancelledResponse(result)) return { cancelled: true as const, idToken: null };
+        if (isCancelledResponse(result)) {
+          runtimeDiagnostic("google_auth.native_result", { cancelled: true, hasIdToken: false });
+          return { cancelled: true as const, idToken: null };
+        }
 
         let idToken = result.data.idToken;
         if (!idToken) {
@@ -3642,6 +3787,10 @@ function MainApplication() {
             idToken = null;
           }
         }
+        runtimeDiagnostic("google_auth.native_result", {
+          cancelled: false,
+          hasIdToken: Boolean(idToken),
+        });
         return { cancelled: false as const, idToken };
       });
       if (nativeAuth.cancelled) {
@@ -3678,7 +3827,21 @@ function MainApplication() {
         return;
       }
       setAuthenticatedContextPending(false);
+      runtimeDiagnostic("google_auth.success");
     } catch (error) {
+      runtimeDiagnostic("google_auth.failure", {
+        kind: error instanceof ApiRequestError
+          ? "api"
+          : isErrorWithCode(error)
+            ? "native_sdk"
+            : "unknown",
+        code: error instanceof ApiRequestError
+          ? error.code
+          : isErrorWithCode(error)
+            ? String(error.code)
+            : undefined,
+        status: error instanceof ApiRequestError ? error.status : undefined,
+      });
       if (error instanceof StaleAccountRequestError) return;
       if (isErrorWithCode(error)) {
         if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
@@ -4990,7 +5153,6 @@ function MainApplication() {
       void Promise.allSettled([
         loadMyCalendar(accessToken),
         loadUpcoming(accessToken),
-        loadAnnouncements(accessToken, universityId),
         loadPreferences(accessToken)
       ]);
     } catch (error) {
@@ -5034,7 +5196,6 @@ function MainApplication() {
       invalidateContentFeedOwnership();
       setMessage({ text: "Fakülte güncellendi.", tone: "success" });
 
-      void loadAnnouncements(accessToken, registerUniversityId);
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
       setMessage({
@@ -5077,7 +5238,6 @@ function MainApplication() {
       invalidateContentFeedOwnership();
       setMessage({ text: "Bölüm güncellendi.", tone: "success" });
 
-      void loadAnnouncements(accessToken, registerUniversityId);
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
       setMessage({
@@ -5394,33 +5554,65 @@ function MainApplication() {
     knownPreferences?: NotificationPreferencePayload,
     knownSnapshot?: AccountGenerationSnapshot
   ): Promise<void> {
-    const ownerSnapshot = knownSnapshot ?? accountGuardRef.current.capture();
-    if (!ownerSnapshot || ownerSnapshot.ownerId !== currentSession.user.id) return;
-    let currentPreferences = knownPreferences;
-    if (!currentPreferences) {
-      currentPreferences = await apiRequest<NotificationPreferencePayload>(
-        "/notification-preferences",
-        {},
-        currentSession.accessToken,
-        { ownerSnapshot }
-      );
-      setPreferences({ loading: false, data: currentPreferences, attempted: true, stale: false });
+    const inFlight = notificationReconcilePromiseRef.current;
+    if (inFlight?.ownerId === currentSession.user.id) {
+      runtimeDiagnostic("notification.reconcile_joined");
+      return inFlight.operation;
     }
-    const coordinatorState = coordinator.getState();
-    if (
-      coordinatorState.ownerId !== currentSession.user.id
-      || coordinatorState.preferenceEnabled !== currentPreferences.enabled
-    ) {
-      await coordinator.activateOwner(currentSession.user.id, currentPreferences.enabled);
-    }
-    const deliveryState = await coordinator.registerIfAlreadyGranted();
-    if (currentPreferences.enabled && !deliveryState.active) {
-      await disableNotificationDeliveryFailClosed(
-        currentSession,
-        coordinator,
-        currentPreferences,
-        ownerSnapshot
-      );
+
+    const diagnosticStartedAt = Date.now();
+    runtimeDiagnostic("notification.reconcile_start", {
+      preferenceKnown: Boolean(knownPreferences),
+    });
+    const operation = (async () => {
+      const ownerSnapshot = knownSnapshot ?? accountGuardRef.current.capture();
+      if (!ownerSnapshot || ownerSnapshot.ownerId !== currentSession.user.id) return;
+      let currentPreferences = knownPreferences;
+      if (!currentPreferences) {
+        currentPreferences = await apiRequest<NotificationPreferencePayload>(
+          "/notification-preferences",
+          {},
+          currentSession.accessToken,
+          { ownerSnapshot }
+        );
+        setPreferences({ loading: false, data: currentPreferences, attempted: true, stale: false });
+      }
+      const coordinatorState = coordinator.getState();
+      if (
+        coordinatorState.ownerId !== currentSession.user.id
+        || coordinatorState.preferenceEnabled !== currentPreferences.enabled
+      ) {
+        await coordinator.activateOwner(currentSession.user.id, currentPreferences.enabled);
+      }
+      const deliveryState = await coordinator.registerIfAlreadyGranted();
+      if (currentPreferences.enabled && !deliveryState.active) {
+        await disableNotificationDeliveryFailClosed(
+          currentSession,
+          coordinator,
+          currentPreferences,
+          ownerSnapshot
+        );
+      }
+    })();
+    notificationReconcilePromiseRef.current = {
+      ownerId: currentSession.user.id,
+      operation,
+    };
+    try {
+      await operation;
+      runtimeDiagnostic("notification.reconcile_success", {
+        elapsedMs: Date.now() - diagnosticStartedAt,
+      });
+    } catch (error) {
+      runtimeDiagnostic("notification.reconcile_failure", {
+        elapsedMs: Date.now() - diagnosticStartedAt,
+        errorType: error instanceof Error ? error.name : "unknown",
+      });
+      throw error;
+    } finally {
+      if (notificationReconcilePromiseRef.current?.operation === operation) {
+        notificationReconcilePromiseRef.current = null;
+      }
     }
   }
 
@@ -6530,7 +6722,6 @@ function MainApplication() {
       void Promise.allSettled([
         loadMyCalendar(currentSession.accessToken, ownerSnapshot),
         loadUpcoming(currentSession.accessToken, ownerSnapshot),
-        loadAnnouncements(currentSession.accessToken, authoritativeDraft.universityId, ownerSnapshot),
         loadPreferences(currentSession.accessToken, ownerSnapshot)
       ]);
     } catch (error) {
@@ -8170,12 +8361,14 @@ function MainApplication() {
     );
   }
 
-  const homeEvents = [
-    ...(calendar.data?.events ?? []),
-    ...(upcoming.data ?? []).filter(
-      (event) => !(calendar.data?.events ?? []).some((calendarEvent) => calendarEvent.id === event.id)
-    )
-  ];
+  const homeEvents = useMemo(() => {
+    const calendarEvents = calendar.data?.events ?? [];
+    const calendarEventIds = new Set(calendarEvents.map((event) => event.id));
+    return [
+      ...calendarEvents,
+      ...(upcoming.data ?? []).filter((event) => !calendarEventIds.has(event.id)),
+    ];
+  }, [calendar.data?.events, upcoming.data]);
   const homeManualExams = session?.user.id === manualExamOwnerId && manualExamsHydrated
     ? manualExams
     : [];
@@ -8359,7 +8552,7 @@ function MainApplication() {
 
   const calendarExperience = session ? (
     <CalendarExperience
-      academicEvents={selectUniversityAcademicCalendarEvents(calendar.data?.events ?? [])}
+      academicEvents={universityAcademicCalendarEvents}
       personalExams={homeManualExams}
       personalExamsReady={manualExamsHydrated && manualExamOwnerId === session.user.id}
       calendarTitle={calendar.data?.calendar.title}

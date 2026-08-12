@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   CommonActions,
   NavigationContainer,
+  TabActions,
   createNavigationContainerRef,
   getFocusedRouteNameFromRoute,
   type NavigationState,
@@ -41,9 +42,9 @@ import {
   findNodeHandle,
   Keyboard,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
   useWindowDimensions,
   type LayoutChangeEvent,
@@ -57,6 +58,7 @@ import {
   useReducedMotion,
   useTheme
 } from "../design-system";
+import { runtimeDiagnostic } from "../performance/runtime-diagnostics";
 import { isSafeRouteIdentifier } from "./routes";
 import {
   PRIMARY_TABS,
@@ -185,8 +187,11 @@ const CalendarStack = createNativeStackNavigator<CalendarStackParamList>();
 const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 const MainTabs = createBottomTabNavigator<MainTabParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
+const ANDROID_TAB_PRESS_DEDUPE_MS = 500;
+const ANDROID_TAB_PRESS_RETRY_DELAY_MS = 80;
 
 interface RouteContentValue {
+  activeRoute: AppVisibleRoute;
   screens: AppScreenSlots;
   globalFeedback?: ReactNode;
   navigationLocked: boolean;
@@ -493,11 +498,13 @@ function HomeNavigator() {
 }
 
 function AnnouncementsNavigator() {
+  const { activeRoute } = useRouteContent();
   const { navigationLocked } = useRouteContent();
   const reducedMotion = useReducedMotion();
   const theme = useTheme();
   return (
     <AnnouncementStack.Navigator
+      initialRouteName={isAnnouncementStackRoute(activeRoute) ? activeRoute : "Announcements"}
       screenOptions={{
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
@@ -519,11 +526,13 @@ function AnnouncementsNavigator() {
 }
 
 function CalendarNavigator() {
+  const { activeRoute } = useRouteContent();
   const { navigationLocked } = useRouteContent();
   const reducedMotion = useReducedMotion();
   const theme = useTheme();
   return (
     <CalendarStack.Navigator
+      initialRouteName={isCalendarStackRoute(activeRoute) ? activeRoute : "Calendar"}
       screenOptions={{
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
@@ -543,11 +552,12 @@ function CalendarNavigator() {
 }
 
 function SettingsNavigator() {
-  const { navigationLocked } = useRouteContent();
+  const { activeRoute, navigationLocked } = useRouteContent();
   const reducedMotion = useReducedMotion();
   const theme = useTheme();
   return (
     <SettingsStack.Navigator
+      initialRouteName={isSettingsStackRoute(activeRoute) ? activeRoute : "Profile"}
       screenOptions={{
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
@@ -611,6 +621,7 @@ function ShellBottomTabBar({
   const theme = useTheme();
   const onHeightChange = useContext(BottomTabBarHeightCallbackContext);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const lastAndroidTabPressRef = useRef<{ routeKey: string; handledAt: number } | null>(null);
   const { fontScale, width } = useWindowDimensions();
   const contract = resolveAppShellLayoutContract({
     platform: adaptation.platform,
@@ -650,6 +661,13 @@ function ShellBottomTabBar({
     if (contentOwnsBottomChrome) onHeightChange?.(0);
   }, [contentOwnsBottomChrome, onHeightChange]);
 
+  useEffect(() => {
+    runtimeDiagnostic("navigation.tab_visible", {
+      route: activeTabRoute?.name ?? "unknown",
+      index: state.index,
+    });
+  }, [activeTabRoute?.name, state.index]);
+
   const renderTab = (routeIndex: number) => {
     const route = state.routes[routeIndex];
     if (!route) return null;
@@ -658,13 +676,37 @@ function ShellBottomTabBar({
     const focused = state.index === routeIndex;
     const color = focused ? activeTint : inactiveTint;
     const onPress = () => {
+      runtimeDiagnostic("navigation.tab_press", {
+        route: route.name,
+        focused,
+        platform: Platform.OS,
+      });
+      let androidPressToken: number | null = null;
+      if (Platform.OS === "android") {
+        const now = Date.now();
+        const previous = lastAndroidTabPressRef.current;
+        if (previous?.routeKey === route.key && now - previous.handledAt < ANDROID_TAB_PRESS_DEDUPE_MS) return;
+        lastAndroidTabPressRef.current = { routeKey: route.key, handledAt: now };
+        androidPressToken = now;
+      }
       const event = navigation.emit({
         type: "tabPress",
         target: route.key,
         canPreventDefault: true,
       });
       if (!focused && !event.defaultPrevented) {
-        navigation.navigate(route.name, route.params);
+        const jumpToRoute = () => navigation.dispatch(TabActions.jumpTo(route.name, route.params));
+        runtimeDiagnostic("navigation.tab_dispatch", { route: route.name });
+        jumpToRoute();
+        if (Platform.OS === "android" && androidPressToken !== null) {
+          setTimeout(() => {
+            const previous = lastAndroidTabPressRef.current;
+            if (previous?.routeKey !== route.key || previous.handledAt !== androidPressToken) return;
+            const tabState = navigation.getState();
+            const targetIndex = tabState.routes.findIndex((candidate) => candidate.key === route.key);
+            if (targetIndex >= 0 && tabState.index !== targetIndex) jumpToRoute();
+          }, ANDROID_TAB_PRESS_RETRY_DELAY_MS);
+        }
       }
     };
     const onLongPress = () => {
@@ -672,21 +714,23 @@ function ShellBottomTabBar({
     };
 
     return (
-      <Pressable
+      <TouchableOpacity
+        activeOpacity={0.72}
         key={route.key}
         accessibilityHint={`${definition.label} sekmesini açar.`}
         accessibilityLabel={descriptor.options.tabBarAccessibilityLabel ?? definition.label}
         accessibilityRole="button"
         accessibilityState={{ selected: focused }}
-        android_ripple={{ color: theme.colors.state.pressed, borderless: false }}
+        delayPressIn={0}
         onLongPress={onLongPress}
         onPress={onPress}
-        style={({ pressed }) => [styles.tabItem, pressed && styles.tabItemPressed]}
+        onPressIn={Platform.OS === "android" ? onPress : undefined}
+        style={styles.tabItem}
         testID={descriptor.options.tabBarButtonTestID}
       >
         <ShellTabIcon color={color} focused={focused} route={definition.route} size={22} />
         <ShellTabLabel color={color} label={definition.label} />
-      </Pressable>
+      </TouchableOpacity>
     );
   };
 
@@ -767,7 +811,34 @@ const tabNavigators: Record<keyof MainTabParamList, () => React.JSX.Element> = {
   ProfileTab: SettingsNavigator,
 };
 
+function isAnnouncementStackRoute(route: AppVisibleRoute): route is keyof AnnouncementStackParamList {
+  return route === "Announcements"
+    || route === "SummerSchool"
+    || route === "YokAnnouncements"
+    || route === "AnnouncementDetail";
+}
+
+function isCalendarStackRoute(route: AppVisibleRoute): route is keyof CalendarStackParamList {
+  return route === "Calendar" || route === "CalendarEventDetail";
+}
+
+function isSettingsStackRoute(route: AppVisibleRoute): route is keyof SettingsStackParamList {
+  return route === "Profile"
+    || route === "AcademicProfileSettings"
+    || route === "NotificationSettings"
+    || route === "GoogleCalendarSettings"
+    || route === "AccountDataSettings";
+}
+
+function tabRouteForVisibleRoute(route: AppVisibleRoute): keyof MainTabParamList {
+  if (isAnnouncementStackRoute(route)) return "AnnouncementsTab";
+  if (isCalendarStackRoute(route)) return "CalendarTab";
+  if (isSettingsStackRoute(route)) return "ProfileTab";
+  return "HomeTab";
+}
+
 function AuthenticatedNavigator() {
+  const { activeRoute } = useRouteContent();
   const adaptation = usePlatformAdaptation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -784,7 +855,7 @@ function AuthenticatedNavigator() {
       : undefined;
   return (
     <MainTabs.Navigator
-      initialRouteName="HomeTab"
+      initialRouteName={tabRouteForVisibleRoute(activeRoute)}
       backBehavior="history"
       tabBar={useNavigationRail ? undefined : renderShellBottomTabBar}
       screenOptions={({ route }) => {
@@ -793,6 +864,7 @@ function AuthenticatedNavigator() {
         const contentOwnsBottomChrome = focusedContentRoute !== definition.rootRoute;
         return {
           headerShown: false,
+          freezeOnBlur: true,
           lazy: true,
           sceneStyle: { backgroundColor: theme.colors.background.canvas },
           tabBarAccessibilityLabel: definition.label,
@@ -964,11 +1036,12 @@ export function AppNavigator({
   const pendingRequestRef = useRef<{ key: string; expectedLeaf: AppVisibleRoute } | null>(null);
   const lastControlledRouteRef = useRef<string | null>(null);
   const contextValue = useMemo<RouteContentValue>(() => ({
+    activeRoute,
     screens,
     globalFeedback,
     navigationLocked,
     routeLeaveGuard,
-  }), [globalFeedback, navigationLocked, routeLeaveGuard, screens]);
+  }), [activeRoute, globalFeedback, navigationLocked, routeLeaveGuard, screens]);
 
   const acknowledgeVisibleRequest = useCallback((leaf: string | undefined): void => {
     if (!leaf || !request || !requestMatchesRootSurface(request.route, rootSurface)) return;
@@ -993,6 +1066,10 @@ export function AppNavigator({
 
   useEffect(() => {
     if (!ready || !navigationRef.isReady()) return;
+    // Authenticated tab and stack navigation already reports its visible leaf
+    // upstream. Re-dispatching that delayed value can bounce a slow first mount
+    // back to the previously visible tab.
+    if (rootSurface === "authenticated") return;
     if (!isControlledBaseRoute(activeRoute)) return;
     const controlledKey = `${rootSurface}:${activeRoute}`;
     if (lastControlledRouteRef.current === controlledKey) return;
@@ -1215,9 +1292,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     minHeight: 48,
     paddingTop: 5,
-  },
-  tabItemPressed: {
-    opacity: 0.72,
   },
   tabLabel: {
     marginTop: 1,

@@ -189,7 +189,7 @@ describe("notification device ownership", () => {
     expect(permission.requestCount).toBe(0);
   });
 
-  it("detaches a stale installation when the hydrated preference is disabled even if OS permission remains granted", async () => {
+  it("does not repeat backend cleanup when the hydrated preference is already disabled", async () => {
     const fixture = createFixture({ inspect: granted });
     await fixture.coordinator.activateOwner("owner-a", false);
 
@@ -204,7 +204,7 @@ describe("notification device ownership", () => {
     }));
     expect(fixture.tokens.getCount).toBe(0);
     expect(fixture.backend.registered).toHaveLength(0);
-    expect(fixture.backend.detached).toContainEqual(expect.objectContaining({ ownerId: "owner-a" }));
+    expect(fixture.backend.detached).toHaveLength(0);
   });
 
   it("detaches the previous owner before an account switch can become active", async () => {

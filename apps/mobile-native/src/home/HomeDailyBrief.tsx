@@ -429,7 +429,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                       numberOfLines={1}
                       style={[theme.typography.metaStrong, styles.heroScheduleText, { color: REFERENCE_COLORS.white }]}
                     >
-                      {nextItem ? compactTemporalDate(nextItem.date) : "Takvimi görüntüle"}
+                      {nextItem ? compactTemporalDate(nextItem.date, compactHero) : "Takvimi görüntüle"}
                     </Text>
                   </View>
                   <View style={styles.heroScheduleLine}>
@@ -617,15 +617,12 @@ function countdownParts(
     : { value: String(days), unit: "GÜN KALDI" };
 }
 
-function compactTemporalDate(value: string): string {
+function compactTemporalDate(value: string, short = false): string {
   const date = parseHomeDate(value);
   if (!date) return "Tarih belirtilmedi";
-  const formatted = date.toLocaleDateString("tr-TR", {
-    day: "numeric",
-    month: "long",
-    weekday: "long",
-    year: "numeric",
-  });
+  const formatted = date.toLocaleDateString("tr-TR", short
+    ? { day: "numeric", month: "short" }
+    : { day: "numeric", month: "long", weekday: "long", year: "numeric" });
   return formatted.charAt(0).toLocaleUpperCase("tr-TR") + formatted.slice(1);
 }
 
@@ -656,6 +653,7 @@ function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
   const theme = useTheme();
   const palette = agendaPalette(event);
   const dateParts = academicDateParts(event.date);
+  const allDay = event.temporalKind === "date" || /^\d{4}-\d{2}-\d{2}$/u.test(event.date);
   const temporalLabel = formatCalendarTemporal({
     startDate: event.date,
     ...(event.endDate ? { endDate: event.endDate } : {}),
@@ -678,13 +676,17 @@ function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
       <View style={[styles.agendaAccent, { backgroundColor: palette.text }]} />
       <View style={styles.agendaTimeColumn}>
         <Text
-          style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
+          numberOfLines={1}
+          style={[theme.typography.metaStrong, styles.agendaTimeLabel, { color: REFERENCE_COLORS.navy }]}
         >
           {compactTemporalTime(event.date, event.temporalKind, event.timezone)}
         </Text>
-        {event.endDate ? (
+        {event.endDate && !allDay ? (
           <Text
-            style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
+            numberOfLines={1}
+            style={[theme.typography.meta, styles.agendaTimeLabel, { color: REFERENCE_COLORS.secondary }]}
           >
             {compactTemporalTime(
               event.endDate,
@@ -1090,7 +1092,10 @@ const styles = StyleSheet.create({
   agendaTimeColumn: {
     alignItems: "flex-start",
     flexShrink: 0,
-    width: 45,
+    width: 52,
+  },
+  agendaTimeLabel: {
+    width: "100%",
   },
   agendaTitle: {
     fontSize: 15,

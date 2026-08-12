@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -89,11 +90,13 @@ export function SelectField<Value extends string = string>({
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const triggerRef = useRef<View>(null);
+  const searchInputRef = useRef<TextInput>(null);
   const triggerNativeTagRef = useRef<number | null>(null);
   const restoreFocusAfterDismissRef = useRef(false);
   const generatedId = useId();
   const labelId = `${generatedId}-label`;
   const interactionDisabled = disabled || loading;
+  const searchable = Boolean(onSearchValueChange);
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value),
     [options, value],
@@ -137,6 +140,12 @@ export function SelectField<Value extends string = string>({
     }, 0);
     return () => clearTimeout(focusTimer);
   }, [focusOnError, focusOnErrorKey]);
+
+  useEffect(() => {
+    if (!open || !searchable || Platform.OS !== "android") return;
+    const blurTimer = setTimeout(() => searchInputRef.current?.blur(), 150);
+    return () => clearTimeout(blurTimer);
+  }, [open, searchable]);
 
   function updateOpen(nextOpen: boolean) {
     setOpen(nextOpen);
@@ -331,6 +340,7 @@ export function SelectField<Value extends string = string>({
               placeholder={searchPlaceholder}
               placeholderTextColor={theme.colors.text.disabled}
               returnKeyType="search"
+              ref={searchInputRef}
               selectionColor={theme.colors.action.focus}
               style={[
                 theme.typography.body,
@@ -350,6 +360,7 @@ export function SelectField<Value extends string = string>({
           ]}
           data={options}
           initialNumToRender={12}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
           keyExtractor={(option) => option.value}
           ListEmptyComponent={(
