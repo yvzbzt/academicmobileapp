@@ -334,7 +334,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 numberOfLines={layout.supportsLargeText ? undefined : 1}
                 style={[theme.typography.body, styles.greetingSubtitle, { color: REFERENCE_COLORS.secondary }]}
               >
-                Derslerin, duyuruların ve önemli tarihlerin
+                Derslerin, duyuruların ve takvimin burada.
               </Text>
             </View>
             <View
