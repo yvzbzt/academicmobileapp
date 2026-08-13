@@ -188,6 +188,52 @@ describe("AdminCalendarService", () => {
     expect(activeCalendar?.id).toBe(draft.calendar.id);
   });
 
+  it("publishes a weekly department course series without replacing the university calendar", async () => {
+    const calendarRepository = new InMemoryCalendarRepository();
+    const service = new AdminCalendarService(calendarRepository, new InMemoryPdfRepository());
+    const primaryDraft = await service.createManualDraft({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "2026-2027 Akademik Takvim",
+      createdBy: "admin-1",
+      events: [{
+        title: "Güz dönemi başlangıcı",
+        category: "fall_term_start",
+        term: "fall",
+        startDate: "2026-09-07"
+      }]
+    });
+    await service.publishCalendar(primaryDraft.calendar.id, "admin-1");
+
+    const schedule = await service.createCourseScheduleSeries({
+      universityId: "sample-university-1",
+      facultyId: "faculty-1",
+      departmentId: "department-1",
+      academicYear: "2026-2027",
+      term: "fall",
+      title: "Veri Yapıları",
+      courseName: "CENG 201",
+      location: "A-201",
+      startDate: "2026-09-07T09:00:00+03:00",
+      endDate: "2026-09-07T10:00:00+03:00",
+      repeatWeekly: true,
+      repeatUntil: "2026-09-21"
+    });
+
+    expect(schedule.events).toHaveLength(3);
+    expect(schedule.events.map((event) => event.startDate.toISOString())).toEqual([
+      "2026-09-07T06:00:00.000Z",
+      "2026-09-14T06:00:00.000Z",
+      "2026-09-21T06:00:00.000Z"
+    ]);
+    expect(schedule.events.every((event) => event.scheduleSeriesId === schedule.seriesId && event.status === "published")).toBe(true);
+    expect((await calendarRepository.findPublishedCalendar("sample-university-1", "2026-2027"))?.id).toBe(primaryDraft.calendar.id);
+    expect(await service.listCourseSchedules({ universityId: "sample-university-1", departmentId: "department-1", academicYear: "2026-2027" })).toHaveLength(3);
+
+    await expect(service.archiveCourseScheduleSeries(schedule.seriesId)).resolves.toEqual({ seriesId: schedule.seriesId, archivedCount: 3 });
+    expect(await service.listCourseSchedules({ universityId: "sample-university-1", departmentId: "department-1" })).toHaveLength(0);
+  });
+
   it("rejects draft creation without approved extracted events", async () => {
     const pdfRepository = new InMemoryPdfRepository();
     const pdfService = new PdfProcessingService(pdfRepository, disabledOcrService);

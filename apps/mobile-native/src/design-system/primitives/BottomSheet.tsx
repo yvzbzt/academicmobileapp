@@ -262,22 +262,15 @@ export function BottomSheet({
 }
 
 function KeyboardAwareSheetViewport({ children }: { children: ReactNode }) {
-  if (Platform.OS === "ios") {
-    return (
-      <KeyboardAvoidingView
-        behavior="padding"
-        pointerEvents="box-none"
-        style={styles.keyboardAvoidingView}
-      >
-        {children}
-      </KeyboardAvoidingView>
-    );
-  }
-
   return (
-    <View pointerEvents="box-none" style={styles.keyboardAvoidingView}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
+      pointerEvents="box-none"
+      style={styles.keyboardAvoidingView}
+    >
       {children}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

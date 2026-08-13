@@ -313,7 +313,7 @@ describe("Phase 10 Profile and Settings contracts", () => {
     const appSource = readFileSync(
       new URL("../../apps/mobile-native/App.tsx", import.meta.url),
       "utf8",
-    );
+    ).replaceAll("\r\n", "\n");
     const academicSave = appSource.slice(
       appSource.indexOf("async function saveAcademicProfileSettings"),
       appSource.indexOf("function renderAuthOnboardingScreen"),
@@ -344,7 +344,7 @@ describe("Phase 10 Profile and Settings contracts", () => {
     expect(profileRoutes).toContain(
       "managedEventCount={googleCalendarIntegration?.mappings.length ?? googleCalendarLastResult?.verified}",
     );
-    expect(profileRoutes).toContain("setMessage(null);\n          requestAppRoute(\"AccountDataSettings\")");
+    expect(profileRoutes).toContain("setMessage(null);\n          requestAppRoute(\"AccountDataSettings\");");
     expect(appSource).toContain(
       "const routeLeaveGuard: AppRouteLeaveGuard | null =\n    academicProfileDirty",
     );
@@ -370,8 +370,8 @@ describe("Phase 10 Profile and Settings contracts", () => {
         android: { versionCode: number };
       };
     };
-    expect(appConfig.expo.version).toBe("0.1.3");
-    expect(appConfig.expo.android.versionCode).toBe(14);
+    expect(appConfig.expo.version).toBe("0.1.4");
+    expect(appConfig.expo.android.versionCode).toBe(15);
     expect(appConfig.expo.userInterfaceStyle).toBe("light");
     expect(appConfig.expo.splash.backgroundColor).toBe("#ffffff");
     expect(appConfig.expo.splash.dark.backgroundColor).toBe("#ffffff");
@@ -380,8 +380,8 @@ describe("Phase 10 Profile and Settings contracts", () => {
       new URL("../../apps/mobile-native/android/app/build.gradle", import.meta.url),
       "utf8",
     );
-    expect(androidBuild).toContain("versionCode 14");
-    expect(androidBuild).toContain('versionName "0.1.3"');
+    expect(androidBuild).toContain("versionCode 15");
+    expect(androidBuild).toContain('versionName "0.1.4"');
 
     const androidStrings = readFileSync(
       new URL("../../apps/mobile-native/android/app/src/main/res/values/strings.xml", import.meta.url),

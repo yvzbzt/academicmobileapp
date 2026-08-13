@@ -85,6 +85,8 @@ describe("mobile runtime performance contracts", () => {
     expect(hydration).toContain("bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot)");
     expect(hydration).toContain("restoreManualExams(restoredSession.user.id, snapshot).catch");
     expect(hydration).toContain("restoreGoogleCalendarConnection(restoredSession.user.id, snapshot).catch");
+    expect(hydration).not.toContain('apiRequest<SessionPayload>(\n            "/auth/refresh-token"');
+    expect(hydration).toContain('runtimeDiagnostic("bootstrap.ready"');
   });
 
   it("keeps startup lazy and freezes inactive tab trees after navigation", () => {

@@ -66,6 +66,12 @@ export class UsersController {
   addFollowedScope(@CurrentUser() user: AuthenticatedUser, @Body() body: FollowAcademicScopeDto) {
     return this.usersService.addFollowedScope(user.id, body);
   }
+
+  @Delete("follows/:id")
+  @Roles("student")
+  removeFollowedScope(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.usersService.removeFollowedScope(user.id, id);
+  }
 }
 
 @Controller("admin/users")

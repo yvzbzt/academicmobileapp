@@ -1,5 +1,5 @@
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AccessibilityInfo, StyleSheet, Switch } from "react-native";
+import { AccessibilityInfo, Switch } from "react-native";
 import {
   act,
   fireEvent,
@@ -92,10 +92,13 @@ describe("Phase 10 profile and settings presentation", () => {
         googleAccountEmail="ada.google@example.invalid"
         googleCalendar={resolveGoogleCalendarPresentation("connected")}
         notificationTruth={notificationTruth}
+        followedUniversityCount={2}
         onOpenAcademicProfile={jest.fn()}
+        onOpenFollowedUniversities={jest.fn()}
         onOpenAccountManagement={jest.fn()}
         onOpenGoogleCalendar={jest.fn()}
         onOpenNotifications={jest.fn()}
+        onLogout={jest.fn()}
       />,
     ));
 
@@ -103,12 +106,13 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(screen.getAllByText("Ada Lovelace").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ada@example.invalid").length).toBeGreaterThan(0);
     expect(screen.getByLabelText(/Örnek Üniversitesi.*Akademik profil tamamlandı/u)).toBeVisible();
-    expect(screen.getByRole("header", { name: "AKADEMİK BİLGİLER" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "BİLDİRİM TERCİHLERİ" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "BAĞLANTILAR" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "HESAP" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Akademik Bilgiler" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Bildirim Tercihleri" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Akademik bilgiler" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Bildirimler" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Bağlantılar" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Hesap ve gizlilik" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Akademik bilgiler" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Bildirim tercihleri" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Çıkış yap" })).toBeVisible();
     expect(screen.getByText(/Sürüm 0\.1\.1 · Derleme 12/u)).toBeVisible();
     expect(screen.queryByText(/tema|görünüm|takipçi|öğrenci kimliği/iu)).toBeNull();
   });
@@ -175,7 +179,7 @@ describe("Phase 10 profile and settings presentation", () => {
     ));
 
     expect(screen.getByRole("header", { name: "Bildirim tercihleri" })).toBeVisible();
-    expect(screen.getByText("Önemli akademik hatırlatmalar cebinizde")).toBeVisible();
+    expect(screen.getByText("Önemli tarihleri zamanında hatırla")).toBeVisible();
     expect(screen.getByLabelText(/^Bildirim izni gerekiyor\./u)).toBeVisible();
     expect(screen.getByRole("switch", { name: "Duyurular bildirimi" })).toBeVisible();
     expect(screen.getByRole("switch", { name: "Son başvuru tarihleri bildirimi" })).toBeVisible();
@@ -308,13 +312,11 @@ describe("Phase 10 profile and settings presentation", () => {
     await waitFor(() => expect(onOpenSettings).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(permission).toBeEnabled());
 
-    const art = screen.getByTestId("notification-hero-art", { includeHiddenElements: true });
     expect(screen.getByTestId("notification-settings-hero")).toHaveStyle({ flexDirection: "column" });
-    expect(art).toHaveProp("resizeMode", "contain");
-    const artStyle = StyleSheet.flatten(art.props.style);
-    expect(artStyle).toMatchObject({ height: 144, width: "100%" });
-    expect(typeof artStyle.height).toBe("number");
-    expect(Number.isFinite(artStyle.height as number)).toBe(true);
+    const preview = screen.getByTestId("notification-hero-preview", { includeHiddenElements: true });
+    expect(preview).toHaveStyle({ width: "100%" });
+    expect(preview).toHaveTextContent(/Sınavlar/u);
+    expect(preview).toHaveTextContent(/Duyurular/u);
 
     const masterPreference = screen.getByRole("switch", { name: "Akademik hatırlatmalar bildirimi" });
     expect(masterPreference).toBeEnabled();
@@ -521,7 +523,7 @@ describe("Phase 10 profile and settings presentation", () => {
     ));
 
     expect(screen.queryByRole("button", { name: "Uygulama verilerimi sil" })).toBeNull();
-    fireEvent.press(screen.getByRole("button", { name: "Tehlikeli alanı göster" }));
+    fireEvent.press(screen.getByRole("button", { name: "Silme seçeneklerini göster" }));
     expect(screen.getByRole("button", { name: "Uygulama verilerimi sil" })).toBeVisible();
     fireEvent.press(screen.getByRole("button", { name: "Uygulama verilerimi sil" }));
     let accountSheet = screen.getByTestId("bottom-sheet");
@@ -560,7 +562,7 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    fireEvent.press(screen.getByRole("button", { name: "Tehlikeli alanı göster" }));
+    fireEvent.press(screen.getByRole("button", { name: "Silme seçeneklerini göster" }));
     fireEvent.press(screen.getByRole("button", { name: "Hesabımı kalıcı olarak sil" }));
     let sheet = screen.getByTestId("bottom-sheet");
     fireEvent.press(within(sheet).getByRole("button", { name: /Vazge/u }));
@@ -599,7 +601,7 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(screen.queryByText(/RAW_DATA_SECRET/u)).toBeNull();
   });
 
-  it("blocks account controls without falsely announcing logout as loading during recent authentication", async () => {
+  it("blocks deletion controls and keeps logout outside the account-data page", async () => {
     await renderAsync(tree(
       <AccountDataSettingsScreen
         busy
@@ -611,9 +613,10 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    const logout = screen.getByRole("button", { name: /yap$/u });
-    expect(logout).toBeDisabled();
-    expect(logout).not.toBeBusy();
+    const deletionToggle = screen.getByRole("button", { name: "Silme seçeneklerini göster" });
+    expect(deletionToggle).toBeDisabled();
+    expect(deletionToggle).not.toBeBusy();
+    expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
   });
 
   it("returns accessibility focus to the originating destructive action after recent-auth cancellation", async () => {
@@ -665,7 +668,7 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    fireEvent.press(screen.getByRole("button", { name: "Tehlikeli alanı göster" }));
+    fireEvent.press(screen.getByRole("button", { name: "Silme seçeneklerini göster" }));
     fireEvent.press(screen.getByRole("button", { name: "Hesabımı kalıcı olarak sil" }));
     const sheet = screen.getByTestId("bottom-sheet");
     const confirm = within(sheet).getByRole("button", { name: "Hesabı silmeye devam et" });

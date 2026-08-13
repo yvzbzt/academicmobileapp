@@ -410,7 +410,7 @@ describe("mobile native content-state wiring", () => {
     expect(appSource.match(/settleContentFeedLoading\(previous\)/gu)).toHaveLength(3);
     expect(appSource).toContain("isOperationCurrent: () => boolean = () => true");
     expect(appSource).toContain("onPress={() => void refreshContentFeed()}");
-    expect(appSource).toContain("Promise.allSettled([loadMyCalendar(), loadUpcoming(), refreshContentFeed()])");
+    expect(appSource).toContain("Promise.allSettled([loadMyCalendar(), loadCourseSchedule(), loadUpcoming(), refreshContentFeed()])");
     expect(appSource).not.toContain("onPress={() => void loadYokAnnouncements()}");
     expect(appSource).toContain("Mevcut doğrulanmış kayıtlar korunuyor.");
     expect(appSource).toContain("normalizeTrustedApiContentEnvelope");
@@ -428,7 +428,7 @@ describe("mobile native content-state wiring", () => {
     expect(protectedDetailHandler).toContain(".find((item) => item.id === announcementId)");
     expect(protectedDetailHandler).toContain("requestGeneration !== announcementDetailRequestGenerationRef.current");
     expect(appSource).toContain("activeTrustedDetail.id === announcementDetailLoad.id");
-    expect(appSource.match(/invalidateContentFeedOwnership\(\);/gu)).toHaveLength(3);
+    expect(appSource.match(/invalidateContentFeedOwnership\(\);/gu)).toHaveLength(4);
   });
 
   it("revalidates official HTTP(S) links at handoff and contains Linking failures", () => {

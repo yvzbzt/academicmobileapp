@@ -175,7 +175,7 @@ describe("mobile-native Phase 11 cross-platform quality", () => {
     expect(fields).toContain("aria-invalid={error ? true : undefined}");
     expect(selectors).toContain("expanded: open");
     expect(calendar).toContain("{item.classificationLabel}");
-    expect(calendar).toContain("name={item.icon}");
+    expect(calendar).toContain('name={useBell ? "notifications-outline" : "chevron-forward"}');
     expect(calendar).toContain("accessibilityState={{ busy: true }}");
   });
 
@@ -219,10 +219,11 @@ describe("mobile-native Phase 11 cross-platform quality", () => {
 
     for (const implementation of virtualizedSources) {
       expect(implementation).toContain("FlatList");
-      expect(implementation).not.toContain("removeClippedSubviews");
     }
+    expect(source("apps/mobile-native/src/calendar/CalendarExperience.tsx"))
+      .toContain('removeClippedSubviews={Platform.OS === "android"}');
     expect(source("apps/mobile-native/src/announcements/AnnouncementsFeed.tsx")).toContain("initialNumToRender={10}");
-    expect(source("apps/mobile-native/src/calendar/CalendarExperience.tsx")).toContain("initialNumToRender={12}");
+    expect(source("apps/mobile-native/src/calendar/CalendarExperience.tsx")).toContain("initialNumToRender={5}");
     expect(source("apps/mobile-native/src/design-system/primitives/SelectField.tsx")).toContain("windowSize={7}");
   });
 

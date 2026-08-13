@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 function readRepositoryFile(relativePath: string): string {
-  return readFileSync(resolve(repositoryRoot, relativePath), "utf8");
+  return readFileSync(resolve(repositoryRoot, relativePath), "utf8").replaceAll("\r\n", "\n");
 }
 
 const historicalReports = [

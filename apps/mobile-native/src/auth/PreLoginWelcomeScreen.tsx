@@ -9,7 +9,6 @@ import {
 } from "react-native";
 import { Button, referencePalette, useTheme } from "../design-system";
 
-const welcomeHero = require("../../assets/prelogin-welcome-hero.png") as ImageSourcePropType;
 const appMark = require("../../assets/icon-reference.png") as ImageSourcePropType;
 
 type WelcomeIconName = "calendar-clear-outline" | "megaphone-outline" | "notifications-outline";
@@ -46,6 +45,33 @@ const FEATURES: readonly WelcomeFeature[] = [
   },
 ] as const;
 
+const AGENDA_PREVIEW = [
+  {
+    accent: referencePalette.blue,
+    background: referencePalette.academicBlueSoft,
+    date: "14 Ağu",
+    icon: "calendar-outline" as const,
+    meta: "10.00 · Öğrenci işleri",
+    title: "Ders kaydı son günü",
+  },
+  {
+    accent: referencePalette.academicRed,
+    background: referencePalette.academicRedSoft,
+    date: "16 Ağu",
+    icon: "megaphone-outline" as const,
+    meta: "Bilgisayar Mühendisliği",
+    title: "Bölüm duyurusu",
+  },
+  {
+    accent: referencePalette.academicGreen,
+    background: referencePalette.academicGreenSoft,
+    date: "18 Ağu",
+    icon: "checkmark-circle-outline" as const,
+    meta: "Kişisel plan · 14.30",
+    title: "Çalışma planı",
+  },
+] as const;
+
 export interface PreLoginWelcomeScreenProps {
   busy?: boolean;
   onContinue: () => void;
@@ -63,7 +89,8 @@ export function PreLoginWelcomeScreen({
   const { fontScale, height, width } = useWindowDimensions();
   const compact = height < 700 || width < 360 || fontScale > 1.2;
   const veryCompact = height < 610 || width < 330 || fontScale > 1.45;
-  const heroHeight = veryCompact ? 86 : compact ? 118 : Math.min(230, height * 0.27);
+  const previewHeight = veryCompact ? 86 : compact ? 112 : Math.min(188, height * 0.22);
+  const previewItems = AGENDA_PREVIEW.slice(0, veryCompact ? 1 : compact ? 2 : 3);
 
   return (
     <View
@@ -125,18 +152,44 @@ export function PreLoginWelcomeScreen({
       </View>
 
       <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[styles.heroFrame, { height: heroHeight }]}
+        accessibilityLabel="Bugünkü ajanda önizlemesi"
+        style={[
+          styles.agendaPreview,
+          {
+            backgroundColor: theme.colors.background.surfaceRaised,
+            borderColor: theme.colors.border.subtle,
+            height: previewHeight,
+          },
+        ]}
+        testID="prelogin-agenda-preview"
       >
-        <View style={styles.heroBlueGlow} />
-        <View style={styles.heroTealGlow} />
-        <Image
-          accessibilityIgnoresInvertColors
-          resizeMode="contain"
-          source={welcomeHero}
-          style={styles.heroImage}
-        />
+        <View style={styles.agendaHeader}>
+          <View style={styles.agendaHeading}>
+            <Ionicons color={theme.colors.action.primary} name="calendar-clear-outline" size={18} />
+            <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Bugün</Text>
+          </View>
+          <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>3 plan</Text>
+        </View>
+        <View style={styles.agendaList}>
+          {previewItems.map((item, index) => (
+            <View
+              key={item.title}
+              style={[
+                styles.agendaRow,
+                index > 0 && { borderTopColor: theme.colors.border.subtle, borderTopWidth: StyleSheet.hairlineWidth },
+              ]}
+            >
+              <View style={[styles.agendaIcon, { backgroundColor: item.background }]}>
+                <Ionicons color={item.accent} name={item.icon} size={17} />
+              </View>
+              <View style={styles.agendaCopy}>
+                <Text numberOfLines={1} style={[theme.typography.metaStrong, { color: theme.colors.text.primary }]}>{item.title}</Text>
+                {!veryCompact ? <Text numberOfLines={1} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{item.meta}</Text> : null}
+              </View>
+              <Text style={[theme.typography.metaStrong, { color: theme.colors.text.secondary }]}>{item.date}</Text>
+            </View>
+          ))}
+        </View>
       </View>
 
       <View style={[styles.introCopy, compact && styles.introCopyCompact]}>
@@ -307,33 +360,46 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 34,
   },
-  heroFrame: {
+  agendaPreview: {
     alignSelf: "stretch",
-    borderRadius: 22,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-    position: "relative",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  heroBlueGlow: {
-    backgroundColor: referencePalette.academicBlueTint,
-    borderRadius: 999,
-    height: "94%",
-    left: "6%",
-    position: "absolute",
-    top: "3%",
-    width: "64%",
+  agendaHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 24,
   },
-  heroTealGlow: {
-    backgroundColor: referencePalette.academicTealSurface,
-    borderRadius: 999,
-    bottom: "4%",
-    height: "62%",
-    position: "absolute",
-    right: "4%",
-    width: "48%",
+  agendaHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
   },
-  heroImage: {
-    height: "100%",
-    width: "100%",
+  agendaList: {
+    flex: 1,
+    justifyContent: "space-evenly",
+  },
+  agendaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+    minHeight: 34,
+    paddingVertical: 4,
+  },
+  agendaIcon: {
+    alignItems: "center",
+    borderRadius: 8,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  agendaCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   introCopy: {
     alignItems: "center",
@@ -375,7 +441,7 @@ const styles = StyleSheet.create({
   },
   featureCard: {
     alignItems: "center",
-    borderRadius: 15,
+    borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 12,
@@ -389,7 +455,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   featureCardCompact: {
-    borderRadius: 12,
+    borderRadius: 8,
     gap: 9,
     minHeight: 41,
     paddingHorizontal: 9,
@@ -397,7 +463,7 @@ const styles = StyleSheet.create({
   },
   featureIcon: {
     alignItems: "center",
-    borderRadius: 11,
+    borderRadius: 8,
     height: 38,
     justifyContent: "center",
     width: 38,

@@ -86,8 +86,9 @@ describe("mobile authentication recovery contract", () => {
       appSource.indexOf("async function restoreManualExams")
     );
 
-    expect(hydrationHandler.indexOf("await restoreDeviceId()"))
-      .toBeLessThan(hydrationHandler.indexOf("let restoredSession = await restoreSession()"));
+    expect(hydrationHandler).toContain("const [, storedWelcomeCompletion, storedSessionValue] = await Promise.all([");
+    expect(hydrationHandler.indexOf("restoreDeviceId()"))
+      .toBeLessThan(hydrationHandler.indexOf("let restoredSession = await restoreSession(storedSessionValue)"));
     expect(hydrationHandler).toContain("await restorePendingVerification()");
     expect(verificationRestore).toContain("PENDING_VERIFICATION_STORAGE_KEY");
     expect(verificationRestore).toContain('setPassword("")');
@@ -211,11 +212,14 @@ describe("mobile authentication recovery contract", () => {
     expect(warmup).toContain("void Promise.allSettled");
     expect(warmup).toContain("loadPreferences(token, ownerSnapshot)");
     expect(warmup).toContain("loadMyCalendar(token, ownerSnapshot)");
+    expect(warmup).toContain("loadCourseSchedule(token, ownerSnapshot)");
     expect(warmup).toContain("loadUpcoming(token, ownerSnapshot)");
-    expect(warmup).toContain("loadAnnouncements(token, profileUniversityId, ownerSnapshot)");
+    expect(warmup).toContain("loadFollowedUniversities(token, ownerSnapshot)");
+    expect(warmup).not.toContain("loadAnnouncements(token, profileUniversityId, ownerSnapshot)");
     expect(bootstrap).toContain('apiRequest<UserProfile>("/me"');
     expect(bootstrap).toContain('setAuthStage(profileUniversityId ? "auth" : "academic_onboarding")');
-    expect(bootstrap).toContain("warmAuthenticatedContext(token, profileUniversityId, ownerSnapshot)");
+    expect(bootstrap).toContain("warmAuthenticatedContext(activeToken, profileUniversityId, ownerSnapshot)");
+    expect(bootstrap).toContain("sessionRef.current.accessToken");
     expect(bootstrap).not.toContain("await loadMyCalendar");
     expect(bootstrap).not.toContain("await loadUpcoming");
     expect(bootstrap).not.toContain("await loadAnnouncements");

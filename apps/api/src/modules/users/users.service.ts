@@ -313,6 +313,12 @@ export class UsersService {
     return this.toFollowedScopeResponse(scope);
   }
 
+  async removeFollowedScope(userId: string, id: string) {
+    const removed = await this.userDataRepository.deleteFollowedAcademicScopeById(userId, id);
+    if (!removed) throw new NotFoundException("Followed academic scope not found.");
+    return { id, removed: true as const };
+  }
+
   private async validateAcademicSelection(input: { universityId: string; facultyId?: string; departmentId?: string; classLevel?: number }): Promise<void> {
     const university = await this.catalogRepository.findUniversityById(input.universityId);
     if (!university || university.status !== "active") throw new BadRequestException("University is not valid.");

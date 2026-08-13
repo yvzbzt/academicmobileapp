@@ -64,7 +64,7 @@ describe("Phase 9 calendar and personal-exam model", () => {
     expect(items.map((item) => ({ id: item.id, label: item.classificationLabel, icon: item.icon }))).toEqual([
       { id: "registration-range", label: "Son Başvuru", icon: "flag-outline" },
       { id: "final-exam", label: "Sınav", icon: "document-text-outline" },
-      { id: "personal-1", label: "Kişisel sınav", icon: "school-outline" },
+      { id: "personal-1", label: "Sınav", icon: "school-outline" },
       { id: "timestamped-orientation", label: "Etkinlik", icon: "calendar-outline" },
     ]);
     expect(items.find((item) => item.id === "personal-1")?.timezone).toBe("Europe/Istanbul");
@@ -311,9 +311,11 @@ describe("Phase 9 calendar and personal-exam model", () => {
     });
     expect(draft).toEqual({
       title: "Fizik",
+      kind: "exam",
       date: "2026-09-01",
       time: "09:20",
       locationNote: "",
+      reminderMinutesBefore: null,
     });
   });
 

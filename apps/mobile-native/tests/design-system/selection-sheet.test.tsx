@@ -176,16 +176,15 @@ describe("accessible SelectField", () => {
     );
     await userEvent.press(screen.getByRole("combobox", { name: "Kurum" }));
 
-    if (Platform.OS === "ios") {
-      expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe(
-        "padding",
-      );
-    } else {
-      expect(screen.UNSAFE_queryByType(KeyboardAvoidingView)).toBeNull();
-    }
-    expect(screen.UNSAFE_getByType(FlatList).props.keyboardDismissMode).toBe(
+    expect(screen.getByLabelText("Kurum ara")).toHaveProp("autoFocus", true);
+    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe(
+      Platform.OS === "ios" ? "padding" : "height",
+    );
+    const optionList = screen.UNSAFE_getByType(FlatList);
+    expect(optionList.props.keyboardDismissMode).toBe(
       Platform.OS === "ios" ? "interactive" : "on-drag",
     );
+    expect(optionList.props.keyboardShouldPersistTaps).toBe("always");
   });
 
   it("exposes an invalid selector state with controlled error copy", async () => {

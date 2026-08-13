@@ -18,6 +18,7 @@ import {
   Banner,
   BottomSheet,
   Button,
+  SelectField,
   referencePalette,
   useTheme,
 } from "../design-system";
@@ -28,6 +29,8 @@ import {
   emptyPersonalExamDraft,
   formatSelectedDate,
   formatSelectedTime,
+  PERSONAL_CALENDAR_KIND_OPTIONS,
+  PERSONAL_CALENDAR_REMINDER_OPTIONS,
   personalExamDraftFromRecord,
   selectionDateFromDraft,
   validatePersonalExamDraft,
@@ -80,7 +83,7 @@ export function PersonalExamEditor({
     setErrors({});
     setFormError(undefined);
     setPickerMode(null);
-  }, [exam?.examDate, exam?.id, exam?.locationNote, exam?.title, visible]);
+  }, [exam?.examDate, exam?.id, exam?.kind, exam?.locationNote, exam?.reminderMinutesBefore, exam?.title, visible]);
 
   const pickerValue = useMemo(() => selectionDateFromDraft(draft), [draft]);
 
@@ -119,6 +122,8 @@ export function PersonalExamEditor({
       title: draft.title.trim(),
       examDate,
       ...(locationNote ? { locationNote } : {}),
+      kind: draft.kind,
+      ...(draft.reminderMinutesBefore !== null ? { reminderMinutesBefore: draft.reminderMinutesBefore } : {}),
     });
     if (!result.ok) {
       setFormError(result.error);
@@ -129,15 +134,15 @@ export function PersonalExamEditor({
 
   return (
     <BottomSheet
-      accessibilityLabel={exam ? "Kişisel sınav düzenleme alt sayfası" : "Kişisel sınav ekleme alt sayfası"}
-      dismissAccessibilityLabel="Kişisel sınav formunu kapat"
+      accessibilityLabel={exam ? "Kişisel etkinlik düzenleme alt sayfası" : "Kişisel etkinlik ekleme alt sayfası"}
+      dismissAccessibilityLabel="Kişisel etkinlik formunu kapat"
       dismissible={!busy}
       headerLayout="centered-leading-dismiss"
       loading={busy}
       onDismiss={onDismiss}
       returnFocusRef={returnFocusRef}
       style={styles.sheet}
-      title={exam ? "Kişisel sınavı düzenle" : "Kişisel sınav ekle"}
+      title={exam ? "Kişisel etkinliği düzenle" : "Kişisel etkinlik ekle"}
       visible={visible}
     >
       <View style={styles.editorContent}>
@@ -157,7 +162,7 @@ export function PersonalExamEditor({
           <Banner
             message={formError}
             onDismiss={() => setFormError(undefined)}
-            title="Sınav kaydedilemedi"
+            title="Etkinlik kaydedilemedi"
             tone="error"
           />
         ) : null}
@@ -175,19 +180,19 @@ export function PersonalExamEditor({
         >
           <FieldIcon color={referencePalette.violet} container={referencePalette.violetSoft} name="book-outline" />
           <View style={[styles.fieldLabel, { width: compact ? 82 : 104 }]}>
-            <Text maxFontSizeMultiplier={1.45} style={[theme.typography.label, { color: theme.colors.text.primary }]}>Ders adı</Text>
+            <Text maxFontSizeMultiplier={1.45} style={[theme.typography.label, { color: theme.colors.text.primary }]}>Başlık</Text>
           </View>
           <View style={[styles.fieldDivider, { backgroundColor: theme.colors.border.subtle }]} />
           <TextInput
             accessibilityHint={errors.title}
-            accessibilityLabel="Sınav adı"
+            accessibilityLabel="Etkinlik adı"
             autoCapitalize="sentences"
             maxLength={160}
             onChangeText={(title) => {
               setDraft((current) => ({ ...current, title }));
               setErrors((current) => ({ ...current, title: undefined }));
             }}
-            placeholder="Ders adını yazın"
+            placeholder="Etkinlik adını yaz"
             placeholderTextColor={theme.colors.text.disabled}
             ref={titleRef}
             returnKeyType="done"
@@ -197,6 +202,16 @@ export function PersonalExamEditor({
           />
         </View>
         <FieldError message={errors.title} />
+
+        <SelectField
+          inlineLabel
+          label="Etkinlik türü"
+          onValueChange={(kind) => setDraft((current) => ({ ...current, kind }))}
+          options={PERSONAL_CALENDAR_KIND_OPTIONS}
+          sheetTitle="Etkinlik türü"
+          value={draft.kind}
+          visualLabel="Tür"
+        />
 
         <Pressable
           ref={dateButtonRef}
@@ -339,6 +354,19 @@ export function PersonalExamEditor({
           </View>
         </View>
 
+        <SelectField
+          inlineLabel
+          label="Hatırlatma"
+          onValueChange={(value) => setDraft((current) => ({
+            ...current,
+            reminderMinutesBefore: value === "none" ? null : Number(value),
+          }))}
+          options={PERSONAL_CALENDAR_REMINDER_OPTIONS}
+          sheetTitle="Hatırlatma zamanı"
+          value={draft.reminderMinutesBefore === null ? "none" : String(draft.reminderMinutesBefore)}
+          visualLabel="Hatırlatma"
+        />
+
         </ScrollView>
 
         <View
@@ -354,7 +382,7 @@ export function PersonalExamEditor({
             variant="secondary"
           />
           <Button
-            accessibilityLabel={exam ? "Değişiklikleri kaydet" : "Sınavı ekle"}
+            accessibilityLabel={exam ? "Değişiklikleri kaydet" : "Etkinliği ekle"}
             disabled={busy}
             label="Kaydet"
             loading={busy}

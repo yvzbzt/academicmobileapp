@@ -278,8 +278,8 @@ function ProfileSettingsPreviewExperience({
       Profile: (
         <ProfileOverviewScreen
           academicSummary={academicSummary}
-          appVersion="0.1.3"
-          buildNumber={13}
+          appVersion="0.1.4"
+          buildNumber={15}
           email="ogrenci@example.invalid"
           fullName={incomplete ? "Örnek Öğrenci" : "Deniz Örnek"}
           googleAccountEmail={incomplete ? undefined : "calendar@example.invalid"}
@@ -290,10 +290,13 @@ function ProfileSettingsPreviewExperience({
             registration: "registered",
             saveState: "saved",
           })}
+          followedUniversityCount={2}
           onOpenAcademicProfile={() => openRoute("AcademicProfileSettings")}
+          onOpenFollowedUniversities={() => undefined}
           onOpenNotifications={() => openRoute("NotificationSettings")}
           onOpenGoogleCalendar={() => openRoute("GoogleCalendarSettings")}
           onOpenAccountManagement={() => openRoute("AccountDataSettings")}
+          onLogout={() => undefined}
         />
       ),
       AcademicProfileSettings: (

@@ -24,6 +24,7 @@ export interface HomeManualExam {
   title: string;
   examDate: string;
   locationNote?: string;
+  kind?: "exam" | "class" | "study" | "event" | "task" | "other";
 }
 
 export interface HomeExamCountdownItem extends AcademicTemporalValue {
@@ -114,10 +115,10 @@ export function selectTodayItems(
     .map((exam) => ({
       id: exam.id,
       title: exam.title,
-      category: "personal_exam",
+      category: `personal_${exam.kind ?? "exam"}`,
       date: exam.examDate,
       ...(exam.locationNote ? { location: exam.locationNote } : {}),
-      kind: "exam" as const,
+      kind: exam.kind === undefined || exam.kind === "exam" ? "exam" as const : "event" as const,
     }));
   return [...academic, ...personal].sort(compareImportantItems);
 }
@@ -132,13 +133,13 @@ export function selectNearestImportantItem(
     ...manualExams.map((exam) => ({
       id: exam.id,
       title: exam.title,
-      category: "personal_exam",
+      category: `personal_${exam.kind ?? "exam"}`,
       date: exam.examDate,
       ...(exam.locationNote ? { location: exam.locationNote } : {}),
-      kind: "exam" as const,
+      kind: exam.kind === undefined || exam.kind === "exam" ? "exam" as const : "event" as const,
     })),
   ].filter((item) => {
-    if (item.category !== "personal_exam") return true;
+    if (!item.category.startsWith("personal_")) return true;
     const time = Date.parse(item.date);
     return !Number.isNaN(time) && time >= now.getTime();
   });
@@ -162,13 +163,15 @@ export function selectExamCountdownItems(
       ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {}),
       source: "calendar"
     }));
-  const personalExams: HomeExamCountdownItem[] = manualExams.map((exam) => ({
+  const personalExams: HomeExamCountdownItem[] = manualExams
+    .filter((exam) => exam.kind === undefined || exam.kind === "exam")
+    .map((exam) => ({
     id: exam.id,
     title: exam.title,
     startDate: exam.examDate,
     temporalKind: "timestamp",
     source: "manual"
-  }));
+    }));
   return [...calendarExams, ...personalExams]
     .filter((exam) => isAcademicTemporalCurrentOrFuture(exam, now))
     .sort(compareAcademicTemporalStart);

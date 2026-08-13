@@ -6,11 +6,13 @@ import {
   type AcademicTemporalKind,
 } from "../temporal/academic-temporal";
 import { DEFAULT_ACADEMIC_EVENT_TIMEZONE } from "./calendar-time";
+import type { PersonalCalendarKind } from "../session-integrity/manual-exam-storage";
 
 export type CalendarViewMode = "day" | "agenda" | "week" | "month";
 
 export type CalendarClassification =
   | "personal_exam"
+  | "personal"
   | "exam"
   | "registration"
   | "holiday"
@@ -30,6 +32,8 @@ export interface CalendarAcademicEvent {
   departmentId?: string;
   description?: string;
   location?: string;
+  personalKind?: PersonalCalendarKind;
+  reminderMinutesBefore?: number;
 }
 
 export interface CalendarPersonalExam {
@@ -37,6 +41,8 @@ export interface CalendarPersonalExam {
   title: string;
   examDate: string;
   locationNote?: string;
+  kind?: PersonalCalendarKind;
+  reminderMinutesBefore?: number;
 }
 
 export interface CalendarItem {
@@ -65,6 +71,8 @@ export interface CalendarItem {
   departmentId?: string;
   description?: string;
   location?: string;
+  personalKind?: PersonalCalendarKind;
+  reminderMinutesBefore?: number;
 }
 
 export type CalendarPresentationState =
@@ -96,6 +104,8 @@ export interface PersonalExamDraft {
   date: string | null;
   time: string | null;
   locationNote?: string;
+  kind: PersonalCalendarKind;
+  reminderMinutesBefore: number | null;
 }
 
 export interface PersonalExamDraftErrors {
@@ -148,6 +158,24 @@ export const ACADEMIC_CALENDAR_VIEW_OPTIONS = [
   { value: "month", label: "Ay" },
   { value: "agenda", label: "Ajanda" },
 ] as const;
+
+export const PERSONAL_CALENDAR_KIND_OPTIONS: ReadonlyArray<{ value: PersonalCalendarKind; label: string }> = [
+  { value: "event", label: "Etkinlik" },
+  { value: "exam", label: "Sınav" },
+  { value: "class", label: "Ders" },
+  { value: "study", label: "Çalışma" },
+  { value: "task", label: "Görev" },
+  { value: "other", label: "Diğer" },
+];
+
+export const PERSONAL_CALENDAR_REMINDER_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "none", label: "Hatırlatma yok" },
+  { value: "0", label: "Başlangıç saatinde" },
+  { value: "10", label: "10 dakika önce" },
+  { value: "30", label: "30 dakika önce" },
+  { value: "60", label: "1 saat önce" },
+  { value: "1440", label: "1 gün önce" },
+];
 
 export function selectUniversityAcademicCalendarEvents(
   events: readonly CalendarAcademicEvent[],
@@ -208,21 +236,25 @@ export function buildCalendarItems(input: {
     const title = cleanText(exam.title);
     const location = exam.locationNote ? cleanText(exam.locationNote) : null;
     if (!id || !title || !Number.isFinite(Date.parse(exam.examDate))) return [];
+    const kind = exam.kind ?? "exam";
+    const classification: CalendarClassification = kind === "exam" ? "personal_exam" : "personal";
     return [{
       key: `personal:${id}`,
       routeId: `personal:${id}`,
       id,
       title,
-      category: "personal_exam",
-      classification: "personal_exam",
-      classificationLabel: classificationLabel("personal_exam"),
-      icon: classificationIcon("personal_exam"),
+      category: `personal_${kind}`,
+      classification,
+      classificationLabel: personalCalendarKindLabel(kind),
+      icon: classificationIcon(classification),
       source: "personal",
       sourceLabel: "Kişisel planın",
       startDate: exam.examDate,
       temporalKind: "timestamp",
       timezone: DEFAULT_ACADEMIC_EVENT_TIMEZONE,
       ...(location ? { location } : {}),
+      personalKind: kind,
+      ...(exam.reminderMinutesBefore !== undefined ? { reminderMinutesBefore: exam.reminderMinutesBefore } : {}),
     }];
   });
 
@@ -234,6 +266,7 @@ export function buildCalendarItems(input: {
 
 export function classifyCalendarCategory(category: string): CalendarClassification {
   if (category === "personal_exam") return "personal_exam";
+  if (category.startsWith("personal_")) return "personal";
   if (EXAM_CATEGORIES.has(category) || category.includes("exam")) return "exam";
   if (REGISTRATION_CATEGORIES.has(category)
     || category.includes("registration")
@@ -245,6 +278,7 @@ export function classifyCalendarCategory(category: string): CalendarClassificati
 export function classificationLabel(classification: CalendarClassification): string {
   switch (classification) {
     case "personal_exam": return "Kişisel sınav";
+    case "personal": return "Kişisel etkinlik";
     case "exam": return "Sınav";
     case "registration": return "Son Başvuru";
     case "holiday": return "Tatil";
@@ -255,6 +289,7 @@ export function classificationLabel(classification: CalendarClassification): str
 export function classificationIcon(classification: CalendarClassification): CalendarItem["icon"] {
   switch (classification) {
     case "personal_exam": return "school-outline";
+    case "personal": return "calendar-outline";
     case "exam": return "document-text-outline";
     case "registration": return "flag-outline";
     case "holiday": return "sunny-outline";
@@ -403,13 +438,20 @@ export function formatCalendarCompactDay(date: string): string {
 }
 
 export function emptyPersonalExamDraft(): PersonalExamDraft {
-  return { title: "", date: null, time: null, locationNote: "" };
+  return { title: "", date: null, time: null, locationNote: "", kind: "event", reminderMinutesBefore: null };
 }
 
 export function personalExamDraftFromRecord(exam: CalendarPersonalExam): PersonalExamDraft {
   const date = new Date(exam.examDate);
   if (Number.isNaN(date.getTime())) {
-    return { title: exam.title, date: null, time: null, locationNote: exam.locationNote ?? "" };
+    return {
+      title: exam.title,
+      date: null,
+      time: null,
+      locationNote: exam.locationNote ?? "",
+      kind: exam.kind ?? "exam",
+      reminderMinutesBefore: exam.reminderMinutesBefore ?? null,
+    };
   }
   const parts = personalExamDateTimeParts(date);
   return {
@@ -417,12 +459,14 @@ export function personalExamDraftFromRecord(exam: CalendarPersonalExam): Persona
     date: `${padDateTimePart(parts.year, 4)}-${padDateTimePart(parts.month)}-${padDateTimePart(parts.day)}`,
     time: `${padDateTimePart(parts.hour)}:${padDateTimePart(parts.minute)}`,
     locationNote: exam.locationNote ?? "",
+    kind: exam.kind ?? "exam",
+    reminderMinutesBefore: exam.reminderMinutesBefore ?? null,
   };
 }
 
 export function validatePersonalExamDraft(draft: PersonalExamDraft): PersonalExamDraftErrors {
   const errors: PersonalExamDraftErrors = {};
-  if (!cleanText(draft.title)) errors.title = "Sınav adı zorunludur.";
+  if (!cleanText(draft.title)) errors.title = "Etkinlik adı zorunludur.";
   if (!draft.date || !validDateOnly(draft.date)) errors.date = "Tarihi sistem seçicisinden seç.";
   if (!draft.time || !/^([01]\d|2[0-3]):[0-5]\d$/u.test(draft.time)) {
     errors.time = "Saati sistem seçicisinden seç.";
@@ -456,6 +500,10 @@ export function composePersonalExamTimestamp(draft: PersonalExamDraft): string |
   } catch {
     return null;
   }
+}
+
+export function personalCalendarKindLabel(kind: PersonalCalendarKind): string {
+  return PERSONAL_CALENDAR_KIND_OPTIONS.find((option) => option.value === kind)?.label ?? "Kişisel etkinlik";
 }
 
 export function selectionDateFromDraft(draft: PersonalExamDraft, fallback = new Date()): Date {

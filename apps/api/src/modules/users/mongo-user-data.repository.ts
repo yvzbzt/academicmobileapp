@@ -88,6 +88,12 @@ export class MongoUserDataRepository implements UserDataRepository {
     return documents.map((document) => toFollowedAcademicScopeRecord(document));
   }
 
+  async deleteFollowedAcademicScopeById(userId: string, id: string): Promise<boolean> {
+    const result = await (await this.model("FollowedAcademicScope", followedAcademicScopeSchema))
+      .deleteOne({ _id: id, userId });
+    return result.deletedCount > 0;
+  }
+
   async deleteUserData(userId: string): Promise<void> {
     await (await this.model("AcademicUnitSuggestion", academicUnitSuggestionSchema)).deleteMany({ userId });
     await (await this.model("FollowedAcademicScope", followedAcademicScopeSchema)).deleteMany({ userId });

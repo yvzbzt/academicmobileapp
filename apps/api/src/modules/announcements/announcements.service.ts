@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException, Optional } 
 import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
+import type { UserDataRepository } from "../users/user-data.types.js";
 import { AnnouncementIngestionService, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
 import { academicContentLogicalIdentityKey, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
 import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, SavedAnnouncementStatus } from "./announcements.types.js";
@@ -14,7 +15,8 @@ export class AnnouncementsService {
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
     @Optional() @Inject("CatalogRepository") _catalogRepository?: CatalogRepository,
     @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService,
-    @Optional() @Inject(NotificationSchedulingService) _notificationSchedulingService?: NotificationSchedulingService
+    @Optional() @Inject(NotificationSchedulingService) _notificationSchedulingService?: NotificationSchedulingService,
+    @Optional() @Inject("UserDataRepository") private readonly userDataRepository?: Pick<UserDataRepository, "listFollowedAcademicScopesByUserId">
   ) {}
 
   async getMyAnnouncements(userId: string, limit = 20): Promise<TrustedAcademicContentDto[]> {
@@ -24,16 +26,21 @@ export class AnnouncementsService {
   async getMyAnnouncementsCollection(userId: string, limit = 20): Promise<TrustedAcademicContentCollectionDto> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
-    if (!user.universityId) throw new BadRequestException("User must select a university first.");
-
-    const scopeInput = {
-      universityId: user.universityId,
-      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
-      ...(user.departmentId ? { departmentId: user.departmentId } : {})
-    };
+    const scopes = await this.academicScopesForUser(userId, user);
+    if (scopes.length === 0) throw new BadRequestException("User must select a university first.");
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
     await this.announcementIngestionService?.ensureStaticAnnouncementSources();
-    const sources = await this.announcementRepository.listSourcesByScope(scopeInput);
+    const scopeResults = await Promise.all(scopes.map(async (scope) => {
+      const sources = await this.announcementRepository.listSourcesByScope(scope);
+      const items = sources.length === 0
+        ? []
+        : await this.announcementRepository.listItemsByScope({
+          ...scope,
+          limit: Math.max(boundedLimit * 3, 100)
+        });
+      return { sources, items };
+    }));
+    const sources = uniqueSources(scopeResults.flatMap((result) => result.sources));
     if (sources.length === 0) {
       // Source discovery probes multiple external candidates and belongs to the
       // scheduled/admin ingestion path. A student feed read must stay bounded
@@ -41,7 +48,7 @@ export class AnnouncementsService {
       return toContentCollection([], 0, 0);
     }
 
-    const cachedItems = await this.announcementRepository.listItemsByScope({ ...scopeInput, limit: Math.max(boundedLimit * 4, 100) });
+    const cachedItems = scopeResults.flatMap((result) => result.items);
     const presentedItems = markExpiredAnnouncementItems(cachedItems);
     return toContentCollection(
       presentTrustedItems(presentedItems, sources).slice(0, boundedLimit),
@@ -53,20 +60,16 @@ export class AnnouncementsService {
   async getMyTrustedAnnouncement(userId: string, announcementId: string): Promise<TrustedAcademicContentDto> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
-    const userScope = user.universityId ? {
-      universityId: user.universityId,
-      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
-      ...(user.departmentId ? { departmentId: user.departmentId } : {})
-    } : undefined;
-    const match = (userScope
-      ? await this.announcementRepository.findTrustedItemByIdInScope({ announcementId, ...userScope })
-      : null)
+    const userScopes = await this.academicScopesForUser(userId, user);
+    const scopedMatches = await Promise.all(userScopes.map((scope) =>
+      this.announcementRepository.findTrustedItemByIdInScope({ announcementId, ...scope })));
+    const match = scopedMatches.find((candidate) => candidate !== null)
       ?? await this.announcementRepository.findTrustedItemByIdInScope({
         announcementId,
         universityId: YOK_ANNOUNCEMENT_SCOPE_ID
       });
     if (!match) {
-      if (!userScope) throw new BadRequestException("User must select a university first.");
+      if (userScopes.length === 0) throw new BadRequestException("User must select a university first.");
       throw new NotFoundException("Trusted announcement not found.");
     }
     const presented = toTrustedAcademicContentDto(match.item, match.source);
@@ -75,7 +78,8 @@ export class AnnouncementsService {
     const presentationScope = match.source.scopeType === "university"
       && match.source.scopeId === YOK_ANNOUNCEMENT_SCOPE_ID
       ? { universityId: YOK_ANNOUNCEMENT_SCOPE_ID }
-      : userScope!;
+      : userScopes.find((scope) => scopeContainsSource(scope, match.source))
+        ?? scopeForSource(match.source);
     const sources = await this.announcementRepository.listSourcesByScope(presentationScope);
     const scopedItems = await this.announcementRepository.listItemsByScope({
       ...presentationScope,
@@ -144,6 +148,57 @@ export class AnnouncementsService {
     if (!await this.authRepository.findUserById(userId)) throw new NotFoundException("User not found.");
   }
 
+  private async academicScopesForUser(
+    userId: string,
+    user: { universityId?: string; facultyId?: string; departmentId?: string }
+  ): Promise<AnnouncementScopeInput[]> {
+    const primary = user.universityId ? [{
+      universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {})
+    }] : [];
+    const followed = this.userDataRepository
+      ? await this.userDataRepository.listFollowedAcademicScopesByUserId(userId)
+      : [];
+    return uniqueScopes([
+      ...primary,
+      ...followed.map((scope) => ({
+        universityId: scope.universityId,
+        ...(scope.facultyId ? { facultyId: scope.facultyId } : {}),
+        ...(scope.departmentId ? { departmentId: scope.departmentId } : {})
+      }))
+    ]);
+  }
+
+}
+
+type AnnouncementScopeInput = {
+  universityId: string;
+  facultyId?: string;
+  departmentId?: string;
+};
+
+function uniqueScopes(scopes: readonly AnnouncementScopeInput[]): AnnouncementScopeInput[] {
+  return [...new Map(scopes.map((scope) => [
+    [scope.universityId, scope.facultyId ?? "", scope.departmentId ?? ""].join("\u0000"),
+    scope
+  ])).values()];
+}
+
+function uniqueSources(sources: readonly AnnouncementSourceRecord[]): AnnouncementSourceRecord[] {
+  return [...new Map(sources.map((source) => [source.id, source])).values()];
+}
+
+function scopeContainsSource(scope: AnnouncementScopeInput, source: AnnouncementSourceRecord): boolean {
+  if (source.scopeType === "university") return source.scopeId === scope.universityId;
+  if (source.scopeType === "faculty") return source.scopeId === scope.facultyId;
+  return source.scopeId === scope.departmentId;
+}
+
+function scopeForSource(source: AnnouncementSourceRecord): AnnouncementScopeInput {
+  if (source.scopeType === "university") return { universityId: source.scopeId };
+  if (source.scopeType === "faculty") return { universityId: "*", facultyId: source.scopeId };
+  return { universityId: "*", departmentId: source.scopeId };
 }
 
 function presentTrustedItems(items: AnnouncementItem[], sources: AnnouncementSourceRecord[]): TrustedAcademicContentDto[] {

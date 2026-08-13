@@ -91,6 +91,7 @@ export function SelectField<Value extends string = string>({
   const [focused, setFocused] = useState(false);
   const triggerRef = useRef<View>(null);
   const searchInputRef = useRef<TextInput>(null);
+  const optionListRef = useRef<FlatList<SelectFieldOption<Value>>>(null);
   const triggerNativeTagRef = useRef<number | null>(null);
   const restoreFocusAfterDismissRef = useRef(false);
   const generatedId = useId();
@@ -142,10 +143,13 @@ export function SelectField<Value extends string = string>({
   }, [focusOnError, focusOnErrorKey]);
 
   useEffect(() => {
-    if (!open || !searchable || Platform.OS !== "android") return;
-    const blurTimer = setTimeout(() => searchInputRef.current?.blur(), 150);
-    return () => clearTimeout(blurTimer);
-  }, [open, searchable]);
+    if (!open || !searchable) return;
+    const focusTimer = setTimeout(() => {
+      searchInputRef.current?.focus();
+      optionListRef.current?.scrollToOffset({ animated: false, offset: 0 });
+    }, Platform.OS === "android" ? 180 : 80);
+    return () => clearTimeout(focusTimer);
+  }, [open, options, searchable]);
 
   function updateOpen(nextOpen: boolean) {
     setOpen(nextOpen);
@@ -336,6 +340,8 @@ export function SelectField<Value extends string = string>({
               accessibilityRole="search"
               autoCapitalize="none"
               autoCorrect={false}
+              autoFocus
+              blurOnSubmit={false}
               onChangeText={onSearchValueChange}
               placeholder={searchPlaceholder}
               placeholderTextColor={theme.colors.text.disabled}
@@ -352,6 +358,7 @@ export function SelectField<Value extends string = string>({
           </View>
         ) : null}
         <FlatList
+          ref={optionListRef}
           accessibilityLabel={`${label} seçenek listesi`}
           accessibilityRole="radiogroup"
           contentContainerStyle={[
@@ -361,7 +368,7 @@ export function SelectField<Value extends string = string>({
           data={options}
           initialNumToRender={12}
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           keyExtractor={(option) => option.value}
           ListEmptyComponent={(
             <Text
@@ -478,6 +485,7 @@ const styles = StyleSheet.create({
   },
   sheetSearchFrame: {
     borderWidth: 1,
+    flexShrink: 0,
   },
   sheetSearchInput: {
     minHeight: 48,
@@ -487,7 +495,9 @@ const styles = StyleSheet.create({
     paddingBottom: 1,
   },
   optionList: {
+    flexShrink: 1,
     maxHeight: 420,
+    minHeight: 0,
   },
   option: {
     alignItems: "center",

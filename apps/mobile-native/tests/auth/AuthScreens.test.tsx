@@ -277,9 +277,9 @@ describe("Phase 6 rendered authentication screens", () => {
       await renderAuth(<LoginScreen {...loginProps()} />);
 
       expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 844 });
-      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 844 * 0.28 });
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 168 });
       expect(screen.getByTestId("login-form-sheet")).toHaveStyle({ flex: 1 });
-      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 32, lineHeight: 38 });
+      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 28, lineHeight: 34 });
       expect(screen.getByTestId("google-color-mark", { includeHiddenElements: true })).toBeOnTheScreen();
       expect(screen.queryByText("E-postamı doğrula")).toBeNull();
     });
@@ -288,24 +288,24 @@ describe("Phase 6 rendered authentication screens", () => {
       await renderAuth(<LoginScreen {...loginProps()} />, {}, { width: 320, height: 568 });
 
       expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 568 });
-      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 124.96 });
-      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 26, lineHeight: 31 });
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 96.56 });
+      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 24, lineHeight: 29 });
       expect(screen.getByTestId("login-form-sheet")).toBeVisible();
       expect(screen.getByRole("button", { name: "Şifremi unuttum" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
     });
 
     it.each([
-      [568, 124.96, true],
-      [640, 160, true],
-      [932, 260, false],
-      [1280, 260, false],
+      [568, 96.56, true],
+      [640, 121.6, true],
+      [932, 168, false],
+      [1280, 168, false],
     ])("resolves a bounded one-page layout for a %ipx safe height", (height, heroHeight, compact) => {
       const layout = resolveLoginViewportLayout(height);
 
       expect(layout.heroHeight).toBe(heroHeight);
       expect(layout.compact).toBe(compact);
-      expect(layout.heroHeight - layout.overlap).toBeLessThan(height);
+      expect(layout.heroHeight).toBeLessThan(height);
       expect(layout.sheetPadding).toBeGreaterThanOrEqual(8);
     });
 
@@ -920,7 +920,7 @@ describe("Phase 6 rendered authentication screens", () => {
       </SafeAreaProvider>,
     );
 
-    const title = screen.getByRole("header", { name: "Akademik Takvim" });
+    const title = screen.getByRole("header", { name: "Hesabını oluştur" });
     expect(title).not.toHaveProp("numberOfLines");
     expect(screen.getByLabelText("Ad soyad")).toBeVisible();
     expect(screen.getByLabelText("E-posta adresi")).toBeVisible();

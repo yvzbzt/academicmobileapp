@@ -2,13 +2,6 @@ import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  useFonts,
-} from "@expo-google-fonts/inter";
-import {
   GoogleSignin,
   isCancelledResponse,
   isErrorWithCode,
@@ -193,6 +186,10 @@ import {
   ProfileOverviewScreen
 } from "./src/profile/ProfileSettings";
 import {
+  FollowedUniversitiesSettingsScreen,
+  type FollowedUniversityRecord,
+} from "./src/profile/FollowedUniversitiesSettings";
+import {
   ProfileSettingsPreview,
   type ProfileSettingsPreviewScenario
 } from "./src/profile/ProfileSettingsPreview";
@@ -234,6 +231,7 @@ import {
   type PersonalExamMutationInput,
   type PersonalExamMutationResult
 } from "./src/calendar/personal-exam-runtime";
+import { PersonalCalendarReminderCoordinator } from "./src/calendar/personal-calendar-reminders";
 import {
   CalendarPreview,
   type CalendarPreviewScenario
@@ -307,6 +305,7 @@ const AUTHENTICATED_ROUTE_NAMES = new Set<AppVisibleRoute>([
   "CalendarEventDetail",
   "Profile",
   "AcademicProfileSettings",
+  "FollowedUniversitiesSettings",
   "NotificationSettings",
   "GoogleCalendarSettings",
   "AccountDataSettings",
@@ -349,6 +348,7 @@ function routeBelongsToLegacyTab(route: AppVisibleRoute, tab: TabId): boolean {
     case "profile":
       return route === "Profile"
         || route === "AcademicProfileSettings"
+        || route === "FollowedUniversitiesSettings"
         || route === "NotificationSettings"
         || route === "GoogleCalendarSettings"
         || route === "AccountDataSettings";
@@ -385,6 +385,7 @@ function navigationTargetForProtectedRoute(route: ProtectedAppRoute): {
       };
     case "Profile":
     case "AcademicProfileSettings":
+    case "FollowedUniversitiesSettings":
     case "NotificationSettings":
     case "GoogleCalendarSettings":
     case "AccountDataSettings":
@@ -504,6 +505,13 @@ type CalendarPayload = {
   sourceStatus?: "parsed" | "source_only";
 };
 
+type DepartmentSchedulePayload = {
+  profile: { universityId: string; facultyId?: string; departmentId?: string };
+  events: EventRecord[];
+  sourceUrl?: string;
+  sourceStatus: "parsed" | "source_only" | "missing";
+};
+
 type LegacyGoogleCalendarConnectionRecord = {
   ownerId: string;
   accountEmail: string;
@@ -595,8 +603,8 @@ const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
 const GOOGLE_CALENDAR_V2_STORAGE_PREFIX = "native_google_calendar_connection_v2";
 const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v3";
 // Sourced from app.json; kept visible here so Profile never reports a package-only placeholder.
-const NATIVE_APP_VERSION = "0.1.3";
-const NATIVE_ANDROID_BUILD_NUMBER = 14;
+const NATIVE_APP_VERSION = "0.1.4";
+const NATIVE_ANDROID_BUILD_NUMBER = 15;
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -1107,7 +1115,7 @@ function cleanupTargetLabel(target: AccountCleanupTarget): string {
     session_storage: "cihaz oturumu",
     pending_verification_storage: "doğrulama kurtarma kaydı",
     pending_notification_storage: "bekleyen bildirim hedefi",
-    manual_exam_storage: "kişisel sınav kaydı",
+    manual_exam_storage: "kişisel takvim kaydı",
     google_connection_storage: "Google Takvim bağlantı kaydı",
     google_managed_events: "Google Takvim'e eklenen uygulama kayıtları",
     google_access: "Google erişim izni",
@@ -1294,11 +1302,14 @@ function MainApplication() {
   const [faculties, setFaculties] = useState<Loadable<FacultyRecord[]>>({ loading: false });
   const [departments, setDepartments] = useState<Loadable<DepartmentRecord[]>>({ loading: false });
   const [calendar, setCalendar] = useState<Loadable<CalendarPayload>>({ loading: false });
+  const [courseSchedule, setCourseSchedule] = useState<Loadable<DepartmentSchedulePayload>>({ loading: false });
   const [upcoming, setUpcoming] = useState<Loadable<EventRecord[]>>({ loading: false });
   const [announcements, setAnnouncements] = useState<Loadable<TrustedContentCollection>>({ loading: false });
   const [yokAnnouncements, setYokAnnouncements] = useState<Loadable<TrustedContentCollection>>({ loading: false });
   const [summerSchool, setSummerSchool] = useState<Loadable<SummerSchoolPayload>>({ loading: false });
   const [preferences, setPreferences] = useState<Loadable<NotificationPreferencePayload>>({ loading: false });
+  const [followedUniversities, setFollowedUniversities] = useState<Loadable<FollowedUniversityRecord[]>>({ loading: false });
+  const [followedUniversityBusyId, setFollowedUniversityBusyId] = useState<string | undefined>();
   const [manualExamState, setManualExamState] = useState<PersonalExamRuntimeState>({
     ownerId: null,
     hydrated: false,
@@ -1444,11 +1455,20 @@ function MainApplication() {
           failedTargets: ["manual_exam_storage"],
           ownerId
         });
-        setMessage({ text: "Sınavlar cihazda saklanamadı. Lütfen tekrar dene.", tone: "error" });
+        setMessage({ text: "Kişisel takvim cihazda saklanamadı. Lütfen tekrar dene.", tone: "error" });
       }
     });
   }
   const personalExamRuntime = personalExamRuntimeRef.current;
+  const personalCalendarReminderCoordinatorRef = useRef<PersonalCalendarReminderCoordinator | null>(null);
+  if (!personalCalendarReminderCoordinatorRef.current) {
+    personalCalendarReminderCoordinatorRef.current = new PersonalCalendarReminderCoordinator({
+      getItemAsync: getStoredValue,
+      setItemAsync: (key, value) => enqueueStorageMutation(() => setStoredValue(key, value)),
+      deleteItemAsync: (key) => enqueueStorageMutation(() => deleteStoredValue(key)),
+    });
+  }
+  const personalCalendarReminderCoordinator = personalCalendarReminderCoordinatorRef.current;
 
   const accessToken = session?.accessToken;
   const availableRecentAuthMethods = recentAuthenticationMethods(
@@ -1481,8 +1501,11 @@ function MainApplication() {
     [calendar.data?.events]
   );
   const universityAcademicCalendarEvents = useMemo(
-    () => selectUniversityAcademicCalendarEvents(calendar.data?.events ?? []),
-    [calendar.data?.events]
+    () => [
+      ...selectUniversityAcademicCalendarEvents(calendar.data?.events ?? []),
+      ...(courseSchedule.data?.events ?? [])
+    ],
+    [calendar.data?.events, courseSchedule.data?.events]
   );
   const summerSchoolAnnouncements = useMemo(
     () => normalizeTrustedContentCollection([
@@ -1900,6 +1923,7 @@ function MainApplication() {
     let destinationTitle: string | undefined;
     let destinationAnnouncement: AnnouncementRecord | undefined;
     let destinationCalendarEvent: EventRecord | undefined;
+    let destinationPersonalCalendarItem: Parameters<typeof buildCalendarItems>[0]["personalExams"][number] | undefined;
     const resolution = await resolveNotificationDestination({
       record,
       currentOwner: { ownerId: ownerSnapshot.ownerId, generation: ownerSnapshot.generation },
@@ -1909,6 +1933,18 @@ function MainApplication() {
       },
       isAvailable: async (destination) => {
         if (destination.type === "calendar_event") {
+          if (destination.id.startsWith("personal:")) {
+            const personalId = destination.id.slice("personal:".length);
+            const personalState = personalExamRuntime.getSnapshot();
+            const match = personalState.ownerId === ownerSnapshot.ownerId && personalState.hydrated
+              ? personalState.exams.find((item) => item.id === personalId)
+              : undefined;
+            if (match) {
+              destinationTitle = match.title;
+              destinationPersonalCalendarItem = match;
+            }
+            return Boolean(match);
+          }
           let payload: EventRecord;
           try {
             payload = await apiRequest<EventRecord>(
@@ -2030,7 +2066,13 @@ function MainApplication() {
       } else if (resolution.destination.type === "calendar_event") {
         announcementDetailRequestGenerationRef.current += 1;
         setAnnouncementDetailLoad(null);
-        const detailItem = destinationCalendarEvent
+        const detailItem = destinationPersonalCalendarItem
+          ? buildCalendarItems({
+              academicEvents: [],
+              personalExams: [destinationPersonalCalendarItem],
+              academicSourceLabel: "Kişisel takvim"
+            })[0]
+          : destinationCalendarEvent
           ? buildCalendarItems({
             academicEvents: [destinationCalendarEvent],
             personalExams: [],
@@ -2664,6 +2706,8 @@ function MainApplication() {
 
   async function hydrateApplication(): Promise<void> {
     if (hydrationInProgressRef.current) return;
+    const hydrationDiagnosticStartedAt = Date.now();
+    runtimeDiagnostic("bootstrap.start");
     hydrationInProgressRef.current = true;
     setHydrationStatus("loading");
     setPreloginWelcomeGate("loading");
@@ -2675,6 +2719,10 @@ function MainApplication() {
         getStoredValue(PRELOGIN_WELCOME_COMPLETION_STORAGE_KEY),
         getStoredValue(SESSION_STORAGE_KEY),
       ]);
+      runtimeDiagnostic("bootstrap.storage_ready", {
+        elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+        hasStoredSession: Boolean(storedSessionValue),
+      });
       const resolvedWelcomeGate = resolvePreloginWelcomeGate({
         storedCompletion: storedWelcomeCompletion,
         storedSession: storedSessionValue,
@@ -2692,56 +2740,18 @@ function MainApplication() {
       const recoverableTargets: AccountCleanupTarget[] = [];
 
       if (restoredSession) {
-        const storedSession = restoredSession;
-        const snapshot = accountGuardRef.current.activate(storedSession.user.id);
+        const snapshot = accountGuardRef.current.activate(restoredSession.user.id);
         setSessionOwner(snapshot);
-        googleLifecycleGuardRef.current.activate(storedSession.user.id);
-        try {
-          const refreshedSession = await apiRequest<SessionPayload>(
-            "/auth/refresh-token",
-            {
-              method: "POST",
-              body: JSON.stringify({
-                refreshToken: storedSession.refreshToken,
-                deviceId: deviceIdRef.current
-              })
-            },
-            undefined,
-            {
-              skipAuthRefresh: true,
-              authOperation: "refresh_session",
-              ownerSnapshot: snapshot
-            }
-          );
-          if (refreshedSession.user.id !== storedSession.user.id) {
-            await persistSession(null);
-            accountGuardRef.current.invalidate();
-            clearAuthenticatedMemory();
-            restoredSession = null;
-            setMessage({ text: "Kayıtlı oturum bu hesapla eşleşmedi. Lütfen tekrar giriş yap.", tone: "error" });
-          } else {
-            await persistSession(refreshedSession);
-            sessionRef.current = refreshedSession;
-            notificationCoordinatorOwnerTokenRef.current = refreshedSession;
-            setSession(refreshedSession);
-            setActiveTab("home");
-            setActiveRoute("Home");
-            restoredSession = refreshedSession;
-          }
-        } catch (error) {
-          if (
-            error instanceof ApiRequestError
-            && (error.code === "session_expired" || error.code === "disabled_account")
-          ) {
-            await persistSession(null);
-            accountGuardRef.current.invalidate();
-            clearAuthenticatedMemory();
-            restoredSession = null;
-            setMessage({ text: error.message, tone: "info" });
-          } else {
-            throw error;
-          }
-        }
+        googleLifecycleGuardRef.current.activate(restoredSession.user.id);
+        sessionRef.current = restoredSession;
+        notificationCoordinatorOwnerTokenRef.current = restoredSession;
+        setAccountAuthProvider(normalizeAccountAuthProvider(restoredSession.user.authProvider));
+        setSession(restoredSession);
+        setActiveTab("home");
+        setActiveRoute("Home");
+        runtimeDiagnostic("bootstrap.session_restored", {
+          elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+        });
       }
 
       let authenticatedContextReady: boolean | null = null;
@@ -2767,6 +2777,10 @@ function MainApplication() {
           ]),
         ]);
         authenticatedContextReady = contextReady;
+        runtimeDiagnostic("bootstrap.profile_ready", {
+          elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+          ready: contextReady,
+        });
       } else {
         accountGuardRef.current.invalidate();
         setSessionOwner(null);
@@ -2809,7 +2823,7 @@ function MainApplication() {
             return;
           }
           if (accountGuardRef.current.isCurrent(snapshot)) {
-            await restorePendingNotificationForSession(restoredSession, snapshot).catch(() => {
+            void restorePendingNotificationForSession(restoredSession, snapshot).catch(() => {
               recoverableTargets.push("pending_notification_storage");
             });
           }
@@ -2820,7 +2834,14 @@ function MainApplication() {
         void loadUniversities();
       }
       setHydrationStatus("ready");
-    } catch {
+      runtimeDiagnostic("bootstrap.ready", {
+        elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+      });
+    } catch (error) {
+      runtimeDiagnostic("bootstrap.failure", {
+        elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+        errorType: error instanceof Error ? error.name : "unknown",
+      });
       abortAuthenticatedRequests();
       accountGuardRef.current.invalidate();
       setSessionOwner(null);
@@ -2902,9 +2923,14 @@ function MainApplication() {
     if (!snapshot) throw new StaleAccountRequestError();
     try {
       const result = await personalExamRuntime.hydrate(ownerId, snapshot);
+      const restoredItems = personalExamRuntime.getSnapshot().exams;
+      void personalCalendarReminderCoordinator.reconcile(ownerId, restoredItems).catch(() => {
+        if (!accountGuardRef.current.isCurrent(snapshot)) return;
+        setMessage({ text: "Kişisel takvim hatırlatmaları yenilenemedi.", tone: "error" });
+      });
       if (result.legacyDiscarded) {
         setMessage({
-          text: "Sahibi doğrulanamayan eski cihaz sınavları güvenlik için bu hesaba aktarılmadı.",
+          text: "Sahibi doğrulanamayan eski kişisel takvim kayıtları bu hesaba aktarılmadı.",
           tone: "info"
         });
       }
@@ -3590,7 +3616,9 @@ function MainApplication() {
         const contentWarmups = profileUniversityId
           ? [
               loadMyCalendar(token, ownerSnapshot),
-              loadUpcoming(token, ownerSnapshot)
+              loadCourseSchedule(token, ownerSnapshot),
+              loadUpcoming(token, ownerSnapshot),
+              loadFollowedUniversities(token, ownerSnapshot)
             ]
           : [];
 
@@ -3635,7 +3663,10 @@ function MainApplication() {
     setAcademicProfileSaveState("idle");
     setAcademicProfileSaveError(undefined);
     setAuthStage(profileUniversityId ? "auth" : "academic_onboarding");
-    warmAuthenticatedContext(token, profileUniversityId, ownerSnapshot);
+    const activeToken = sessionRef.current?.user.id === ownerSnapshot.ownerId
+      ? sessionRef.current.accessToken
+      : token;
+    warmAuthenticatedContext(activeToken, profileUniversityId, ownerSnapshot);
     return accountGuardRef.current.isCurrent(ownerSnapshot);
   }
 
@@ -4425,11 +4456,14 @@ function MainApplication() {
   }
 
   async function detachNotificationOwnerForCleanup(): Promise<void> {
+    const ownerId = sessionRef.current?.user.id;
     const coordinator = notificationCoordinatorRef.current;
-    if (!coordinator || !coordinator.getState().ownerId) return;
-    const detached = await coordinator.detachCurrentOwner();
-    if (detached.registration === "error") throw new Error("DEVICE_DETACH_FAILED");
-    await coordinator.clearOwner();
+    if (coordinator?.getState().ownerId) {
+      const detached = await coordinator.detachCurrentOwner();
+      if (detached.registration === "error") throw new Error("DEVICE_DETACH_FAILED");
+      await coordinator.clearOwner();
+    }
+    if (ownerId) await personalCalendarReminderCoordinator.cancelOwner(ownerId);
   }
 
   async function handleLogout(): Promise<void> {
@@ -4535,7 +4569,10 @@ function MainApplication() {
     setRegisterPicker("none");
     setFaculties({ loading: false, data: [] });
     setDepartments({ loading: false, data: [] });
+    setFollowedUniversities({ loading: false });
+    setFollowedUniversityBusyId(undefined);
     setCalendar({ loading: false });
+    setCourseSchedule({ loading: false });
     setUpcoming({ loading: false });
     setAnnouncements({ loading: false });
     setYokAnnouncements({ loading: false });
@@ -4680,7 +4717,10 @@ function MainApplication() {
               if (!currentSnapshot || !accountGuardRef.current.isCurrent(currentSnapshot)) throw new StaleAccountRequestError();
               if (!await personalExamRuntime.persistCurrent(currentSnapshot)) throw new StaleAccountRequestError();
             } else {
-              await enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(issue.ownerId as string)));
+              await Promise.all([
+                enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(issue.ownerId as string))),
+                personalCalendarReminderCoordinator.cancelOwner(issue.ownerId as string)
+              ]);
             }
           } else if (target === "pending_notification_storage") {
             await persistPendingNotificationDestination(null);
@@ -4915,9 +4955,10 @@ function MainApplication() {
         },
         {
           target: "manual_exam_storage",
-          run: () => enqueueStorageMutation(
-            () => deleteStoredValue(createManualExamStorageKey(currentSession.user.id))
-          )
+          run: () => Promise.all([
+            enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(currentSession.user.id))),
+            personalCalendarReminderCoordinator.cancelOwner(currentSession.user.id)
+          ]).then(() => undefined)
         },
         {
           target: "google_connection_storage",
@@ -5032,7 +5073,10 @@ function MainApplication() {
       },
       {
         target: "manual_exam_storage",
-        run: () => enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(ownerId)))
+        run: () => Promise.all([
+          enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(ownerId))),
+          personalCalendarReminderCoordinator.cancelOwner(ownerId)
+        ]).then(() => undefined)
       },
       {
         target: "google_connection_storage",
@@ -5152,6 +5196,7 @@ function MainApplication() {
 
       void Promise.allSettled([
         loadMyCalendar(accessToken),
+        loadCourseSchedule(accessToken),
         loadUpcoming(accessToken),
         loadPreferences(accessToken)
       ]);
@@ -5262,6 +5307,23 @@ function MainApplication() {
       setCalendar,
       () => apiRequest<CalendarPayload>("/calendar/my", {}, token, { ownerSnapshot })
         .then(normalizeCalendarPayloadForDisplay),
+      ownerSnapshot,
+      preserveDataOnRefresh
+    );
+  }
+
+  async function loadCourseSchedule(
+    tokenOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = tokenOverride === undefined
+  ): Promise<void> {
+    const token = tokenOverride ?? accessToken;
+    if (!token) return;
+
+    await withLoadable(
+      setCourseSchedule,
+      () => apiRequest<DepartmentSchedulePayload>("/calendar/my/course-schedules", {}, token, { ownerSnapshot })
+        .then((payload) => ({ ...payload, events: normalizeEventRecordsForDisplay(payload.events) })),
       ownerSnapshot,
       preserveDataOnRefresh
     );
@@ -5613,6 +5675,84 @@ function MainApplication() {
       if (notificationReconcilePromiseRef.current?.operation === operation) {
         notificationReconcilePromiseRef.current = null;
       }
+    }
+  }
+
+  async function loadFollowedUniversities(
+    tokenOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = tokenOverride === undefined
+  ): Promise<void> {
+    const token = tokenOverride ?? accessToken;
+    if (!token) return;
+
+    await withLoadable(
+      setFollowedUniversities,
+      () => apiRequest<FollowedUniversityRecord[]>("/me/follows", {}, token, { ownerSnapshot }),
+      ownerSnapshot,
+      preserveDataOnRefresh
+    );
+  }
+
+  async function toggleFollowedUniversity(universityId: string, shouldFollow: boolean): Promise<void> {
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot || followedUniversityBusyId) return;
+
+    const existing = (followedUniversities.data ?? []).find(
+      (scope) => scope.universityId === universityId && !scope.facultyId && !scope.departmentId
+    );
+    if (shouldFollow === Boolean(existing)) return;
+
+    setFollowedUniversityBusyId(universityId);
+    try {
+      if (shouldFollow) {
+        const created = await trackAuthenticatedMutation(() => apiRequest<FollowedUniversityRecord>(
+          "/me/follows",
+          { method: "POST", body: JSON.stringify({ universityId }) },
+          currentSession.accessToken,
+          { ownerSnapshot }
+        ));
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+        setFollowedUniversities((previous) => ({
+          loading: false,
+          attempted: true,
+          stale: false,
+          data: [...(previous.data ?? []).filter((scope) => scope.id !== created.id), created]
+        }));
+      } else if (existing) {
+        await trackAuthenticatedMutation(() => apiRequest<{ id: string; removed: true }>(
+          `/me/follows/${encodeURIComponent(existing.id)}`,
+          { method: "DELETE" },
+          currentSession.accessToken,
+          { ownerSnapshot }
+        ));
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+        setFollowedUniversities((previous) => ({
+          loading: false,
+          attempted: true,
+          stale: false,
+          data: (previous.data ?? []).filter((scope) => scope.id !== existing.id)
+        }));
+      }
+
+      invalidateContentFeedOwnership();
+      setMessage({
+        text: shouldFollow ? "Üniversite takibe eklendi." : "Üniversite takibi kaldırıldı.",
+        tone: "success"
+      });
+      void refreshContentFeed();
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
+      setFollowedUniversities((previous) => ({
+        ...previous,
+        loading: false,
+        attempted: true,
+        stale: previous.data !== undefined,
+        error: userMessageFromError(error, "Üniversite takibi güncellenemedi.")
+      }));
+    } finally {
+      if (accountGuardRef.current.isCurrent(ownerSnapshot)) setFollowedUniversityBusyId(undefined);
     }
   }
 
@@ -6509,10 +6649,12 @@ function MainApplication() {
 
   function createPersonalExam(input: PersonalExamMutationInput): PersonalExamMutationResult {
     const ownerSnapshot = personalExamMutationSnapshot();
-    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait kişisel takvim henüz hazır değil." };
     const result = personalExamRuntime.create(input, ownerSnapshot);
     if (!result.ok) return result;
-    setMessage({ text: "Kişisel sınav hesabının cihaz planına eklendi.", tone: "success" });
+    const created = personalExamRuntime.getSnapshot().exams.at(-1);
+    if (created) syncPersonalCalendarReminder(ownerSnapshot, created);
+    setMessage({ text: "Kişisel etkinlik takvimine eklendi.", tone: "success" });
     return result;
   }
 
@@ -6521,31 +6663,51 @@ function MainApplication() {
     input: PersonalExamMutationInput
   ): PersonalExamMutationResult {
     const ownerSnapshot = personalExamMutationSnapshot();
-    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait kişisel takvim henüz hazır değil." };
     const result = personalExamRuntime.update(id, input, ownerSnapshot);
     if (!result.ok) return result;
     const updatedExam = personalExamRuntime.getSnapshot().exams.find((exam) => exam.id === id);
+    if (updatedExam) syncPersonalCalendarReminder(ownerSnapshot, updatedExam);
+    const updatedCalendarItem = updatedExam ? buildCalendarItems({
+      academicEvents: [],
+      personalExams: [updatedExam],
+      academicSourceLabel: "Kişisel takvim"
+    })[0] : undefined;
     setActiveCalendarDetail((current) => current?.source === "personal" && current.id === id
-      && updatedExam ? {
-        ...current,
-        title: updatedExam.title,
-        startDate: updatedExam.examDate,
-        temporalKind: "timestamp"
-      }
+      && updatedCalendarItem ? updatedCalendarItem
       : current);
-    setMessage({ text: "Kişisel sınav güncellendi.", tone: "success" });
+    setMessage({ text: "Kişisel etkinlik güncellendi.", tone: "success" });
     return result;
   }
 
   function deletePersonalExam(id: string): PersonalExamMutationResult {
     const ownerSnapshot = personalExamMutationSnapshot();
-    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait kişisel takvim henüz hazır değil." };
     const result = personalExamRuntime.delete(id, ownerSnapshot);
     if (!result.ok) return result;
+    void personalCalendarReminderCoordinator.cancel(ownerSnapshot.ownerId, id);
     setActiveCalendarDetail(null);
-    setMessage({ text: "Kişisel sınav silindi.", tone: "success" });
+    setMessage({ text: "Kişisel etkinlik silindi.", tone: "success" });
     requestAppRoute("Calendar");
     return result;
+  }
+
+  function syncPersonalCalendarReminder(
+    ownerSnapshot: AccountGenerationSnapshot,
+    item: Parameters<PersonalCalendarReminderCoordinator["sync"]>[1]
+  ): void {
+    void personalCalendarReminderCoordinator.sync(ownerSnapshot.ownerId, item).then((status) => {
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      if (status === "permission_denied") {
+        setMessage({ text: "Etkinlik kaydedildi; bildirim izni kapalı olduğu için hatırlatma kurulmadı.", tone: "info" });
+      } else if (status === "past") {
+        setMessage({ text: "Etkinlik kaydedildi; seçilen hatırlatma zamanı geçmişte kaldı.", tone: "info" });
+      }
+    }).catch(() => {
+      if (accountGuardRef.current.isCurrent(ownerSnapshot)) {
+        setMessage({ text: "Etkinlik kaydedildi; hatırlatma kurulamadı.", tone: "error" });
+      }
+    });
   }
 
   function openCalendarItem(item: CalendarItem): void {
@@ -6639,10 +6801,15 @@ function MainApplication() {
         return;
       case "Profile":
       case "AcademicProfileSettings":
+      case "FollowedUniversitiesSettings":
       case "NotificationSettings":
       case "GoogleCalendarSettings":
       case "AccountDataSettings":
         setActiveTab("profile");
+        if (route === "FollowedUniversitiesSettings") {
+          if (!universities.attempted && !universities.loading) void loadUniversities();
+          if (!followedUniversities.attempted && !followedUniversities.loading) void loadFollowedUniversities();
+        }
         return;
       case "BootstrapLoading":
       case "BootstrapError":
@@ -6721,6 +6888,7 @@ function MainApplication() {
       setMessage({ text: "Akademik profil kaydedildi.", tone: "success" });
       void Promise.allSettled([
         loadMyCalendar(currentSession.accessToken, ownerSnapshot),
+        loadCourseSchedule(currentSession.accessToken, ownerSnapshot),
         loadUpcoming(currentSession.accessToken, ownerSnapshot),
         loadPreferences(currentSession.accessToken, ownerSnapshot)
       ]);
@@ -8406,7 +8574,7 @@ function MainApplication() {
       onOpenGoogleCalendarSettings={() => requestAppRoute("GoogleCalendarSettings")}
       onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
       onRefresh={() => {
-        void Promise.allSettled([loadMyCalendar(), loadUpcoming(), refreshContentFeed()]);
+        void Promise.allSettled([loadMyCalendar(), loadCourseSchedule(), loadUpcoming(), refreshContentFeed()]);
       }}
     />
   ) : null;
@@ -8558,11 +8726,11 @@ function MainApplication() {
       calendarTitle={calendar.data?.calendar.title}
       academicYear={calendar.data?.calendar.academicYear}
       universityName={selectedUniversity?.name}
-      loading={calendar.loading}
+      loading={calendar.loading || courseSchedule.loading}
       attempted={Boolean(calendar.attempted)}
       error={calendar.error}
-      stale={calendar.stale}
-      partial={calendar.data?.sourceStatus === "source_only"}
+      stale={Boolean(calendar.stale || courseSchedule.stale)}
+      partial={calendar.data?.sourceStatus === "source_only" || courseSchedule.data?.sourceStatus === "source_only"}
       google={{
         state: googleCalendarState,
         stateLabel: googleCalendarLifecycleLabel(googleCalendarState),
@@ -8579,7 +8747,7 @@ function MainApplication() {
         connected: googleCalendarLive
       }}
       feedback={calendarRouteFeedback}
-      onRefresh={() => void loadMyCalendar()}
+      onRefresh={() => void Promise.allSettled([loadMyCalendar(), loadCourseSchedule()])}
       onOpenItem={openCalendarItem}
       onCreatePersonalExam={createPersonalExam}
       onUpdatePersonalExam={updatePersonalExam}
@@ -8703,11 +8871,15 @@ function MainApplication() {
         email={email}
         error={academicProfileSummary.nameResolutionPending ? universities.error : undefined}
         fullName={fullName}
+        followedUniversityCount={(followedUniversities.data ?? []).filter(
+          (scope) => !scope.facultyId && !scope.departmentId
+        ).length}
         googleAccountEmail={googleCalendarIntegration?.accountEmail}
         googleCalendar={googleCalendarPresentation}
         loading={false}
         notificationTruth={notificationTruth}
         onOpenAcademicProfile={() => requestAppRoute("AcademicProfileSettings")}
+        onOpenFollowedUniversities={() => requestAppRoute("FollowedUniversitiesSettings")}
         onOpenAccountManagement={() => {
           setMessage(null);
           requestAppRoute("AccountDataSettings");
@@ -8715,6 +8887,7 @@ function MainApplication() {
         onOpenGoogleCalendar={() => requestAppRoute("GoogleCalendarSettings")}
         onOpenNotifications={() => requestAppRoute("NotificationSettings")}
         onRetry={() => void loadUniversities()}
+        onLogout={() => handleLogout()}
       />
     </>
   ) : null;
@@ -8762,6 +8935,23 @@ function MainApplication() {
           : undefined}
       />
     </>
+  ) : null;
+  const followedUniversitiesSettingsScreen = session ? (
+    <FollowedUniversitiesSettingsScreen
+      busyUniversityId={followedUniversityBusyId}
+      error={followedUniversities.error ?? universities.error}
+      followed={(followedUniversities.data ?? []).filter(
+        (scope) => !scope.facultyId && !scope.departmentId
+      )}
+      loading={followedUniversities.loading || universities.loading}
+      onRetry={() => {
+        void loadUniversities();
+        void loadFollowedUniversities();
+      }}
+      onToggle={toggleFollowedUniversity}
+      primaryUniversityId={selectedUniversityId || registerUniversityId}
+      universities={universities.data ?? []}
+    />
   ) : null;
   const notificationSettingsScreen = session ? (
     <>
@@ -8838,7 +9028,6 @@ function MainApplication() {
         feedback={controlledActiveRoute === "AccountDataSettings" ? message ?? undefined : undefined}
         onDeleteAccount={() => beginRecentAuthentication("account")}
         onDeleteData={() => beginRecentAuthentication("data")}
-        onLogout={() => handleLogout()}
         recentAuthentication={recentAuthenticationPanel}
         recentAuthenticationReturnFocus={recentAuthReturnFocus}
       />
@@ -8912,6 +9101,7 @@ function MainApplication() {
     CalendarEventDetail: calendarTrustedDetail,
     Profile: profileOverviewScreen,
     AcademicProfileSettings: academicProfileSettingsScreen,
+    FollowedUniversitiesSettings: followedUniversitiesSettingsScreen,
     NotificationSettings: notificationSettingsScreen,
     GoogleCalendarSettings: googleCalendarSettingsScreen,
     AccountDataSettings: accountDataSettingsScreen,
@@ -8930,6 +9120,7 @@ function MainApplication() {
             busy
             || googleBusy
             || googleCalendarBusy
+            || Boolean(followedUniversityBusyId)
             || academicProfileSaveState === "saving"
           }
           routeLeaveGuard={routeLeaveGuard}
@@ -8952,12 +9143,6 @@ function RoutedStatusBar() {
 }
 
 export default function App() {
-  const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-  });
   const showPhase10ProfilePreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW === "1";
   const showPhase9CalendarPreview = __DEV__
@@ -8972,10 +9157,6 @@ export default function App() {
     && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
-
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
 
   if (showPhase10ProfilePreview) {
     const previewTheme = process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW_THEME === "dark"

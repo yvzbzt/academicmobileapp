@@ -17,11 +17,11 @@ describe("PersonalExamEditor", () => {
     const actions = screen.getByTestId("personal-exam-actions");
 
     expect(view.UNSAFE_getAllByType(ScrollView)).toHaveLength(1);
-    expect(within(fieldScroll).getByLabelText("Sınav adı")).toBeVisible();
+    expect(within(fieldScroll).getByLabelText("Etkinlik adı")).toBeVisible();
     expect(within(fieldScroll).getByLabelText("Konum veya not")).toBeVisible();
     expect(within(fieldScroll).queryByRole("button", { name: "Vazgeç" })).toBeNull();
-    expect(within(fieldScroll).queryByRole("button", { name: "Sınavı ekle" })).toBeNull();
+    expect(within(fieldScroll).queryByRole("button", { name: "Etkinliği ekle" })).toBeNull();
     expect(within(actions).getByRole("button", { name: "Vazgeç" })).toBeVisible();
-    expect(within(actions).getByRole("button", { name: "Sınavı ekle" })).toBeVisible();
+    expect(within(actions).getByRole("button", { name: "Etkinliği ekle" })).toBeVisible();
   });
 });

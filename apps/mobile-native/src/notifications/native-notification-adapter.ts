@@ -27,7 +27,7 @@ import { lightTheme } from "../design-system/tokens";
 export const ACADEMIC_REMINDERS_CHANNEL_ID = "academic-reminders";
 export const ACADEMIC_UPDATES_CHANNEL_ID = "academic-updates";
 export const DEFAULT_NOTIFICATION_CHANNEL_ID = ACADEMIC_UPDATES_CHANNEL_ID;
-const FOREGROUND_BRIDGE_CATEGORY = "academic-phase3-foreground";
+export const FOREGROUND_BRIDGE_CATEGORY = "academic-phase3-foreground";
 
 export interface NativeNetworkState {
   connected: boolean;

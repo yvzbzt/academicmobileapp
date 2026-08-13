@@ -76,7 +76,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
   it("pushes the academic editor over Profile and returns through the real Back action", async () => {
     await renderAsync(<ProfileSettingsPreview scenario="academic-editor" />);
 
-    expect(await screen.findByRole("header", { name: "Akademik profili düzenle" })).toBeVisible();
+    expect(await screen.findByRole("header", { name: "Seçimlerini güncelle" })).toBeVisible();
     const back = await screen.findByRole("button", { name: "Geri dön" });
     expect(back).toBeEnabled();
     fireEvent.press(back);
@@ -121,8 +121,8 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     await notificationView.unmountAsync();
 
     await renderAsync(<ProfileSettingsPreview scenario="data-confirm" />);
-    expect(await screen.findByRole("header", { name: "Hesap ve veri" })).toBeVisible();
-    fireEvent.press(screen.getByRole("button", { name: "Tehlikeli alanı göster" }));
+    expect(await screen.findByRole("header", { name: "Hesap ve Veri" })).toBeVisible();
+    fireEvent.press(screen.getByRole("button", { name: "Silme seçeneklerini göster" }));
     fireEvent.press(screen.getByRole("button", { name: "Uygulama verilerimi sil" }));
     const confirmation = screen.getByTestId("bottom-sheet");
     expect(confirmation).toHaveProp("accessibilityLabel", "Uygulama verileri silinsin mi?");

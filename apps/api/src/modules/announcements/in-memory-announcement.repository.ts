@@ -32,6 +32,10 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
       .slice(input.offset ?? 0, (input.offset ?? 0) + (input.limit ?? 500));
   }
 
+  async findSourceById(id: string): Promise<AnnouncementSourceRecord | null> {
+    return this.sources.get(id) ?? null;
+  }
+
   async upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord> {
     const canonicalUrl = canonicalizeContentUrl(input.sourceUrl);
     if (!canonicalUrl || !officialDomainForUrl(canonicalUrl)) throw new Error("ANNOUNCEMENT_SOURCE_URL_NOT_OFFICIAL");
@@ -62,6 +66,14 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
     const existing = this.sources.get(id);
     if (!existing) return null;
     const updated: AnnouncementSourceRecord = { ...existing, ...input, updatedAt: new Date() };
+    this.sources.set(id, updated);
+    return updated;
+  }
+
+  async deactivateSource(id: string): Promise<AnnouncementSourceRecord | null> {
+    const existing = this.sources.get(id);
+    if (!existing) return null;
+    const updated = { ...existing, status: "inactive" as const, updatedAt: new Date() };
     this.sources.set(id, updated);
     return updated;
   }

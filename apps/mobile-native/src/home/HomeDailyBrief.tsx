@@ -4,7 +4,6 @@ import { useScrollToTop } from "@react-navigation/native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -329,13 +328,13 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 accessibilityRole="header"
                 style={[theme.typography.screenTitle, styles.greetingTitle, { color: REFERENCE_COLORS.navy }]}
               >
-                Merhaba {firstName(props.fullName)} 👋
+                Merhaba, {firstName(props.fullName)}
               </Text>
               <Text
                 numberOfLines={layout.supportsLargeText ? undefined : 1}
                 style={[theme.typography.body, styles.greetingSubtitle, { color: REFERENCE_COLORS.secondary }]}
               >
-                Bugün harika bir gün, planına sadık kal!
+                Derslerin, duyuruların ve önemli tarihlerin
               </Text>
             </View>
             <View
@@ -349,13 +348,9 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 },
               ]}
             >
-              <Image
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                resizeMode="cover"
-                source={require("../../assets/home-default-avatar.png")}
-                style={styles.avatarImage}
-              />
+              <Text style={[theme.typography.bodyStrong, { color: REFERENCE_COLORS.blueDeep }]}>
+                {initialsForName(props.fullName)}
+              </Text>
             </View>
           </View>
           {primaryState === "populated" ? (
@@ -370,48 +365,42 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
               style={({ pressed }) => [
                 styles.planHero,
                 {
-                  backgroundColor: REFERENCE_COLORS.blue,
+                  backgroundColor: theme.colors.background.surface,
+                  borderColor: theme.colors.border.subtle,
                 },
                 pressed && adaptation.pressFeedback !== "ripple" ? styles.planHeroPressed : null,
               ]}
             >
-              <Image
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                resizeMode="cover"
-                source={require("../../assets/home-exam-calendar-art.png")}
-                style={styles.heroBackgroundImage}
-                testID="home-focus-artwork"
-              />
-              {compactHero ? <View style={styles.heroReadabilityPanel} /> : null}
-              <View style={styles.heroMainRow}>
-                <View style={styles.planHeroCopy}>
-                  <View style={styles.focusPill}>
-                    <Ionicons color={REFERENCE_COLORS.white} name={heroStatusIcon} size={16} />
-                    <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.white }]}>Bugünkü Odak</Text>
-                  </View>
-                  <Text
-                    numberOfLines={2}
-                    style={[theme.typography.screenTitle, styles.heroTitle, { color: REFERENCE_COLORS.white }]}
-                  >
-                    {nextItem ? heroTitle(nextItem) : "Akademik takvimin"}
-                  </Text>
-                  <View style={styles.heroCourseRow}>
-                    <Ionicons color={REFERENCE_COLORS.white} name="book-outline" size={18} />
-                    <Text
-                      numberOfLines={1}
-                      style={[theme.typography.body, styles.heroCourse, { color: REFERENCE_COLORS.white }]}
-                    >
-                      {nextItem?.courseName ?? nextItem?.title ?? props.universityName ?? "Akademik planın"}
-                    </Text>
-                  </View>
+              <View style={styles.focusHeader}>
+                <View style={styles.focusPill}>
+                  <Ionicons color={REFERENCE_COLORS.blueDeep} name={heroStatusIcon} size={16} />
+                  <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.blueDeep }]}>Sıradaki</Text>
                 </View>
+                <Text numberOfLines={1} style={[theme.typography.meta, styles.focusStatus, { color: REFERENCE_COLORS.secondary }]}>
+                  {heroBadgeLabel}
+                </Text>
+                <Ionicons color={REFERENCE_COLORS.secondary} name="chevron-forward" size={18} />
+              </View>
+              <Text
+                numberOfLines={3}
+                style={[theme.typography.sectionTitle, styles.heroTitle, { color: REFERENCE_COLORS.navy }]}
+              >
+                {nextItem ? heroTitle(nextItem) : "Akademik takvimin"}
+              </Text>
+              <View style={styles.heroCourseRow}>
+                <Ionicons color={REFERENCE_COLORS.secondary} name="book-outline" size={17} />
+                <Text
+                  numberOfLines={2}
+                  style={[theme.typography.body, styles.heroCourse, { color: REFERENCE_COLORS.secondary }]}
+                >
+                  {nextItem?.courseName ?? nextItem?.title ?? props.universityName ?? "Akademik planın"}
+                </Text>
               </View>
               <View style={styles.heroDivider} />
               <View style={styles.heroScheduleRow}>
-                <View style={styles.countdownTile}>
+                <View style={[styles.countdownTile, { backgroundColor: theme.colors.background.subtle }]}>
                   <Text
-                    style={[theme.typography.screenTitle, styles.countdownValue, { color: REFERENCE_COLORS.blue }]}
+                    style={[theme.typography.screenTitle, styles.countdownValue, { color: REFERENCE_COLORS.navy }]}
                   >
                     {countdownParts(nextItem, clock).value}
                   </Text>
@@ -423,21 +412,21 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 </View>
                 <View style={styles.heroScheduleCopy}>
                   <View style={styles.heroScheduleLine}>
-                    <Ionicons color={REFERENCE_COLORS.white} name="calendar-outline" size={17} />
+                    <Ionicons color={REFERENCE_COLORS.blueDeep} name="calendar-outline" size={17} />
                     <Text
                       ellipsizeMode="tail"
                       numberOfLines={1}
-                      style={[theme.typography.metaStrong, styles.heroScheduleText, { color: REFERENCE_COLORS.white }]}
+                      style={[theme.typography.metaStrong, styles.heroScheduleText, { color: REFERENCE_COLORS.navy }]}
                     >
                       {nextItem ? compactTemporalDate(nextItem.date, compactHero) : "Takvimi görüntüle"}
                     </Text>
                   </View>
                   <View style={styles.heroScheduleLine}>
-                    <Ionicons color={REFERENCE_COLORS.white} name="time-outline" size={17} />
+                    <Ionicons color={REFERENCE_COLORS.blueDeep} name="time-outline" size={17} />
                     <Text
                       ellipsizeMode="tail"
                       numberOfLines={1}
-                      style={[theme.typography.metaStrong, styles.heroScheduleText, { color: REFERENCE_COLORS.white }]}
+                      style={[theme.typography.metaStrong, styles.heroScheduleText, { color: REFERENCE_COLORS.navy }]}
                     >
                       {nextItem
                         ? compactTemporalTime(nextItem.date, nextItem.temporalKind, nextItem.timezone)
@@ -652,7 +641,6 @@ function agendaIconName(item: HomeImportantItem): keyof typeof Ionicons.glyphMap
 function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
   const theme = useTheme();
   const palette = agendaPalette(event);
-  const dateParts = academicDateParts(event.date);
   const allDay = event.temporalKind === "date" || /^\d{4}-\d{2}-\d{2}$/u.test(event.date);
   const temporalLabel = formatCalendarTemporal({
     startDate: event.date,
@@ -696,20 +684,15 @@ function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
           </Text>
         ) : null}
       </View>
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[
-          styles.agendaIcon,
-          {
-            backgroundColor: palette.container,
-          },
-        ]}
-      >
-        <Ionicons color={palette.text} name={agendaIconName(event)} size={24} />
-      </View>
       <View style={styles.agendaCopy}>
+        <View style={styles.agendaMetaRow}>
+          <Ionicons color={palette.text} name={agendaIconName(event)} size={15} />
+          <Text style={[theme.typography.metaStrong, { color: palette.text }]}>
+            {agendaTypeLabel(event)}
+          </Text>
+        </View>
         <Text
+          numberOfLines={3}
           style={[theme.typography.bodyStrong, styles.agendaTitle, { color: REFERENCE_COLORS.navy }]}
         >
           {event.title}
@@ -718,21 +701,7 @@ function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
           numberOfLines={1}
           style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
         >
-          {event.location || `${dateParts.day} ${dateParts.month} · ${temporalLabel}`}
-        </Text>
-      </View>
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[
-          styles.agendaType,
-          {
-            backgroundColor: palette.container,
-          },
-        ]}
-      >
-        <Text style={[theme.typography.navLabel, { color: palette.text }]}>
-          {agendaTypeLabel(event)}
+          {event.location || temporalLabel}
         </Text>
       </View>
       <Ionicons color={referencePalette.academicMutedIcon} name="chevron-forward" size={18} />
@@ -800,7 +769,7 @@ function AnnouncementCard({
         styles.announcementCard,
         {
           borderColor: REFERENCE_COLORS.border,
-          borderRadius: 18,
+          borderRadius: 10,
           padding: 14,
         },
       ]}
@@ -815,14 +784,14 @@ function AnnouncementCard({
           <Ionicons
             color={palette.accent}
             name="shield-checkmark"
-            size={30}
+            size={22}
           />
         </View>
         <View style={styles.announcementCopy}>
           <Text
             style={[theme.typography.navLabel, styles.trustedLabel, { color: REFERENCE_COLORS.blue }]}
           >
-            GÜVENİLİR DUYURU
+            Güvenilir kaynak
           </Text>
           <Text
             style={[theme.typography.bodyStrong, styles.announcementTitle, { color: REFERENCE_COLORS.navy }]}
@@ -942,6 +911,13 @@ function firstName(fullName: string): string {
   return fullName.trim().split(/\s+/u)[0] || "öğrenci";
 }
 
+function initialsForName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/u).filter(Boolean);
+  if (parts.length === 0) return "Ö";
+  return `${parts[0]?.[0] ?? ""}${parts.length > 1 ? parts.at(-1)?.[0] ?? "" : ""}`
+    .toLocaleUpperCase("tr-TR");
+}
+
 function selectAgendaItems(
   events: readonly HomeAcademicEvent[],
   manualExams: readonly HomeManualExam[],
@@ -1008,21 +984,6 @@ function agendaPalette(item: HomeImportantItem): { container: string; text: stri
   };
 }
 
-function academicDateParts(value: string): { day: string; month: string } {
-  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
-  const date = dateOnly
-    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
-    : new Date(value);
-  if (Number.isNaN(date.getTime())) return { day: "--", month: "" };
-  return {
-    day: String(date.getDate()),
-    month: date
-      .toLocaleDateString("tr-TR", { month: "short" })
-      .replace(".", "")
-      .toLocaleUpperCase("tr-TR"),
-  };
-}
-
 function homeScopeLabel(scopeType: TrustedMobileContentRecord["scopeType"]): string {
   if (scopeType === "faculty") return "Fakülte";
   if (scopeType === "department") return "Bölüm";
@@ -1064,11 +1025,11 @@ const styles = StyleSheet.create({
   agendaCard: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.background,
-    borderRadius: 16,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 10,
-    minHeight: 76,
+    minHeight: 88,
     minWidth: 0,
     overflow: "hidden",
     paddingHorizontal: 12,
@@ -1079,12 +1040,10 @@ const styles = StyleSheet.create({
     gap: 2,
     minWidth: 0,
   },
-  agendaIcon: {
+  agendaMetaRow: {
     alignItems: "center",
-    borderRadius: 24,
-    height: 48,
-    justifyContent: "center",
-    width: 48,
+    flexDirection: "row",
+    gap: 5,
   },
   agendaList: {
     gap: 6,
@@ -1100,14 +1059,6 @@ const styles = StyleSheet.create({
   agendaTitle: {
     fontSize: 15,
     lineHeight: 20,
-  },
-  agendaType: {
-    alignItems: "center",
-    borderRadius: 9,
-    flexShrink: 0,
-    justifyContent: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 5,
   },
   announcementCard: {
     marginHorizontal: 1,
@@ -1139,10 +1090,10 @@ const styles = StyleSheet.create({
   },
   announcementSourceIcon: {
     alignItems: "center",
-    borderRadius: 14,
-    height: 72,
+    borderRadius: 8,
+    height: 44,
     justifyContent: "center",
-    width: 66,
+    width: 44,
   },
   announcementTimestamp: {
     flex: 1,
@@ -1163,10 +1114,6 @@ const styles = StyleSheet.create({
     position: "relative",
     width: 56,
   },
-  avatarImage: {
-    height: "100%",
-    width: "100%",
-  },
   briefSection: {
     gap: 10,
   },
@@ -1185,12 +1132,23 @@ const styles = StyleSheet.create({
   focusPill: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: referencePalette.whiteAlpha14,
-    borderRadius: 16,
+    backgroundColor: REFERENCE_COLORS.blueSoft,
+    borderRadius: 8,
     flexDirection: "row",
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+  focusHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    minWidth: 0,
+  },
+  focusStatus: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "right",
   },
   googleCalendarCard: {
     marginHorizontal: 1,
@@ -1218,25 +1176,6 @@ const styles = StyleSheet.create({
     fontSize: 25,
     lineHeight: 31,
   },
-  heroBackgroundImage: {
-    bottom: 0,
-    height: "100%",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: "100%",
-  },
-  heroReadabilityPanel: {
-    backgroundColor: referencePalette.academicBlueDeepAlpha18,
-    borderBottomRightRadius: 96,
-    borderTopRightRadius: 96,
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    top: 0,
-    width: "64%",
-  },
   heroCourse: {
     flex: 1,
     minWidth: 0,
@@ -1246,18 +1185,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 7,
-    maxWidth: 205,
+    maxWidth: "100%",
   },
   heroDivider: {
-    backgroundColor: referencePalette.whiteAlpha24,
+    backgroundColor: REFERENCE_COLORS.border,
     height: StyleSheet.hairlineWidth,
     marginTop: 9,
-    width: "58%",
-  },
-  heroMainRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    minHeight: 102,
     width: "100%",
   },
   heroScheduleCopy: {
@@ -1276,16 +1209,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     marginTop: 10,
-    width: "58%",
+    width: "100%",
   },
   heroScheduleText: {
     flexShrink: 1,
     minWidth: 0,
   },
   heroTitle: {
-    fontSize: 25,
-    lineHeight: 30,
-    maxWidth: 205,
+    fontSize: 20,
+    lineHeight: 26,
+    maxWidth: "100%",
   },
   homeHeader: {
     gap: 17,
@@ -1323,14 +1256,16 @@ const styles = StyleSheet.create({
     width: 10,
   },
   planHero: {
-    borderRadius: 19,
-    minHeight: 196,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+    minHeight: 168,
     overflow: "hidden",
     padding: 16,
   },
   planHeroCopy: {
     gap: 7,
-    maxWidth: "58%",
+    maxWidth: "100%",
     minWidth: 0,
     zIndex: 2,
   },

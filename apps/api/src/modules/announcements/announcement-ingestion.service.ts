@@ -1,9 +1,9 @@
-import { Inject, Injectable, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchSourceItems, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
 import { canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
-import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
+import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 export interface AnnouncementDiscoveryResult {
@@ -49,9 +49,8 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     void this.ensureStaticAnnouncementSources();
     if (process.env.ANNOUNCEMENT_AUTO_INGEST_ENABLED !== "true") return;
     const initialDelayMs = readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_INITIAL_DELAY_MS, 5000);
-    const scheduleTimes = parseDailyScheduleTimes(process.env.ANNOUNCEMENT_INGEST_SCHEDULE_TIMES ?? "08:00,12:00,18:00");
-    if (scheduleTimes.length > 0) this.scheduleNextCycle(scheduleTimes);
-    else this.timer = setInterval(() => void this.runScheduledCycle(), readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_INTERVAL_MS, 30 * 60 * 1000));
+    const schedulerTickMs = Math.max(30_000, readPositiveInteger(process.env.ANNOUNCEMENT_SCHEDULER_TICK_MS, 60_000));
+    this.timer = setInterval(() => void this.runScheduledCycle(), schedulerTickMs);
     setTimeout(() => void this.runScheduledCycle(), initialDelayMs);
   }
 
@@ -123,6 +122,74 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
   async listSources(input: { status?: "active" | "inactive"; limit?: number; offset?: number } = {}) {
     await this.ensureStaticAnnouncementSources();
     return this.announcementRepository.listAllSources(input);
+  }
+
+  async createManualSource(input: ManualAnnouncementSourceInput) {
+    const scope = await this.resolveManualScope(input);
+    const canonicalUrl = canonicalizeContentUrl(input.sourceUrl);
+    if (!canonicalUrl || !isOfficialContentUrl(canonicalUrl, scope.homepageUrl)) {
+      throw new BadRequestException("Source URL must belong to the selected university or academic unit.");
+    }
+    const source = await this.announcementRepository.upsertSource({
+      scopeType: input.scopeType,
+      scopeId: scope.scopeId,
+      sourceName: input.sourceName,
+      sourceUrl: canonicalUrl,
+      contentType: input.contentType,
+      parser: input.parser,
+      priority: input.priority,
+      status: "active",
+      homepageUrl: scope.homepageUrl,
+      discoveryMethod: "manual",
+      healthStatus: "pending",
+      consecutiveFailures: 0,
+      itemCount: 0,
+      fetchIntervalMinutes: input.fetchIntervalMinutes,
+      trustStatus: "trusted"
+    });
+    const ingestion = await this.ingestSource(source);
+    return { source: await this.announcementRepository.findSourceById(source.id) ?? source, ingestion };
+  }
+
+  async updateManualSource(id: string, input: ManualAnnouncementSourceUpdateInput) {
+    const existing = await this.announcementRepository.findSourceById(id);
+    if (!existing) throw new NotFoundException("Announcement source not found.");
+    const definedInput = Object.fromEntries(
+      Object.entries(input).filter(([, value]) => value !== undefined)
+    ) as ManualAnnouncementSourceUpdateInput;
+    const sourceUrl = canonicalizeContentUrl(input.sourceUrl ?? existing.sourceUrl);
+    const homepageUrl = existing.homepageUrl;
+    if (!sourceUrl || !homepageUrl || !isOfficialContentUrl(sourceUrl, homepageUrl)) {
+      throw new BadRequestException("Source URL must stay on the verified academic domain.");
+    }
+    const updated = await this.announcementRepository.upsertSource({
+      ...sourceInputFromRecord(existing),
+      id: existing.id,
+      ...definedInput,
+      sourceUrl,
+      homepageUrl,
+      discoveryMethod: "manual"
+    });
+    if (updated.status !== "active") {
+      await this.retireSourceNotifications(updated);
+      return { source: updated, ingestion: null };
+    }
+    const ingestion = await this.ingestSource(updated);
+    return { source: await this.announcementRepository.findSourceById(updated.id) ?? updated, ingestion };
+  }
+
+  async deactivateManualSource(id: string) {
+    const source = await this.announcementRepository.deactivateSource(id);
+    if (!source) throw new NotFoundException("Announcement source not found.");
+    await this.retireSourceNotifications(source);
+    return source;
+  }
+
+  async ingestSourceById(id: string) {
+    const source = await this.announcementRepository.findSourceById(id);
+    if (!source) throw new NotFoundException("Announcement source not found.");
+    if (source.status !== "active") throw new BadRequestException("Inactive sources cannot be ingested.");
+    return this.ingestSource(source);
   }
 
   async ensureStaticAnnouncementSources(): Promise<void> {
@@ -227,21 +294,19 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
         await this.runDiscoveryAndIngestion();
         return;
       }
-      await this.runIngestion();
+      const dueSources = activeSources.filter((source) => isSourceDue(source));
+      if (dueSources.length === 0) return;
+      await runWithConcurrency(
+        dueSources,
+        readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
+        (source) => this.ingestSource(source)
+      );
     } finally {
       this.running = false;
     }
   }
 
-  private scheduleNextCycle(scheduleTimes: number[]): void {
-    const delayMs = millisecondsUntilNextDailyRun(scheduleTimes);
-    this.timer = setTimeout(async () => {
-      await this.runScheduledCycle();
-      this.scheduleNextCycle(scheduleTimes);
-    }, delayMs);
-  }
-
-  private async ingestSource(source: AnnouncementSourceRecord): Promise<AnnouncementIngestionResult> {
+  async ingestSource(source: AnnouncementSourceRecord): Promise<AnnouncementIngestionResult> {
     const checkedAt = new Date();
     try {
       const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000));
@@ -283,6 +348,59 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
   private async listUniversities(limit: number, offset: number): Promise<UniversityRecord[]> {
     return this.catalogRepository.listUniversities({ status: "active", limit, offset });
   }
+
+  private async resolveManualScope(input: ManualAnnouncementSourceInput): Promise<{ scopeId: string; homepageUrl: string }> {
+    const university = await this.catalogRepository.findUniversityById(input.universityId);
+    if (!university || university.status !== "active" || !university.websiteUrl) {
+      throw new BadRequestException("Selected university has no verified active website.");
+    }
+    if (input.scopeType === "university") {
+      return { scopeId: university.id, homepageUrl: university.websiteUrl };
+    }
+    const faculty = (await this.catalogRepository.listFaculties(university.id, "active"))
+      .find((candidate) => candidate.id === input.facultyId);
+    if (!faculty) throw new BadRequestException("Selected faculty does not belong to the university.");
+    const facultyHomepage = faculty.websiteUrl && isOfficialContentUrl(faculty.websiteUrl, university.websiteUrl)
+      ? faculty.websiteUrl
+      : university.websiteUrl;
+    if (input.scopeType === "faculty") return { scopeId: faculty.id, homepageUrl: facultyHomepage };
+    const department = (await this.catalogRepository.listDepartments(faculty.id, "active"))
+      .find((candidate) => candidate.id === input.departmentId && candidate.universityId === university.id);
+    if (!department) throw new BadRequestException("Selected department does not belong to the faculty.");
+    const departmentHomepage = department.websiteUrl && isOfficialContentUrl(department.websiteUrl, facultyHomepage)
+      ? department.websiteUrl
+      : facultyHomepage;
+    return { scopeId: department.id, homepageUrl: departmentHomepage };
+  }
+
+  private retireSourceNotifications(source: AnnouncementSourceRecord): Promise<unknown> {
+    return this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, {
+      created: [], materiallyUpdated: [], unchanged: [], removed: []
+    }) ?? Promise.resolve();
+  }
+}
+
+export interface ManualAnnouncementSourceInput {
+  scopeType: "university" | "faculty" | "department";
+  universityId: string;
+  facultyId?: string;
+  departmentId?: string;
+  sourceName: string;
+  sourceUrl: string;
+  contentType: AnnouncementContentType;
+  parser: AnnouncementSourceParser;
+  priority: number;
+  fetchIntervalMinutes: number;
+}
+
+export interface ManualAnnouncementSourceUpdateInput {
+  sourceName?: string;
+  sourceUrl?: string;
+  contentType?: AnnouncementContentType;
+  parser?: AnnouncementSourceParser;
+  priority?: number;
+  fetchIntervalMinutes?: number;
+  status?: AnnouncementSourceStatus;
 }
 
 export async function discoverAnnouncementSourceForUniversity(university: UniversityRecord, input: { timeoutMs?: number } = {}): Promise<AnnouncementDiscoveryResult> {
@@ -815,6 +933,21 @@ async function runWithConcurrency<TInput, TOutput>(items: TInput[], concurrency:
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function isSourceDue(source: AnnouncementSourceRecord, now = new Date()): boolean {
+  if (source.status !== "active") return false;
+  if (!source.lastCheckedAt) return true;
+  const intervalMinutes = Math.min(Math.max(source.fetchIntervalMinutes ?? 180, 5), 10_080);
+  return now.getTime() - source.lastCheckedAt.getTime() >= intervalMinutes * 60_000;
+}
+
+function sourceInputFromRecord(source: AnnouncementSourceRecord) {
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...input } = source;
+  void _id;
+  void _createdAt;
+  void _updatedAt;
+  return input;
 }
 
 function parseDailyScheduleTimes(value: string): number[] {

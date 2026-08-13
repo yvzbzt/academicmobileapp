@@ -64,6 +64,14 @@ export class MongoCalendarRepository implements CalendarRepository {
     return result.modifiedCount;
   }
 
+  async archiveEventsByScheduleSeries(scheduleSeriesId: string): Promise<number> {
+    const result = await (await this.model("AcademicEvent", academicEventSchema)).updateMany(
+      { scheduleSeriesId, status: { $ne: "archived" } },
+      { status: "archived" }
+    );
+    return result.modifiedCount;
+  }
+
   async listEventsByCalendar(calendarId: string): Promise<AcademicEventRecord[]> {
     const documents = await (await this.model("AcademicEvent", academicEventSchema)).find({ calendarId }).sort({ startDate: 1 });
     return documents.map((document) => toDomainRecord<AcademicEventRecord>(document));

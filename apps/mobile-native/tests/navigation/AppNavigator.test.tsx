@@ -59,6 +59,7 @@ const visibleRoutes: AppVisibleRoute[] = [
   "CalendarEventDetail",
   "Profile",
   "AcademicProfileSettings",
+  "FollowedUniversitiesSettings",
   "NotificationSettings",
   "GoogleCalendarSettings",
   "AccountDataSettings",

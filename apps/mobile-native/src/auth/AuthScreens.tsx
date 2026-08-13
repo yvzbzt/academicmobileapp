@@ -3,7 +3,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   BackHandler,
-  Image,
   StyleSheet,
   Text,
   View,
@@ -71,12 +70,9 @@ interface AuthScaffoldProps {
 
 export interface LoginViewportLayout {
   compact: boolean;
-  crestSize: number;
   heroHeight: number;
-  overlap: number;
   sheetGap: number;
   sheetPadding: number;
-  sheetTopPadding: number;
   titleFontSize: number;
   titleLineHeight: number;
 }
@@ -89,41 +85,32 @@ export function resolveLoginViewportLayout(safeViewportHeight: number): LoginVie
   if (short) {
     return {
       compact: true,
-      crestSize: 44,
-      heroHeight: Math.max(96, Math.min(138, height * 0.22)),
-      overlap: 20,
+      heroHeight: Math.max(84, Math.min(98, height * 0.17)),
       sheetGap: 4,
       sheetPadding: 8,
-      sheetTopPadding: 26,
-      titleFontSize: 26,
-      titleLineHeight: 31,
+      titleFontSize: 24,
+      titleLineHeight: 29,
     };
   }
 
   if (compact) {
     return {
       compact: true,
-      crestSize: 50,
-      heroHeight: Math.min(180, height * 0.25),
-      overlap: 24,
+      heroHeight: Math.min(128, height * 0.19),
       sheetGap: 8,
       sheetPadding: 12,
-      sheetTopPadding: 30,
-      titleFontSize: 28,
-      titleLineHeight: 34,
+      titleFontSize: 26,
+      titleLineHeight: 31,
     };
   }
 
   return {
     compact: false,
-    crestSize: 58,
-    heroHeight: Math.min(260, height * 0.28),
-    overlap: 32,
+    heroHeight: Math.min(168, height * 0.2),
     sheetGap: 12,
     sheetPadding: 20,
-    sheetTopPadding: 34,
-    titleFontSize: 32,
-    titleLineHeight: 38,
+    titleFontSize: 28,
+    titleLineHeight: 34,
   };
 }
 
@@ -166,57 +153,53 @@ function AuthScaffold({
             {
               backgroundColor: theme.colors.background.subtle,
               borderColor: theme.colors.border.subtle,
-              borderRadius: theme.radii.prominent,
+              borderRadius: theme.radii.card,
               height: loginLayout.heroHeight,
             },
           ]}
         >
-          <Image
-            resizeMode="cover"
-            source={require("../../assets/auth-campus-login-v3.png")}
-            style={styles.heroImage}
-          />
+          <View style={styles.loginPreviewHeader}>
+            <View style={[styles.loginPreviewMark, { backgroundColor: theme.colors.action.primary, borderRadius: theme.radii.card }]}>
+              <Ionicons color={theme.colors.action.onPrimary} name="calendar-clear-outline" size={23} />
+            </View>
+            <View style={styles.loginPreviewHeading}>
+              <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Bugünün planı</Text>
+              <Text numberOfLines={1} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Takvim ve duyurular tek görünümde</Text>
+            </View>
+            <View style={[styles.loginPreviewCount, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.control }]}>
+              <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>3 yaklaşan</Text>
+            </View>
+          </View>
+          <View style={styles.loginPreviewRows}>
+            <View style={[styles.loginPreviewRow, { borderTopColor: theme.colors.border.subtle }]}>
+              <Ionicons color={referencePalette.academicRed} name="megaphone-outline" size={17} />
+              <Text numberOfLines={1} style={[theme.typography.metaStrong, styles.loginPreviewRowTitle, { color: theme.colors.text.primary }]}>Üniversite duyuruları</Text>
+              <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Güncel</Text>
+            </View>
+            {!loginLayout.compact ? (
+              <View style={[styles.loginPreviewRow, { borderTopColor: theme.colors.border.subtle }]}>
+                <Ionicons color={referencePalette.academicGreen} name="checkmark-circle-outline" size={17} />
+                <Text numberOfLines={1} style={[theme.typography.metaStrong, styles.loginPreviewRowTitle, { color: theme.colors.text.primary }]}>Kişisel planlar</Text>
+                <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Hatırlatmalı</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        <Card
+        <View
           accessibilityLabel={`${title} formu`}
           style={[
             styles.heroSheet,
             {
               backgroundColor: theme.colors.background.surface,
-              borderColor: theme.colors.border.subtle,
-              borderRadius: theme.radii.prominent,
               flex: 1,
               gap: loginLayout.sheetGap,
-              marginTop: -loginLayout.overlap,
+              marginTop: theme.spacing.sm,
               padding: loginLayout.sheetPadding,
-              paddingTop: loginLayout.sheetTopPadding,
             },
           ]}
           testID="login-form-sheet"
-          variant="elevated"
         >
-          <View
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={[
-              styles.heroSheetCrest,
-              {
-                backgroundColor: theme.colors.action.primary,
-                borderColor: theme.colors.background.surface,
-                borderRadius: theme.radii.card,
-                height: loginLayout.crestSize,
-                top: -(loginLayout.crestSize / 2),
-                width: loginLayout.crestSize,
-              },
-            ]}
-          >
-            <Ionicons
-              color={theme.colors.action.onPrimary}
-              name="calendar-outline"
-              size={loginLayout.compact ? 24 : 29}
-            />
-          </View>
           <View style={[styles.heroIdentity, { gap: loginLayout.compact ? theme.spacing.xxs : theme.spacing.xs }]}>
             {eyebrow ? (
               <Text style={[theme.typography.label, { color: theme.colors.text.link }]}>
@@ -264,7 +247,7 @@ function AuthScaffold({
           ) : null}
 
           {children}
-        </Card>
+        </View>
       </View>
     );
   }
@@ -530,29 +513,34 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
         />
       </View>
 
-      <View style={[styles.registrationHero, { minHeight: 230 }]}>
-        <View style={[styles.registrationHeroCopy, { gap: theme.spacing.sm }]}>
-          <View
-            style={[
-              styles.registrationBrand,
-              {
-                backgroundColor: theme.colors.action.primary,
-                borderRadius: theme.radii.card,
-              },
-            ]}
-          >
-            <Ionicons color={theme.colors.action.onPrimary} name="calendar-outline" size={27} />
-          </View>
-          <Text accessibilityRole="header" style={[theme.typography.display, { color: theme.colors.text.primary }]}>Akademik{"\n"}Takvim</Text>
-          <Text style={[theme.typography.body, { color: theme.colors.text.primary }]}>Üniversite hayatını planla, <Text style={{ color: theme.colors.text.link }}>hedeflerine bir adım daha yaklaş.</Text></Text>
+      <View
+        style={[
+          styles.registrationHero,
+          {
+            backgroundColor: theme.colors.background.subtle,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.md,
+            padding: theme.spacing.md,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.registrationBrand,
+            {
+              backgroundColor: theme.colors.action.primary,
+              borderRadius: theme.radii.card,
+            },
+          ]}
+        >
+          <Ionicons color={theme.colors.action.onPrimary} name="person-add-outline" size={25} />
         </View>
-        <Image
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          resizeMode="cover"
-          source={require("../../assets/auth-campus-hero-v2.png")}
-          style={styles.registrationHeroImage}
-        />
+        <View style={[styles.registrationHeroCopy, { gap: theme.spacing.xxs }]}>
+          <Text style={[theme.typography.label, { color: theme.colors.text.link }]}>Akademik Takvim</Text>
+          <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Hesabını oluştur</Text>
+          <Text numberOfLines={2} style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Takvimini ve üniversite duyurularını kendi akademik profiline göre takip et.</Text>
+        </View>
       </View>
 
       <View
@@ -1122,17 +1110,25 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         <View style={styles.onboardingTopSpacer} />
       </View>
 
-      <Image
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        resizeMode="contain"
-        source={require("../../assets/academic-profile-campus.png")}
-        style={styles.onboardingCampus}
-      />
-
-      <View style={[styles.onboardingIdentity, { gap: theme.spacing.xs }]}>
-        <Text accessibilityRole="header" style={[theme.typography.display, styles.onboardingTitle, { color: theme.colors.text.primary }]}>Akademik profilini tamamla</Text>
-        <Text style={[theme.typography.body, styles.onboardingDescription, { color: theme.colors.text.secondary }]}>Profil bilgilerin, takvimini sana özel hale getirir ve bölümüne özel duyuruları kaçırmamanı sağlar.</Text>
+      <View
+        style={[
+          styles.onboardingIdentity,
+          {
+            backgroundColor: theme.colors.background.subtle,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.md,
+            padding: theme.spacing.md,
+          },
+        ]}
+      >
+        <View style={[styles.onboardingIdentityIcon, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.card }]}>
+          <Ionicons color={theme.colors.action.primary} name="school-outline" size={26} />
+        </View>
+        <View style={[styles.onboardingIdentityCopy, { gap: theme.spacing.xxs }]}>
+          <Text accessibilityRole="header" style={[theme.typography.screenTitle, styles.onboardingTitle, { color: theme.colors.text.primary }]}>Akademik profilini tamamla</Text>
+          <Text style={[theme.typography.body, styles.onboardingDescription, { color: theme.colors.text.secondary }]}>Üniversiteni seç; takvim ve duyuru kapsamını sana göre hazırlayalım.</Text>
+        </View>
       </View>
 
       {props.feedback ? (
@@ -1205,14 +1201,14 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         ]}
       >
         <View style={[styles.onboardingInfoIcon, { backgroundColor: theme.colors.action.primary, borderRadius: theme.radii.pill }]}>
-          <Ionicons color={theme.colors.action.onPrimary} name="sparkles" size={22} />
+          <Ionicons color={theme.colors.action.onPrimary} name="information-outline" size={22} />
         </View>
         <Text style={[theme.typography.bodyStrong, styles.onboardingInfoText, { color: theme.colors.status.onInfoContainer }]}>Doğru bilgilerle sınav tarihleri, kayıt dönemleri ve bölümüne özel duyurular sana özel gelir.</Text>
       </View>
       <Button
         fullWidth
         label="Profili kaydet"
-        leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="briefcase-outline" size={21} />}
+        leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="checkmark-circle-outline" size={21} />}
         loading={props.busy}
         onPress={save}
       />
@@ -1299,9 +1295,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   heroIdentity: {
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingBottom: 2,
-    paddingTop: 4,
+    paddingHorizontal: 2,
   },
   heroScreenStack: {
     alignSelf: "stretch",
@@ -1311,25 +1307,49 @@ const styles = StyleSheet.create({
   heroFrame: {
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-    position: "relative",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     width: "100%",
   },
-  heroImage: {
-    height: "100%",
-    width: "100%",
+  loginPreviewHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+    minHeight: 40,
+  },
+  loginPreviewMark: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  loginPreviewHeading: {
+    flex: 1,
+    minWidth: 0,
+  },
+  loginPreviewCount: {
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  loginPreviewRows: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  loginPreviewRow: {
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 32,
+    paddingVertical: 5,
+  },
+  loginPreviewRowTitle: {
+    flex: 1,
+    minWidth: 0,
   },
   heroSheet: {
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
     minHeight: 0,
-    overflow: "visible",
-  },
-  heroSheetCrest: {
-    alignItems: "center",
-    alignSelf: "center",
-    borderWidth: 5,
-    justifyContent: "center",
-    position: "absolute",
+    overflow: "hidden",
   },
   heroTitle: {
     fontWeight: "800",
@@ -1416,27 +1436,20 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   registrationHero: {
-    overflow: "hidden",
-    position: "relative",
+    alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    minHeight: 112,
   },
   registrationHeroCopy: {
-    justifyContent: "center",
-    maxWidth: "46%",
-    minHeight: 220,
-    zIndex: 1,
+    flex: 1,
+    minWidth: 0,
   },
   registrationBrand: {
     alignItems: "center",
-    height: 54,
+    height: 48,
     justifyContent: "center",
-    width: 54,
-  },
-  registrationHeroImage: {
-    bottom: -34,
-    height: 300,
-    position: "absolute",
-    right: -48,
-    width: "72%",
+    width: 48,
   },
   registrationProgress: {
     alignItems: "center",
@@ -1539,20 +1552,25 @@ const styles = StyleSheet.create({
     marginTop: 17,
     width: 52,
   },
-  onboardingCampus: {
-    alignSelf: "center",
-    height: 205,
-    width: "100%",
-  },
   onboardingIdentity: {
     alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+  },
+  onboardingIdentityIcon: {
+    alignItems: "center",
+    height: 52,
+    justifyContent: "center",
+    width: 52,
+  },
+  onboardingIdentityCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   onboardingTitle: {
-    textAlign: "center",
   },
   onboardingDescription: {
     maxWidth: 470,
-    textAlign: "center",
   },
   onboardingInfo: {
     alignItems: "center",

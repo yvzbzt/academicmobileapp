@@ -35,6 +35,12 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
     return documents.map((document) => toDomainRecord<AnnouncementSourceRecord>(document));
   }
 
+  async findSourceById(id: string): Promise<AnnouncementSourceRecord | null> {
+    if (!isValidObjectId(id)) return null;
+    const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findById(id);
+    return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
+  }
+
   async upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord> {
     const model = await this.model("AnnouncementSource", announcementSourceSchema);
     const canonicalUrl = canonicalizeContentUrl(input.sourceUrl);
@@ -64,6 +70,13 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
 
   async recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null> {
     const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findByIdAndUpdate(id, omitUndefined(input as unknown as Record<string, unknown>), { new: true });
+    return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
+  }
+
+  async deactivateSource(id: string): Promise<AnnouncementSourceRecord | null> {
+    if (!isValidObjectId(id)) return null;
+    const document = await (await this.model("AnnouncementSource", announcementSourceSchema))
+      .findByIdAndUpdate(id, { status: "inactive" }, { new: true });
     return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
   }
 

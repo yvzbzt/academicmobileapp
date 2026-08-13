@@ -121,12 +121,12 @@ describe("Phase 7 Home daily brief", () => {
     expect(useScrollToTop).toHaveBeenCalledWith(expect.objectContaining({ current: expect.anything() }));
   });
 
-  it("renders the white reference hierarchy with a functional top bar and illustrated focus card", async () => {
+  it("renders the white hierarchy with a functional top bar and compact next-event card", async () => {
     await renderHome(props());
 
     expect(screen.getByTestId("home-top-bar")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Ana Sayfa" })).toBeOnTheScreen();
-    expect(screen.getByText("Bugünkü Odak")).toBeOnTheScreen();
+    expect(screen.getByText("Sıradaki")).toBeOnTheScreen();
     expect(screen.getByTestId("home-focus-card")).toBeOnTheScreen();
     expect(screen.getAllByText(/Ağustos 2026/u).some((node) => node.props.numberOfLines === 1)).toBe(true);
     expect(screen.getByRole("header", { name: "Önemli duyuru" })).toHaveTextContent("Öne çıkan duyurular");

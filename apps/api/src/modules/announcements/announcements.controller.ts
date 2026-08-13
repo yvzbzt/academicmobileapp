@@ -4,7 +4,7 @@ import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
-import { AnnouncementDiscoveryRequestDto, AnnouncementIngestionRequestDto, AnnouncementSourcesQueryDto, MyAnnouncementsQueryDto } from "./announcements.dto.js";
+import { AnnouncementDiscoveryRequestDto, AnnouncementIngestionRequestDto, AnnouncementSourcesQueryDto, CreateAnnouncementSourceDto, MyAnnouncementsQueryDto, UpdateAnnouncementSourceDto } from "./announcements.dto.js";
 import { AnnouncementIngestionService } from "./announcement-ingestion.service.js";
 import { AnnouncementsService } from "./announcements.service.js";
 
@@ -86,6 +86,26 @@ export class AdminAnnouncementsController {
   @Get("sources")
   listSources(@Query() query: AnnouncementSourcesQueryDto) {
     return this.ingestionService.listSources(query);
+  }
+
+  @Post("sources")
+  createSource(@Body() body: CreateAnnouncementSourceDto) {
+    return this.ingestionService.createManualSource(body);
+  }
+
+  @Put("sources/:id")
+  updateSource(@Param("id") id: string, @Body() body: UpdateAnnouncementSourceDto) {
+    return this.ingestionService.updateManualSource(id, body);
+  }
+
+  @Delete("sources/:id")
+  deleteSource(@Param("id") id: string) {
+    return this.ingestionService.deactivateManualSource(id);
+  }
+
+  @Post("sources/:id/ingest")
+  ingestSource(@Param("id") id: string) {
+    return this.ingestionService.ingestSourceById(id);
   }
 
   @Post("discover")

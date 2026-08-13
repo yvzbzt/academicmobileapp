@@ -254,6 +254,7 @@ export const announcementSourceSchema = new Schema(
     lastError: { type: String, required: false, trim: true },
     consecutiveFailures: { type: Number, required: false, min: 0 },
     itemCount: { type: Number, required: false, min: 0 },
+    fetchIntervalMinutes: { type: Number, required: false, min: 5, max: 10080, default: 180 },
     discoveredAt: { type: Date, required: false },
     trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
     trustReasonCodes: [{ type: String, required: false }],
@@ -265,6 +266,7 @@ export const announcementSourceSchema = new Schema(
 announcementSourceSchema.index({ scopeType: 1, scopeId: 1, status: 1 }, { name: "announcement_sources_scope_status" });
 announcementSourceSchema.index({ sourceUrl: 1, scopeType: 1, scopeId: 1 }, { unique: true, name: "announcement_sources_unique_scope_url" });
 announcementSourceSchema.index({ canonicalUrl: 1, scopeType: 1, scopeId: 1 }, { name: "announcement_sources_canonical_scope" });
+announcementSourceSchema.index({ status: 1, lastCheckedAt: 1 }, { name: "announcement_sources_due_checks" });
 
 export const announcementItemSchema = new Schema(
   {
@@ -393,6 +395,7 @@ export const academicEventSchema = new Schema(
     courseName: { type: String, required: false, trim: true, maxlength: 240 },
     description: { type: String, required: false },
     location: { type: String, required: false, trim: true, maxlength: 240 },
+    scheduleSeriesId: { type: String, required: false, index: true },
     temporalKind: { type: String, required: false, enum: ["date", "timestamp"], index: true },
     endTemporalKind: { type: String, required: false, enum: ["date", "timestamp"] },
     dateOnlyStart: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u, index: true },
@@ -420,6 +423,7 @@ export const academicEventSchema = new Schema(
 
 academicEventSchema.index({ universityId: 1, status: 1, startDate: 1 }, { name: "events_university_status_start" });
 academicEventSchema.index({ universityId: 1, category: 1, startDate: 1 }, { name: "events_category_date" });
+academicEventSchema.index({ scheduleSeriesId: 1, status: 1 }, { name: "events_schedule_series_status" });
 
 export const pdfSourceSchema = new Schema(
   {

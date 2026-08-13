@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
 import { useNetworkState } from "expo-network";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -170,7 +170,6 @@ export function CalendarExperience({
     networkState.isConnected === false || networkState.isInternetReachable === false
   );
   const gutter = width < 375 ? 16 : 20;
-  const compactCreateButton = view === "month" || width <= 375 || fontScale >= 1.3;
   const today = todayDateOnly(now);
 
   const allItems = useMemo(() => {
@@ -290,7 +289,13 @@ export function CalendarExperience({
       {feedback}
 
       <CalendarScreenHeader
+        createButtonRef={createExamRef}
+        createDisabled={!personalExamsReady}
         onCalendarPress={() => changeAnchorDate(today)}
+        onCreatePress={() => {
+          setEditorExam(null);
+          setEditorVisible(true);
+        }}
         onMenuPress={() => changeView("agenda")}
         onSearchPress={() => setSearchVisible((current) => !current)}
         searchVisible={searchVisible}
@@ -458,47 +463,6 @@ export function CalendarExperience({
         windowSize={5}
       />
 
-      <Pressable
-        ref={createExamRef}
-        aria-expanded={editorVisible}
-        accessibilityLabel={personalExamsReady ? "Kişisel sınav ekle" : "Kişisel sınavlar hazırlanıyor"}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !personalExamsReady, expanded: editorVisible }}
-        android_ripple={adaptation.pressFeedback === "ripple"
-          ? { color: theme.colors.action.primaryRipple, borderless: false }
-          : undefined}
-        disabled={!personalExamsReady}
-        onPress={() => {
-          setEditorExam(null);
-          setEditorVisible(true);
-        }}
-        style={({ pressed }) => [
-          styles.floatingCreateButton,
-          {
-            backgroundColor: personalExamsReady
-              ? theme.colors.action.primary
-              : theme.colors.action.disabled,
-            borderRadius: theme.radii.pill,
-            right: gutter,
-            shadowColor: theme.colors.action.primary,
-          },
-          compactCreateButton && styles.floatingCreateButtonCompact,
-          pressed && adaptation.pressFeedback !== "ripple" ? styles.floatingCreateButtonPressed : null,
-        ]}
-      >
-        <Ionicons
-          color={personalExamsReady ? theme.colors.action.onPrimary : theme.colors.action.onDisabled}
-          name="add"
-          size={25}
-        />
-        {!compactCreateButton ? (
-          <Text maxFontSizeMultiplier={1.35} style={[
-            theme.typography.bodyStrong,
-            { color: personalExamsReady ? theme.colors.action.onPrimary : theme.colors.action.onDisabled },
-          ]}>Kişisel sınav ekle</Text>
-        ) : null}
-      </Pressable>
-
       <PersonalExamEditor
         exam={editorExam}
         onDismiss={() => setEditorVisible(false)}
@@ -513,13 +477,19 @@ export function CalendarExperience({
 }
 
 function CalendarScreenHeader({
+  createButtonRef,
+  createDisabled,
   onCalendarPress,
+  onCreatePress,
   onMenuPress,
   onSearchPress,
   searchVisible,
   view,
 }: {
+  createButtonRef: RefObject<NativeView | null>;
+  createDisabled: boolean;
   onCalendarPress: () => void;
+  onCreatePress: () => void;
   onMenuPress: () => void;
   onSearchPress: () => void;
   searchVisible: boolean;
@@ -529,8 +499,15 @@ function CalendarScreenHeader({
   const agenda = view === "agenda";
   return (
     <View style={styles.screenHeader}>
-      <Text accessibilityRole="header" style={[theme.typography.display, styles.flexOne, { color: theme.colors.text.primary }]}>
-        {agenda ? "Takvim" : "Akademik Takvim"}
+      <Text
+        accessibilityRole="header"
+        adjustsFontSizeToFit
+        maxFontSizeMultiplier={1.3}
+        minimumFontScale={0.75}
+        numberOfLines={1}
+        style={[theme.typography.display, styles.flexOne, { color: theme.colors.text.primary }]}
+      >
+        Takvim
       </Text>
       <View style={styles.headerActions}>
         {agenda ? (
@@ -541,6 +518,13 @@ function CalendarScreenHeader({
           />
         ) : null}
         <CalendarIconButton label="Bugüne git" name="calendar-outline" onPress={onCalendarPress} />
+        <CalendarIconButton
+          buttonRef={createButtonRef}
+          disabled={createDisabled}
+          label={createDisabled ? "Kişisel takvim hazırlanıyor" : "Kişisel etkinlik ekle"}
+          name="add"
+          onPress={onCreatePress}
+        />
         {!agenda ? (
           <CalendarIconButton label="Ajanda görünümünü aç" name="menu-outline" onPress={onMenuPress} />
         ) : null}
@@ -550,23 +534,30 @@ function CalendarScreenHeader({
 }
 
 function CalendarIconButton({
+  buttonRef,
+  disabled = false,
   label,
   name,
   onPress,
 }: {
+  buttonRef?: RefObject<NativeView | null>;
+  disabled?: boolean;
   label: string;
-  name: "calendar-outline" | "close-outline" | "menu-outline" | "search-outline";
+  name: "add" | "calendar-outline" | "close-outline" | "menu-outline" | "search-outline";
   onPress: () => void;
 }) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
   return (
     <Pressable
+      ref={buttonRef}
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
       android_ripple={adaptation.pressFeedback === "ripple"
         ? { color: theme.colors.state.pressed, borderless: true }
         : undefined}
+      disabled={disabled}
       hitSlop={4}
       onPress={onPress}
       style={({ pressed }) => [
@@ -579,7 +570,7 @@ function CalendarIconButton({
         pressed && adaptation.pressFeedback !== "ripple" ? { backgroundColor: theme.colors.action.ghostPressed } : null,
       ]}
     >
-      <Ionicons color={theme.colors.action.primary} name={name} size={25} />
+      <Ionicons color={disabled ? theme.colors.text.disabled : theme.colors.action.primary} name={name} size={25} />
     </Pressable>
   );
 }
@@ -812,7 +803,7 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
           padding: 0,
         },
       ]}
-      variant="elevated"
+      variant="outlined"
     >
       <View style={styles.eventCardLayout}>
         <View style={[styles.eventAccent, { backgroundColor: palette.accent }]} />
@@ -838,16 +829,6 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
             </Text>
           ) : null}
         </View>
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={[
-            styles.eventIcon,
-            { backgroundColor: palette.container, borderRadius: theme.radii.pill },
-          ]}
-        >
-          <Ionicons color={palette.accent} name={item.icon} size={24} />
-        </View>
         <View style={[styles.eventContent, { gap: 3, paddingVertical: theme.spacing.sm }]}>
           <View style={[
             styles.categoryPill,
@@ -855,7 +836,7 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
           ]}>
             <Text maxFontSizeMultiplier={1.25} style={[theme.typography.metaStrong, { color: palette.foreground }]}>{item.classificationLabel}</Text>
           </View>
-          <Text maxFontSizeMultiplier={1.4} numberOfLines={2} style={[theme.typography.label, { color: theme.colors.text.primary }]}>{item.title}</Text>
+          <Text maxFontSizeMultiplier={1.4} numberOfLines={3} style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{item.title}</Text>
           <View style={styles.locationRow}>
             <Ionicons color={theme.colors.text.secondary} name="location-outline" size={14} />
             <Text maxFontSizeMultiplier={1.35} numberOfLines={1} style={[theme.typography.meta, styles.flexOne, { color: theme.colors.text.secondary }]}>{location}</Text>
@@ -1119,6 +1100,8 @@ function classificationPalette(
   switch (classification) {
     case "personal_exam":
       return { accent: referencePalette.violet, container: referencePalette.violetSoft, foreground: referencePalette.violetText };
+    case "personal":
+      return { accent: colors.accent.teal, container: colors.status.successContainer, foreground: colors.accent.tealText };
     case "exam":
       return { accent: colors.action.primary, container: colors.action.secondary, foreground: colors.text.link };
     case "registration":
@@ -1249,7 +1232,7 @@ const styles = StyleSheet.create({
   eventCardLayout: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 104,
+    minHeight: 96,
   },
   eventAccent: {
     alignSelf: "stretch",
@@ -1259,17 +1242,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     alignSelf: "stretch",
     justifyContent: "center",
-    paddingHorizontal: 12,
-    width: 70,
+    paddingHorizontal: 10,
+    width: 62,
   },
   timeLabel: {
     width: "100%",
-  },
-  eventIcon: {
-    alignItems: "center",
-    height: 50,
-    justifyContent: "center",
-    width: 50,
   },
   eventContent: {
     flex: 1,
@@ -1366,26 +1343,5 @@ const styles = StyleSheet.create({
   },
   centerText: {
     textAlign: "center",
-  },
-  floatingCreateButton: {
-    alignItems: "center",
-    bottom: 18,
-    elevation: 8,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 56,
-    paddingHorizontal: 22,
-    position: "absolute",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 16,
-  },
-  floatingCreateButtonPressed: {
-    transform: [{ scale: 0.98 }],
-  },
-  floatingCreateButtonCompact: {
-    paddingHorizontal: 0,
-    width: 56,
   },
 });

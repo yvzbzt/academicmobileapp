@@ -54,6 +54,7 @@ expo-native*.err.log
 /.android/
 /.android-sdk/
 /android-sdk/
+/.gradle-user-home/
 **/.gradle/
 **/.kotlin/
 **/local.properties

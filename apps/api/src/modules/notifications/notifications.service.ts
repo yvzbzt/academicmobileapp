@@ -10,6 +10,7 @@ import { DeviceRegistrationConflictError, NOTIFICATION_DELIVERY_CONSENT_VERSION 
 import type { NotificationJobCreateInput, NotificationJobRecord, NotificationPreferenceRecord, NotificationRepository, ReminderPreferenceRuleRecord, StudentAlarmRecord } from "./notification.types.js";
 import type { CreateStudentAlarmDto, RegisterDeviceDto, UnregisterDeviceDto, UpdateNotificationPreferencesDto } from "./notifications.dto.js";
 import { announcementDestinationFingerprint, calendarDestinationFingerprint } from "./notification-destination.js";
+import type { UserDataRepository } from "../users/user-data.types.js";
 
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: ReminderPreferenceRuleRecord[] = [
@@ -23,7 +24,8 @@ export class NotificationsService {
   constructor(
     @Inject("NotificationRepository") private readonly notificationRepository: NotificationRepository,
     @Optional() @Inject("CalendarRepository") private readonly calendarRepository?: CalendarRepository,
-    @Optional() @Inject("AnnouncementRepository") private readonly announcementRepository?: AnnouncementRepository
+    @Optional() @Inject("AnnouncementRepository") private readonly announcementRepository?: AnnouncementRepository,
+    @Optional() @Inject("UserDataRepository") private readonly userDataRepository?: Pick<UserDataRepository, "listFollowedAcademicScopesByUserId">
   ) {}
 
   async registerDevice(user: AuthenticatedUser, input: RegisterDeviceDto): Promise<DeviceRegistrationDto> {
@@ -127,20 +129,16 @@ export class NotificationsService {
         ...(user.departmentId ? { departmentId: user.departmentId } : {})
       })
       : null;
-    const trustedAnnouncement = input.eventType === "announcement" && this.announcementRepository && user.universityId
-      ? await this.announcementRepository.findTrustedItemByIdInScope({
-        announcementId: input.targetId,
-        universityId: user.universityId,
-        ...(user.facultyId ? { facultyId: user.facultyId } : {}),
-        ...(user.departmentId ? { departmentId: user.departmentId } : {})
-      })
+    const trustedAnnouncementMatch = input.eventType === "announcement"
+      ? await this.resolveTrustedAnnouncementForUser(user, input.targetId)
       : null;
+    const trustedAnnouncement = trustedAnnouncementMatch?.result ?? null;
     if (input.eventType === "announcement" && !trustedAnnouncement) throw new NotFoundException("Trusted announcement not found.");
     if (isCalendarTarget && !resolvedEvent) throw new NotFoundException("Calendar event not found.");
     if (input.eventType === "exam" && resolvedEvent && !isExamEvent(resolvedEvent)) throw new BadRequestException("Selected event is not an exam.");
     if (input.eventType === "course" && resolvedEvent && resolvedEvent.category !== "course_schedule") throw new BadRequestException("Selected event is not a course schedule item.");
 
-    const universityId = resolvedEvent?.universityId ?? user.universityId;
+    const universityId = resolvedEvent?.universityId ?? trustedAnnouncementMatch?.scope.universityId ?? user.universityId;
     if (!universityId) throw new BadRequestException("User must select a university before creating alarms.");
     const facultyId = resolvedEvent?.facultyId
       ?? (trustedAnnouncement?.source.scopeType === "faculty" ? trustedAnnouncement.source.scopeId : user.facultyId);
@@ -206,6 +204,31 @@ export class NotificationsService {
     }]);
 
     return toStudentAlarmDto(alarm);
+  }
+
+  private async resolveTrustedAnnouncementForUser(user: AuthenticatedUser, announcementId: string) {
+    if (!this.announcementRepository) return null;
+    const primary = user.universityId ? [{
+      universityId: user.universityId,
+      ...(user.facultyId ? { facultyId: user.facultyId } : {}),
+      ...(user.departmentId ? { departmentId: user.departmentId } : {})
+    }] : [];
+    const followed = this.userDataRepository
+      ? await this.userDataRepository.listFollowedAcademicScopesByUserId(user.id)
+      : [];
+    const scopes = [...new Map([...primary, ...followed].map((scope) => [
+      [scope.universityId, scope.facultyId ?? "", scope.departmentId ?? ""].join("\u0000"),
+      {
+        universityId: scope.universityId,
+        ...(scope.facultyId ? { facultyId: scope.facultyId } : {}),
+        ...(scope.departmentId ? { departmentId: scope.departmentId } : {})
+      }
+    ])).values()];
+    const matches = await Promise.all(scopes.map(async (scope) => ({
+      scope,
+      result: await this.announcementRepository!.findTrustedItemByIdInScope({ announcementId, ...scope })
+    })));
+    return matches.find((match) => match.result !== null) ?? null;
   }
 
   async cancelStudentAlarm(user: AuthenticatedUser, alarmId: string): Promise<StudentAlarmDto> {

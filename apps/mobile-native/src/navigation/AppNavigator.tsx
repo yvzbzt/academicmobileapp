@@ -96,6 +96,7 @@ export type AppVisibleRoute =
   | "CalendarEventDetail"
   | "Profile"
   | "AcademicProfileSettings"
+  | "FollowedUniversitiesSettings"
   | "NotificationSettings"
   | "GoogleCalendarSettings"
   | "AccountDataSettings"
@@ -167,6 +168,7 @@ type CalendarStackParamList = {
 type SettingsStackParamList = {
   Profile: undefined;
   AcademicProfileSettings: undefined;
+  FollowedUniversitiesSettings: undefined;
   NotificationSettings: undefined;
   GoogleCalendarSettings: undefined;
   AccountDataSettings: undefined;
@@ -253,6 +255,7 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   const hasStackHeader = hasAuthenticatedShell && !isContentOwnedHeaderRoute(route);
   const hasFormLayout = isAuthOrOnboardingRoute(route)
     || route === "AcademicProfileSettings"
+    || route === "FollowedUniversitiesSettings"
     || route === "AccountDataSettings";
   const authenticatedContentOwnsBottomChrome = hasAuthenticatedShell
     && !isPrimaryTabRootRoute(route);
@@ -365,6 +368,7 @@ const CalendarScreen = routeComponent("Calendar");
 const CalendarEventDetailScreen = routeComponent("CalendarEventDetail");
 const ProfileScreen = routeComponent("Profile");
 const AcademicProfileSettingsScreen = routeComponent("AcademicProfileSettings");
+const FollowedUniversitiesSettingsScreen = routeComponent("FollowedUniversitiesSettings");
 const NotificationSettingsScreen = routeComponent("NotificationSettings");
 const GoogleCalendarSettingsScreen = routeComponent("GoogleCalendarSettings");
 const AccountDataSettingsScreen = routeComponent("AccountDataSettings");
@@ -572,13 +576,14 @@ function SettingsNavigator() {
         options={{ headerShown: false, title: "Profil" }}
       />
       <SettingsStack.Screen name="AcademicProfileSettings" component={AcademicProfileSettingsScreen} options={{ title: "Akademik Profil" }} />
+      <SettingsStack.Screen name="FollowedUniversitiesSettings" component={FollowedUniversitiesSettingsScreen} options={{ title: "Üniversite Takipleri" }} />
       <SettingsStack.Screen
         name="NotificationSettings"
         component={NotificationSettingsScreen}
         options={{ headerShown: false, title: "Bildirim tercihleri" }}
       />
       <SettingsStack.Screen name="GoogleCalendarSettings" component={GoogleCalendarSettingsScreen} options={{ title: "Google Takvim" }} />
-      <SettingsStack.Screen name="AccountDataSettings" component={AccountDataSettingsScreen} options={{ title: "Hesap ve Veri" }} />
+      <SettingsStack.Screen name="AccountDataSettings" component={AccountDataSettingsScreen} options={{ title: "Hesap ve veri" }} />
     </SettingsStack.Navigator>
   );
 }
@@ -825,6 +830,7 @@ function isCalendarStackRoute(route: AppVisibleRoute): route is keyof CalendarSt
 function isSettingsStackRoute(route: AppVisibleRoute): route is keyof SettingsStackParamList {
   return route === "Profile"
     || route === "AcademicProfileSettings"
+    || route === "FollowedUniversitiesSettings"
     || route === "NotificationSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
@@ -990,6 +996,7 @@ function requestAction(request: AppNavigationRequest) {
       });
     case "Profile":
     case "AcademicProfileSettings":
+    case "FollowedUniversitiesSettings":
     case "NotificationSettings":
     case "GoogleCalendarSettings":
     case "AccountDataSettings":
@@ -1178,6 +1185,7 @@ function isControlledBaseRoute(route: AppVisibleRoute): boolean {
 
 function isNestedProfileSettingsRoute(route: string | undefined): boolean {
   return route === "AcademicProfileSettings"
+    || route === "FollowedUniversitiesSettings"
     || route === "NotificationSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
@@ -1206,7 +1214,7 @@ function isVisibleRoute(value: string): value is AppVisibleRoute {
     "PasswordRecoveryRequest", "PasswordRecoveryCode", "PasswordRecoveryConfirm",
     "AcademicOnboarding",
     "Home", "Announcements", "SummerSchool", "YokAnnouncements", "AnnouncementDetail",
-    "Calendar", "CalendarEventDetail", "Profile", "AcademicProfileSettings",
+    "Calendar", "CalendarEventDetail", "Profile", "AcademicProfileSettings", "FollowedUniversitiesSettings",
     "NotificationSettings", "GoogleCalendarSettings", "AccountDataSettings", "UnknownRoute"
   ].includes(value);
 }
@@ -1231,6 +1239,7 @@ function isAuthenticatedRoute(route: AppVisibleRoute): boolean {
     || route === "CalendarEventDetail"
     || route === "Profile"
     || route === "AcademicProfileSettings"
+    || route === "FollowedUniversitiesSettings"
     || route === "NotificationSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
@@ -1267,6 +1276,7 @@ const ROUTE_ACCESSIBILITY_TITLES: Readonly<Record<AppVisibleRoute, string>> = {
   CalendarEventDetail: "Takvim Ayrıntısı",
   Profile: "Profil",
   AcademicProfileSettings: "Akademik Profil",
+  FollowedUniversitiesSettings: "Üniversite Takipleri",
   NotificationSettings: "Bildirim tercihleri",
   GoogleCalendarSettings: "Google Takvim",
   AccountDataSettings: "Hesap ve Veri",

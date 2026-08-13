@@ -344,7 +344,7 @@ export class CalendarService {
       .filter((event) => event.departmentId === departmentId)
       .filter((event) => isAcceptableAcademicYear(event.academicYear))
       .sort(compareEventStart)
-      .slice(0, 200);
+      .slice(0, 500);
 
     const sourceUrl = await this.findDepartmentScheduleSource({
       universityId,

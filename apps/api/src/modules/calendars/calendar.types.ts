@@ -41,6 +41,7 @@ export interface AcademicEventRecord {
   courseName?: string;
   description?: string;
   location?: string;
+  scheduleSeriesId?: string;
   /** Compatibility/sort instant. Use dateOnlyStart when temporalKind is date. */
   startDate: Date;
   /** Compatibility/sort instant. Use dateOnlyEnd when endTemporalKind is date. */
@@ -100,6 +101,7 @@ export interface CalendarRepository {
   archivePublishedCalendars(universityId: string, academicYear: string): Promise<number>;
   createEvents(input: Array<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<AcademicEventRecord[]>;
   updateEventsByCalendar(calendarId: string, input: Partial<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<number>;
+  archiveEventsByScheduleSeries(scheduleSeriesId: string): Promise<number>;
   listEventsByCalendar(calendarId: string): Promise<AcademicEventRecord[]>;
   listPublishedEvents(filters: CalendarEventFilters): Promise<AcademicEventRecord[]>;
   listUpcomingEvents(filters: UpcomingEventFilters): Promise<AcademicEventRecord[]>;

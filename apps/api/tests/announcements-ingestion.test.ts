@@ -5,7 +5,7 @@ import {
   type ResolvedOutboundAddress,
   type SafeOutboundHopResponse
 } from "../src/common/network/safe-outbound-request.js";
-import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, YOK_ANNOUNCEMENT_SCOPE_ID } from "../src/modules/announcements/announcement-ingestion.service.js";
+import { AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, isSourceDue, YOK_ANNOUNCEMENT_SCOPE_ID } from "../src/modules/announcements/announcement-ingestion.service.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
 import {
   cleanText,
@@ -218,6 +218,68 @@ describe("announcement discovery and ingestion", () => {
         title: "Department exam announcement"
       })
     ]));
+  });
+
+  it("merges announcements from additional followed universities without duplicating the primary scope", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const fetchedAt = new Date().toISOString();
+    const primarySource = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: sampleUniversity.id,
+      sourceName: "Primary university",
+      sourceUrl: "https://agu.edu.tr/duyurular",
+      parser: "auto",
+      priority: 20,
+      status: "active"
+    });
+    const followedSource = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "u-followed",
+      sourceName: "Followed university",
+      sourceUrl: "https://followed.edu.tr/duyurular",
+      parser: "auto",
+      priority: 20,
+      status: "active"
+    });
+    await repository.replaceItemsForSource(primarySource, [{
+      id: "primary-item",
+      sourceId: primarySource.id,
+      sourceName: primarySource.sourceName,
+      scopeType: "university",
+      scopeId: sampleUniversity.id,
+      title: "Primary announcement",
+      link: "https://agu.edu.tr/duyurular/primary",
+      fetchedAt
+    }]);
+    await repository.replaceItemsForSource(followedSource, [{
+      id: "followed-item",
+      sourceId: followedSource.id,
+      sourceName: followedSource.sourceName,
+      scopeType: "university",
+      scopeId: "u-followed",
+      title: "Followed announcement",
+      link: "https://followed.edu.tr/duyurular/followed",
+      fetchedAt
+    }]);
+    const service = new AnnouncementsService(
+      createAuthRepository(),
+      repository,
+      createCatalogRepository([sampleUniversity]),
+      undefined,
+      undefined,
+      {
+        async listFollowedAcademicScopesByUserId() {
+          return [
+            { id: "duplicate-primary", userId: "student-1", universityId: sampleUniversity.id, createdAt: new Date() },
+            { id: "followed", userId: "student-1", universityId: "u-followed", createdAt: new Date() }
+          ];
+        }
+      }
+    );
+
+    const result = await service.getMyAnnouncements("student-1", 10);
+
+    expect(result.map((item) => item.title).sort()).toEqual(["Followed announcement", "Primary announcement"]);
   });
 
   it("prefers leading listing dates over later deadline dates", () => {
@@ -538,6 +600,27 @@ describe("announcement discovery and ingestion", () => {
     }));
 
     await expect(fetchText("https://example.edu.tr/duyurular", 100)).rejects.toThrow("SOURCE_REDIRECT_UNOFFICIAL");
+  });
+
+  it("honors each source's configured refresh interval", () => {
+    const source = {
+      id: "source-1",
+      scopeType: "university",
+      scopeId: sampleUniversity.id,
+      sourceName: "Duyurular",
+      sourceUrl: "https://agu.edu.tr/duyurular",
+      parser: "auto",
+      priority: 50,
+      status: "active",
+      fetchIntervalMinutes: 30,
+      lastCheckedAt: new Date("2026-08-13T09:00:00.000Z"),
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-13T09:00:00.000Z")
+    } satisfies AnnouncementSourceRecord;
+
+    expect(isSourceDue(source, new Date("2026-08-13T09:29:59.999Z"))).toBe(false);
+    expect(isSourceDue(source, new Date("2026-08-13T09:30:00.000Z"))).toBe(true);
+    expect(isSourceDue({ ...source, status: "inactive" }, new Date("2026-08-13T10:00:00.000Z"))).toBe(false);
   });
 });
 

@@ -70,10 +70,10 @@ describe("Phase 9 Calendar synthetic preview", () => {
     await academicDetail.unmountAsync();
 
     await renderAsync(<CalendarPreview scenario="detail-personal" />);
-    expect(screen.getByRole("button", { name: "Kişisel sınavı düzenle" })).toBeOnTheScreen();
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel sınavı düzenle" }));
+    expect(screen.getByRole("button", { name: "Kişisel etkinliği düzenle" })).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinliği düzenle" }));
     expect(screen.getByTestId("bottom-sheet").props.accessibilityLabel).toBe(
-      "Kişisel sınav düzenleme alt sayfası",
+      "Kişisel etkinlik düzenleme alt sayfası",
     );
   });
 });

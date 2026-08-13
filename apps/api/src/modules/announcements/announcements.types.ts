@@ -57,6 +57,7 @@ export interface AnnouncementSourceRecord {
   lastError?: string;
   consecutiveFailures?: number;
   itemCount?: number;
+  fetchIntervalMinutes?: number;
   fallbackItems?: AnnouncementFallbackItem[];
   discoveredAt?: Date;
   trustStatus?: AnnouncementTrustStatus;
@@ -144,7 +145,9 @@ export interface SavedAnnouncementStatus {
 export interface AnnouncementRepository {
   listSourcesByScope(input: { universityId: string; facultyId?: string; departmentId?: string }): Promise<AnnouncementSourceRecord[]>;
   listAllSources(input?: { status?: AnnouncementSourceStatus; limit?: number; offset?: number }): Promise<AnnouncementSourceRecord[]>;
+  findSourceById(id: string): Promise<AnnouncementSourceRecord | null>;
   upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord>;
+  deactivateSource(id: string): Promise<AnnouncementSourceRecord | null>;
   recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null>;
   replaceItemsForSource(
     source: AnnouncementSourceRecord,

@@ -17,10 +17,10 @@ import {
   Pencil,
   Play,
   RefreshCcw,
+  Rss,
   RotateCcw,
   Save,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Users,
   X
@@ -29,13 +29,43 @@ import "./styles.css";
 
 type ApiState<T> = { loading: boolean; data?: T; error?: string };
 type JsonRecord = Record<string, unknown>;
-type AdminRoute = "dashboard" | "inputs" | "catalog" | "pdf" | "calendar" | "notifications" | "audit" | "users";
+type AdminRoute = "dashboard" | "inputs" | "catalog" | "sources" | "pdf" | "calendar" | "notifications" | "audit" | "users";
 type AdminRole = "content_editor" | "university_admin" | "super_admin";
 type AuthSession = { accessToken: string; refreshToken?: string; user: { id: string; fullName: string; email: string; role: AdminRole | "student" } };
 
 interface UniversityRecord { id: string; name: string; city: string; type: string; status: string; websiteUrl?: string; announcementUrl?: string; academicCalendarUrl?: string; emailDomains?: string[]; }
 interface FacultyRecord { id: string; universityId?: string; name: string; websiteUrl?: string; announcementUrl?: string; }
 interface DepartmentRecord { id: string; universityId?: string; facultyId?: string; name: string; websiteUrl?: string; announcementUrl?: string; courseScheduleUrl?: string; examScheduleUrl?: string; }
+interface AnnouncementSourceRecord {
+  id: string;
+  scopeType: "university" | "faculty" | "department";
+  scopeId: string;
+  sourceName: string;
+  sourceUrl: string;
+  contentType?: "announcement" | "news" | "event";
+  parser: "auto" | "rss" | "html";
+  priority: number;
+  status: "active" | "inactive";
+  healthStatus?: "pending" | "healthy" | "degraded" | "failed";
+  fetchIntervalMinutes?: number;
+  lastCheckedAt?: string;
+  lastSuccessAt?: string;
+  lastError?: string;
+  itemCount?: number;
+}
+interface CourseScheduleEventRecord {
+  id: string;
+  scheduleSeriesId?: string;
+  title: string;
+  courseName?: string;
+  location?: string;
+  academicYear: string;
+  term: string;
+  startDate: string;
+  endDate?: string;
+  facultyId?: string;
+  departmentId?: string;
+}
 interface DomainSuggestionRecord { domain: string; userCount: number; sampleEmails: string[]; }
 interface AcademicUnitSuggestionRecord { id: string; userEmail: string; universityId: string; facultyName: string; departmentName?: string; educationLevel: string; status: string; createdAt: string; }
 interface ExtractedEventRecord { id: string; pdfSourceId: string; normalizedTitle: string; normalizedCategory: string; startDate: string; endDate?: string; status: string; confidence: number; }
@@ -66,6 +96,7 @@ const routes: Array<{ id: AdminRoute; label: string; icon: ReactNode; descriptio
   { id: "dashboard", label: "Panel", icon: <LayoutDashboard size={18} />, description: "Operasyon özeti ve hızlı giriş noktaları" },
   { id: "inputs", label: "Girişler", icon: <Pencil size={18} />, description: "Manuel katalog, alan adı ve takvim girişi" },
   { id: "catalog", label: "Katalog", icon: <Building2 size={18} />, description: "Üniversiteler, fakülteler ve bölümler" },
+  { id: "sources", label: "Duyuru Kaynakları", icon: <Rss size={18} />, description: "Resmî duyuru ve etkinlik kaynaklarını yönetin" },
   { id: "pdf", label: "PDF İşlemleri", icon: <FileText size={18} />, description: "Kaynak oluşturma ve çıkarım incelemesi" },
   { id: "calendar", label: "Yayınla", icon: <CalendarCheck size={18} />, description: "Takvimleri taslak yap, yayınla ve geri al" },
   { id: "notifications", label: "Bildirimler", icon: <BellRing size={18} />, description: "Kuyruk işleme ve teslimat inceleme" },
@@ -110,14 +141,27 @@ const termLabels: Record<string, string> = {
 const eventCategoryLabels: Record<string, string> = {
   course_registration: "Ders kaydı",
   course_add_drop: "Ekle-sil",
-  course_schedule: "Course schedule",
+  course_schedule: "Ders programı",
   midterm_exam: "Ara sınav",
   final_exam: "Final sınavı",
-  department_exam_schedule: "Exam schedule",
+  department_exam_schedule: "Sınav programı",
   summer_school_registration: "Yaz okulu kaydı",
   summer_school_start: "Yaz okulu başlangıcı",
   holiday: "Tatil",
   custom_event: "Özel"
+};
+
+const sourceScopeLabels: Record<AnnouncementSourceRecord["scopeType"], string> = {
+  university: "Üniversite",
+  faculty: "Fakülte",
+  department: "Bölüm"
+};
+
+const sourceHealthLabels: Record<NonNullable<AnnouncementSourceRecord["healthStatus"]>, string> = {
+  pending: "Bekliyor",
+  healthy: "Sağlıklı",
+  degraded: "Sorunlu",
+  failed: "Başarısız"
 };
 
 const reviewStatusLabels: Record<string, string> = {
@@ -175,6 +219,12 @@ function storeSession(session: AuthSession | null) {
   window.sessionStorage.setItem(adminSessionStorageKey, JSON.stringify(session));
 }
 
+function istanbulTemporalValue(date: string, time: string): string {
+  if (!time) return date;
+  const normalizedTime = time.length === 5 ? `${time}:00` : time;
+  return `${date}T${normalizedTime}+03:00`;
+}
+
 type PanelStateProps = {
   kind: "loading" | "error" | "empty";
   text: string;
@@ -219,15 +269,19 @@ function App() {
   const [calendarId, setCalendarId] = useState("");
   const [universityId, setUniversityId] = useState("");
   const [facultyId, setFacultyId] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [message, setMessage] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [userStatus, setUserStatus] = useState("");
   const [editingUserId, setEditingUserId] = useState("");
   const [manualEvents, setManualEvents] = useState([
-    { title: "", category: "course_registration", term: "fall", startDate: "", endDate: "", facultyId: "", departmentId: "", offset7: true, offset1: true }
+    { title: "", courseName: "", location: "", category: "course_registration", term: "fall", startDate: "", startTime: "", endDate: "", endTime: "", repeatWeekly: false, repeatUntil: "", facultyId: "", departmentId: "", offset7: true, offset1: true }
   ]);
   const [universities, setUniversities] = useState<ApiState<UniversityRecord[]>>({ loading: false });
   const [faculties, setFaculties] = useState<ApiState<FacultyRecord[]>>({ loading: false });
+  const [departments, setDepartments] = useState<ApiState<DepartmentRecord[]>>({ loading: false });
+  const [announcementSources, setAnnouncementSources] = useState<ApiState<AnnouncementSourceRecord[]>>({ loading: false });
+  const [courseSchedules, setCourseSchedules] = useState<ApiState<CourseScheduleEventRecord[]>>({ loading: false });
   const [events, setEvents] = useState<ApiState<ExtractedEventRecord[]>>({ loading: false });
   const [auditState, setAuditState] = useState<ApiState<AuditLogRecord[]>>({ loading: false });
   const [workerState, setWorkerState] = useState<ApiState<WorkerResult>>({ loading: false });
@@ -270,6 +324,10 @@ function App() {
       if (!universities.data && !universities.loading) void loadUniversities();
       if (!domainSuggestions.data && !domainSuggestions.loading) void loadDomainSuggestions();
       if (!academicUnitSuggestions.data && !academicUnitSuggestions.loading) void loadAcademicUnitSuggestions();
+    }
+    if (activeRoute === "sources") {
+      if (!universities.data && !universities.loading) void loadUniversities();
+      if (!announcementSources.data && !announcementSources.loading) void loadAnnouncementSources();
     }
   }, [activeRoute, hasToken]);
 
@@ -454,6 +512,126 @@ function App() {
     await runAction(setFaculties, () => request<FacultyRecord[]>(`/universities/${targetUniversityId}/faculties`));
   }
 
+  async function loadDepartments(targetFacultyId = facultyId) {
+    if (!ensureToken()) return;
+    if (!targetFacultyId) return;
+    await runAction(setDepartments, () => request<DepartmentRecord[]>(`/faculties/${targetFacultyId}/departments`));
+  }
+
+  async function loadAnnouncementSources() {
+    if (!ensureToken()) return;
+    await runAction(
+      setAnnouncementSources,
+      () => request<AnnouncementSourceRecord[]>("/admin/announcements/sources?limit=1000&offset=0")
+    );
+  }
+
+  async function createAnnouncementSource(event: FormEvent<HTMLFormElement>) {
+    if (!ensureToken()) return;
+    const form = event.currentTarget;
+    const values = formData(event);
+    const scopeType = values.scopeType as AnnouncementSourceRecord["scopeType"];
+    await request<JsonRecord>("/admin/announcements/sources", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeType,
+        universityId: values.universityId,
+        ...(scopeType !== "university" && values.facultyId ? { facultyId: values.facultyId } : {}),
+        ...(scopeType === "department" && values.departmentId ? { departmentId: values.departmentId } : {}),
+        sourceName: values.sourceName,
+        sourceUrl: values.sourceUrl,
+        contentType: values.contentType,
+        parser: values.parser,
+        priority: Number(values.priority),
+        fetchIntervalMinutes: Number(values.fetchIntervalMinutes)
+      })
+    });
+    form.reset();
+    await loadAnnouncementSources();
+    setMessage("Duyuru kaynağı eklendi ve ilk veri alımı çalıştırıldı");
+  }
+
+  async function updateAnnouncementSource(event: FormEvent<HTMLFormElement>, id: string) {
+    if (!ensureToken()) return;
+    const values = formData(event);
+    await request<JsonRecord>(`/admin/announcements/sources/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        sourceName: values.sourceName,
+        sourceUrl: values.sourceUrl,
+        contentType: values.contentType,
+        parser: values.parser,
+        priority: Number(values.priority),
+        fetchIntervalMinutes: Number(values.fetchIntervalMinutes),
+        status: values.status
+      })
+    });
+    await loadAnnouncementSources();
+    setMessage("Kaynak ayarları güncellendi");
+  }
+
+  async function deactivateAnnouncementSource(id: string) {
+    if (!ensureToken()) return;
+    await request<JsonRecord>(`/admin/announcements/sources/${id}`, { method: "DELETE" });
+    await loadAnnouncementSources();
+    setMessage("Kaynak pasife alındı");
+  }
+
+  async function ingestAnnouncementSource(id: string) {
+    if (!ensureToken()) return;
+    await request<JsonRecord>(`/admin/announcements/sources/${id}/ingest`, { method: "POST" });
+    await loadAnnouncementSources();
+    setMessage("Kaynak şimdi yenilendi");
+  }
+
+  async function loadCourseSchedules(
+    targetUniversityId = universityId,
+    targetDepartmentId = departmentId,
+    academicYear?: string
+  ) {
+    if (!ensureToken()) return;
+    if (!targetUniversityId || !targetDepartmentId) {
+      setCourseSchedules({ loading: false, data: [] });
+      return;
+    }
+    const query = new URLSearchParams({ universityId: targetUniversityId, departmentId: targetDepartmentId });
+    if (academicYear) query.set("academicYear", academicYear);
+    await runAction(setCourseSchedules, () => request<CourseScheduleEventRecord[]>(`/admin/calendars/course-schedules?${query}`));
+  }
+
+  async function createCourseSchedule(event: FormEvent<HTMLFormElement>) {
+    if (!ensureToken()) return;
+    const form = event.currentTarget;
+    const values = formData(event);
+    const response = await request<{ seriesId: string; events: CourseScheduleEventRecord[] }>("/admin/calendars/course-schedules", {
+      method: "POST",
+      body: JSON.stringify({
+        universityId: values.universityId,
+        facultyId: values.facultyId,
+        departmentId: values.departmentId,
+        academicYear: values.academicYear,
+        term: values.term,
+        title: values.title,
+        ...(values.courseName ? { courseName: values.courseName } : {}),
+        ...(values.location ? { location: values.location } : {}),
+        startDate: istanbulTemporalValue(values.startDate, values.startTime),
+        endDate: istanbulTemporalValue(values.startDate, values.endTime),
+        repeatWeekly: values.repeatWeekly === "on",
+        ...(values.repeatWeekly === "on" ? { repeatUntil: values.repeatUntil } : {})
+      })
+    });
+    form.reset();
+    await loadCourseSchedules(values.universityId, values.departmentId, values.academicYear);
+    setMessage(`${response.events.length} ders oturumu yayınlandı`);
+  }
+
+  async function deleteCourseScheduleSeries(seriesId: string) {
+    if (!ensureToken()) return;
+    await request<JsonRecord>(`/admin/calendars/course-schedules/${seriesId}`, { method: "DELETE" });
+    await loadCourseSchedules();
+    setMessage("Ders programı satırı kaldırıldı");
+  }
+
   async function createFaculty(event: FormEvent<HTMLFormElement>) {
     if (!ensureToken()) return;
     const values = formData(event);
@@ -508,7 +686,7 @@ function App() {
   }
 
   function addManualEventRow() {
-    setManualEvents((events) => [...events, { title: "", category: "course_registration", term: "fall", startDate: "", endDate: "", facultyId: "", departmentId: "", offset7: true, offset1: true }]);
+    setManualEvents((events) => [...events, { title: "", courseName: "", location: "", category: "course_registration", term: "fall", startDate: "", startTime: "", endDate: "", endTime: "", repeatWeekly: false, repeatUntil: "", facultyId: "", departmentId: "", offset7: true, offset1: true }]);
   }
 
   function removeManualEventRow(index: number) {
@@ -525,13 +703,18 @@ function App() {
         academicYear: values.academicYear,
         title: values.title,
         events: manualEvents
-          .filter((row) => row.title && row.startDate)
+          .filter((row) => (row.title || row.courseName) && row.startDate)
           .map((row) => ({
-            title: row.title,
+            title: row.title || row.courseName,
+            ...(row.courseName ? { courseName: row.courseName } : {}),
+            ...(row.location ? { location: row.location } : {}),
             category: row.category,
             term: row.term,
-            startDate: row.startDate,
-            ...(row.endDate ? { endDate: row.endDate } : {}),
+            startDate: istanbulTemporalValue(row.startDate, row.startTime),
+            ...((row.endDate || row.endTime) ? {
+              endDate: istanbulTemporalValue(row.endDate || row.startDate, row.endTime || row.startTime)
+            } : {}),
+            ...(row.repeatWeekly && row.repeatUntil ? { repeatWeekly: true, repeatUntil: row.repeatUntil } : {}),
             ...(row.facultyId ? { facultyId: row.facultyId } : {}),
             ...(row.departmentId ? { departmentId: row.departmentId } : {}),
             notificationRules: [
@@ -705,6 +888,9 @@ function App() {
     hasToken,
     universities,
     faculties,
+    departments,
+    announcementSources,
+    courseSchedules,
     events,
     auditState,
     workerState,
@@ -716,6 +902,7 @@ function App() {
     manualEvents,
     universityId,
     facultyId,
+    departmentId,
     pdfSourceId,
     calendarId,
     entityType,
@@ -726,6 +913,7 @@ function App() {
     editingUserId,
     setUniversityId,
     setFacultyId,
+    setDepartmentId,
     setPdfSourceId,
     setCalendarId,
     setEntityType,
@@ -741,6 +929,15 @@ function App() {
     createUniversity,
     archiveUniversity,
     loadFaculties,
+    loadDepartments,
+    loadAnnouncementSources,
+    createAnnouncementSource,
+    updateAnnouncementSource,
+    deactivateAnnouncementSource,
+    ingestAnnouncementSource,
+    loadCourseSchedules,
+    createCourseSchedule,
+    deleteCourseScheduleSeries,
     createFaculty,
     createDepartment,
     addUniversityEmailDomain,
@@ -773,7 +970,7 @@ function App() {
       return (
         <main className="adminLoginShell">
           <section className="adminLoginPanel">
-            <div className="brand loginBrand"><ShieldCheck size={22} /> Akademik Takvim OS</div>
+            <div className="brand loginBrand"><ShieldCheck size={22} /> Akademik Takvim Yönetimi</div>
             <div className="sectionIntro">
               <h1>Yönetici Paneli Açılıyor</h1>
               <p>Oturumunuz doğrulanıyor.</p>
@@ -787,7 +984,7 @@ function App() {
     return (
       <main className="adminLoginShell">
         <section className="adminLoginPanel">
-          <div className="brand loginBrand"><ShieldCheck size={22} /> Akademik Takvim OS</div>
+          <div className="brand loginBrand"><ShieldCheck size={22} /> Akademik Takvim Yönetimi</div>
           <div className="sectionIntro">
             <h1>Admin Girişi</h1>
             <p>Yönetici hesabınızla giriş yapın. Bu panel mobil uygulamadan bağımsız çalışır.</p>
@@ -815,7 +1012,7 @@ function App() {
   return (
     <main className="shell">
       <aside className="sidebar">
-        <div className="brand"><ShieldCheck size={22} /> Akademik Takvim OS</div>
+        <div className="brand"><ShieldCheck size={22} /> Akademik Takvim Yönetimi</div>
         <p className="sidebarTagline">Katalog, yayınlama, kullanıcılar ve bildirim güvenliği için operasyon merkezi.</p>
         <nav aria-label="Yönetici bölümleri">
           {routes.map((route) => (
@@ -836,13 +1033,14 @@ function App() {
         </header>
         {message && (
           <div className="notice" role="status" aria-live="polite">
-            <Sparkles size={16} aria-hidden="true" />
+            <Check size={16} aria-hidden="true" />
             <span>{message}</span>
           </div>
         )}
         {activeRoute === "dashboard" && <DashboardPage {...pageProps} />}
         {activeRoute === "inputs" && <InputsPage {...pageProps} />}
         {activeRoute === "catalog" && <CatalogPage {...pageProps} />}
+        {activeRoute === "sources" && <AnnouncementSourcesPage {...pageProps} />}
         {activeRoute === "pdf" && <PdfPage {...pageProps} />}
         {activeRoute === "calendar" && <CalendarPage {...pageProps} />}
         {activeRoute === "notifications" && <NotificationsPage {...pageProps} />}
@@ -855,6 +1053,7 @@ function App() {
 
 function DashboardPage(props: any) {
   const tiles = [
+    { href: "#/sources", icon: <Rss size={20} />, title: "Duyuru Kaynakları", body: "Resmî duyuru, haber ve etkinlik sayfalarını ve yenileme sıklıklarını yönetin." },
     { href: "#/catalog", icon: <Building2 size={20} />, title: "Katalog", body: "Üniversiteleri oluşturup arşivleyin, fakülte ve bölümleri bağlayın." },
     { href: "#/inputs", icon: <Pencil size={20} />, title: "Girişler", body: "Üniversite, bölüm, e-posta alan adı ve manuel takvim satırları girin." },
     { href: "#/pdf", icon: <FileText size={20} />, title: "PDF İşlemleri", body: "Kaynak oluşturun, çıkarımı işleyin ve inceleme adaylarını onaylayın." },
@@ -874,7 +1073,7 @@ function DashboardPage(props: any) {
       <section className="panel wide dashboardPanel">
         <div className="panelHeader">
           <div>
-            <h2><Sparkles size={20} /> Geçerli Çalışma Alanı</h2>
+            <h2><LayoutDashboard size={20} /> Geçerli Çalışma Alanı</h2>
             <p className="panelSub">Paylaşılan ID'ler katalog kurulumundan PDF işlemeye ve yayınlamaya geçişi kolaylaştırır.</p>
           </div>
         </div>
@@ -890,6 +1089,13 @@ function DashboardPage(props: any) {
 }
 
 function InputsPage(props: any) {
+  const courseScheduleSeries = new Map<string, { first: CourseScheduleEventRecord; count: number }>();
+  for (const event of props.courseSchedules.data ?? []) {
+    const key = event.scheduleSeriesId ?? event.id;
+    const current = courseScheduleSeries.get(key);
+    courseScheduleSeries.set(key, current ? { ...current, count: current.count + 1 } : { first: event, count: 1 });
+  }
+
   return (
     <section className="pageStack">
       <section className="panel wide">
@@ -909,9 +1115,9 @@ function InputsPage(props: any) {
             <option value="private">{universityTypeLabels.private}</option>
           </select>
           <input name="emailDomains" placeholder="E-posta alan adları, virgülle ayrılmış" aria-label="E-posta alan adları" />
-          <input name="websiteUrl" type="url" placeholder="Official website URL" aria-label="Official website URL" />
-          <input name="announcementUrl" type="url" placeholder="University announcements URL" aria-label="University announcements URL" />
-          <input name="academicCalendarUrl" type="url" placeholder="Academic calendar URL" aria-label="Academic calendar URL" />
+          <input name="websiteUrl" type="url" placeholder="Resmî web sitesi" aria-label="Resmî web sitesi" />
+          <input name="announcementUrl" type="url" placeholder="Üniversite duyuru adresi" aria-label="Üniversite duyuru adresi" />
+          <input name="academicCalendarUrl" type="url" placeholder="Akademik takvim adresi" aria-label="Akademik takvim adresi" />
           <button className="btn btn-primary" disabled={!props.hasToken}><Check size={18} /> Üniversite Ekle</button>
         </form>
         <div className="table">
@@ -932,8 +1138,8 @@ function InputsPage(props: any) {
         <form className="gridForm sourceForm" onSubmit={props.createFaculty}>
           <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required />
           <input name="name" placeholder="Fakülte" required />
-          <input name="websiteUrl" type="url" placeholder="Faculty website URL" aria-label="Faculty website URL" />
-          <input name="announcementUrl" type="url" placeholder="Announcement URL" aria-label="Faculty announcement URL" />
+          <input name="websiteUrl" type="url" placeholder="Fakülte web sitesi" aria-label="Fakülte web sitesi" />
+          <input name="announcementUrl" type="url" placeholder="Duyuru adresi" aria-label="Fakülte duyuru adresi" />
           <button className="btn btn-primary" disabled={!props.hasToken}><Check size={18} /> Fakülte Ekle</button>
         </form>
         <div className="chips">{(props.faculties.data ?? []).map((faculty: FacultyRecord) => <button className="btn btn-chip" type="button" key={faculty.id} onClick={() => props.setFacultyId(faculty.id)}>{faculty.name}</button>)}</div>
@@ -947,10 +1153,10 @@ function InputsPage(props: any) {
             <option value="master">{educationLevelLabels.master}</option>
             <option value="doctorate">{educationLevelLabels.doctorate}</option>
           </select>
-          <input name="websiteUrl" type="url" placeholder="Department website URL" aria-label="Department website URL" />
-          <input name="announcementUrl" type="url" placeholder="Announcement URL" aria-label="Department announcement URL" />
-          <input name="courseScheduleUrl" type="url" placeholder="Course schedule URL" aria-label="Department course schedule URL" />
-          <input name="examScheduleUrl" type="url" placeholder="Exam schedule URL" aria-label="Department exam schedule URL" />
+          <input name="websiteUrl" type="url" placeholder="Bölüm web sitesi" aria-label="Bölüm web sitesi" />
+          <input name="announcementUrl" type="url" placeholder="Duyuru adresi" aria-label="Bölüm duyuru adresi" />
+          <input name="courseScheduleUrl" type="url" placeholder="Ders programı adresi" aria-label="Bölüm ders programı adresi" />
+          <input name="examScheduleUrl" type="url" placeholder="Sınav programı adresi" aria-label="Bölüm sınav programı adresi" />
           <button className="btn btn-primary" disabled={!props.hasToken}><Check size={18} /> Bölüm Ekle</button>
         </form>
       </section>
@@ -958,7 +1164,7 @@ function InputsPage(props: any) {
       <section className="panel wide">
         <div className="panelHeader">
           <div>
-            <h2><Sparkles size={20} /> Fakülte ve Bölüm İncelemesi</h2>
+            <h2><Building2 size={20} /> Fakülte ve Bölüm İncelemesi</h2>
             <p className="panelSub">Öğrencilerin gönderdiği eksik fakülte ve bölüm önerileri katalog doğrulaması bekliyor.</p>
           </div>
           <button className="btn btn-secondary" type="button" onClick={props.loadAcademicUnitSuggestions} disabled={!props.hasToken || props.academicUnitSuggestions.loading}><RefreshCcw size={18} /> Yenile</button>
@@ -1006,6 +1212,54 @@ function InputsPage(props: any) {
       <section className="panel wide">
         <div className="panelHeader">
           <div>
+            <h2><BookOpen size={20} /> Ders Programı</h2>
+            <p className="panelSub">Bir dersin ilk gününü, saatini ve yerini girin. Haftalık tekrar seçilirse dönem sonuna kadar oturumlar doğrudan öğrenci takviminde yayınlanır.</p>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={() => props.loadCourseSchedules()} disabled={!props.hasToken || !props.departmentId || props.courseSchedules.loading}><RefreshCcw size={18} /> Programı Yükle</button>
+        </div>
+        <form className="gridForm scheduleForm" onSubmit={props.createCourseSchedule}>
+          <select name="universityId" value={props.universityId} onChange={(event) => { props.setUniversityId(event.target.value); props.setFacultyId(""); props.setDepartmentId(""); if (event.target.value) void props.loadFaculties(event.target.value); }} required aria-label="Üniversite">
+            <option value="">Üniversite seçin</option>
+            {(props.universities.data ?? []).map((university: UniversityRecord) => <option value={university.id} key={university.id}>{university.name}</option>)}
+          </select>
+          <select name="facultyId" value={props.facultyId} onChange={(event) => { props.setFacultyId(event.target.value); props.setDepartmentId(""); if (event.target.value) void props.loadDepartments(event.target.value); }} required aria-label="Fakülte">
+            <option value="">Fakülte seçin</option>
+            {(props.faculties.data ?? []).map((faculty: FacultyRecord) => <option value={faculty.id} key={faculty.id}>{faculty.name}</option>)}
+          </select>
+          <select name="departmentId" value={props.departmentId} onChange={(event) => props.setDepartmentId(event.target.value)} required aria-label="Bölüm">
+            <option value="">Bölüm seçin</option>
+            {(props.departments.data ?? []).map((department: DepartmentRecord) => <option value={department.id} key={department.id}>{department.name}</option>)}
+          </select>
+          <input name="academicYear" placeholder="2026-2027" required aria-label="Akademik yıl" />
+          <select name="term" defaultValue="fall" aria-label="Dönem"><option value="fall">Güz</option><option value="spring">Bahar</option><option value="summer">Yaz</option></select>
+          <input name="title" placeholder="Ders başlığı" required aria-label="Ders başlığı" />
+          <input name="courseName" placeholder="Ders kodu / tam adı" aria-label="Ders kodu veya tam adı" />
+          <input name="location" placeholder="Derslik / yer" aria-label="Derslik veya yer" />
+          <label className="fieldLabel">İlk ders günü<input name="startDate" type="date" required /></label>
+          <label className="fieldLabel">Başlangıç<input name="startTime" type="time" defaultValue="09:00" required /></label>
+          <label className="fieldLabel">Bitiş<input name="endTime" type="time" defaultValue="10:00" required /></label>
+          <label className="fieldLabel">Tekrar sonu<input name="repeatUntil" type="date" required /></label>
+          <label className="miniCheck"><input name="repeatWeekly" type="checkbox" defaultChecked /> Haftalık tekrarla</label>
+          <button className="btn btn-primary" disabled={!props.hasToken}><Save size={18} /> Dersi Yayınla</button>
+        </form>
+        {props.courseSchedules.loading && <PanelState kind="loading" text="Ders programı yükleniyor..." />}
+        {props.courseSchedules.error && <PanelState kind="error" text={props.courseSchedules.error} />}
+        <div className="table">
+          {[...courseScheduleSeries.entries()].map(([seriesId, entry]) => (
+            <div className="row courseSchedule" key={seriesId}>
+              <span><strong>{entry.first.title}</strong>{entry.first.courseName ? ` · ${entry.first.courseName}` : ""}</span>
+              <span>{new Date(entry.first.startDate).toLocaleString("tr-TR", { weekday: "long", hour: "2-digit", minute: "2-digit" })}</span>
+              <span>{entry.first.location || "Yer belirtilmedi"}</span>
+              <span>{entry.count} oturum</span>
+              <button className="btn btn-danger" type="button" onClick={() => props.deleteCourseScheduleSeries(seriesId)} disabled={!entry.first.scheduleSeriesId}><Trash2 size={16} /> Kaldır</button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel wide">
+        <div className="panelHeader">
+          <div>
             <h2><CalendarCheck size={20} /> Manuel Akademik Takvim</h2>
             <p className="panelSub">Elle girilen satırlardan taslak oluşturun. İncelemeden sonra Yayınla sayfasından yayınlayın.</p>
           </div>
@@ -1021,10 +1275,11 @@ function InputsPage(props: any) {
             {props.manualEvents.map((row: any, index: number) => (
               <div className="row manualEvent" key={index}>
                 <input value={row.title} onChange={(event) => props.updateManualEvent(index, "title", event.target.value)} placeholder="Etkinlik başlığı" required />
+                <input value={row.courseName} onChange={(event) => props.updateManualEvent(index, "courseName", event.target.value)} placeholder="Ders adı / kodu" />
+                <input value={row.location} onChange={(event) => props.updateManualEvent(index, "location", event.target.value)} placeholder="Derslik / yer" />
                 <select value={row.category} onChange={(event) => props.updateManualEvent(index, "category", event.target.value)}>
                   <option value="course_registration">{eventCategoryLabels.course_registration}</option>
                   <option value="course_add_drop">{eventCategoryLabels.course_add_drop}</option>
-                  <option value="course_schedule">{eventCategoryLabels.course_schedule}</option>
                   <option value="midterm_exam">{eventCategoryLabels.midterm_exam}</option>
                   <option value="final_exam">{eventCategoryLabels.final_exam}</option>
                   <option value="department_exam_schedule">{eventCategoryLabels.department_exam_schedule}</option>
@@ -1041,11 +1296,15 @@ function InputsPage(props: any) {
                   <option value="unknown">{termLabels.unknown}</option>
                 </select>
                 <input type="date" value={row.startDate} onChange={(event) => props.updateManualEvent(index, "startDate", event.target.value)} required />
+                <input type="time" value={row.startTime} onChange={(event) => props.updateManualEvent(index, "startTime", event.target.value)} aria-label="Başlangıç saati" />
                 <input type="date" value={row.endDate} onChange={(event) => props.updateManualEvent(index, "endDate", event.target.value)} />
+                <input type="time" value={row.endTime} onChange={(event) => props.updateManualEvent(index, "endTime", event.target.value)} aria-label="Bitiş saati" />
+                <input type="date" value={row.repeatUntil} onChange={(event) => props.updateManualEvent(index, "repeatUntil", event.target.value)} disabled={!row.repeatWeekly} aria-label="Haftalık tekrar bitişi" />
                 <input value={row.facultyId} onChange={(event) => props.updateManualEvent(index, "facultyId", event.target.value)} placeholder="Fakülte ID" />
                 <input value={row.departmentId} onChange={(event) => props.updateManualEvent(index, "departmentId", event.target.value)} placeholder="Bölüm ID" />
                 <label className="miniCheck"><input type="checkbox" checked={row.offset7} onChange={(event) => props.updateManualEvent(index, "offset7", event.target.checked)} /> 7 gün</label>
                 <label className="miniCheck"><input type="checkbox" checked={row.offset1} onChange={(event) => props.updateManualEvent(index, "offset1", event.target.checked)} /> 1 gün</label>
+                <label className="miniCheck"><input type="checkbox" checked={row.repeatWeekly} onChange={(event) => props.updateManualEvent(index, "repeatWeekly", event.target.checked)} /> Haftalık</label>
                 <button className="btn btn-danger" type="button" onClick={() => props.removeManualEventRow(index)}><Trash2 size={16} /></button>
               </div>
             ))}
@@ -1078,9 +1337,9 @@ function CatalogPage(props: any) {
             <option value="foundation">{universityTypeLabels.foundation}</option>
             <option value="private">{universityTypeLabels.private}</option>
           </select>
-          <input name="websiteUrl" type="url" placeholder="Official website URL" aria-label="Official website URL" />
-          <input name="announcementUrl" type="url" placeholder="University announcements URL" aria-label="University announcements URL" />
-          <input name="academicCalendarUrl" type="url" placeholder="Academic calendar URL" aria-label="Academic calendar URL" />
+          <input name="websiteUrl" type="url" placeholder="Resmî web sitesi" aria-label="Resmî web sitesi" />
+          <input name="announcementUrl" type="url" placeholder="Duyuru sayfası adresi" aria-label="Duyuru sayfası adresi" />
+          <input name="academicCalendarUrl" type="url" placeholder="Akademik takvim adresi" aria-label="Akademik takvim adresi" />
           <button className="btn btn-primary" disabled={!props.hasToken || props.universities.loading}><Check size={18} /> Oluştur</button>
         </form>
         {props.universities.loading && <PanelState kind="loading" text="Üniversiteler yükleniyor..." />}
@@ -1112,8 +1371,8 @@ function CatalogPage(props: any) {
         <form className="gridForm sourceForm" onSubmit={props.createFaculty}>
           <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required aria-label="Fakülte için üniversite ID" />
           <input name="name" placeholder="Fakülte" required aria-label="Fakülte adı" />
-          <input name="websiteUrl" type="url" placeholder="Faculty website URL" aria-label="Faculty website URL" />
-          <input name="announcementUrl" type="url" placeholder="Announcement URL" aria-label="Faculty announcement URL" />
+          <input name="websiteUrl" type="url" placeholder="Fakülte web sitesi" aria-label="Fakülte web sitesi" />
+          <input name="announcementUrl" type="url" placeholder="Duyuru adresi" aria-label="Fakülte duyuru adresi" />
           <button className="btn btn-primary" disabled={!props.hasToken}><Check size={18} /> Fakülte Ekle</button>
         </form>
         {props.faculties.loading && <PanelState kind="loading" text="Fakülteler yükleniyor..." />}
@@ -1129,12 +1388,136 @@ function CatalogPage(props: any) {
             <option value="master">{educationLevelLabels.master}</option>
             <option value="doctorate">{educationLevelLabels.doctorate}</option>
           </select>
-          <input name="websiteUrl" type="url" placeholder="Department website URL" aria-label="Department website URL" />
-          <input name="announcementUrl" type="url" placeholder="Announcement URL" aria-label="Department announcement URL" />
-          <input name="courseScheduleUrl" type="url" placeholder="Course schedule URL" aria-label="Department course schedule URL" />
-          <input name="examScheduleUrl" type="url" placeholder="Exam schedule URL" aria-label="Department exam schedule URL" />
+          <input name="websiteUrl" type="url" placeholder="Bölüm web sitesi" aria-label="Bölüm web sitesi" />
+          <input name="announcementUrl" type="url" placeholder="Duyuru adresi" aria-label="Bölüm duyuru adresi" />
+          <input name="courseScheduleUrl" type="url" placeholder="Ders programı adresi" aria-label="Bölüm ders programı adresi" />
+          <input name="examScheduleUrl" type="url" placeholder="Sınav programı adresi" aria-label="Bölüm sınav programı adresi" />
           <button className="btn btn-primary" disabled={!props.hasToken}><Check size={18} /> Bölüm Ekle</button>
         </form>
+      </section>
+    </section>
+  );
+}
+
+function AnnouncementSourcesPage(props: any) {
+  const [scopeType, setScopeType] = useState<AnnouncementSourceRecord["scopeType"]>("university");
+
+  return (
+    <section className="pageStack">
+      <section className="panel wide">
+        <div className="panelHeader">
+          <div>
+            <h2><Rss size={20} /> Yeni Resmî Kaynak</h2>
+            <p className="panelSub">Üniversite, fakülte veya bölümün resmî duyuru, haber ve etkinlik sayfasını ekleyin. İlk veri alımı kayıttan hemen sonra çalışır.</p>
+          </div>
+        </div>
+        <form className="gridForm sourceManagerForm" onSubmit={props.createAnnouncementSource}>
+          <select name="scopeType" value={scopeType} onChange={(event) => setScopeType(event.target.value as AnnouncementSourceRecord["scopeType"])} aria-label="Kaynak kapsamı">
+            <option value="university">Üniversite</option>
+            <option value="faculty">Fakülte</option>
+            <option value="department">Bölüm</option>
+          </select>
+          <select
+            name="universityId"
+            value={props.universityId}
+            onChange={(event) => {
+              props.setUniversityId(event.target.value);
+              props.setFacultyId("");
+              props.setDepartmentId("");
+              if (event.target.value) void props.loadFaculties(event.target.value);
+            }}
+            required
+            aria-label="Üniversite"
+          >
+            <option value="">Üniversite seçin</option>
+            {(props.universities.data ?? []).map((university: UniversityRecord) => <option value={university.id} key={university.id}>{university.name}</option>)}
+          </select>
+          <select
+            name="facultyId"
+            value={props.facultyId}
+            onChange={(event) => {
+              props.setFacultyId(event.target.value);
+              props.setDepartmentId("");
+              if (event.target.value) void props.loadDepartments(event.target.value);
+            }}
+            disabled={scopeType === "university"}
+            required={scopeType !== "university"}
+            aria-label="Fakülte"
+          >
+            <option value="">Fakülte seçin</option>
+            {(props.faculties.data ?? []).map((faculty: FacultyRecord) => <option value={faculty.id} key={faculty.id}>{faculty.name}</option>)}
+          </select>
+          <select
+            name="departmentId"
+            value={props.departmentId}
+            onChange={(event) => props.setDepartmentId(event.target.value)}
+            disabled={scopeType !== "department"}
+            required={scopeType === "department"}
+            aria-label="Bölüm"
+          >
+            <option value="">Bölüm seçin</option>
+            {(props.departments.data ?? []).map((department: DepartmentRecord) => <option value={department.id} key={department.id}>{department.name}</option>)}
+          </select>
+          <input name="sourceName" placeholder="Kaynak adı" required aria-label="Kaynak adı" />
+          <input name="sourceUrl" type="url" placeholder="https://universite.edu.tr/duyurular" required aria-label="Kaynak adresi" />
+          <select name="contentType" defaultValue="announcement" aria-label="İçerik türü">
+            <option value="announcement">Duyuru</option>
+            <option value="news">Haber</option>
+            <option value="event">Etkinlik</option>
+          </select>
+          <select name="parser" defaultValue="auto" aria-label="Ayrıştırıcı">
+            <option value="auto">Otomatik</option>
+            <option value="rss">RSS</option>
+            <option value="html">HTML</option>
+          </select>
+          <input name="priority" type="number" min="1" max="100" defaultValue="50" required aria-label="Öncelik" />
+          <label className="fieldLabel">Yenileme (dakika)<input name="fetchIntervalMinutes" type="number" min="5" max="10080" defaultValue="180" required /></label>
+          <button className="btn btn-primary" disabled={!props.hasToken || props.announcementSources.loading}><Check size={18} /> Kaynağı Ekle</button>
+        </form>
+      </section>
+
+      <section className="panel wide">
+        <div className="panelHeader">
+          <div>
+            <h2><RefreshCcw size={20} /> Kaynak Durumu</h2>
+            <p className="panelSub">Yenileme sıklığı kaynak bazında uygulanır. Bir kaynak beklemeden kontrol edilebilir veya pasife alınabilir.</p>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={props.loadAnnouncementSources} disabled={!props.hasToken || props.announcementSources.loading}><RefreshCcw size={18} /> Yenile</button>
+        </div>
+        {props.announcementSources.loading && <PanelState kind="loading" text="Kaynaklar yükleniyor..." />}
+        {props.announcementSources.error && <PanelState kind="error" text={props.announcementSources.error} />}
+        {!props.announcementSources.loading && !props.announcementSources.error && (props.announcementSources.data?.length ?? 0) === 0 && <PanelState kind="empty" text="Henüz duyuru kaynağı yok." />}
+        <div className="sourceList">
+          {(props.announcementSources.data ?? []).map((source: AnnouncementSourceRecord) => (
+            <form className="sourceEditor" key={source.id} onSubmit={(event) => props.updateAnnouncementSource(event, source.id)}>
+              <div className="sourceIdentity">
+                <strong>{source.sourceName}</strong>
+                <span>{sourceScopeLabels[source.scopeType]} · {source.scopeId}</span>
+                <span className={`statusBadge status-${source.healthStatus ?? "pending"}`}>{sourceHealthLabels[source.healthStatus ?? "pending"]} · {source.itemCount ?? 0} kayıt</span>
+                <span>{source.lastCheckedAt ? `Son kontrol: ${new Date(source.lastCheckedAt).toLocaleString("tr-TR")}` : "Henüz kontrol edilmedi"}</span>
+              </div>
+              <div className="sourceFields">
+                <input name="sourceName" defaultValue={source.sourceName} required aria-label="Kaynak adı" />
+                <input name="sourceUrl" type="url" defaultValue={source.sourceUrl} required aria-label="Kaynak adresi" />
+                <select name="contentType" defaultValue={source.contentType ?? "announcement"} aria-label="İçerik türü">
+                  <option value="announcement">Duyuru</option><option value="news">Haber</option><option value="event">Etkinlik</option>
+                </select>
+                <select name="parser" defaultValue={source.parser} aria-label="Ayrıştırıcı">
+                  <option value="auto">Otomatik</option><option value="rss">RSS</option><option value="html">HTML</option>
+                </select>
+                <input name="priority" type="number" min="1" max="100" defaultValue={source.priority} aria-label="Öncelik" />
+                <input name="fetchIntervalMinutes" type="number" min="5" max="10080" defaultValue={source.fetchIntervalMinutes ?? 180} aria-label="Yenileme dakikası" />
+                <select name="status" defaultValue={source.status} aria-label="Kaynak durumu"><option value="active">Aktif</option><option value="inactive">Pasif</option></select>
+              </div>
+              {source.lastError && <p className="sourceError">{source.lastError}</p>}
+              <div className="sourceActions">
+                <button className="btn btn-primary" disabled={!props.hasToken}><Save size={16} /> Kaydet</button>
+                <button className="btn btn-secondary" type="button" onClick={() => props.ingestAnnouncementSource(source.id)} disabled={!props.hasToken || source.status !== "active"}><Play size={16} /> Şimdi Tara</button>
+                <button className="btn btn-danger" type="button" onClick={() => props.deactivateAnnouncementSource(source.id)} disabled={!props.hasToken || source.status === "inactive"}><Archive size={16} /> Pasife Al</button>
+              </div>
+            </form>
+          ))}
+        </div>
       </section>
     </section>
   );

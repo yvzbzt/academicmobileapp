@@ -98,13 +98,12 @@ describe("mobile-native design foundation", () => {
   it("exposes the accepted type, spacing, radius, motion, and readable-width scales", () => {
     expect(Object.values(spacing)).toEqual([4, 8, 12, 16, 20, 24, 32, 40]);
     expect(typography.body).toEqual({
-      fontFamily: "Inter_400Regular",
       fontSize: 16,
       lineHeight: 23,
       fontWeight: "400",
     });
     expect(typography.navLabel.fontSize).toBeGreaterThanOrEqual(12);
-    expect(lightTheme.radii).toMatchObject({ small: 6, control: 10, card: 14, prominent: 18 });
+    expect(lightTheme.radii).toMatchObject({ small: 6, control: 8, card: 10, prominent: 12 });
     expect(lightTheme.motion.duration).toMatchObject({ immediate: 80, short: 160, medium: 240 });
     expect(readableWidths.content).toBeGreaterThanOrEqual(680);
     expect(readableWidths.content).toBeLessThanOrEqual(720);

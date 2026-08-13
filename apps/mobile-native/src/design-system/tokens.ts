@@ -281,16 +281,16 @@ const darkColors: SemanticColors = {
 };
 
 export const typography = {
-  display: { fontFamily: "Inter_700Bold", fontSize: 28, lineHeight: 34, fontWeight: "700" as const },
-  screenTitle: { fontFamily: "Inter_700Bold", fontSize: 24, lineHeight: 30, fontWeight: "700" as const },
-  sectionTitle: { fontFamily: "Inter_700Bold", fontSize: 20, lineHeight: 26, fontWeight: "700" as const },
-  cardTitle: { fontFamily: "Inter_600SemiBold", fontSize: 17, lineHeight: 23, fontWeight: "600" as const },
-  body: { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 23, fontWeight: "400" as const },
-  bodyStrong: { fontFamily: "Inter_600SemiBold", fontSize: 16, lineHeight: 23, fontWeight: "600" as const },
-  label: { fontFamily: "Inter_600SemiBold", fontSize: 14, lineHeight: 19, fontWeight: "600" as const },
-  meta: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 18, fontWeight: "400" as const },
-  metaStrong: { fontFamily: "Inter_500Medium", fontSize: 13, lineHeight: 18, fontWeight: "500" as const },
-  navLabel: { fontFamily: "Inter_500Medium", fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
+  display: { fontSize: 26, lineHeight: 32, fontWeight: "700" as const },
+  screenTitle: { fontSize: 22, lineHeight: 28, fontWeight: "700" as const },
+  sectionTitle: { fontSize: 18, lineHeight: 24, fontWeight: "700" as const },
+  cardTitle: { fontSize: 16, lineHeight: 22, fontWeight: "600" as const },
+  body: { fontSize: 16, lineHeight: 23, fontWeight: "400" as const },
+  bodyStrong: { fontSize: 16, lineHeight: 23, fontWeight: "600" as const },
+  label: { fontSize: 14, lineHeight: 19, fontWeight: "600" as const },
+  meta: { fontSize: 13, lineHeight: 18, fontWeight: "400" as const },
+  metaStrong: { fontSize: 13, lineHeight: 18, fontWeight: "500" as const },
+  navLabel: { fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
 } as const;
 
 export const spacing = {
@@ -306,9 +306,9 @@ export const spacing = {
 
 export const radii = {
   small: 6,
-  control: 10,
-  card: 14,
-  prominent: 18,
+  control: 8,
+  card: 10,
+  prominent: 12,
   pill: 999,
 } as const;
 
