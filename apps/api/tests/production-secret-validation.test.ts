@@ -53,6 +53,33 @@ describe("production runtime secret validation", () => {
     }));
   });
 
+  it("does not treat a Firebase project id as an Admin credential", () => {
+    const result = validateEnvironment({
+      ...productionEnvironment,
+      FIREBASE_PROJECT_ID: "academic-mobile-app-7629"
+    });
+
+    expect(result.warnings).toContain(
+      "Firebase Admin credentials or Cloud Run application default credentials are required before production push delivery is enabled."
+    );
+  });
+
+  it.each([
+    { FIREBASE_SERVICE_ACCOUNT_JSON: "{\"project_id\":\"configured\"}" },
+    { GOOGLE_APPLICATION_CREDENTIALS: "/run/secrets/firebase.json" },
+    { K_SERVICE: "academic-api" }
+  ])("accepts an explicit Firebase Admin credential source", (firebaseEnvironment) => {
+    const result = validateEnvironment({
+      ...productionEnvironment,
+      FIREBASE_PROJECT_ID: "academic-mobile-app-7629",
+      ...firebaseEnvironment
+    });
+
+    expect(result.warnings).not.toContain(
+      "Firebase Admin credentials or Cloud Run application default credentials are required before production push delivery is enabled."
+    );
+  });
+
   it("rejects reusing the access-token signing value for the production Calendar feed", () => {
     const result = validateEnvironment({
       ...productionEnvironment,

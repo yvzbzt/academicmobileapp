@@ -17,7 +17,7 @@ export class FirebaseAdminService {
       });
     }
 
-    if (projectId || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
       return initializeApp({
         credential: applicationDefault(),
         ...(projectId ? { projectId } : {})

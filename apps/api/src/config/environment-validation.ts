@@ -62,5 +62,5 @@ export function assertValidEnvironment(env: NodeJS.ProcessEnv = process.env): En
 }
 
 function hasFirebaseAdminConfig(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON || env.FIREBASE_PROJECT_ID || env.GOOGLE_CLOUD_PROJECT || env.GCLOUD_PROJECT || env.GOOGLE_APPLICATION_CREDENTIALS || env.K_SERVICE);
+  return Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON || env.GOOGLE_APPLICATION_CREDENTIALS || env.K_SERVICE);
 }

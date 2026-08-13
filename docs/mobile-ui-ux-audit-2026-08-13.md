@@ -60,6 +60,7 @@ Uygulama başlangıcında yalnız oturum ve profil navigasyonu bloke ediyor. Ün
 - Loglarda `DEVELOPER_ERROR`, `ApiException` veya istemci kimliği hatası görülmedi.
 - Düşük gereksinimli API 24 Google APIs imajında Play Store hesabı yok ve Google hesap ekleme tamamlanamıyor. Bu nedenle token callback ve backend `/auth/google` çağrısı bu emülatörde uçtan uca tamamlanmadı.
 - Teslim APK'sı debug keystore ile imzalı release yapıdadır. Üretim release keystore ve onun SHA-1/SHA-256 OAuth kaydı eksik olan gerçek yayın engelidir.
+- VPS'de `GOOGLE_OAUTH_CLIENT_IDS` yapılandırılmıştır; Google token doğrulamasının OAuth `tokeninfo` yedeği kullanılabilir. `FIREBASE_SERVICE_ACCOUNT_JSON` ve `GOOGLE_APPLICATION_CREDENTIALS` ise eksiktir. Bu eksiklik Google OAuth yedeğini engellemez, ancak sunucudan Firebase push gönderimini engeller. Yalnız proje kimliğinin Admin kimliği sayılmasına son verilerek gereksiz metadata sorgusu ve belirsiz push sonucu kaldırıldı.
 
 ## Test Sonuçları
 
