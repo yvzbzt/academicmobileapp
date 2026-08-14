@@ -55,7 +55,6 @@ export interface ProfileOverviewScreenProps {
   googleCalendar: GoogleCalendarPresentation;
   googleAccountEmail?: string;
   appVersion: string;
-  buildNumber: string | number;
   avatarUri?: string;
   loading?: boolean;
   error?: string;
@@ -76,7 +75,6 @@ export function ProfileOverviewScreen({
   notificationTruth,
   googleCalendar,
   appVersion,
-  buildNumber,
   error,
   followedUniversityCount = 0,
   onRetry,
@@ -174,7 +172,7 @@ export function ProfileOverviewScreen({
         />
       </ProfileReferenceSection>
 
-      <Text style={[theme.typography.navLabel, styles.profileVersion, { color: theme.colors.text.secondary }]}>Sürüm {appVersion} · Derleme {String(buildNumber)}</Text>
+      <Text style={[theme.typography.navLabel, styles.profileVersion, { color: theme.colors.text.secondary }]}>Sürüm {appVersion}</Text>
     </SettingsBody>
   );
 }
