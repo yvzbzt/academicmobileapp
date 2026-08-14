@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node
 import { Injectable } from "@nestjs/common";
 import jwt from "jsonwebtoken";
 import type { AuthUserRecord, RecentAuthenticationPurpose } from "./auth.types.js";
-import { PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_TTL_SECONDS } from "./auth.constants.js";
+import { EMAIL_VERIFICATION_CODE_LENGTH, PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_TTL_SECONDS } from "./auth.constants.js";
 import { isProductionSecret } from "../../config/production-secret.js";
 
 export interface AccessTokenPayload {
@@ -160,10 +160,10 @@ export class TokenService {
   }
 
   issueEmailVerificationToken(): EmailVerificationTokenIssueResult {
-    const rawToken = String(Math.floor(Math.random() * 10_000)).padStart(4, "0");
+    const rawToken = randomInt(0, 10 ** EMAIL_VERIFICATION_CODE_LENGTH).toString().padStart(EMAIL_VERIFICATION_CODE_LENGTH, "0");
     return {
       rawToken,
-      tokenHash: this.hashOpaqueToken(rawToken),
+      tokenHash: this.hashEmailVerificationToken(rawToken),
       expiresAt: new Date(Date.now() + this.emailVerificationTtlMinutes * 60 * 1000)
     };
   }
@@ -181,6 +181,18 @@ export class TokenService {
     const normalizedEmail = email.trim().toLowerCase();
     return createHmac("sha256", this.passwordRecoverySecret())
       .update(`password-recovery:${normalizedEmail}:${rawToken.trim()}`)
+      .digest("hex");
+  }
+
+  hashEmailVerificationToken(rawToken: string): string {
+    return createHmac("sha256", this.emailVerificationSecret())
+      .update(`email-verification:${rawToken.trim()}`)
+      .digest("hex");
+  }
+
+  hashPurposeBoundCode(purpose: string, ownerId: string, rawToken: string): string {
+    return createHmac("sha256", this.emailVerificationSecret())
+      .update(`purpose-bound-code:${purpose}:${ownerId}:${rawToken.trim()}`)
       .digest("hex");
   }
 
@@ -215,11 +227,19 @@ export class TokenService {
   }
 
   private passwordRecoverySecret(): string {
-    const configuredSecret = process.env.PASSWORD_RECOVERY_TOKEN_PEPPER ?? process.env.JWT_ACCESS_SECRET;
+    const configuredSecret = process.env.PASSWORD_RECOVERY_TOKEN_PEPPER;
     if (process.env.NODE_ENV === "production" && !isProductionSecret(configuredSecret)) {
       throw new Error("PASSWORD_RECOVERY_TOKEN_PEPPER_NOT_CONFIGURED");
     }
     return configuredSecret ?? "development-password-recovery-pepper-change-me";
+  }
+
+  private emailVerificationSecret(): string {
+    const configuredSecret = process.env.EMAIL_VERIFICATION_TOKEN_PEPPER;
+    if (process.env.NODE_ENV === "production" && !isProductionSecret(configuredSecret)) {
+      throw new Error("EMAIL_VERIFICATION_TOKEN_PEPPER_NOT_CONFIGURED");
+    }
+    return configuredSecret ?? "development-email-verification-pepper-change-me";
   }
 }
 

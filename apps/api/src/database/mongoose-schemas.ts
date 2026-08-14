@@ -3,7 +3,8 @@ import { Schema } from "mongoose";
 export const userSchema = new Schema(
   {
     fullName: { type: String, required: true, trim: true },
-    email: { type: String, required: true, lowercase: true, trim: true, unique: true },
+    email: { type: String, required: true, trim: true },
+    emailLookupHash: { type: String, required: false, select: false },
     credentialGeneration: { type: Number, required: true, default: 0, min: 0 },
     passwordRecoveryAttempt: {
       tokenHash: { type: String, required: false },
@@ -20,7 +21,8 @@ export const userSchema = new Schema(
     emailVerifiedAt: { type: Date, required: false },
     passwordHash: { type: String, required: true, select: true },
     authProvider: { type: String, required: false, enum: ["password", "google", "password_google"], default: "password" },
-    firebaseAuthUid: { type: String, required: false, index: true },
+    firebaseAuthUid: { type: String, required: false },
+    firebaseAuthUidLookupHash: { type: String, required: false, select: false },
     role: {
       type: String,
       required: true,
@@ -38,8 +40,8 @@ export const userSchema = new Schema(
   { collection: "users", timestamps: true }
 );
 
-userSchema.index({ email: 1 }, { unique: true, name: "users_email_unique" });
-userSchema.index({ firebaseAuthUid: 1 }, { sparse: true, name: "users_firebase_auth_uid" });
+userSchema.index({ emailLookupHash: 1 }, { unique: true, sparse: true, name: "users_email_lookup_unique" });
+userSchema.index({ firebaseAuthUidLookupHash: 1 }, { unique: true, sparse: true, name: "users_firebase_auth_uid_lookup" });
 userSchema.index({ universityId: 1, status: 1 }, { name: "users_university_status" });
 
 export const refreshTokenSchema = new Schema(
@@ -124,7 +126,8 @@ export const academicUnitSuggestionSchema = new Schema(
   {
     _id: { type: String, required: true },
     userId: { type: String, required: true },
-    userEmail: { type: String, required: true, lowercase: true, trim: true },
+    userEmail: { type: String, required: true, trim: true },
+    userEmailLookupHash: { type: String, required: false, select: false },
     universityId: { type: String, required: true },
     facultyName: { type: String, required: true, trim: true },
     departmentName: { type: String, required: false, trim: true },
@@ -492,6 +495,7 @@ export const deviceTokenSchema = new Schema(
     userId: { type: String, required: true, index: true },
     platform: { type: String, required: true, enum: ["ios", "android", "web"] },
     token: { type: String, required: true },
+    tokenLookupHash: { type: String, required: false, select: false },
     installationHash: { type: String, required: false },
     status: { type: String, required: true, enum: ["active", "disabled"], default: "active", index: true },
     lastSeenAt: { type: Date, required: true }
@@ -499,7 +503,7 @@ export const deviceTokenSchema = new Schema(
   { collection: "device_tokens", timestamps: true }
 );
 
-deviceTokenSchema.index({ token: 1 }, { unique: true, name: "device_tokens_token_unique" });
+deviceTokenSchema.index({ tokenLookupHash: 1 }, { unique: true, sparse: true, name: "device_tokens_token_lookup_unique" });
 deviceTokenSchema.index({ installationHash: 1 }, { unique: true, sparse: true, name: "device_tokens_installation_unique" });
 deviceTokenSchema.index({ userId: 1, status: 1 }, { name: "device_tokens_user_status" });
 

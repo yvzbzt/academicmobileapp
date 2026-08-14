@@ -74,6 +74,10 @@ export const referencePalette = {
   emeraldContainer: "#DDF8F2",
   amberStrong: "#D97706",
   amberContainer: "#FFF4D6",
+  welcomeBlue: "#3D6F8E",
+  welcomeBlueSoft: "#EAF3F5",
+  welcomeOrange: "#B66A2C",
+  welcomeOrangeSoft: "#FFF2E7",
 } as const;
 
 export interface SemanticColors {

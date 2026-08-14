@@ -10,8 +10,12 @@ const productionEnvironment: NodeJS.ProcessEnv = {
   MONGODB_URI: "mongodb://127.0.0.1:27017/academic_test",
   JWT_ACCESS_SECRET: "test-access-secret-with-at-least-32-characters",
   JWT_REFRESH_SECRET: "test-refresh-secret-with-at-least-32-characters",
+  EMAIL_VERIFICATION_TOKEN_PEPPER: "test-email-verification-pepper-with-at-least-32-characters",
   PASSWORD_RECOVERY_TOKEN_PEPPER: "test-recovery-pepper-with-at-least-32-characters",
-  CALENDAR_FEED_SECRET: "test-calendar-secret-with-at-least-32-characters"
+  CALENDAR_FEED_SECRET: "test-calendar-secret-with-at-least-32-characters",
+  DATA_ENCRYPTION_KEY_ID: "test-v1",
+  DATA_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+  DATA_LOOKUP_HMAC_SECRET: Buffer.alloc(32, 2).toString("base64")
 };
 
 afterEach(() => {

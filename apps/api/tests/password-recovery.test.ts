@@ -115,7 +115,7 @@ describe("password recovery", () => {
     expect(() => new TokenService().issuePasswordRecoveryToken("student@example.com"))
       .toThrow("PASSWORD_RECOVERY_TOKEN_PEPPER_NOT_CONFIGURED");
     expect(validateEnvironment(process.env).errors).toContain(
-      "PASSWORD_RECOVERY_TOKEN_PEPPER or JWT_ACCESS_SECRET must provide a 32+ character password-recovery digest secret in production."
+      "PASSWORD_RECOVERY_TOKEN_PEPPER must be set to an independent 32+ character secret in production."
     );
   });
 

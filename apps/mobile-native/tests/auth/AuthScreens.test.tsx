@@ -516,28 +516,28 @@ describe("Phase 6 rendered authentication screens", () => {
   });
 
   describe("VerificationScreen", () => {
-    it("masks the destination and filters the numeric four-digit OTP field", async () => {
+    it("masks the destination and filters the numeric six-digit OTP field", async () => {
       const onCodeChange = jest.fn();
       await renderAuth(
         <VerificationScreen {...verificationProps({ onCodeChange })} />,
       );
 
       expect(
-        screen.getByText("s***e@example.edu adresine gönderilen 4 haneli kodu gir."),
+        screen.getByText("s***e@example.edu adresine gönderilen 6 haneli kodu gir."),
       ).toBeVisible();
       expect(screen.getByText("2 / 3 · E-posta doğrulama")).toBeVisible();
       const code = screen.getByLabelText("Doğrulama kodu");
       expect(code).toHaveProp("keyboardType", "number-pad");
       expect(code).toHaveProp("inputMode", "numeric");
-      expect(code).toHaveProp("maxLength", 4);
+      expect(code).toHaveProp("maxLength", 6);
       expect(code).toHaveProp("textContentType", "oneTimeCode");
       expect(code).toHaveProp("autoComplete", "one-time-code");
 
-      await fireEventAsync.changeText(code, "a1 2-3x45");
-      expect(onCodeChange).toHaveBeenCalledWith("1234");
+      await fireEventAsync.changeText(code, "a1 2-3x4567");
+      expect(onCodeChange).toHaveBeenCalledWith("123456");
     });
 
-    it("requires exactly four digits and enforces resend cooldown", async () => {
+    it("requires exactly six digits and enforces resend cooldown", async () => {
       const onSubmit = jest.fn();
       const onResend = jest.fn();
       const initial = verificationProps({ code: "123", onSubmit, onResend });
@@ -549,7 +549,7 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByText("Kodun kalan süresi: 01:35")).toBeVisible();
 
       const ready = verificationProps({
-        code: "1234",
+        code: "123456",
         timing: { expired: false, expiresInSeconds: 65, resendInSeconds: 0 },
         onSubmit,
         onResend,
@@ -568,7 +568,7 @@ describe("Phase 6 rendered authentication screens", () => {
       await renderAuth(
         <VerificationScreen
           {...verificationProps({
-            code: "1234",
+            code: "123456",
             timing: { expired: true, expiresInSeconds: 0, resendInSeconds: 0 },
             onSubmit,
             onResend,

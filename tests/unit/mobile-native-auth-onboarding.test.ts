@@ -147,19 +147,19 @@ describe("mobile authentication and academic onboarding helpers", () => {
 
   describe("verification and recovery codes", () => {
     it("filters non-digits and clamps numeric codes to the requested length", () => {
-      expect(normalizeNumericCode("a1 2-3x45", EMAIL_VERIFICATION_CODE_LENGTH)).toBe("1234")
+      expect(normalizeNumericCode("a1 2-3x4567", EMAIL_VERIFICATION_CODE_LENGTH)).toBe("123456")
       expect(normalizeNumericCode("12", EMAIL_VERIFICATION_CODE_LENGTH)).toBe("12")
       expect(normalizeNumericCode("123", 0)).toBe("")
       expect(normalizeNumericCode("123", -1)).toBe("")
     })
 
-    it("requires exactly four ASCII digits for email verification", () => {
-      expect(EMAIL_VERIFICATION_CODE_LENGTH).toBe(4)
-      expect(isVerificationCodeComplete("0123")).toBe(true)
-      expect(isVerificationCodeComplete("123")).toBe(false)
+    it("requires exactly six ASCII digits for email verification", () => {
+      expect(EMAIL_VERIFICATION_CODE_LENGTH).toBe(6)
+      expect(isVerificationCodeComplete("012345")).toBe(true)
       expect(isVerificationCodeComplete("12345")).toBe(false)
-      expect(isVerificationCodeComplete("12a3")).toBe(false)
-      expect(isVerificationCodeComplete(" 1234 ")).toBe(false)
+      expect(isVerificationCodeComplete("1234567")).toBe(false)
+      expect(isVerificationCodeComplete("12a345")).toBe(false)
+      expect(isVerificationCodeComplete(" 123456 ")).toBe(false)
     })
 
     it("requires exactly six ASCII digits for password recovery", () => {

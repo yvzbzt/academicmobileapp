@@ -3,6 +3,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { academicUnitSuggestionSchema, followedAcademicScopeSchema } from "../../database/mongoose-schemas.js";
 import { getModel, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
+import { protectSensitiveValue, revealSensitiveValue, sensitiveLookupHash } from "../../security/data-protection.js";
 import {
   followedAcademicScopeKey,
   type AcademicUnitSuggestionRecord,
@@ -25,21 +26,27 @@ export class MongoUserDataRepository implements UserDataRepository {
     const document = await (await this.model("AcademicUnitSuggestion", academicUnitSuggestionSchema)).create({
       _id: randomUUID(),
       ...input,
+      userEmail: protectSensitiveValue(input.userEmail.toLowerCase(), "academicSuggestion.userEmail"),
+      userEmailLookupHash: sensitiveLookupHash(input.userEmail.toLowerCase(), "academicSuggestion.userEmail"),
+      facultyName: protectSensitiveValue(input.facultyName, "academicSuggestion.facultyName"),
+      ...(input.departmentName ? {
+        departmentName: protectSensitiveValue(input.departmentName, "academicSuggestion.departmentName")
+      } : {}),
       status: "pending"
     });
-    return toDomainRecord<AcademicUnitSuggestionRecord>(document);
+    return toAcademicUnitSuggestionRecord(document);
   }
 
   async findAcademicUnitSuggestionById(id: string): Promise<AcademicUnitSuggestionRecord | null> {
     const document = await (await this.model("AcademicUnitSuggestion", academicUnitSuggestionSchema)).findById(id);
-    return document ? toDomainRecord<AcademicUnitSuggestionRecord>(document) : null;
+    return document ? toAcademicUnitSuggestionRecord(document) : null;
   }
 
   async listAcademicUnitSuggestions(status: AcademicUnitSuggestionStatus): Promise<AcademicUnitSuggestionRecord[]> {
     const documents = await (await this.model("AcademicUnitSuggestion", academicUnitSuggestionSchema))
       .find({ status })
       .sort({ createdAt: -1 });
-    return documents.map((document) => toDomainRecord<AcademicUnitSuggestionRecord>(document));
+    return documents.map(toAcademicUnitSuggestionRecord);
   }
 
   async updateAcademicUnitSuggestionReview(
@@ -51,7 +58,7 @@ export class MongoUserDataRepository implements UserDataRepository {
       { $set: input },
       { returnDocument: "after" }
     );
-    return document ? toDomainRecord<AcademicUnitSuggestionRecord>(document) : null;
+    return document ? toAcademicUnitSuggestionRecord(document) : null;
   }
 
   async upsertFollowedAcademicScope(
@@ -104,6 +111,25 @@ export class MongoUserDataRepository implements UserDataRepository {
     if (!connection) throw new Error("MONGODB_NOT_CONFIGURED");
     return getModel(connection, name, schema);
   }
+}
+
+type PersistedAcademicUnitSuggestionRecord = AcademicUnitSuggestionRecord & {
+  userEmailLookupHash?: string;
+};
+
+function toAcademicUnitSuggestionRecord(
+  document: { id: string; toObject: () => Record<string, unknown> }
+): AcademicUnitSuggestionRecord {
+  const { userEmailLookupHash, ...record } = toDomainRecord<PersistedAcademicUnitSuggestionRecord>(document);
+  void userEmailLookupHash;
+  return {
+    ...record,
+    userEmail: revealSensitiveValue(record.userEmail, "academicSuggestion.userEmail"),
+    facultyName: revealSensitiveValue(record.facultyName, "academicSuggestion.facultyName"),
+    ...(record.departmentName ? {
+      departmentName: revealSensitiveValue(record.departmentName, "academicSuggestion.departmentName")
+    } : {})
+  };
 }
 
 function toFollowedAcademicScopeRecord(document: { id: string; toObject: () => Record<string, unknown> }): FollowedAcademicScopeRecord {

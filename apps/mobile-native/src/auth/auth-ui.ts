@@ -5,7 +5,7 @@ import {
   isValidPasswordRecoveryEmail,
 } from "./auth-recovery";
 
-export const EMAIL_VERIFICATION_CODE_LENGTH = 4;
+export const EMAIL_VERIFICATION_CODE_LENGTH = 6;
 
 export interface LoginValidationResult {
   valid: boolean;

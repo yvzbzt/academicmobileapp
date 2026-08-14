@@ -107,7 +107,7 @@ describe("AuthApplicationService", () => {
     expect(registerResult.email).toBe("ada@ogr.example.edu.tr");
     expect(registerResult.previewVerificationToken).toBeTruthy();
     expect(registerResult.resendAvailableAt).toBeTruthy();
-    expect(sender.sent[0]?.code).toMatch(/^\d{4}$/);
+    expect(sender.sent[0]?.code).toMatch(/^\d{6}$/);
 
     const verification = await authService.verifyEmail({
       email: registerResult.email,
@@ -235,10 +235,10 @@ describe("AuthApplicationService", () => {
       role: "student",
       status: "inactive"
     });
-    const expiredCode = "7395";
+    const expiredCode = "739512";
     await authRepository.createEmailVerificationToken({
       userId: expiredUser.id,
-      tokenHash: new TokenService().hashOpaqueToken(expiredCode),
+      tokenHash: new TokenService().hashEmailVerificationToken(expiredCode),
       expiresAt: new Date(Date.now() - 1000),
       resendAvailableAt: new Date(Date.now() - 1000)
     });

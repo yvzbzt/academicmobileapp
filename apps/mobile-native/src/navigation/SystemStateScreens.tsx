@@ -53,8 +53,8 @@ export function BootstrapLoadingState() {
       >
         <View style={[styles.loaderCalendar, { backgroundColor: theme.colors.background.surfaceRaised }]}>
           <View style={[styles.loaderCalendarHeader, { backgroundColor: theme.colors.action.primary }]}>
-            <View style={styles.loaderBinding} />
-            <View style={styles.loaderBinding} />
+            <View style={[styles.loaderBinding, { backgroundColor: theme.colors.action.onPrimary }]} />
+            <View style={[styles.loaderBinding, { backgroundColor: theme.colors.action.onPrimary }]} />
           </View>
           <View style={styles.loaderGrid}>
             {Array.from({ length: 6 }, (_, index) => (
@@ -178,7 +178,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   loaderBinding: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 2,
     height: 12,
     width: 4,

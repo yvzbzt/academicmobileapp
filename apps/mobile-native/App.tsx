@@ -3980,7 +3980,7 @@ function MainApplication() {
   async function handleVerifyEmail(): Promise<void> {
     if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
     if (!isVerificationCodeComplete(verificationToken)) {
-      setMessage({ text: "Dört haneli doğrulama kodunu eksiksiz gir.", tone: "error" });
+      setMessage({ text: "Altı haneli doğrulama kodunu eksiksiz gir.", tone: "error" });
       return;
     }
 
@@ -7708,13 +7708,13 @@ function MainApplication() {
                 )}
 
                 <TextInput
-                  accessibilityLabel="Dört haneli doğrulama kodu"
+                  accessibilityLabel="Altı haneli doğrulama kodu"
                   value={verificationToken}
                   onChangeText={setVerificationToken}
                   placeholder="Doğrulama kodu"
                   placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
                   keyboardType="number-pad"
-                  maxLength={4}
+                  maxLength={6}
                   autoCapitalize="none"
                   autoCorrect={false}
                   style={styles.input}
@@ -7722,9 +7722,9 @@ function MainApplication() {
 
                 <Pressable
                   accessibilityRole="button"
-                  style={[styles.button, styles.primaryButton, (busy || verificationToken.trim().length !== 4) && styles.buttonDisabled]}
+                  style={[styles.button, styles.primaryButton, (busy || verificationToken.trim().length !== 6) && styles.buttonDisabled]}
                   onPress={() => void handleVerifyEmail()}
-                  disabled={busy || verificationToken.trim().length !== 4}
+                  disabled={busy || verificationToken.trim().length !== 6}
                 >
                   <Text style={styles.primaryButtonText}>Doğrulamayı Tamamla</Text>
                 </Pressable>

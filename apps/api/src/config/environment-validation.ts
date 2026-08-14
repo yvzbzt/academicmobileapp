@@ -1,6 +1,7 @@
 import { readRuntimeConfig, type RuntimeConfig } from "./runtime-config.js";
 import { invalidTrustedProxyCidrs } from "../common/network/client-ip.js";
 import { isProductionSecret } from "./production-secret.js";
+import { validateDataProtectionEnvironment } from "../security/data-protection.js";
 
 export interface EnvironmentValidationResult {
   valid: boolean;
@@ -27,8 +28,9 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Envir
   } else if (isProduction && !isProductionSecret(env.JWT_ACCESS_SECRET)) {
     errors.push("JWT_ACCESS_SECRET must be set to a 32+ character secret in production.");
   }
-  if (!env.JWT_REFRESH_SECRET || env.JWT_REFRESH_SECRET.length < 32) {
-    warnings.push("JWT_REFRESH_SECRET should be set to a 32+ character secret.");
+  if (!isProductionSecret(env.JWT_REFRESH_SECRET)) {
+    if (isProduction) errors.push("JWT_REFRESH_SECRET must be set to a 32+ character secret in production.");
+    else warnings.push("JWT_REFRESH_SECRET should be set to a 32+ character secret.");
   }
   if (!env.CALENDAR_FEED_SECRET || env.CALENDAR_FEED_SECRET.length < 32) {
     const message = "CALENDAR_FEED_SECRET must be set to a 32+ character secret in production.";
@@ -45,10 +47,11 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Envir
   ) {
     errors.push("CALENDAR_FEED_SECRET must differ from JWT_ACCESS_SECRET in production.");
   }
-  const passwordRecoverySecret = env.PASSWORD_RECOVERY_TOKEN_PEPPER ?? env.JWT_ACCESS_SECRET;
+  const passwordRecoverySecret = env.PASSWORD_RECOVERY_TOKEN_PEPPER;
   if (isProduction && !isProductionSecret(passwordRecoverySecret)) {
-    errors.push("PASSWORD_RECOVERY_TOKEN_PEPPER or JWT_ACCESS_SECRET must provide a 32+ character password-recovery digest secret in production.");
+    errors.push("PASSWORD_RECOVERY_TOKEN_PEPPER must be set to an independent 32+ character secret in production.");
   }
+  errors.push(...validateDataProtectionEnvironment(env).errors);
   if (isProduction && !hasFirebaseAdminConfig(env)) warnings.push("Firebase Admin credentials or Cloud Run application default credentials are required before production push delivery is enabled.");
   if (isProduction && (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS)) warnings.push("SMTP_HOST, SMTP_USER and SMTP_PASS should be configured for email verification in production.");
 

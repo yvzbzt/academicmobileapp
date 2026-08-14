@@ -419,10 +419,10 @@ describe("mobile authentication recovery contract", () => {
   });
 
   it("normalizes numeric OTP input and masks auth destination email addresses", () => {
-    expect(EMAIL_VERIFICATION_CODE_LENGTH).toBe(4);
-    expect(normalizeNumericCode("1a2 34x5", EMAIL_VERIFICATION_CODE_LENGTH)).toBe("1234");
+    expect(EMAIL_VERIFICATION_CODE_LENGTH).toBe(6);
+    expect(normalizeNumericCode("1a2 34x56", EMAIL_VERIFICATION_CODE_LENGTH)).toBe("123456");
     expect(normalizeNumericCode("12-34 56 78", PASSWORD_RECOVERY_CODE_LENGTH)).toBe("123456");
-    expect(isVerificationCodeComplete("1234")).toBe(true);
+    expect(isVerificationCodeComplete("123456")).toBe(true);
     expect(isVerificationCodeComplete("12345")).toBe(false);
     expect(isPasswordRecoveryCodeComplete("123456")).toBe(true);
     expect(isPasswordRecoveryCodeComplete("12345a")).toBe(false);

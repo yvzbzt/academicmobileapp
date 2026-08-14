@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { emailVerificationTokenSchema, passwordRecoveryTokenSchema, recentAuthenticationProofSchema, refreshTokenSchema, userSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
+import { protectSensitiveValue, revealSensitiveValue, sensitiveLookupHash } from "../../security/data-protection.js";
 import type {
   AuthRepository,
   AuthUserRecord,
@@ -27,33 +28,55 @@ export class MongoAuthRepository implements AuthRepository {
 
   async createUser(input: CreateAuthUserInput): Promise<AuthUserRecord> {
     const model = await this.model("User", userSchema);
-    const document = await model.create({ ...input, credentialGeneration: 0, email: input.email.toLowerCase() });
-    return normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document));
+    const email = input.email.toLowerCase();
+    const document = await model.create({
+      ...input,
+      credentialGeneration: 0,
+      fullName: protectSensitiveValue(input.fullName, "user.fullName"),
+      email: protectSensitiveValue(email, "user.email"),
+      emailLookupHash: sensitiveLookupHash(email, "user.email"),
+      ...(input.firebaseAuthUid ? {
+        firebaseAuthUid: protectSensitiveValue(input.firebaseAuthUid, "user.firebaseAuthUid"),
+        firebaseAuthUidLookupHash: sensitiveLookupHash(input.firebaseAuthUid, "user.firebaseAuthUid")
+      } : {})
+    });
+    return toAuthUserRecord(document);
   }
 
   async listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]> {
     const model = await this.model("User", userSchema);
     const query: Record<string, unknown> = { deletedAt: { $exists: false } };
     if (input.status) query.status = input.status;
-    if (input.search?.trim()) {
-      const escapedSearch = input.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      query.$or = [{ fullName: { $regex: escapedSearch, $options: "i" } }, { email: { $regex: escapedSearch, $options: "i" } }];
+    const search = input.search?.trim().toLocaleLowerCase("tr-TR");
+    if (search) {
+      const documents = await model.find(query).sort({ createdAt: -1 });
+      return documents
+        .map(toAuthUserRecord)
+        .filter((user) => user.fullName.toLocaleLowerCase("tr-TR").includes(search) || user.email.toLowerCase().includes(search))
+        .slice(input.offset, input.offset + input.limit);
     }
 
     const documents = await model.find(query).sort({ createdAt: -1 }).skip(input.offset).limit(input.limit);
-    return documents.map((document) => normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)));
+    return documents.map(toAuthUserRecord);
   }
 
   async findUserByEmail(email: string): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
-    const document = await model.findOne({ email: email.toLowerCase(), deletedAt: { $exists: false } });
-    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
+    const normalizedEmail = email.toLowerCase();
+    const document = await model.findOne({
+      $or: [
+        { emailLookupHash: sensitiveLookupHash(normalizedEmail, "user.email") },
+        { email: normalizedEmail }
+      ],
+      deletedAt: { $exists: false }
+    });
+    return document ? toAuthUserRecord(document) : null;
   }
 
   async findUserById(id: string): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
     const document = await model.findOne({ _id: id, deletedAt: { $exists: false } });
-    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
+    return document ? toAuthUserRecord(document) : null;
   }
 
   async markUserEmailVerified(id: string, verifiedAt: Date): Promise<AuthUserRecord | null> {
@@ -93,7 +116,7 @@ export class MongoAuthRepository implements AuthRepository {
       },
       { new: true }
     );
-    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
+    return document ? toAuthUserRecord(document) : null;
   }
 
   async deleteUserAccount(
@@ -110,8 +133,9 @@ export class MongoAuthRepository implements AuthRepository {
       { _id: id, deletedAt: { $exists: false } },
       {
         $set: {
-          fullName: input.anonymizedFullName,
-          email: input.anonymizedEmail.toLowerCase(),
+          fullName: protectSensitiveValue(input.anonymizedFullName, "user.fullName"),
+          email: protectSensitiveValue(input.anonymizedEmail.toLowerCase(), "user.email"),
+          emailLookupHash: sensitiveLookupHash(input.anonymizedEmail.toLowerCase(), "user.email"),
           passwordHash: input.anonymizedPasswordHash,
           status: "inactive",
           deletedAt: input.deletedAt
@@ -119,6 +143,7 @@ export class MongoAuthRepository implements AuthRepository {
         $unset: {
           emailVerifiedAt: "",
           firebaseAuthUid: "",
+          firebaseAuthUidLookupHash: "",
           universityId: "",
           facultyId: "",
           departmentId: "",
@@ -176,7 +201,7 @@ export class MongoAuthRepository implements AuthRepository {
 
     const current = await model.findOne({ _id: input.userId, deletedAt: { $exists: false } });
     if (!current) return "conflict";
-    const user = normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(current));
+    const user = toAuthUserRecord(current);
     return user.passwordRecoveryCompletion?.operationKey === input.operationKey
       ? "already_completed"
       : "conflict";
@@ -202,7 +227,7 @@ export class MongoAuthRepository implements AuthRepository {
       },
       { new: true }
     );
-    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
+    return document ? toAuthUserRecord(document) : null;
   }
 
   async createEmailVerificationToken(input: Omit<EmailVerificationTokenRecord, "id" | "createdAt">): Promise<EmailVerificationTokenRecord> {
@@ -230,14 +255,18 @@ export class MongoAuthRepository implements AuthRepository {
 
   async createRefreshToken(input: CreateRefreshTokenInput): Promise<RefreshTokenRecord> {
     const model = await this.model("RefreshToken", refreshTokenSchema);
-    const document = await model.create(input);
-    return normalizeRefreshTokenRecord(toDomainRecord<RefreshTokenRecord>(document));
+    const document = await model.create({
+      ...input,
+      ...(input.ipAddress ? { ipAddress: protectSensitiveValue(input.ipAddress, "refreshToken.ipAddress") } : {}),
+      ...(input.userAgent ? { userAgent: protectSensitiveValue(input.userAgent, "refreshToken.userAgent") } : {})
+    });
+    return toRefreshTokenRecord(document);
   }
 
   async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null> {
     const model = await this.model("RefreshToken", refreshTokenSchema);
     const document = await model.findOne({ tokenHash });
-    return document ? normalizeRefreshTokenRecord(toDomainRecord<RefreshTokenRecord>(document)) : null;
+    return document ? toRefreshTokenRecord(document) : null;
   }
 
   async revokeRefreshToken(id: string, revokedAt: Date): Promise<void> {
@@ -367,8 +396,16 @@ export class MongoAuthRepository implements AuthRepository {
     const model = await this.model("User", userSchema);
     const { credentialGeneration: _credentialGeneration, ...safeInput } = input;
     void _credentialGeneration;
-    const document = await model.findByIdAndUpdate(id, { $set: omitUndefined(safeInput) }, { new: true });
-    return document ? normalizeAuthUserRecord(toDomainRecord<AuthUserRecord>(document)) : null;
+    const protectedInput = { ...safeInput };
+    if (typeof protectedInput.fullName === "string") {
+      protectedInput.fullName = protectSensitiveValue(protectedInput.fullName, "user.fullName");
+    }
+    if (typeof protectedInput.firebaseAuthUid === "string") {
+      protectedInput.firebaseAuthUidLookupHash = sensitiveLookupHash(protectedInput.firebaseAuthUid, "user.firebaseAuthUid");
+      protectedInput.firebaseAuthUid = protectSensitiveValue(protectedInput.firebaseAuthUid, "user.firebaseAuthUid");
+    }
+    const document = await model.findByIdAndUpdate(id, { $set: omitUndefined(protectedInput) }, { new: true });
+    return document ? toAuthUserRecord(document) : null;
   }
 
   private async model(name: string, schema: Parameters<typeof getModel>[2]) {
@@ -376,4 +413,32 @@ export class MongoAuthRepository implements AuthRepository {
     if (!connection) throw new Error("MONGODB_NOT_CONFIGURED");
     return getModel(connection, name, schema);
   }
+}
+
+type PersistedAuthUserRecord = AuthUserRecord & {
+  emailLookupHash?: string;
+  firebaseAuthUidLookupHash?: string;
+};
+
+function toAuthUserRecord(document: { id: string; toObject: () => Record<string, unknown> }): AuthUserRecord {
+  const { emailLookupHash, firebaseAuthUidLookupHash, ...record } = toDomainRecord<PersistedAuthUserRecord>(document);
+  void emailLookupHash;
+  void firebaseAuthUidLookupHash;
+  return normalizeAuthUserRecord({
+    ...record,
+    fullName: revealSensitiveValue(record.fullName, "user.fullName"),
+    email: revealSensitiveValue(record.email, "user.email"),
+    ...(record.firebaseAuthUid ? {
+      firebaseAuthUid: revealSensitiveValue(record.firebaseAuthUid, "user.firebaseAuthUid")
+    } : {})
+  });
+}
+
+function toRefreshTokenRecord(document: { id: string; toObject: () => Record<string, unknown> }): RefreshTokenRecord {
+  const record = toDomainRecord<RefreshTokenRecord>(document);
+  return normalizeRefreshTokenRecord({
+    ...record,
+    ...(record.ipAddress ? { ipAddress: revealSensitiveValue(record.ipAddress, "refreshToken.ipAddress") } : {}),
+    ...(record.userAgent ? { userAgent: revealSensitiveValue(record.userAgent, "refreshToken.userAgent") } : {})
+  });
 }

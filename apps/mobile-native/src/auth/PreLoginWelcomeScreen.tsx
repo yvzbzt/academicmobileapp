@@ -34,8 +34,8 @@ interface WelcomeSlide {
 
 const WELCOME_SLIDES: readonly WelcomeSlide[] = [
   {
-    accent: "#3D6F8E",
-    background: "#EAF3F5",
+    accent: referencePalette.welcomeBlue,
+    background: referencePalette.welcomeBlueSoft,
     detail: "Akademik tarihlerini, derslerini ve kişisel planlarını aynı akışta düzenle.",
     illustration: "calendar",
     title: "Dönemini rahatça planla",
@@ -48,8 +48,8 @@ const WELCOME_SLIDES: readonly WelcomeSlide[] = [
     title: "Duyuruları tek yerden takip et",
   },
   {
-    accent: "#B66A2C",
-    background: "#FFF2E7",
+    accent: referencePalette.welcomeOrange,
+    background: referencePalette.welcomeOrangeSoft,
     detail: "Kendi etkinliğini ekle, hatırlatma kur ve önemli günlere hazırlıklı gir.",
     illustration: "planner",
     title: "Kendi düzenini oluştur",

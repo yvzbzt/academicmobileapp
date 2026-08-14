@@ -1,5 +1,6 @@
 export const AUTH_PASSWORD_MIN_LENGTH = 8;
 export const AUTH_PASSWORD_MIN_CHARACTER_GROUPS = 3;
+export const EMAIL_VERIFICATION_CODE_LENGTH = 6;
 
 export function authPasswordCharacterGroupCount(password: string): number {
   return [

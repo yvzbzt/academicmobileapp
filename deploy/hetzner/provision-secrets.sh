@@ -16,6 +16,10 @@ mongo_root_password="$(openssl rand -hex 32)"
 mongo_app_password="$(openssl rand -hex 32)"
 jwt_access_secret="$(openssl rand -hex 48)"
 jwt_refresh_secret="$(openssl rand -hex 48)"
+email_verification_token_pepper="$(openssl rand -hex 48)"
+password_recovery_token_pepper="$(openssl rand -hex 48)"
+data_encryption_key="$(openssl rand -base64 32 | tr -d '\n')"
+data_lookup_hmac_secret="$(openssl rand -base64 32 | tr -d '\n')"
 calendar_feed_secret="$(openssl rand -hex 48)"
 
 cat > "${deployment_root}/.env" <<EOF
@@ -26,6 +30,12 @@ MONGO_APP_USERNAME=anssoft_app
 MONGO_APP_PASSWORD=${mongo_app_password}
 JWT_ACCESS_SECRET=${jwt_access_secret}
 JWT_REFRESH_SECRET=${jwt_refresh_secret}
+EMAIL_VERIFICATION_TOKEN_PEPPER=${email_verification_token_pepper}
+PASSWORD_RECOVERY_TOKEN_PEPPER=${password_recovery_token_pepper}
+DATA_ENCRYPTION_KEY_ID=prod-v1
+DATA_ENCRYPTION_KEY=${data_encryption_key}
+DATA_LOOKUP_HMAC_SECRET=${data_lookup_hmac_secret}
+DATA_ENCRYPTION_PREVIOUS_KEYS=
 CALENDAR_FEED_SECRET=${calendar_feed_secret}
 CORS_ORIGIN=https://academic-api.anssoft.com.tr,https://academic-mobile-app-7629.web.app,https://academic-mobile-app-7629.firebaseapp.com
 GOOGLE_OAUTH_CLIENT_IDS=315186329318-mbbpc4rjd1ipirfnsl3vdetjfi8ir2ff.apps.googleusercontent.com,315186329318-785gu93pgok7un5rgtpup812rn00irfn.apps.googleusercontent.com
@@ -40,6 +50,8 @@ SMTP_SECURE=false
 EOF
 
 chmod 600 "${deployment_root}/.env"
-unset mongo_root_password mongo_app_password jwt_access_secret jwt_refresh_secret calendar_feed_secret
+unset mongo_root_password mongo_app_password jwt_access_secret jwt_refresh_secret
+unset email_verification_token_pepper password_recovery_token_pepper
+unset data_encryption_key data_lookup_hmac_secret calendar_feed_secret
 
 echo "Created isolated deployment root and restricted environment file."

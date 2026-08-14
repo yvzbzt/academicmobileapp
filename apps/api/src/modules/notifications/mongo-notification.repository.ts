@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { deviceTokenSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, studentAlarmSchema } from "../../database/mongoose-schemas.js";
 import { getModel, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
+import { protectSensitiveValue, revealSensitiveValue, sensitiveLookupHash } from "../../security/data-protection.js";
 import { DeviceRegistrationConflictError } from "./notification.types.js";
 import type { DeviceTokenRecord, DeviceTokenRegistrationInput, NotificationDeliveryAttemptClaimInput, NotificationDeliveryAttemptFence, NotificationDeliveryAttemptFinalizeInput, NotificationDeliveryAttemptRecord, NotificationDeliveryRecord, NotificationJobCreateInput, NotificationJobFailureReason, NotificationJobRecord, NotificationJobStatus, NotificationPreferenceRecord, NotificationProducerDestinationRecord, NotificationRepository, StudentAlarmRecord } from "./notification.types.js";
 
@@ -13,9 +14,17 @@ export class MongoNotificationRepository implements NotificationRepository {
   async upsertDeviceToken(input: DeviceTokenRegistrationInput): Promise<DeviceTokenRecord> {
     const model = await this.model("DeviceToken", deviceTokenSchema);
     const existingInstallation = await model.findOne({ installationHash: input.installationHash });
-    const existingToken = await model.findOne({ token: input.token });
-    const installationRecord = existingInstallation ? toDomainRecord<DeviceTokenRecord>(existingInstallation) : null;
-    const tokenRecord = existingToken ? toDomainRecord<DeviceTokenRecord>(existingToken) : null;
+    const tokenLookupHash = sensitiveLookupHash(input.token, "deviceToken.token");
+    const existingToken = await model.findOne({
+      $or: [{ tokenLookupHash }, { token: input.token }]
+    });
+    const installationRecord = existingInstallation ? toDeviceTokenRecord(existingInstallation) : null;
+    const tokenRecord = existingToken ? toDeviceTokenRecord(existingToken) : null;
+    const protectedInput = {
+      ...input,
+      token: protectSensitiveValue(input.token, "deviceToken.token"),
+      tokenLookupHash
+    };
 
     if (installationRecord?.status === "active" && installationRecord.userId !== input.userId) {
       throw new DeviceRegistrationConflictError();
@@ -43,12 +52,12 @@ export class MongoNotificationRepository implements NotificationRepository {
             _id: existing.id,
             $or: [{ status: { $ne: "active" } }, { userId: input.userId }]
           },
-          { ...input, status: "active", lastSeenAt: new Date() },
+          { ...protectedInput, status: "active", lastSeenAt: new Date() },
           { returnDocument: "after" }
         )
-        : await model.create({ ...input, status: "active", lastSeenAt: new Date() });
+        : await model.create({ ...protectedInput, status: "active", lastSeenAt: new Date() });
       if (!document) throw new DeviceRegistrationConflictError();
-      return toDomainRecord<DeviceTokenRecord>(document);
+      return toDeviceTokenRecord(document);
     } catch (error) {
       if (error instanceof DeviceRegistrationConflictError || isDuplicateKeyError(error)) {
         throw new DeviceRegistrationConflictError();
@@ -61,7 +70,7 @@ export class MongoNotificationRepository implements NotificationRepository {
     const model = await this.model("DeviceToken", deviceTokenSchema);
     const existing = await model.findOne({ installationHash });
     if (!existing) return null;
-    const record = toDomainRecord<DeviceTokenRecord>(existing);
+    const record = toDeviceTokenRecord(existing);
     if (record.status === "disabled") return null;
     if (record.userId !== userId) throw new DeviceRegistrationConflictError();
     const document = await model.findOneAndUpdate(
@@ -69,7 +78,7 @@ export class MongoNotificationRepository implements NotificationRepository {
       { status: "disabled" },
       { returnDocument: "after" }
     );
-    return document ? toDomainRecord<DeviceTokenRecord>(document) : null;
+    return document ? toDeviceTokenRecord(document) : null;
   }
 
   async findActiveDeviceTokenById(deviceTokenId: string): Promise<DeviceTokenRecord | null> {
@@ -78,7 +87,7 @@ export class MongoNotificationRepository implements NotificationRepository {
       status: "active",
       installationHash: { $type: "string", $ne: "" }
     });
-    return document ? toDomainRecord<DeviceTokenRecord>(document) : null;
+    return document ? toDeviceTokenRecord(document) : null;
   }
 
   async findPreferencesByUserId(userId: string): Promise<NotificationPreferenceRecord | null> {
@@ -401,7 +410,7 @@ export class MongoNotificationRepository implements NotificationRepository {
       .sort({ lastSeenAt: -1, _id: 1 })
       .skip(offset)
       .limit(limit);
-    return documents.map((document) => toDomainRecord<DeviceTokenRecord>(document));
+    return documents.map(toDeviceTokenRecord);
   }
 
   async listSentDeviceTokenIdsForJob(jobId: string, revision = 1): Promise<string[]> {
@@ -548,8 +557,12 @@ export class MongoNotificationRepository implements NotificationRepository {
   }
 
   async disableDeviceToken(token: string): Promise<DeviceTokenRecord | null> {
-    const document = await (await this.model("DeviceToken", deviceTokenSchema)).findOneAndUpdate({ token }, { status: "disabled" }, { new: true });
-    return document ? toDomainRecord<DeviceTokenRecord>(document) : null;
+    const document = await (await this.model("DeviceToken", deviceTokenSchema)).findOneAndUpdate(
+      { $or: [{ tokenLookupHash: sensitiveLookupHash(token, "deviceToken.token") }, { token }] },
+      { status: "disabled" },
+      { new: true }
+    );
+    return document ? toDeviceTokenRecord(document) : null;
   }
 
   async deleteUserData(userId: string): Promise<void> {
@@ -676,6 +689,19 @@ export class MongoNotificationRepository implements NotificationRepository {
     if (!connection) throw new Error("MONGODB_NOT_CONFIGURED");
     return getModel(connection, name, schema);
   }
+}
+
+type PersistedDeviceTokenRecord = DeviceTokenRecord & {
+  tokenLookupHash?: string;
+};
+
+function toDeviceTokenRecord(document: { id: string; toObject: () => Record<string, unknown> }): DeviceTokenRecord {
+  const { tokenLookupHash, ...record } = toDomainRecord<PersistedDeviceTokenRecord>(document);
+  void tokenLookupHash;
+  return {
+    ...record,
+    token: revealSensitiveValue(record.token, "deviceToken.token")
+  };
 }
 
 const DEFAULT_NOTIFICATION_MAX_ATTEMPTS = 5;
