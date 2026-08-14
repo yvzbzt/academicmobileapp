@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   BackHandler,
+  Image,
   StyleSheet,
   Text,
   View,
@@ -158,32 +159,13 @@ function AuthScaffold({
             },
           ]}
         >
-          <View style={styles.loginPreviewHeader}>
-            <View style={[styles.loginPreviewMark, { backgroundColor: theme.colors.action.primary, borderRadius: theme.radii.card }]}>
-              <Ionicons color={theme.colors.action.onPrimary} name="calendar-clear-outline" size={23} />
-            </View>
-            <View style={styles.loginPreviewHeading}>
-              <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Bugünün planı</Text>
-              <Text numberOfLines={1} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Takvim ve duyurular tek görünümde</Text>
-            </View>
-            <View style={[styles.loginPreviewCount, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.control }]}>
-              <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>3 yaklaşan</Text>
-            </View>
-          </View>
-          <View style={styles.loginPreviewRows}>
-            <View style={[styles.loginPreviewRow, { borderTopColor: theme.colors.border.subtle }]}>
-              <Ionicons color={referencePalette.academicRed} name="megaphone-outline" size={17} />
-              <Text numberOfLines={1} style={[theme.typography.metaStrong, styles.loginPreviewRowTitle, { color: theme.colors.text.primary }]}>Üniversite duyuruları</Text>
-              <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Güncel</Text>
-            </View>
-            {!loginLayout.compact ? (
-              <View style={[styles.loginPreviewRow, { borderTopColor: theme.colors.border.subtle }]}>
-                <Ionicons color={referencePalette.academicGreen} name="checkmark-circle-outline" size={17} />
-                <Text numberOfLines={1} style={[theme.typography.metaStrong, styles.loginPreviewRowTitle, { color: theme.colors.text.primary }]}>Kişisel planlar</Text>
-                <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Hatırlatmalı</Text>
-              </View>
-            ) : null}
-          </View>
+          <Image
+            accessibilityIgnoresInvertColors
+            accessibilityLabel="Kampüste akademik hayat"
+            resizeMode="cover"
+            source={require("../../assets/auth-campus-login-v3.png")}
+            style={styles.heroImage}
+          />
         </View>
 
         <View
@@ -391,7 +373,6 @@ export function LoginScreen(props: LoginScreenProps) {
         disabled={interactionBusy}
         fullWidth
         label="Giriş yap"
-        leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="arrow-forward-circle" size={22} />}
         loading={props.busy}
         maxFontSizeMultiplier={1.2}
         onPress={submit}
@@ -1307,45 +1288,11 @@ const styles = StyleSheet.create({
   heroFrame: {
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     width: "100%",
   },
-  loginPreviewHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 9,
-    minHeight: 40,
-  },
-  loginPreviewMark: {
-    alignItems: "center",
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  loginPreviewHeading: {
-    flex: 1,
-    minWidth: 0,
-  },
-  loginPreviewCount: {
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  loginPreviewRows: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  loginPreviewRow: {
-    alignItems: "center",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: 8,
-    minHeight: 32,
-    paddingVertical: 5,
-  },
-  loginPreviewRowTitle: {
-    flex: 1,
-    minWidth: 0,
+  heroImage: {
+    height: "100%",
+    width: "100%",
   },
   heroSheet: {
     minHeight: 0,

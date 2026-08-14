@@ -32,6 +32,7 @@ import {
   type AppScreenSlots,
   type AppVisibleRoute
 } from "./src/navigation/AppNavigator";
+import { AccountDrawer } from "./src/navigation/AccountDrawer";
 import { AppShellPreview } from "./src/navigation/AppShellPreview";
 import {
   nextRuntimeDiagnosticId,
@@ -603,8 +604,8 @@ const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
 const GOOGLE_CALENDAR_V2_STORAGE_PREFIX = "native_google_calendar_connection_v2";
 const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v3";
 // Sourced from app.json; kept visible here so Profile never reports a package-only placeholder.
-const NATIVE_APP_VERSION = "0.1.4";
-const NATIVE_ANDROID_BUILD_NUMBER = 15;
+const NATIVE_APP_VERSION = "0.1.5";
+const NATIVE_ANDROID_BUILD_NUMBER = 16;
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -1379,6 +1380,7 @@ function MainApplication() {
     error?: string;
   } | null>(null);
   const [academicProfileExpanded, setAcademicProfileExpanded] = useState(false);
+  const [accountDrawerVisible, setAccountDrawerVisible] = useState(false);
   const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
   const [contentFeedLimit, setContentFeedLimit] = useState(CONTENT_FEED_INITIAL_LIMIT);
   const [contentFeedPagination, setContentFeedPagination] = useState<{
@@ -4542,18 +4544,10 @@ function MainApplication() {
         text: "Çıkış yapıldı. Google Takvim'e daha önce eklenen uygulama kayıtları korunur.",
         tone: "info"
       });
-    } else if (reconciledResult.failedTargets.every((target) => target === "server_session")) {
-      setMessage({
-        text: "Bu cihazdaki çıkış tamamlandı; sunucudaki oturumun sonlandırıldığı doğrulanamadı.",
-        tone: "info"
-      });
     } else {
-      setMessage({
-        text: reconciledResult.failedTargets.includes("device_registration")
-          ? "Çıkış ekranda tamamlandı; cihaz bildirim kaydı ile sunucu oturumunun temizlendiği doğrulanamadı. Aynı hesapla yeniden giriş yaptığında kayıt yeniden uzlaştırılabilir."
-          : "Çıkış ekranda tamamlandı; bazı cihaz kayıtları temizlenemedi. Aşağıdan tekrar deneyebilirsin.",
-        tone: "error"
-      });
+      // The cleanup banner owns this partial-success state. Rendering a second
+      // auth error banner makes the fixed login viewport needlessly cramped.
+      setMessage(null);
     }
   }
 
@@ -7109,9 +7103,11 @@ function MainApplication() {
     return (
       <Banner
         actionLabel={hasRetryableTarget && !busy && !googleBusy ? "Temizliği tekrar dene" : undefined}
-        message={cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
+        message={cleanupIssue.action === "logout"
+          ? `${cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")} temizliği doğrulanamadı. Yeniden girişte tekrar uzlaştırılacak.`
+          : cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
         onAction={hasRetryableTarget && !busy && !googleBusy ? () => void retryFailedCleanup() : undefined}
-        title="Tamamlanamayan güvenli temizlik"
+        title={cleanupIssue.action === "logout" ? "Çıkış tamamlandı" : "Tamamlanamayan güvenli temizlik"}
         tone="warning"
       />
     );
@@ -8563,6 +8559,7 @@ function MainApplication() {
       notificationPermission={notificationLifecycle.permission}
       notificationPreferenceEnabled={notificationLifecycle.preferenceEnabled}
       notificationActive={notificationLifecycle.active}
+      onOpenAccountMenu={() => setAccountDrawerVisible(true)}
       onCompleteProfile={() => requestAppRoute("AcademicProfileSettings")}
       onOpenAnnouncement={(item) => {
         const detailItem = contentFeedDetailItem(item, "academic");
@@ -8602,6 +8599,7 @@ function MainApplication() {
       onLoadMore={() => void loadMoreContentFeed()}
       onRetryPagination={() => void loadMoreContentFeed()}
       onOpenItem={openContentFeedItem}
+      onOpenAccountMenu={() => setAccountDrawerVisible(true)}
       onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
       onOpenYok={() => requestAppRoute("YokAnnouncements")}
       onOpenSummerSchool={() => requestAppRoute("SummerSchool")}
@@ -8747,6 +8745,7 @@ function MainApplication() {
         connected: googleCalendarLive
       }}
       feedback={calendarRouteFeedback}
+      onOpenAccountMenu={() => setAccountDrawerVisible(true)}
       onRefresh={() => void Promise.allSettled([loadMyCalendar(), loadCourseSchedule()])}
       onOpenItem={openCalendarItem}
       onCreatePersonalExam={createPersonalExam}
@@ -8878,6 +8877,7 @@ function MainApplication() {
         googleCalendar={googleCalendarPresentation}
         loading={false}
         notificationTruth={notificationTruth}
+        onOpenAccountMenu={() => setAccountDrawerVisible(true)}
         onOpenAcademicProfile={() => requestAppRoute("AcademicProfileSettings")}
         onOpenFollowedUniversities={() => requestAppRoute("FollowedUniversitiesSettings")}
         onOpenAccountManagement={() => {
@@ -9128,6 +9128,20 @@ function MainApplication() {
           onRequestHandled={handleNavigationRequestHandled}
           onVisibleRouteChange={handleVisibleRouteChange}
         />
+        {session ? (
+          <AccountDrawer
+            email={session.user.email}
+            fullName={session.user.fullName}
+            onClose={() => setAccountDrawerVisible(false)}
+            onLogout={() => handleLogout()}
+            onOpenAccount={() => {
+              setMessage(null);
+              requestAppRoute("AccountDataSettings");
+            }}
+            universityName={selectedUniversity?.name}
+            visible={accountDrawerVisible}
+          />
+        ) : null}
       </ThemeProvider>
     </SafeAreaProvider>
   );

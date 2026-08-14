@@ -13,6 +13,7 @@ jest.mock("@react-navigation/native", () => {
 const now = new Date(2026, 7, 1, 10, 0, 0);
 const callbacks = {
   onCompleteProfile: jest.fn(),
+  onOpenAccountMenu: jest.fn(),
   onOpenAnnouncement: jest.fn(),
   onOpenAnnouncements: jest.fn(),
   onOpenCalendar: jest.fn(),
@@ -131,7 +132,9 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getAllByText(/Ağustos 2026/u).some((node) => node.props.numberOfLines === 1)).toBe(true);
     expect(screen.getByRole("header", { name: "Önemli duyuru" })).toHaveTextContent("Öne çıkan duyurular");
 
+    fireEvent.press(screen.getByRole("button", { name: "Hesap menüsünü aç" }));
     fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));
+    expect(callbacks.onOpenAccountMenu).toHaveBeenCalledTimes(1);
     expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(1);
   });
 
@@ -344,14 +347,13 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.queryByTestId("glass-view")).not.toBeOnTheScreen();
   });
 
-  it("shows only a compact actionable integration state", async () => {
+  it("keeps Google connection prompts out of the home feed", async () => {
     await renderHome(props({ googleCalendarState: "disconnected" }));
-    expect(screen.getByText("Google Takvim bağlantısı hazır değil")).toBeOnTheScreen();
-    fireEvent.press(screen.getByRole("button", { name: "Ayarları aç" }));
-    expect(callbacks.onOpenGoogleCalendarSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Google Takvim bağlantısı hazır değil")).not.toBeOnTheScreen();
+    expect(callbacks.onOpenGoogleCalendarSettings).not.toHaveBeenCalled();
   });
 
-  it("keeps an actionable integration visible when it is the only module", async () => {
+  it("keeps the genuine empty state focused on the calendar", async () => {
     await renderHome(props({
       events: [],
       manualExams: [],
@@ -360,7 +362,7 @@ describe("Phase 7 Home daily brief", () => {
     }));
 
     expect(screen.getByRole("header", { name: "Bugün gündemin sakin" })).toBeOnTheScreen();
-    expect(screen.getByText("Google Takvim bağlantısı hazır değil")).toBeOnTheScreen();
+    expect(screen.queryByText("Google Takvim bağlantısı hazır değil")).not.toBeOnTheScreen();
   });
 
   it("renders mutually exclusive no-data offline, partial, error, and genuine empty states", async () => {

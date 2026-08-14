@@ -133,6 +133,7 @@ export interface AnnouncementsFeedProps {
   onOpenYok?: () => void;
   onOpenSummerSchool?: () => void;
   onOpenNotificationSettings?: () => void;
+  onOpenAccountMenu?: () => void;
 }
 
 export function AnnouncementsFeed({
@@ -165,6 +166,7 @@ export function AnnouncementsFeed({
   onOpenYok,
   onOpenSummerSchool,
   onOpenNotificationSettings,
+  onOpenAccountMenu,
 }: AnnouncementsFeedProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
@@ -296,6 +298,16 @@ export function AnnouncementsFeed({
   const header = (
     <View style={[styles.header, { gap: theme.spacing.md }]}>
       <View style={styles.pageTitleRow} testID="announcements-top-bar">
+        <Pressable
+          accessibilityLabel="Hesap menüsünü aç"
+          accessibilityRole="button"
+          disabled={!onOpenAccountMenu}
+          hitSlop={8}
+          onPress={onOpenAccountMenu}
+          style={({ pressed }) => [styles.notificationGlyph, pressed && styles.pressed]}
+        >
+          <Ionicons color={REFERENCE_COLORS.navy} name="menu-outline" size={27} />
+        </Pressable>
         <Text
           accessibilityRole="header"
           style={[theme.typography.screenTitle, styles.pageTitle, { color: REFERENCE_COLORS.navy }]}
@@ -1012,8 +1024,10 @@ const styles = StyleSheet.create({
     minHeight: 64,
   },
   pageTitle: {
+    flex: 1,
     fontSize: 28,
     lineHeight: 34,
+    textAlign: "center",
   },
   pageTitleRow: {
     alignItems: "center",

@@ -70,7 +70,7 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(resolveNotificationHeroLayout(430, 1)).toBe("side-by-side");
   });
 
-  it("renders the required profile hierarchy with truthful identity and app metadata", async () => {
+  it("renders a settings-only hierarchy while identity and logout stay in the account drawer", async () => {
     const academicSummary = resolveAcademicProfileSummary(
       { universityId: "uni", facultyId: "faculty", departmentId: "department", classLevel: 3 },
       { universityName: "Örnek Üniversitesi", facultyName: "Mühendislik Fakültesi", departmentName: "Bilgisayar Mühendisliği" },
@@ -82,6 +82,7 @@ describe("Phase 10 profile and settings presentation", () => {
       saveState: "saved",
     });
 
+    const onOpenAccountMenu = jest.fn();
     await renderAsync(tree(
       <ProfileOverviewScreen
         academicSummary={academicSummary}
@@ -93,6 +94,7 @@ describe("Phase 10 profile and settings presentation", () => {
         googleCalendar={resolveGoogleCalendarPresentation("connected")}
         notificationTruth={notificationTruth}
         followedUniversityCount={2}
+        onOpenAccountMenu={onOpenAccountMenu}
         onOpenAcademicProfile={jest.fn()}
         onOpenFollowedUniversities={jest.fn()}
         onOpenAccountManagement={jest.fn()}
@@ -102,17 +104,18 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
-    expect(screen.getAllByText("Ada Lovelace").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("ada@example.invalid").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText(/Örnek Üniversitesi.*Akademik profil tamamlandı/u)).toBeVisible();
+    expect(screen.getByRole("header", { name: "Ayarlar" })).toBeVisible();
+    expect(screen.queryByText("Ada Lovelace")).toBeNull();
+    expect(screen.queryByText("ada@example.invalid")).toBeNull();
     expect(screen.getByRole("header", { name: "Akademik bilgiler" })).toBeVisible();
     expect(screen.getByRole("header", { name: "Bildirimler" })).toBeVisible();
     expect(screen.getByRole("header", { name: "Bağlantılar" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Hesap ve gizlilik" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Akademik bilgiler" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Bildirim tercihleri" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Çıkış yap" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Takip edilen üniversiteler" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
+    fireEvent.press(screen.getByRole("button", { name: "Hesap menüsünü aç" }));
+    expect(onOpenAccountMenu).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/Sürüm 0\.1\.1 · Derleme 12/u)).toBeVisible();
     expect(screen.queryByText(/tema|görünüm|takipçi|öğrenci kimliği/iu)).toBeNull();
   });

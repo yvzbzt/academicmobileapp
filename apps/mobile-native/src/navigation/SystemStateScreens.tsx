@@ -1,9 +1,36 @@
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { Button, ErrorState, useTheme } from "../design-system";
+import { useEffect, useRef } from "react";
+import { Animated, StyleSheet, Text, View } from "react-native";
+import { Button, ErrorState, useReducedMotion, useTheme } from "../design-system";
 
 export function BootstrapLoadingState() {
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (reducedMotion) {
+      progress.setValue(0.5);
+      return undefined;
+    }
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(progress, {
+          duration: 900,
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+        Animated.timing(progress, {
+          duration: 360,
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [progress, reducedMotion]);
+
   return (
     <View
       accessible
@@ -24,8 +51,37 @@ export function BootstrapLoadingState() {
           },
         ]}
       >
-        <Ionicons color={theme.colors.action.primary} name="calendar-outline" size={32} />
-        <ActivityIndicator color={theme.colors.action.primary} size="small" />
+        <View style={[styles.loaderCalendar, { backgroundColor: theme.colors.background.surfaceRaised }]}>
+          <View style={[styles.loaderCalendarHeader, { backgroundColor: theme.colors.action.primary }]}>
+            <View style={styles.loaderBinding} />
+            <View style={styles.loaderBinding} />
+          </View>
+          <View style={styles.loaderGrid}>
+            {Array.from({ length: 6 }, (_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.loaderCell,
+                  { backgroundColor: index === 4 ? theme.colors.action.secondary : theme.colors.border.subtle },
+                ]}
+              />
+            ))}
+          </View>
+          <Animated.View
+            style={[
+              styles.loaderCheck,
+              {
+                backgroundColor: theme.colors.status.success,
+                opacity: progress.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0.45, 1, 1] }),
+                transform: [{
+                  translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [-18, 18] }),
+                }],
+              },
+            ]}
+          >
+            <Ionicons color={theme.colors.action.onPrimary} name="checkmark" size={17} />
+          </Animated.View>
+        </View>
       </View>
       <Text
         accessibilityRole="header"
@@ -101,11 +157,52 @@ const styles = StyleSheet.create({
   },
   stateIcon: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    height: 72,
+    height: 116,
     justifyContent: "center",
-    width: 112,
+    width: 148,
+  },
+  loaderCalendar: {
+    borderRadius: 8,
+    elevation: 3,
+    height: 82,
+    overflow: "visible",
+    width: 106,
+  },
+  loaderCalendarHeader: {
+    alignItems: "center",
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    flexDirection: "row",
+    gap: 8,
+    height: 24,
+    paddingHorizontal: 12,
+  },
+  loaderBinding: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 2,
+    height: 12,
+    width: 4,
+  },
+  loaderGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+    padding: 10,
+  },
+  loaderCell: {
+    borderRadius: 3,
+    height: 10,
+    width: 22,
+  },
+  loaderCheck: {
+    alignItems: "center",
+    borderRadius: 18,
+    bottom: -17,
+    height: 34,
+    justifyContent: "center",
+    left: 36,
+    position: "absolute",
+    width: 34,
   },
   unknown: {
     alignSelf: "center",

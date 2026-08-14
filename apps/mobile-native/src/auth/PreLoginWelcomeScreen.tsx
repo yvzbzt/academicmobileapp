@@ -1,74 +1,58 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  FlatList,
   Image,
+  Pressable,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
   type ImageSourcePropType,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
-import { Button, referencePalette, useTheme } from "../design-system";
+import {
+  Button,
+  referencePalette,
+  useReducedMotion,
+  useTheme,
+} from "../design-system";
 
 const appMark = require("../../assets/icon-reference.png") as ImageSourcePropType;
 
-type WelcomeIconName = "calendar-clear-outline" | "megaphone-outline" | "notifications-outline";
+type WelcomeIllustration = "calendar" | "announcements" | "planner";
 
-interface WelcomeFeature {
+interface WelcomeSlide {
   accent: string;
   background: string;
-  icon: WelcomeIconName;
-  title: string;
   detail: string;
+  illustration: WelcomeIllustration;
+  title: string;
 }
 
-const FEATURES: readonly WelcomeFeature[] = [
+const WELCOME_SLIDES: readonly WelcomeSlide[] = [
   {
-    accent: referencePalette.blue,
-    background: referencePalette.academicBlueSoft,
-    icon: "calendar-clear-outline",
-    title: "Tüm tarihler tek yerde",
-    detail: "Sınav, kayıt ve etkinliklerini birlikte planla.",
-  },
-  {
-    accent: referencePalette.academicRed,
-    background: referencePalette.academicRedSoft,
-    icon: "megaphone-outline",
-    title: "Resmî duyuruları kaçırma",
-    detail: "Üniversite, fakülte ve bölüm haberlerini izle.",
+    accent: "#3D6F8E",
+    background: "#EAF3F5",
+    detail: "Akademik tarihlerini, derslerini ve kişisel planlarını aynı akışta düzenle.",
+    illustration: "calendar",
+    title: "Dönemini rahatça planla",
   },
   {
     accent: referencePalette.academicGreen,
     background: referencePalette.academicGreenSoft,
-    icon: "notifications-outline",
-    title: "Zamanında hatırlan",
-    detail: "Önemli akademik günlerden önce haber al.",
-  },
-] as const;
-
-const AGENDA_PREVIEW = [
-  {
-    accent: referencePalette.blue,
-    background: referencePalette.academicBlueSoft,
-    date: "14 Ağu",
-    icon: "calendar-outline" as const,
-    meta: "10.00 · Öğrenci işleri",
-    title: "Ders kaydı son günü",
+    detail: "Üniversite, fakülte ve bölüm kaynaklarından gelen içerikleri tek yerde takip et.",
+    illustration: "announcements",
+    title: "Duyuruları tek yerden takip et",
   },
   {
-    accent: referencePalette.academicRed,
-    background: referencePalette.academicRedSoft,
-    date: "16 Ağu",
-    icon: "megaphone-outline" as const,
-    meta: "Bilgisayar Mühendisliği",
-    title: "Bölüm duyurusu",
-  },
-  {
-    accent: referencePalette.academicGreen,
-    background: referencePalette.academicGreenSoft,
-    date: "18 Ağu",
-    icon: "checkmark-circle-outline" as const,
-    meta: "Kişisel plan · 14.30",
-    title: "Çalışma planı",
+    accent: "#B66A2C",
+    background: "#FFF2E7",
+    detail: "Kendi etkinliğini ekle, hatırlatma kur ve önemli günlere hazırlıklı gir.",
+    illustration: "planner",
+    title: "Kendi düzenini oluştur",
   },
 ] as const;
 
@@ -77,20 +61,61 @@ export interface PreLoginWelcomeScreenProps {
   onContinue: () => void;
 }
 
-/**
- * Installation-level introduction shown before Login. It intentionally owns a
- * fixed viewport with one visible composition and one primary action.
- */
 export function PreLoginWelcomeScreen({
   busy = false,
   onContinue,
 }: PreLoginWelcomeScreenProps) {
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
   const { fontScale, height, width } = useWindowDimensions();
   const compact = height < 700 || width < 360 || fontScale > 1.2;
   const veryCompact = height < 610 || width < 330 || fontScale > 1.45;
-  const previewHeight = veryCompact ? 86 : compact ? 112 : Math.min(188, height * 0.22);
-  const previewItems = AGENDA_PREVIEW.slice(0, veryCompact ? 1 : compact ? 2 : 3);
+  const gutter = compact ? 16 : 24;
+  const contentWidth = Math.max(280, Math.min(620, width - gutter * 2));
+  const illustrationHeight = veryCompact
+    ? 142
+    : compact
+      ? 176
+      : Math.min(272, height * 0.31);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const listRef = useRef<FlatList<WelcomeSlide> | null>(null);
+  const floatProgress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (reducedMotion) {
+      floatProgress.setValue(0);
+      return undefined;
+    }
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatProgress, {
+          duration: 1200,
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatProgress, {
+          duration: 1200,
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [floatProgress, reducedMotion]);
+
+  const selectSlide = (index: number) => {
+    const boundedIndex = Math.max(0, Math.min(WELCOME_SLIDES.length - 1, index));
+    setActiveIndex(boundedIndex);
+    listRef.current?.scrollToIndex({ animated: !reducedMotion, index: boundedIndex });
+  };
+
+  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const index = Math.round(event.nativeEvent.contentOffset.x / contentWidth);
+    setActiveIndex(Math.max(0, Math.min(WELCOME_SLIDES.length - 1, index)));
+  };
+
+  const finalSlide = activeIndex === WELCOME_SLIDES.length - 1;
 
   return (
     <View
@@ -99,208 +124,170 @@ export function PreLoginWelcomeScreen({
         styles.root,
         {
           backgroundColor: theme.colors.background.canvas,
-          paddingHorizontal: compact ? 16 : 24,
           paddingBottom: compact ? 10 : 16,
+          paddingHorizontal: gutter,
           paddingTop: compact ? 6 : 12,
         },
       ]}
       testID="prelogin-welcome-screen"
     >
-      <View accessibilityRole="header" style={[styles.brandRow, compact && styles.brandRowCompact]}>
+      <View style={[styles.brandRow, { width: contentWidth }]}>
         <Image
           accessibilityIgnoresInvertColors
           accessibilityLabel="Akademik Takvim simgesi"
           source={appMark}
           style={[styles.appMark, compact && styles.appMarkCompact]}
         />
-        <View style={styles.brandCopy}>
-          <Text
-            allowFontScaling
-            maxFontSizeMultiplier={1.25}
-            numberOfLines={1}
-            style={[
-              theme.typography.cardTitle,
-              styles.brandTitle,
-              { color: theme.colors.text.primary },
-              compact && styles.brandTitleCompact,
-            ]}
-          >
-            Akademik Takvim
-          </Text>
-          {!veryCompact ? (
-            <Text
-              allowFontScaling
-              maxFontSizeMultiplier={1.2}
-              numberOfLines={1}
-              style={[
-                theme.typography.meta,
-                styles.brandTagline,
-                { color: theme.colors.text.secondary },
-              ]}
-            >
-              Akademik yolculuğunda bir adım önde
-            </Text>
-          ) : null}
-        </View>
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.trustBadge}
-        >
-          <Ionicons color={referencePalette.academicGreen} name="shield-checkmark" size={compact ? 18 : 20} />
-        </View>
-      </View>
-
-      <View
-        accessibilityLabel="Bugünkü ajanda önizlemesi"
-        style={[
-          styles.agendaPreview,
-          {
-            backgroundColor: theme.colors.background.surfaceRaised,
-            borderColor: theme.colors.border.subtle,
-            height: previewHeight,
-          },
-        ]}
-        testID="prelogin-agenda-preview"
-      >
-        <View style={styles.agendaHeader}>
-          <View style={styles.agendaHeading}>
-            <Ionicons color={theme.colors.action.primary} name="calendar-clear-outline" size={18} />
-            <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Bugün</Text>
-          </View>
-          <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>3 plan</Text>
-        </View>
-        <View style={styles.agendaList}>
-          {previewItems.map((item, index) => (
-            <View
-              key={item.title}
-              style={[
-                styles.agendaRow,
-                index > 0 && { borderTopColor: theme.colors.border.subtle, borderTopWidth: StyleSheet.hairlineWidth },
-              ]}
-            >
-              <View style={[styles.agendaIcon, { backgroundColor: item.background }]}>
-                <Ionicons color={item.accent} name={item.icon} size={17} />
-              </View>
-              <View style={styles.agendaCopy}>
-                <Text numberOfLines={1} style={[theme.typography.metaStrong, { color: theme.colors.text.primary }]}>{item.title}</Text>
-                {!veryCompact ? <Text numberOfLines={1} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{item.meta}</Text> : null}
-              </View>
-              <Text style={[theme.typography.metaStrong, { color: theme.colors.text.secondary }]}>{item.date}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View style={[styles.introCopy, compact && styles.introCopyCompact]}>
         <Text
           accessibilityRole="header"
-          allowFontScaling
-          maxFontSizeMultiplier={1.2}
-          numberOfLines={2}
+          maxFontSizeMultiplier={1.25}
+          numberOfLines={1}
           style={[
-            theme.typography.display,
-            styles.headline,
+            theme.typography.cardTitle,
+            styles.brandTitle,
             { color: theme.colors.text.primary },
-            compact && styles.headlineCompact,
           ]}
         >
-          Akademik hayatın, tek bir yerde.
+          Akademik Takvim
         </Text>
-        <Text
-          allowFontScaling
-          maxFontSizeMultiplier={1.2}
-          numberOfLines={veryCompact ? 2 : 3}
-          style={[
-            theme.typography.body,
-            styles.subtitle,
-            { color: theme.colors.text.secondary },
-            compact && styles.subtitleCompact,
+        <Pressable
+          accessibilityLabel="Tanıtımı atla"
+          accessibilityRole="button"
+          disabled={busy}
+          hitSlop={8}
+          onPress={onContinue}
+          style={({ pressed }) => [
+            styles.skipButton,
+            pressed && { backgroundColor: theme.colors.action.ghostPressed },
           ]}
         >
-          Takvimini planla, resmî duyuruları takip et ve önemli tarihleri kaçırma.
-        </Text>
+          <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>Atla</Text>
+        </Pressable>
       </View>
 
-      <View
-        accessibilityLabel="Uygulama özellikleri"
-        style={[styles.features, compact && styles.featuresCompact]}
-      >
-        {FEATURES.map((feature) => (
+      <FlatList
+        ref={listRef}
+        accessibilityLabel="Uygulama tanıtım sayfaları"
+        data={WELCOME_SLIDES}
+        decelerationRate="fast"
+        getItemLayout={(_data, index) => ({
+          index,
+          length: contentWidth,
+          offset: contentWidth * index,
+        })}
+        horizontal
+        keyExtractor={(item) => item.illustration}
+        onMomentumScrollEnd={handleScrollEnd}
+        pagingEnabled
+        renderItem={({ item, index }) => (
           <View
-            accessibilityLabel={`${feature.title}. ${feature.detail}`}
-            key={feature.title}
-            style={[
-              styles.featureCard,
-              {
-                backgroundColor: theme.colors.background.surfaceRaised,
-                borderColor: theme.colors.border.subtle,
-              },
-              compact && styles.featureCardCompact,
-            ]}
-            testID={`prelogin-feature-${feature.icon}`}
+            accessibilityLabel={`${index + 1} / ${WELCOME_SLIDES.length}. ${item.title}. ${item.detail}`}
+            style={[styles.slide, { width: contentWidth }]}
+            testID={`prelogin-slide-${index}`}
           >
-            <View style={[styles.featureIcon, { backgroundColor: feature.background }]}>
-              <Ionicons color={feature.accent} name={feature.icon} size={compact ? 19 : 22} />
+            <View
+              style={[
+                styles.illustrationFrame,
+                { backgroundColor: item.background, height: illustrationHeight },
+              ]}
+            >
+              <Animated.View
+                style={{
+                  transform: [{
+                    translateY: floatProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, -6],
+                    }),
+                  }],
+                }}
+              >
+                <WelcomeVectorIllustration accent={item.accent} kind={item.illustration} />
+              </Animated.View>
             </View>
-            <View style={styles.featureCopy}>
+            <View style={[styles.slideCopy, compact && styles.slideCopyCompact]}>
               <Text
-                allowFontScaling
-                maxFontSizeMultiplier={1.2}
-                numberOfLines={1}
+                accessibilityRole="header"
+                maxFontSizeMultiplier={1.25}
+                numberOfLines={2}
                 style={[
-                  theme.typography.bodyStrong,
-                  styles.featureTitle,
+                  theme.typography.display,
+                  styles.slideTitle,
+                  compact && styles.slideTitleCompact,
                   { color: theme.colors.text.primary },
-                  compact && styles.featureTitleCompact,
                 ]}
               >
-                {feature.title}
+                {item.title}
               </Text>
-              {!veryCompact ? (
-                <Text
-                  allowFontScaling
-                  maxFontSizeMultiplier={1.15}
-                  numberOfLines={1}
-                  style={[
-                    theme.typography.meta,
-                    styles.featureDetail,
-                    { color: theme.colors.text.secondary },
-                    compact && styles.featureDetailCompact,
-                  ]}
-                >
-                  {feature.detail}
-                </Text>
-              ) : null}
+              <Text
+                maxFontSizeMultiplier={1.2}
+                numberOfLines={veryCompact ? 2 : 3}
+                style={[
+                  theme.typography.body,
+                  styles.slideDetail,
+                  compact && styles.slideDetailCompact,
+                  { color: theme.colors.text.secondary },
+                ]}
+              >
+                {item.detail}
+              </Text>
             </View>
-            <Ionicons color={feature.accent} name="checkmark-circle" size={compact ? 18 : 20} />
           </View>
+        )}
+        showsHorizontalScrollIndicator={false}
+        style={[styles.slider, { width: contentWidth }]}
+      />
+
+      <View
+        accessibilityLabel={`${activeIndex + 1}. tanıtım sayfası seçili`}
+        accessibilityRole="adjustable"
+        style={styles.pagination}
+      >
+        {WELCOME_SLIDES.map((slide, index) => (
+          <Pressable
+            accessibilityLabel={`${index + 1}. tanıtım sayfasına git`}
+            accessibilityRole="button"
+            key={slide.illustration}
+            onPress={() => selectSlide(index)}
+            style={styles.paginationTarget}
+          >
+            <View
+              style={[
+                styles.paginationDot,
+                {
+                  backgroundColor: index === activeIndex
+                    ? theme.colors.action.primary
+                    : theme.colors.border.default,
+                  width: index === activeIndex ? 22 : 7,
+                },
+              ]}
+            />
+          </Pressable>
         ))}
       </View>
 
-      <View style={[styles.actionArea, compact && styles.actionAreaCompact]}>
+      <View style={[styles.actionArea, { width: contentWidth }]}>
         <Button
-          accessibilityHint="Giriş ekranını açar ve bu tanıtımı tamamlar."
+          accessibilityHint={finalSlide
+            ? "Giriş ekranını açar ve tanıtımı tamamlar."
+            : "Sonraki tanıtım sayfasını gösterir."}
           fullWidth
-          label="Başlayalım"
+          label={finalSlide ? "Başlayalım" : "Devam et"}
           loading={busy}
-          onPress={onContinue}
+          onPress={finalSlide ? onContinue : () => selectSlide(activeIndex + 1)}
           testID="prelogin-continue-button"
-          trailingIcon={<Ionicons color={referencePalette.white} name="arrow-forward" size={21} />}
+          trailingIcon={finalSlide
+            ? <Ionicons color={theme.colors.action.onPrimary} name="checkmark" size={21} />
+            : <Ionicons color={theme.colors.action.onPrimary} name="chevron-forward" size={21} />}
         />
         {!veryCompact ? (
-          <View
-            accessibilityLabel="Güvenilir kaynaklar ve gizliliğine saygılı tasarım"
-            style={styles.footerTrust}
-          >
+          <View style={styles.footerTrust}>
             <Ionicons color={referencePalette.academicGreen} name="shield-checkmark-outline" size={15} />
             <Text
-              allowFontScaling
               maxFontSizeMultiplier={1.15}
               numberOfLines={1}
               style={[theme.typography.meta, styles.footerText, { color: theme.colors.text.secondary }]}
             >
-              Güvenilir kaynaklar  •  Gizliliğine saygılı
+              Güvenilir akademik kaynaklar · Kontrol sende
             </Text>
           </View>
         ) : null}
@@ -309,191 +296,197 @@ export function PreLoginWelcomeScreen({
   );
 }
 
+function WelcomeVectorIllustration({
+  accent,
+  kind,
+}: {
+  accent: string;
+  kind: WelcomeIllustration;
+}) {
+  if (kind === "announcements") {
+    return (
+      <View style={styles.vectorScene}>
+        <View style={[styles.vectorAccentDisc, { backgroundColor: accent }]}>
+          <Ionicons color={referencePalette.white} name="megaphone" size={48} />
+        </View>
+        <View style={styles.noticeStack}>
+          {["business-outline", "library-outline", "people-outline"].map((icon, index) => (
+            <View key={icon} style={[styles.noticeRow, { marginLeft: index * 7 }]}>
+              <View style={[styles.noticeIcon, { backgroundColor: `${accent}20` }]}>
+                <Ionicons color={accent} name={icon as keyof typeof Ionicons.glyphMap} size={15} />
+              </View>
+              <View style={styles.noticeLines}>
+                <View style={[styles.vectorLineStrong, { backgroundColor: accent }]} />
+                <View style={styles.vectorLine} />
+              </View>
+              <Ionicons color={accent} name="checkmark-circle" size={17} />
+            </View>
+          ))}
+        </View>
+        <View style={[styles.floatingBadge, styles.floatingBadgeTop, { backgroundColor: referencePalette.academicOrangeSoft }]}>
+          <Ionicons color={referencePalette.academicOrange} name="sparkles" size={18} />
+        </View>
+      </View>
+    );
+  }
+
+  if (kind === "planner") {
+    return (
+      <View style={styles.vectorScene}>
+        <View style={styles.plannerBoard}>
+          <View style={[styles.plannerHeader, { backgroundColor: accent }]}>
+            <Ionicons color={referencePalette.white} name="create-outline" size={19} />
+            <View style={styles.plannerHeaderLine} />
+          </View>
+          {[0, 1, 2].map((item) => (
+            <View key={item} style={styles.plannerRow}>
+              <Ionicons
+                color={item === 1 ? referencePalette.academicGreen : accent}
+                name={item === 1 ? "checkmark-circle" : "ellipse-outline"}
+                size={17}
+              />
+              <View style={[styles.plannerLine, item === 2 && styles.plannerLineShort]} />
+            </View>
+          ))}
+        </View>
+        <View style={[styles.vectorAccentDisc, styles.plannerBell, { backgroundColor: accent }]}>
+          <Ionicons color={referencePalette.white} name="notifications" size={37} />
+        </View>
+        <View style={[styles.floatingBadge, styles.floatingBadgeBottom, { backgroundColor: referencePalette.academicGreenSoft }]}>
+          <Ionicons color={referencePalette.academicGreen} name="add" size={22} />
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.vectorScene}>
+      <View style={styles.calendarBoard}>
+        <View style={[styles.calendarHeader, { backgroundColor: accent }]}>
+          <View style={styles.calendarBinding} />
+          <View style={styles.calendarBinding} />
+          <Text style={styles.calendarHeaderText}>HAFTA</Text>
+        </View>
+        <View style={styles.calendarGrid}>
+          {Array.from({ length: 12 }, (_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.calendarCell,
+                index === 6 && { backgroundColor: accent },
+              ]}
+            >
+              {index === 6 ? <Ionicons color={referencePalette.white} name="checkmark" size={17} /> : null}
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={[styles.vectorAccentDisc, styles.calendarClock, { backgroundColor: referencePalette.academicGreen }]}>
+        <Ionicons color={referencePalette.white} name="time" size={36} />
+      </View>
+      <View style={[styles.floatingBadge, styles.floatingBadgeTop, { backgroundColor: referencePalette.academicOrangeSoft }]}>
+        <Ionicons color={referencePalette.academicOrange} name="school" size={19} />
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
+    alignItems: "center",
     flex: 1,
-    gap: 10,
+    gap: 8,
     overflow: "hidden",
   },
   brandRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 11,
-    minHeight: 52,
-  },
-  brandRowCompact: {
     gap: 9,
-    minHeight: 40,
+    minHeight: 44,
   },
   appMark: {
-    borderRadius: 13,
-    height: 48,
-    width: 48,
+    borderRadius: 10,
+    height: 42,
+    width: 42,
   },
   appMarkCompact: {
-    borderRadius: 10,
-    height: 38,
-    width: 38,
-  },
-  brandCopy: {
-    flex: 1,
-    minWidth: 0,
+    borderRadius: 8,
+    height: 36,
+    width: 36,
   },
   brandTitle: {
-    fontSize: 18,
-    lineHeight: 23,
-  },
-  brandTitleCompact: {
+    flex: 1,
     fontSize: 16,
-    lineHeight: 20,
+    lineHeight: 22,
   },
-  brandTagline: {
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 1,
-  },
-  trustBadge: {
-    alignItems: "center",
-    backgroundColor: referencePalette.academicGreenSoft,
-    borderRadius: 999,
-    height: 34,
-    justifyContent: "center",
-    width: 34,
-  },
-  agendaPreview: {
-    alignSelf: "stretch",
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  agendaHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 24,
-  },
-  agendaHeading: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 7,
-  },
-  agendaList: {
-    flex: 1,
-    justifyContent: "space-evenly",
-  },
-  agendaRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 9,
-    minHeight: 34,
-    paddingVertical: 4,
-  },
-  agendaIcon: {
+  skipButton: {
     alignItems: "center",
     borderRadius: 8,
-    height: 30,
     justifyContent: "center",
-    width: 30,
-  },
-  agendaCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  introCopy: {
-    alignItems: "center",
-    gap: 6,
+    minHeight: 40,
+    minWidth: 48,
     paddingHorizontal: 8,
   },
-  introCopyCompact: {
-    gap: 3,
-    paddingHorizontal: 2,
+  slider: {
+    flex: 1,
   },
-  headline: {
-    fontSize: 29,
-    lineHeight: 35,
+  slide: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+  },
+  illustrationFrame: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    borderRadius: 8,
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  slideCopy: {
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 18,
+  },
+  slideCopyCompact: {
+    gap: 5,
+    paddingTop: 11,
+  },
+  slideTitle: {
+    fontSize: 28,
+    lineHeight: 34,
     textAlign: "center",
   },
-  headlineCompact: {
+  slideTitleCompact: {
     fontSize: 23,
     lineHeight: 28,
   },
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 21,
-    maxWidth: 520,
+  slideDetail: {
+    maxWidth: 500,
     textAlign: "center",
   },
-  subtitleCompact: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  features: {
-    flex: 1,
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 196,
-  },
-  featuresCompact: {
-    gap: 5,
-    minHeight: 129,
-  },
-  featureCard: {
-    alignItems: "center",
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 58,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    shadowColor: referencePalette.navy,
-    shadowOffset: { height: 2, width: 0 },
-    shadowOpacity: 0.05,
-    shadowRadius: 7,
-    elevation: 1,
-  },
-  featureCardCompact: {
-    borderRadius: 8,
-    gap: 9,
-    minHeight: 41,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-  featureIcon: {
-    alignItems: "center",
-    borderRadius: 8,
-    height: 38,
-    justifyContent: "center",
-    width: 38,
-  },
-  featureCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  featureTitle: {
+  slideDetailCompact: {
     fontSize: 14,
-    lineHeight: 18,
+    lineHeight: 19,
   },
-  featureTitleCompact: {
-    fontSize: 12,
-    lineHeight: 15,
+  pagination: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 28,
   },
-  featureDetail: {
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 1,
+  paginationTarget: {
+    alignItems: "center",
+    height: 28,
+    justifyContent: "center",
+    width: 34,
   },
-  featureDetailCompact: {
-    fontSize: 10,
-    lineHeight: 13,
+  paginationDot: {
+    borderRadius: 4,
+    height: 7,
   },
   actionArea: {
-    gap: 8,
-  },
-  actionAreaCompact: {
-    gap: 4,
+    gap: 6,
   },
   footerTrust: {
     alignItems: "center",
@@ -506,5 +499,170 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     textAlign: "center",
+  },
+  vectorScene: {
+    height: 176,
+    position: "relative",
+    width: 270,
+  },
+  vectorAccentDisc: {
+    alignItems: "center",
+    borderRadius: 48,
+    height: 86,
+    justifyContent: "center",
+    left: 14,
+    position: "absolute",
+    top: 46,
+    width: 86,
+  },
+  floatingBadge: {
+    alignItems: "center",
+    borderRadius: 22,
+    height: 42,
+    justifyContent: "center",
+    position: "absolute",
+    width: 42,
+  },
+  floatingBadgeTop: {
+    right: 8,
+    top: 15,
+  },
+  floatingBadgeBottom: {
+    bottom: 7,
+    left: 0,
+  },
+  noticeStack: {
+    gap: 7,
+    position: "absolute",
+    right: 3,
+    top: 45,
+  },
+  noticeRow: {
+    alignItems: "center",
+    backgroundColor: referencePalette.white,
+    borderRadius: 8,
+    elevation: 2,
+    flexDirection: "row",
+    gap: 7,
+    height: 39,
+    paddingHorizontal: 8,
+    width: 164,
+  },
+  noticeIcon: {
+    alignItems: "center",
+    borderRadius: 6,
+    height: 27,
+    justifyContent: "center",
+    width: 27,
+  },
+  noticeLines: {
+    flex: 1,
+    gap: 4,
+  },
+  vectorLineStrong: {
+    borderRadius: 2,
+    height: 5,
+    opacity: 0.75,
+    width: "80%",
+  },
+  vectorLine: {
+    backgroundColor: referencePalette.academicNeutralLineSoft,
+    borderRadius: 2,
+    height: 4,
+    width: "100%",
+  },
+  plannerBoard: {
+    backgroundColor: referencePalette.white,
+    borderRadius: 8,
+    elevation: 3,
+    left: 37,
+    overflow: "hidden",
+    position: "absolute",
+    top: 18,
+    width: 174,
+  },
+  plannerHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+    height: 43,
+    paddingHorizontal: 12,
+  },
+  plannerHeaderLine: {
+    backgroundColor: referencePalette.whiteAlpha24,
+    borderRadius: 2,
+    height: 6,
+    width: 84,
+  },
+  plannerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+    height: 34,
+    paddingHorizontal: 12,
+  },
+  plannerLine: {
+    backgroundColor: referencePalette.academicNeutralLineSoft,
+    borderRadius: 2,
+    height: 5,
+    width: 106,
+  },
+  plannerLineShort: {
+    width: 72,
+  },
+  plannerBell: {
+    left: undefined,
+    right: 1,
+    top: 78,
+  },
+  calendarBoard: {
+    backgroundColor: referencePalette.white,
+    borderRadius: 8,
+    elevation: 3,
+    left: 30,
+    overflow: "hidden",
+    position: "absolute",
+    top: 13,
+    width: 202,
+  },
+  calendarHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
+    height: 43,
+    paddingHorizontal: 13,
+  },
+  calendarBinding: {
+    backgroundColor: referencePalette.white,
+    borderRadius: 2,
+    height: 17,
+    opacity: 0.9,
+    width: 5,
+  },
+  calendarHeaderText: {
+    color: referencePalette.white,
+    fontSize: 11,
+    fontWeight: "700",
+    marginLeft: 3,
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+    padding: 13,
+  },
+  calendarCell: {
+    alignItems: "center",
+    backgroundColor: referencePalette.academicBlueSurfaceStrong,
+    borderRadius: 6,
+    height: 23,
+    justifyContent: "center",
+    width: 37,
+  },
+  calendarClock: {
+    bottom: 0,
+    left: undefined,
+    right: 1,
+    top: undefined,
   },
 });

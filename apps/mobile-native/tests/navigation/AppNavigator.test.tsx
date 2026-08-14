@@ -198,7 +198,7 @@ const primaryTabRoutes = [
   { label: "Ana Sayfa", route: "Home" },
   { label: "Duyurular", route: "Announcements" },
   { label: "Takvim", route: "Calendar" },
-  { label: "Profil", route: "Profile" },
+  { label: "Ayarlar", route: "Profile" },
 ] as const satisfies ReadonlyArray<{
   label: string;
   route: AppVisibleRoute;
@@ -716,7 +716,7 @@ describe("AppNavigator", () => {
     });
     await expectVisibleRoute("Home");
 
-    for (const label of ["Ana Sayfa", "Duyurular", "Takvim", "Profil"]) {
+    for (const label of ["Ana Sayfa", "Duyurular", "Takvim", "Ayarlar"]) {
       expect(getTabControl(label)).toBeVisible();
     }
     expectSelectedTab("Ana Sayfa");
@@ -1102,7 +1102,7 @@ describe("AppNavigator", () => {
     });
 
     await expectVisibleRoute("Profile");
-    expectSelectedTab("Profil");
+    expectSelectedTab("Ayarlar");
     expect(onRequestHandled).toHaveBeenCalledWith("open-academic-settings");
     expect(onVisibleRouteChange).toHaveBeenCalledWith("AcademicProfileSettings");
     expect(onVisibleRouteChange).toHaveBeenCalledWith("Profile");
@@ -1120,6 +1120,41 @@ describe("AppNavigator", () => {
     await expectVisibleRoute("AccountDataSettings");
     expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset).toBe(0);
     expectPrimaryTabsHidden();
+  });
+
+  it("keeps the Settings root behind an account request from an unopened tab", async () => {
+    const hardwareBackHandlers = captureHardwareBackHandlers();
+    const onRequestHandled = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Home",
+      onRequestHandled,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Home");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Home"
+        onRequestHandled={onRequestHandled}
+        request={{ key: "drawer-account", route: "AccountDataSettings" }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+
+    await expectVisibleRoute("AccountDataSettings");
+    expect(screen.getByRole("button", { name: "Geri d\u00f6n" })).toBeEnabled();
+    expectPrimaryTabsHidden();
+    expect(onRequestHandled).toHaveBeenCalledWith("drawer-account");
+
+    expect(hardwareBackHandlers).toHaveLength(1);
+    await act(async () => {
+      expect(hardwareBackHandlers[0]!()).toBe(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+
+    await expectVisibleRoute("Profile");
+    expectSelectedTab("Ayarlar");
   });
 
   it("intercepts dirty settings Back, keeps Cancel in place, then discards before leaving", async () => {
@@ -1199,7 +1234,7 @@ describe("AppNavigator", () => {
 
     expect(onDiscard).toHaveBeenCalledTimes(1);
     await expectVisibleRoute("Profile");
-    expectSelectedTab("Profil");
+    expectSelectedTab("Ayarlar");
   });
 
   it("keeps the top-bar Back action disabled while navigation is locked", async () => {

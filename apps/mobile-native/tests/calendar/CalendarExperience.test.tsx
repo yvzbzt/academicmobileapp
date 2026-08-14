@@ -35,6 +35,7 @@ jest.mock("@react-navigation/native", () => {
 const callbacks = {
   onCreatePersonalExam: jest.fn((_input: PersonalExamMutationInput) => ({ ok: true as const })),
   onManageGoogle: jest.fn(),
+  onOpenAccountMenu: jest.fn(),
   onOpenItem: jest.fn(),
   onRefresh: jest.fn(),
   onSyncGoogle: jest.fn(),
@@ -132,6 +133,8 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByRole("header", { name: "3 Ağustos Pazartesi" })).toBeOnTheScreen();
     expect(screen.getByTestId("calendar-view-announcement").props.accessibilityLiveRegion)
       .toBe("polite");
+    fireEvent.press(screen.getByRole("button", { name: "Hesap menüsünü aç" }));
+    expect(callbacks.onOpenAccountMenu).toHaveBeenCalledTimes(1);
 
     fireEvent.press(screen.getByRole("radio", { name: "Hafta" }));
     expect(screen.getByRole("radio", { name: "Hafta" }).props.accessibilityState).toEqual(
@@ -292,6 +295,23 @@ describe("Phase 9 Calendar experience", () => {
     fireEvent.press(screen.getByRole("button", { name: "Google Takvim'i yönet" }));
     expect(callbacks.onSyncGoogle).toHaveBeenCalledTimes(1);
     expect(callbacks.onManageGoogle).toHaveBeenCalledTimes(1);
+  });
+
+  it("limits a long agenda to twelve items and reveals the next page on demand", async () => {
+    const academicEvents = Array.from({ length: 15 }, (_, index) => ({
+      id: `event-${index + 1}`,
+      title: `Etkinlik ${index + 1}`,
+      category: "event",
+      startDate: `2026-08-${String(index + 6).padStart(2, "0")}`,
+      temporalKind: "date" as const,
+    }));
+    await renderCalendar(props({ academicEvents, personalExams: [] }));
+
+    expect(screen.getByText("12 / 15 etkinlik gösteriliyor")).toBeOnTheScreen();
+    expect(screen.queryByText("Etkinlik 13")).not.toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Daha fazla etkinlik göster" }));
+    expect(screen.UNSAFE_getByType(require("react-native").FlatList).props.data).toHaveLength(15);
+    expect(screen.queryByRole("button", { name: "Daha fazla etkinlik göster" })).not.toBeOnTheScreen();
   });
 
   it("keeps route-scoped personal-exam results reachable in the virtualized header", async () => {

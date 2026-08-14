@@ -73,7 +73,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     expect(source).toContain("syntheticFixturesOnly: true");
   });
 
-  it("pushes the academic editor over Profile and returns through the real Back action", async () => {
+  it("pushes the academic editor over Settings and returns through the real Back action", async () => {
     await renderAsync(<ProfileSettingsPreview scenario="academic-editor" />);
 
     expect(await screen.findByRole("header", { name: "Seçimlerini güncelle" })).toBeVisible();
@@ -82,9 +82,9 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     fireEvent.press(back);
 
     await waitFor(() => {
-      expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
+      expect(screen.getByRole("header", { name: "Ayarlar" })).toBeVisible();
     });
-    expect(screen.getAllByText("Deniz Örnek").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Akademik bilgiler" })).toBeVisible();
   });
 
   it("updates the routed scenario from an accepted synthetic deep link", async () => {
@@ -95,7 +95,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     });
 
     await renderAsync(<ProfileSettingsPreview scenario="profile-summary" />);
-    expect(await screen.findByRole("header", { name: "Profil" })).toBeVisible();
+    expect(await screen.findByRole("header", { name: "Ayarlar" })).toBeVisible();
     expect(urlHandlers.length).toBeGreaterThan(0);
 
     act(() => {

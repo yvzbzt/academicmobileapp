@@ -280,6 +280,8 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 168 });
       expect(screen.getByTestId("login-form-sheet")).toHaveStyle({ flex: 1 });
       expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 28, lineHeight: 34 });
+      expect(screen.getByLabelText("Kampüste akademik hayat", { includeHiddenElements: true })).toBeOnTheScreen();
+      expect(screen.queryByText("Bugünün planı")).toBeNull();
       expect(screen.getByTestId("google-color-mark", { includeHiddenElements: true })).toBeOnTheScreen();
       expect(screen.queryByText("E-postamı doğrula")).toBeNull();
     });

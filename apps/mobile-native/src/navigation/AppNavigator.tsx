@@ -556,24 +556,24 @@ function CalendarNavigator() {
 }
 
 function SettingsNavigator() {
-  const { activeRoute, navigationLocked } = useRouteContent();
+  const { navigationLocked } = useRouteContent();
   const reducedMotion = useReducedMotion();
   const theme = useTheme();
   return (
     <SettingsStack.Navigator
-      initialRouteName={isSettingsStackRoute(activeRoute) ? activeRoute : "Profile"}
+      initialRouteName="Profile"
       screenOptions={{
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
         gestureEnabled: !navigationLocked,
         header: renderShellStackHeader,
-        headerBackTitle: "Profil",
+        headerBackTitle: "Ayarlar",
       }}
     >
       <SettingsStack.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{ headerShown: false, title: "Profil" }}
+        options={{ headerShown: false, title: "Ayarlar" }}
       />
       <SettingsStack.Screen name="AcademicProfileSettings" component={AcademicProfileSettingsScreen} options={{ title: "Akademik Profil" }} />
       <SettingsStack.Screen name="FollowedUniversitiesSettings" component={FollowedUniversitiesSettingsScreen} options={{ title: "Üniversite Takipleri" }} />
@@ -995,6 +995,10 @@ function requestAction(request: AppNavigationRequest) {
         }
       });
     case "Profile":
+      return CommonActions.navigate("Authenticated", {
+        screen: "ProfileTab",
+        params: { screen: "Profile" }
+      });
     case "AcademicProfileSettings":
     case "FollowedUniversitiesSettings":
     case "NotificationSettings":
@@ -1002,7 +1006,10 @@ function requestAction(request: AppNavigationRequest) {
     case "AccountDataSettings":
       return CommonActions.navigate("Authenticated", {
         screen: "ProfileTab",
-        params: { screen: request.route }
+        params: {
+          screen: request.route,
+          initial: false,
+        }
       });
     case "UnknownRoute":
       return CommonActions.navigate("UnknownRoute");
@@ -1274,7 +1281,7 @@ const ROUTE_ACCESSIBILITY_TITLES: Readonly<Record<AppVisibleRoute, string>> = {
   AnnouncementDetail: "Duyuru Detayı",
   Calendar: "Takvim",
   CalendarEventDetail: "Takvim Ayrıntısı",
-  Profile: "Profil",
+  Profile: "Ayarlar",
   AcademicProfileSettings: "Akademik Profil",
   FollowedUniversitiesSettings: "Üniversite Takipleri",
   NotificationSettings: "Bildirim tercihleri",

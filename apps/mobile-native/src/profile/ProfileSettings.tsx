@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  Image,
   Pressable,
   StyleSheet,
   Switch,
@@ -68,57 +67,41 @@ export interface ProfileOverviewScreenProps {
   onOpenGoogleCalendar: () => void;
   onOpenAccountManagement: () => void;
   onLogout: () => void | Promise<void>;
+  onOpenAccountMenu?: () => void;
 }
 
 /** The profile root is an ordered settings index, not a second dashboard. */
 export function ProfileOverviewScreen({
-  fullName,
-  email,
   academicSummary,
   notificationTruth,
   googleCalendar,
-  googleAccountEmail,
   appVersion,
   buildNumber,
-  avatarUri,
-  loading = false,
   error,
   followedUniversityCount = 0,
   onRetry,
+  onOpenAccountMenu,
   onOpenAcademicProfile,
   onOpenFollowedUniversities,
   onOpenNotifications,
   onOpenGoogleCalendar,
-  onOpenAccountManagement,
-  onLogout,
 }: ProfileOverviewScreenProps) {
   const theme = useTheme();
-  const layout = useProfileLayout();
-  const normalizedName = fullName.trim() || "Ad bilgisi yok";
-  const normalizedEmail = email.trim() || "E-posta bilgisi yok";
-  const [avatarFailed, setAvatarFailed] = useState(false);
-  const [logoutBusy, setLogoutBusy] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | undefined>();
-  useEffect(() => setAvatarFailed(false), [avatarUri]);
-  const avatarAvailable = Boolean(avatarUri?.trim() && !avatarFailed);
-
-  const submitLogout = async () => {
-    if (logoutBusy) return;
-    setLogoutBusy(true);
-    setLogoutError(undefined);
-    try {
-      await onLogout();
-    } catch {
-      setLogoutError("Oturum kapatılamadı. Bağlantını kontrol edip tekrar dene.");
-      setLogoutBusy(false);
-    }
-  };
 
   return (
     <SettingsBody gap={theme.spacing.md}>
       <View style={styles.profileTopBar}>
-        <View style={styles.profileTopSpacer} />
-        <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Profil</Text>
+        <Pressable
+          accessibilityLabel="Hesap menüsünü aç"
+          accessibilityRole="button"
+          disabled={!onOpenAccountMenu}
+          hitSlop={theme.spacing.xs}
+          onPress={onOpenAccountMenu}
+          style={({ pressed }) => [styles.profileBellButton, pressed && { backgroundColor: theme.colors.action.ghostPressed }]}
+        >
+          <Ionicons color={theme.colors.text.primary} name="menu-outline" size={27} />
+        </Pressable>
+        <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Ayarlar</Text>
         <Pressable
           accessibilityLabel="Bildirim tercihlerini aç"
           accessibilityRole="button"
@@ -136,88 +119,10 @@ export function ProfileOverviewScreen({
           actionLabel={onRetry ? "Tekrar dene" : undefined}
           message="Son doğrulanmış profil bilgileri gösteriliyor."
           onAction={onRetry}
-          title="Profil yenilenemedi"
+          title="Ayarlar yenilenemedi"
           tone="error"
         />
       ) : null}
-      {logoutError ? <Banner message={logoutError} title="Çıkış yapılamadı" tone="error" /> : null}
-
-      {loading ? <ProfileSummarySkeleton /> : (
-        <Card
-          accessibilityLabel={`${normalizedName}. ${academicSummary.universityLabel}. ${academicSummary.complete ? "Akademik profil tamamlandı" : "Akademik profil eksik"}. ${normalizedEmail}.`}
-          style={[
-            styles.profileReferenceHero,
-            {
-              backgroundColor: theme.colors.status.infoContainer,
-              borderColor: theme.colors.border.subtle,
-              borderRadius: theme.radii.prominent,
-              padding: theme.spacing.lg,
-            },
-          ]}
-          variant="outlined"
-        >
-          <View style={[styles.profileHeroMain, layout.largeText && styles.profileHeroMainStacked, { gap: theme.spacing.md }]}>
-            <View style={styles.profileAvatarFrame}>
-              {avatarAvailable ? (
-                <Image
-                  accessibilityLabel={`${normalizedName} profil fotoğrafı`}
-                  onError={() => setAvatarFailed(true)}
-                  resizeMode="cover"
-                  source={{ uri: avatarUri!.trim() }}
-                  style={[
-                    styles.profilePortrait,
-                    {
-                      backgroundColor: theme.colors.background.subtle,
-                      borderColor: theme.colors.border.subtle,
-                      borderRadius: theme.radii.pill,
-                    },
-                  ]}
-                />
-              ) : (
-                <View
-                  accessibilityLabel={`${normalizedName} baş harfleri`}
-                  style={[
-                    styles.profilePortrait,
-                    styles.profileInitials,
-                    {
-                      backgroundColor: theme.colors.action.secondary,
-                      borderColor: theme.colors.border.subtle,
-                      borderRadius: theme.radii.pill,
-                    },
-                  ]}
-                >
-                  <Text style={[theme.typography.sectionTitle, { color: theme.colors.text.link }]}>{profileInitials(normalizedName)}</Text>
-                </View>
-              )}
-            </View>
-            <View style={[styles.profileHeroCopy, { gap: theme.spacing.xxs }]}>
-              <Text style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>{normalizedName}</Text>
-              <Text
-                ellipsizeMode="middle"
-                numberOfLines={layout.largeText ? 3 : 1}
-                style={[theme.typography.body, { color: theme.colors.text.secondary }]}
-              >
-                {normalizedEmail}
-              </Text>
-              <View
-                style={[
-                  styles.profileStudentBadge,
-                  {
-                    alignSelf: layout.largeText ? "stretch" : "flex-start",
-                    backgroundColor: theme.colors.background.surface,
-                    borderColor: theme.colors.action.primary,
-                    borderRadius: theme.radii.control,
-                    gap: theme.spacing.xs,
-                  },
-                ]}
-              >
-                <Ionicons color={theme.colors.action.primary} name="school-outline" size={17} />
-                <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>Lisans Öğrencisi</Text>
-              </View>
-            </View>
-          </View>
-        </Card>
-      )}
 
       <ProfileReferenceSection title="Akademik bilgiler">
         <ListItem
@@ -227,6 +132,15 @@ export function ProfileOverviewScreen({
           style={styles.profileMenuRow}
           supportingText={`${academicSummary.universityLabel} · Fakülte, bölüm, sınıf ve dönem bilgilerin`}
           title="Akademik bilgiler"
+          trailing={<Chevron />}
+        />
+        <ListItem
+          accessibilityHint="Duyurularını takip ettiğin ek üniversiteleri açar."
+          leading={<SettingsIcon name="business-outline" tone="success" />}
+          onPress={onOpenFollowedUniversities}
+          style={styles.profileMenuRow}
+          supportingText={`${followedUniversityCount} ek üniversite`}
+          title="Takip edilen üniversiteler"
           trailing={<Chevron />}
         />
       </ProfileReferenceSection>
@@ -260,33 +174,7 @@ export function ProfileOverviewScreen({
         />
       </ProfileReferenceSection>
 
-      <ProfileReferenceSection title="Hesap ve gizlilik">
-        <ListItem
-          accessibilityHint="Hesap ve veri yönetimini açar."
-          leading={<SettingsIcon name="shield-checkmark-outline" tone="primary" />}
-          onPress={onOpenAccountManagement}
-          style={styles.profileMenuRow}
-          supportingText="Verilerini ve hesap silme seçeneklerini yönet"
-          title="Hesap ve veri"
-          trailing={<Chevron />}
-        />
-        <ListItem
-          accessibilityHint="Duyurularını takip ettiğin ek üniversiteleri açar."
-          leading={<SettingsIcon name="business-outline" tone="success" />}
-          onPress={onOpenFollowedUniversities}
-          style={styles.profileMenuRow}
-          supportingText={`${followedUniversityCount} ek üniversite`}
-          title="Takip edilen üniversiteler"
-          trailing={<Chevron />}
-        />
-      </ProfileReferenceSection>
-
-      <View style={{ gap: theme.spacing.xs }}>
-        <Text accessibilityRole="header" style={[theme.typography.label, styles.profileSectionLabel, { color: theme.colors.text.secondary }]}>Oturum</Text>
-        <Button disabled={logoutBusy} fullWidth label="Çıkış yap" loading={logoutBusy} onPress={() => void submitLogout()} variant="secondary" />
-      </View>
-
-      <Text style={[theme.typography.navLabel, styles.profileVersion, { color: theme.colors.text.secondary }]}>Sürüm {appVersion} · Derleme {String(buildNumber)}{googleAccountEmail ? ` · ${googleAccountEmail}` : ""}</Text>
+      <Text style={[theme.typography.navLabel, styles.profileVersion, { color: theme.colors.text.secondary }]}>Sürüm {appVersion} · Derleme {String(buildNumber)}</Text>
     </SettingsBody>
   );
 }

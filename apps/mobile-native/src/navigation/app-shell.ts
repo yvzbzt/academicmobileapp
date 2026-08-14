@@ -7,8 +7,8 @@ export interface PrimaryTabDefinition {
   route: MainTabRouteName;
   rootRoute: PrimaryTabRootRoute;
   label: string;
-  icon: "home-outline" | "newspaper-outline" | "calendar-outline" | "person-outline";
-  selectedIcon: "home" | "newspaper" | "calendar" | "person";
+  icon: "home-outline" | "newspaper-outline" | "calendar-outline" | "options-outline";
+  selectedIcon: "home" | "newspaper" | "calendar" | "options";
 }
 
 export const PRIMARY_TABS = [
@@ -36,9 +36,9 @@ export const PRIMARY_TABS = [
   {
     route: "ProfileTab",
     rootRoute: "Profile",
-    label: "Profil",
-    icon: "person-outline",
-    selectedIcon: "person",
+    label: "Ayarlar",
+    icon: "options-outline",
+    selectedIcon: "options",
   },
 ] as const satisfies readonly PrimaryTabDefinition[];
 

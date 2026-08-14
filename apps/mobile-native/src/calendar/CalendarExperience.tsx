@@ -91,6 +91,7 @@ export interface CalendarExperienceProps {
   initialView?: CalendarViewMode;
   initialAnchorDate?: string;
   now?: Date;
+  onOpenAccountMenu?: () => void;
   onRefresh: () => void;
   onOpenItem: (item: CalendarItem) => void;
   onCreatePersonalExam: (input: PersonalExamMutationInput) => PersonalExamMutationResult;
@@ -126,6 +127,7 @@ const selectedDayHeadingFormatter = new Intl.DateTimeFormat("tr-TR", {
   timeZone: "UTC",
 });
 const agendaDayHeadingCache = new Map<string, string>();
+const AGENDA_PAGE_SIZE = 12;
 
 export function CalendarExperience({
   academicEvents,
@@ -145,6 +147,7 @@ export function CalendarExperience({
   initialView = "agenda",
   initialAnchorDate,
   now,
+  onOpenAccountMenu,
   onRefresh,
   onOpenItem,
   onCreatePersonalExam,
@@ -166,6 +169,7 @@ export function CalendarExperience({
   const [editorVisible, setEditorVisible] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [agendaLimit, setAgendaLimit] = useState(AGENDA_PAGE_SIZE);
   const isOffline = offline ?? (
     networkState.isConnected === false || networkState.isInternetReachable === false
   );
@@ -214,6 +218,11 @@ export function CalendarExperience({
     });
     return result;
   }, [today, view, visibleItems]);
+  const displayedEntries = useMemo(
+    () => view === "agenda" ? entries.slice(0, agendaLimit) : entries,
+    [agendaLimit, entries, view],
+  );
+  const hasMoreAgendaItems = view === "agenda" && displayedEntries.length < entries.length;
   const state = resolveCalendarPresentationState({
     loading,
     attempted,
@@ -244,6 +253,10 @@ export function CalendarExperience({
     }
   }, [adaptation.platform, anchorDate, calendarAnnouncement, view]);
 
+  useEffect(() => {
+    setAgendaLimit(AGENDA_PAGE_SIZE);
+  }, [searchQuery, view]);
+
   const changeView = (nextView: CalendarViewMode) => {
     if (nextView === view) return;
     calendarAnnouncementRequestedRef.current = true;
@@ -262,14 +275,14 @@ export function CalendarExperience({
         <View style={[styles.dayHeading, { gap: theme.spacing.xs }]}>
           <Ionicons
             accessibilityElementsHidden
-            color={theme.colors.action.primary}
+            color={referencePalette.academicTealTitle}
             importantForAccessibility="no-hide-descendants"
             name="calendar-outline"
             size={21}
           />
           <Text
             accessibilityRole="header"
-            style={[theme.typography.bodyStrong, styles.flexOne, { color: theme.colors.text.link }]}
+            style={[theme.typography.bodyStrong, styles.flexOne, { color: referencePalette.academicTealTitle }]}
           >
             {formatAgendaDayHeading(entry.headingDate)}
           </Text>
@@ -291,6 +304,7 @@ export function CalendarExperience({
       <CalendarScreenHeader
         createButtonRef={createExamRef}
         createDisabled={!personalExamsReady}
+        onAccountMenuPress={onOpenAccountMenu}
         onCalendarPress={() => changeAnchorDate(today)}
         onCreatePress={() => {
           setEditorExam(null);
@@ -416,7 +430,7 @@ export function CalendarExperience({
             paddingHorizontal: gutter,
           },
         ]}
-        data={entries}
+        data={displayedEntries}
         initialNumToRender={5}
         keyExtractor={(entry) => entry.item.key}
         ListEmptyComponent={(
@@ -443,7 +457,19 @@ export function CalendarExperience({
           </View>
         )}
         ListFooterComponent={(
-          <View style={{ marginTop: theme.spacing.sm }}>
+          <View style={[styles.listFooter, { gap: theme.spacing.md, marginTop: theme.spacing.sm }]}>
+            {hasMoreAgendaItems ? (
+              <View style={[styles.loadMorePanel, { borderColor: theme.colors.border.subtle }]}>
+                <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
+                  {displayedEntries.length} / {entries.length} etkinlik gösteriliyor
+                </Text>
+                <Button
+                  label="Daha fazla etkinlik göster"
+                  onPress={() => setAgendaLimit((current) => current + AGENDA_PAGE_SIZE)}
+                  variant="secondary"
+                />
+              </View>
+            ) : null}
             <GoogleSyncBanner
               google={google}
               onManage={onManageGoogle}
@@ -479,6 +505,7 @@ export function CalendarExperience({
 function CalendarScreenHeader({
   createButtonRef,
   createDisabled,
+  onAccountMenuPress,
   onCalendarPress,
   onCreatePress,
   onMenuPress,
@@ -488,6 +515,7 @@ function CalendarScreenHeader({
 }: {
   createButtonRef: RefObject<NativeView | null>;
   createDisabled: boolean;
+  onAccountMenuPress?: () => void;
   onCalendarPress: () => void;
   onCreatePress: () => void;
   onMenuPress: () => void;
@@ -499,6 +527,12 @@ function CalendarScreenHeader({
   const agenda = view === "agenda";
   return (
     <View style={styles.screenHeader}>
+      <CalendarIconButton
+        disabled={!onAccountMenuPress}
+        label="Hesap menüsünü aç"
+        name="menu-outline"
+        onPress={onAccountMenuPress ?? (() => undefined)}
+      />
       <Text
         accessibilityRole="header"
         adjustsFontSizeToFit
@@ -526,7 +560,7 @@ function CalendarScreenHeader({
           onPress={onCreatePress}
         />
         {!agenda ? (
-          <CalendarIconButton label="Ajanda görünümünü aç" name="menu-outline" onPress={onMenuPress} />
+          <CalendarIconButton label="Ajanda görünümünü aç" name="list-outline" onPress={onMenuPress} />
         ) : null}
       </View>
     </View>
@@ -543,7 +577,7 @@ function CalendarIconButton({
   buttonRef?: RefObject<NativeView | null>;
   disabled?: boolean;
   label: string;
-  name: "add" | "calendar-outline" | "close-outline" | "menu-outline" | "search-outline";
+  name: "add" | "calendar-outline" | "close-outline" | "list-outline" | "menu-outline" | "search-outline";
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -1130,7 +1164,7 @@ const styles = StyleSheet.create({
   headerActions: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10,
+    gap: 5,
   },
   headerIconButton: {
     alignItems: "center",
@@ -1138,6 +1172,15 @@ const styles = StyleSheet.create({
     height: 48,
     justifyContent: "center",
     width: 48,
+  },
+  listFooter: {
+    alignSelf: "stretch",
+  },
+  loadMorePanel: {
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+    paddingTop: 14,
   },
   searchFrame: {
     alignItems: "center",

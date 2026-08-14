@@ -68,6 +68,7 @@ export interface HomeDailyBriefProps {
   notificationPermission: string;
   notificationPreferenceEnabled: boolean;
   notificationActive: boolean;
+  onOpenAccountMenu?: () => void;
   onCompleteProfile: () => void;
   onOpenAnnouncement: (item: TrustedMobileContentRecord) => void;
   onOpenAnnouncements: () => void;
@@ -213,7 +214,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
       && (!props.facultyName || !props.departmentName)
       ? ["profile"] as const
       : []),
-    ...(integration && primaryState !== "incomplete_profile" && primaryState !== "initial_loading"
+    ...(integration === "notifications" && primaryState !== "incomplete_profile" && primaryState !== "initial_loading"
       ? ["integration" as const]
       : []),
   ];
@@ -277,17 +278,11 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
       case "integration":
         return (
           <View style={{ gap: theme.spacing.sm }}>
-            {integration === "notifications" ? (
-              <Banner
-                actionLabel="Ayarları aç"
-                message="Akademik hatırlatmaların ulaşması için bildirim durumunu kontrol et."
-                onAction={props.onOpenNotificationSettings}
-                title="Bildirimlerini tamamla"
-              />
-            ) : null}
-            <GoogleCalendarCard
-              onPress={props.onOpenGoogleCalendarSettings}
-              state={props.googleCalendarState}
+            <Banner
+              actionLabel="Ayarları aç"
+              message="Akademik hatırlatmaların ulaşması için bildirim durumunu kontrol et."
+              onAction={props.onOpenNotificationSettings}
+              title="Bildirimlerini tamamla"
             />
           </View>
         );
@@ -317,7 +312,10 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
       ]}
       ListHeaderComponent={(
         <View style={styles.homeHeader}>
-          <HomeTopBar onOpenNotifications={props.onOpenNotificationSettings} />
+          <HomeTopBar
+            onOpenMenu={props.onOpenAccountMenu}
+            onOpenNotifications={props.onOpenNotificationSettings}
+          />
           <View style={[styles.identityRow, { gap: theme.spacing.md }]}>
             <View
               accessible
@@ -496,11 +494,26 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
   );
 }
 
-function HomeTopBar({ onOpenNotifications }: { onOpenNotifications: () => void }) {
+function HomeTopBar({
+  onOpenMenu,
+  onOpenNotifications,
+}: {
+  onOpenMenu?: () => void;
+  onOpenNotifications: () => void;
+}) {
   const theme = useTheme();
   return (
     <View style={styles.topBar} testID="home-top-bar">
-      <View style={styles.topBarSpacer} />
+      <Pressable
+        accessibilityLabel="Hesap menüsünü aç"
+        accessibilityRole="button"
+        disabled={!onOpenMenu}
+        hitSlop={8}
+        onPress={onOpenMenu}
+        style={({ pressed }) => [styles.notificationButton, pressed && styles.planHeroPressed]}
+      >
+        <Ionicons color={REFERENCE_COLORS.navy} name="menu-outline" size={27} />
+      </Pressable>
       <Text
         accessibilityRole="header"
         style={[theme.typography.cardTitle, styles.topBarTitle, { color: REFERENCE_COLORS.navy }]}
@@ -1417,10 +1430,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     minHeight: 48,
-  },
-  topBarSpacer: {
-    height: 44,
-    width: 44,
   },
   topBarTitle: {
     flex: 1,

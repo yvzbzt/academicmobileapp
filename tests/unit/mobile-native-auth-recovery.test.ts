@@ -297,7 +297,9 @@ describe("mobile authentication recovery contract", () => {
 
     expect(cleanupRenderer).toContain("if (!cleanupIssue) return null;");
     expect(cleanupRenderer).toContain("<Banner");
-    expect(cleanupRenderer).toContain('title="Tamamlanamayan güvenli temizlik"');
+    expect(cleanupRenderer).toContain(
+      'title={cleanupIssue.action === "logout" ? "Çıkış tamamlandı" : "Tamamlanamayan güvenli temizlik"}',
+    );
     expect(cleanupRenderer).toContain('tone="warning"');
     expect(cleanupRenderer).toContain('actionLabel={hasRetryableTarget && !busy && !googleBusy ? "Temizliği tekrar dene" : undefined}');
     expect(cleanupRenderer).toContain("onAction={hasRetryableTarget && !busy && !googleBusy ? () => void retryFailedCleanup() : undefined}");
