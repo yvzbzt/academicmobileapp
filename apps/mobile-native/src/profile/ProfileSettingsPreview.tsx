@@ -278,7 +278,7 @@ function ProfileSettingsPreviewExperience({
       Profile: (
         <ProfileOverviewScreen
           academicSummary={academicSummary}
-          appVersion="0.1.5"
+          appVersion="0.1.0"
           buildNumber={16}
           email="ogrenci@example.invalid"
           fullName={incomplete ? "Örnek Öğrenci" : "Deniz Örnek"}

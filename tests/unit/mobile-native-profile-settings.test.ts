@@ -364,14 +364,16 @@ describe("Phase 10 Profile and Settings contracts", () => {
       "utf8",
     )) as {
       expo: {
+        name: string;
         version: string;
         userInterfaceStyle: string;
         splash: { backgroundColor: string; dark: { backgroundColor: string } };
         android: { versionCode: number };
       };
     };
-    expect(appConfig.expo.version).toBe("0.1.4");
-    expect(appConfig.expo.android.versionCode).toBe(15);
+    expect(appConfig.expo.name).toBe("Akademik Takvim");
+    expect(appConfig.expo.version).toBe("0.1.0");
+    expect(appConfig.expo.android.versionCode).toBe(16);
     expect(appConfig.expo.userInterfaceStyle).toBe("light");
     expect(appConfig.expo.splash.backgroundColor).toBe("#ffffff");
     expect(appConfig.expo.splash.dark.backgroundColor).toBe("#ffffff");
@@ -380,8 +382,8 @@ describe("Phase 10 Profile and Settings contracts", () => {
       new URL("../../apps/mobile-native/android/app/build.gradle", import.meta.url),
       "utf8",
     );
-    expect(androidBuild).toContain("versionCode 15");
-    expect(androidBuild).toContain('versionName "0.1.4"');
+    expect(androidBuild).toContain("versionCode 16");
+    expect(androidBuild).toContain('versionName "0.1.0"');
 
     const androidStrings = readFileSync(
       new URL("../../apps/mobile-native/android/app/src/main/res/values/strings.xml", import.meta.url),
@@ -390,6 +392,9 @@ describe("Phase 10 Profile and Settings contracts", () => {
     const androidNightColors = readFileSync(
       new URL("../../apps/mobile-native/android/app/src/main/res/values-night/colors.xml", import.meta.url),
       "utf8",
+    );
+    expect(androidStrings).toContain(
+      '<string name="app_name">Akademik Takvim</string>',
     );
     expect(androidStrings).toContain(
       '<string name="expo_system_ui_user_interface_style" translatable="false">light</string>',

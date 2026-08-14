@@ -3,7 +3,7 @@
     "name": "Akademik Takvim",
     "slug": "academic-pulse-native",
     "scheme": "academicpulse",
-    "version": "0.1.5",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon-reference.png",
     "userInterfaceStyle": "light",
