@@ -22,7 +22,7 @@
     "android": {
       "package": "com.anssoft.akademiktakvim",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 16,
+      "versionCode": 17,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#123F50"
