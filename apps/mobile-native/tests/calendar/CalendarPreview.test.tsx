@@ -43,7 +43,7 @@ describe("Phase 9 Calendar synthetic preview", () => {
     );
     expect(source).not.toMatch(/apiRequest|SecureStore|AsyncStorage|GoogleSignin|expo-network|notifications|session-integrity|PRODUCTION_API/u);
     expect(source).toContain("example.invalid");
-    expect(source).toContain("Örnek Üniversitesi");
+    expect(source).toContain("Kampüs Üniversitesi");
   });
 
   it("renders Agenda, Week, Month, and both detail types", async () => {

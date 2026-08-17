@@ -74,21 +74,21 @@ const PreviewStack = createNativeStackNavigator<PreviewStackParamList>();
 const primaryAnnouncement = previewRecord({
   id: "preview-registration",
   sourceId: "preview-student-affairs",
-  sourceName: "Örnek Üniversitesi Öğrenci İşleri Daire Başkanlığı",
+  sourceName: "Kampüs Üniversitesi Öğrenci İşleri Daire Başkanlığı",
   title: "Güz dönemi ders kayıt takvimi açıklandı",
-  summary: "Ders kayıtları ve danışman onayları için sentetik bilgilendirme özeti.",
+  summary: "Ders kayıtları ve danışman onayları için yayımlanan bilgilendirme özeti.",
   publishedAt: "2026-08-02T07:00:00.000Z",
 });
 
 const scholarshipNews = previewRecord({
   id: "preview-scholarship",
   sourceId: "preview-faculty",
-  sourceName: "Örnek Üniversitesi Mühendislik Fakültesi",
+  sourceName: "Kampüs Üniversitesi Mühendislik Fakültesi",
   contentType: "news",
   scopeType: "faculty",
   scopeId: "preview-faculty",
   title: "Burs başvuruları için güncel belge listesi yayımlandı",
-  summary: "Başvuru belgeleri yalnızca bu sentetik önizleme kaydında gösterilir.",
+  summary: "Burs başvurularında istenen güncel belge ve tarih bilgileri.",
   sourceUpdatedAt: "2026-08-01T11:30:00.000Z",
   path: "haberler/burs-belgeleri",
 });
@@ -96,12 +96,12 @@ const scholarshipNews = previewRecord({
 const facultyEvent = previewRecord({
   id: "preview-faculty-event",
   sourceId: "preview-faculty",
-  sourceName: "Örnek Üniversitesi Mühendislik Fakültesi",
+  sourceName: "Kampüs Üniversitesi Mühendislik Fakültesi",
   contentType: "event",
   scopeType: "faculty",
   scopeId: "preview-faculty",
   title: "Fakülte araştırma etkinliği",
-  summary: "Öğrenciler için hazırlanan sentetik araştırma etkinliği duyurusu.",
+  summary: "Öğrenciler için hazırlanan araştırma etkinliği duyurusu.",
   publishedAt: "2026-07-31T08:00:00.000Z",
   path: "etkinlikler/arastirma-bulusmasi",
 });
@@ -112,7 +112,7 @@ const yokAnnouncement = previewRecord({
   sourceName: "Yükseköğretim Kurulu",
   scopeId: "yok-council-of-higher-education",
   title: "YÖK öğrenci bilgilendirme duyurusu",
-  summary: "Ulusal yükseköğretim kapsamındaki sentetik ve güvenilir önizleme kaydı.",
+  summary: "Ulusal yükseköğretim gündeminden güncel bilgilendirme.",
   publishedAt: "2026-08-01T06:00:00.000Z",
   origin: "https://www.yok.gov.tr",
   path: "tr/announcements/preview-yok",
@@ -121,9 +121,9 @@ const yokAnnouncement = previewRecord({
 const summerAnnouncement = previewRecord({
   id: "preview-summer-school",
   sourceId: "preview-summer-source",
-  sourceName: "Örnek Üniversitesi Yaz Okulu Koordinatörlüğü",
+  sourceName: "Kampüs Üniversitesi Yaz Okulu Koordinatörlüğü",
   title: "Yaz okulu başvuru tarihleri",
-  summary: "Yaz okulu başvuru aralığını açıklayan sentetik önizleme kaydı.",
+  summary: "Yaz okulu başvuru aralığı ve kayıt adımları.",
   publishedAt: "2026-07-30T09:00:00.000Z",
   path: "yaz-okulu/basvuru-tarihleri",
 });
@@ -351,7 +351,7 @@ function PreviewFeedRoute({
       academicItems={fixture.academicItems}
       yokItems={fixture.yokItems}
       summerItems={fixture.summerItems}
-      universityName="Örnek Üniversitesi"
+      universityName="Kampüs Üniversitesi"
       facultyName="Mühendislik Fakültesi"
       departmentName="Bilgisayar Mühendisliği"
       loading={fixture.loading}

@@ -141,7 +141,7 @@ function CalendarPreviewExperience({
   const initialItems = buildCalendarItems({
     academicEvents: fixtureEvents,
     personalExams,
-    academicSourceLabel: "Örnek Üniversitesi Akademik Takvimi",
+    academicSourceLabel: "Kampüs Üniversitesi Akademik Takvimi",
   });
   const [selectedItem, setSelectedItem] = useState<CalendarItem | null>(() => (
     scenario === "detail-personal"
@@ -182,7 +182,7 @@ function CalendarPreviewExperience({
     ? {
       state: "partial",
       stateLabel: "Kısmi",
-      accountEmail: "ogrenci@example.invalid",
+      accountEmail: "deniz.yilmaz@kampus.example.invalid",
       verifiedCount: 2,
       lastSyncedLabel: "Son eşitleme: 5 Ağustos 2026 09:30",
       warnings: ["Bir sentetik kayıt doğrulanamadı."],
@@ -191,7 +191,7 @@ function CalendarPreviewExperience({
     : {
       state: "connected",
       stateLabel: "Bağlı",
-      accountEmail: "ogrenci@example.invalid",
+      accountEmail: "deniz.yilmaz@kampus.example.invalid",
       verifiedCount: 4,
       lastSyncedLabel: "Son eşitleme: 5 Ağustos 2026 09:30",
       connected: true,
@@ -208,7 +208,7 @@ function CalendarPreviewExperience({
                   academicEvents={emptyData ? [] : fixtureEvents}
                   academicYear="2026-2027"
                   attempted={scenario !== "loading"}
-                  calendarTitle="Örnek Üniversitesi Akademik Takvimi"
+                  calendarTitle="Kampüs Üniversitesi Akademik Takvimi"
                   error={scenario === "error" || scenario === "stale" ? "Sentetik kaynak yanıt vermedi." : undefined}
                   google={selectedGoogleState}
                   initialAnchorDate="2026-08-05"
@@ -229,7 +229,7 @@ function CalendarPreviewExperience({
                   personalExams={emptyData ? [] : personalExams}
                   personalExamsReady
                   stale={scenario === "stale"}
-                  universityName="Örnek Üniversitesi"
+                  universityName="Kampüs Üniversitesi"
                 />
               )}
             </PreviewStack.Screen>
@@ -247,7 +247,7 @@ function CalendarPreviewExperience({
                     return result;
                   }}
                   onUpdatePersonalExam={updateExam}
-                  universityName="Örnek Üniversitesi"
+                  universityName="Kampüs Üniversitesi"
                 />
               )}
             </PreviewStack.Screen>

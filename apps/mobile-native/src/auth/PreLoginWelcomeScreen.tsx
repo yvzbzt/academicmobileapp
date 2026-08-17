@@ -20,7 +20,7 @@ import {
   useTheme,
 } from "../design-system";
 
-const appMark = require("../../assets/icon-reference.png") as ImageSourcePropType;
+const appMark = require("../../assets/icon.png") as ImageSourcePropType;
 
 type WelcomeIllustration = "calendar" | "announcements" | "planner";
 

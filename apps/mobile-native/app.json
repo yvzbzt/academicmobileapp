@@ -4,8 +4,8 @@
     "slug": "academic-pulse-native",
     "scheme": "academicpulse",
     "version": "0.1.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon-reference.png",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -23,11 +23,15 @@
       "package": "com.anssoft.akademiktakvim",
       "googleServicesFile": "./google-services.json",
       "versionCode": 16,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#123F50"
+      },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon-reference.png"
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-font",

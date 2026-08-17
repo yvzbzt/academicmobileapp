@@ -69,7 +69,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
       /apiRequest|SecureStore|AsyncStorage|GoogleSignin|firebase|expo-network|expo-notifications|PRODUCTION_API|accessToken|refreshToken/u,
     );
     expect(source).toContain("example.invalid");
-    expect(source).toContain("Örnek Üniversitesi");
+    expect(source).toContain("Kampüs Üniversitesi");
     expect(source).toContain("syntheticFixturesOnly: true");
   });
 
