@@ -69,6 +69,13 @@ export interface ProfileOverviewScreenProps {
   onOpenAccountMenu?: () => void;
 }
 
+const PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER = 1.35;
+
+function boundedTextLineHeight(baseLineHeight: number, fontScale: number, maximumMultiplier: number): number {
+  if (!Number.isFinite(fontScale) || fontScale <= maximumMultiplier) return baseLineHeight;
+  return (baseLineHeight * maximumMultiplier) / fontScale;
+}
+
 /** The profile root is an ordered settings index, not a second dashboard. */
 export function ProfileOverviewScreen({
   academicSummary,
@@ -85,21 +92,28 @@ export function ProfileOverviewScreen({
   onOpenGoogleCalendar,
 }: ProfileOverviewScreenProps) {
   const theme = useTheme();
+  const { fontScale } = useWindowDimensions();
 
   return (
     <SettingsBody gap={theme.spacing.md}>
       <View style={styles.profileTopBar}>
-        <Pressable
-          accessibilityLabel="Hesap menüsünü aç"
-          accessibilityRole="button"
-          disabled={!onOpenAccountMenu}
-          hitSlop={theme.spacing.xs}
-          onPress={onOpenAccountMenu}
-          style={({ pressed }) => [styles.profileBellButton, pressed && { backgroundColor: theme.colors.action.ghostPressed }]}
+        <Text
+          accessibilityRole="header"
+          adjustsFontSizeToFit
+          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+          minimumFontScale={0.85}
+          numberOfLines={1}
+          style={[
+            theme.typography.screenTitle,
+            styles.profileOverviewTitle,
+            {
+              color: theme.colors.text.primary,
+              lineHeight: boundedTextLineHeight(theme.typography.screenTitle.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+            },
+          ]}
         >
-          <Ionicons color={theme.colors.text.primary} name="menu-outline" size={27} />
-        </Pressable>
-        <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Ayarlar</Text>
+          Ayarlar
+        </Text>
         <Pressable
           accessibilityLabel="Bildirim tercihlerini aç"
           accessibilityRole="button"
@@ -123,20 +137,18 @@ export function ProfileOverviewScreen({
       ) : null}
 
       <ProfileReferenceSection title="Akademik bilgiler">
-        <ListItem
+        <ProfileOverviewItem
           accessibilityHint="Akademik profil düzenleme ekranını açar."
           leading={<SettingsIcon name="school-outline" tone="primary" />}
           onPress={onOpenAcademicProfile}
-          style={styles.profileMenuRow}
           supportingText={`${academicSummary.universityLabel} · Fakülte, bölüm, sınıf ve dönem bilgilerin`}
           title="Akademik bilgiler"
           trailing={<Chevron />}
         />
-        <ListItem
+        <ProfileOverviewItem
           accessibilityHint="Duyurularını takip ettiğin ek üniversiteleri açar."
           leading={<SettingsIcon name="business-outline" tone="success" />}
           onPress={onOpenFollowedUniversities}
-          style={styles.profileMenuRow}
           supportingText={`${followedUniversityCount} ek üniversite`}
           title="Takip edilen üniversiteler"
           trailing={<Chevron />}
@@ -144,11 +156,10 @@ export function ProfileOverviewScreen({
       </ProfileReferenceSection>
 
       <ProfileReferenceSection title="Bildirimler">
-        <ListItem
+        <ProfileOverviewItem
           accessibilityHint="Bildirim tercihi ve cihaz teslimat durumunu açar."
           leading={<SettingsIcon name="notifications-outline" tone="warning" />}
           onPress={onOpenNotifications}
-          style={styles.profileMenuRow}
           supportingText={`${notificationTruth.title} · Etkinlik, ders ve sınav hatırlatmalarını yönet`}
           title="Bildirim tercihleri"
           trailing={<Chevron />}
@@ -156,24 +167,117 @@ export function ProfileOverviewScreen({
       </ProfileReferenceSection>
 
       <ProfileReferenceSection title="Bağlantılar">
-        <ListItem
+        <ProfileOverviewItem
           accessibilityHint="Google Takvim bağlantı yönetimini açar."
           leading={<SettingsIcon name="calendar-outline" tone="success" />}
           onPress={onOpenGoogleCalendar}
-          style={styles.profileMenuRow}
           supportingText="Takvimini senkronize et, hiçbir etkinliği kaçırma"
           title="Google Takvim bağlantısı"
           trailing={(
             <View style={[styles.profileTrailingStatus, { gap: theme.spacing.sm }]}>
-              <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>{googleCalendar.label === "Bağlı" ? "Bağlı" : googleCalendar.label}</Text>
+              <Text
+                maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+                numberOfLines={1}
+                style={[
+                  theme.typography.metaStrong,
+                  {
+                    color: theme.colors.text.link,
+                    lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+                  },
+                ]}
+              >
+                {googleCalendar.label === "Bağlı" ? "Bağlı" : googleCalendar.label}
+              </Text>
               <Chevron />
             </View>
           )}
         />
       </ProfileReferenceSection>
 
-      <Text style={[theme.typography.navLabel, styles.profileVersion, { color: theme.colors.text.secondary }]}>Sürüm {appVersion}</Text>
+      <Text
+        maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+        style={[
+          theme.typography.navLabel,
+          styles.profileVersion,
+          {
+            color: theme.colors.text.secondary,
+            lineHeight: boundedTextLineHeight(theme.typography.navLabel.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+          },
+        ]}
+      >
+        Sürüm {appVersion}
+      </Text>
     </SettingsBody>
+  );
+}
+
+function ProfileOverviewItem({
+  accessibilityHint,
+  leading,
+  onPress,
+  supportingText,
+  title,
+  trailing,
+}: {
+  accessibilityHint: string;
+  leading: ReactNode;
+  onPress: (event: GestureResponderEvent) => void;
+  supportingText: string;
+  title: string;
+  trailing: ReactNode;
+}) {
+  const theme = useTheme();
+  const { fontScale } = useWindowDimensions();
+
+  return (
+    <Pressable
+      accessibilityHint={accessibilityHint}
+      accessibilityLabel={title}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.profileMenuRow,
+        styles.profileOverviewItem,
+        {
+          backgroundColor: pressed ? theme.colors.action.ghostPressed : theme.colors.background.surface,
+          borderColor: theme.colors.border.subtle,
+          gap: theme.spacing.sm,
+          paddingHorizontal: theme.spacing.md,
+          paddingVertical: theme.spacing.sm,
+        },
+      ]}
+    >
+      <View importantForAccessibility="no">{leading}</View>
+      <View style={[styles.profileOverviewItemCopy, { gap: theme.spacing.xxs }]}>
+        <Text
+          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+          numberOfLines={fontScale > 1.45 ? 2 : undefined}
+          style={[
+            theme.typography.bodyStrong,
+            {
+              color: theme.colors.text.primary,
+              lineHeight: boundedTextLineHeight(theme.typography.bodyStrong.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+            },
+          ]}
+        >
+          {title}
+        </Text>
+        <Text
+          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+          numberOfLines={fontScale > 1.45 ? 3 : undefined}
+          style={[
+            theme.typography.meta,
+            {
+              color: theme.colors.text.secondary,
+              lineHeight: boundedTextLineHeight(theme.typography.meta.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+            },
+          ]}
+        >
+          {supportingText}
+        </Text>
+      </View>
+      <View importantForAccessibility="no">{trailing}</View>
+    </Pressable>
   );
 }
 
@@ -1108,9 +1212,24 @@ function ScreenHeading({
 
 function ProfileReferenceSection({ title, children }: { title: string; children: ReactNode }) {
   const theme = useTheme();
+  const { fontScale } = useWindowDimensions();
   return (
     <View style={{ gap: theme.spacing.xs }}>
-      <Text accessibilityRole="header" style={[theme.typography.label, styles.profileSectionLabel, { color: theme.colors.text.secondary }]}>{title}</Text>
+      <Text
+        accessibilityRole="header"
+        maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+        numberOfLines={1}
+        style={[
+          theme.typography.label,
+          styles.profileSectionLabel,
+          {
+            color: theme.colors.text.secondary,
+            lineHeight: boundedTextLineHeight(theme.typography.label.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+          },
+        ]}
+      >
+        {title}
+      </Text>
       <Card
         style={[
           styles.sectionCard,
@@ -1551,8 +1670,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     minHeight: 52,
   },
-  profileTopSpacer: {
-    width: 48,
+  profileOverviewTitle: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "left",
+  },
+  profileOverviewItem: {
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    minWidth: 0,
+  },
+  profileOverviewItemCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   profileBellButton: {
     alignItems: "center",

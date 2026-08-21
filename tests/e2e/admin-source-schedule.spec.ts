@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { resolve } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 type JsonRecord = Record<string, any>;
 
@@ -95,7 +95,12 @@ test("admin manages scoped announcement sources and dynamic ingestion cadence", 
   await page.screenshot({ path: resolve(evidenceDir, "admin-announcement-sources.png"), fullPage: true });
 
   editor = page.locator("form.sourceEditor").filter({ hasText: "Bölüm Duyuruları" });
-  await editor.getByRole("button", { name: /Pasife Al/ }).click();
+  const deactivateSource = editor.getByRole("button", { name: /Pasife Al/ });
+  const deactivateWrites = writeCount("DELETE", "/admin/announcements/sources/source-1");
+  await answerConfirmation(page, deactivateSource, "Bu duyuru kaynağını pasife almak istiyor musunuz? Otomatik veri alımı duracaktır.", false);
+  expect(writeCount("DELETE", "/admin/announcements/sources/source-1")).toBe(deactivateWrites);
+  await expect(deactivateSource).toBeEnabled();
+  await answerConfirmation(page, deactivateSource, "Bu duyuru kaynağını pasife almak istiyor musunuz? Otomatik veri alımı duracaktır.", true);
   await expect(page.getByText("Kaynak pasife alındı")).toBeVisible();
 
   expect(writes).toContainEqual(expect.objectContaining({
@@ -144,7 +149,12 @@ test("admin publishes and removes a structured weekly course schedule", async ({
   const schedulePanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Ders Programı", exact: true }) });
   await schedulePanel.screenshot({ path: resolve(evidenceDir, "admin-course-schedule.png") });
 
-  await scheduleRow.getByRole("button", { name: /Kaldır/ }).click();
+  const removeSchedule = scheduleRow.getByRole("button", { name: /Kaldır/ });
+  const removeWrites = writeCount("DELETE", "/admin/calendars/course-schedules/series-1");
+  await answerConfirmation(page, removeSchedule, "Bu ders programı serisini kaldırmak istiyor musunuz? Serideki tüm ders oturumları arşivlenecektir.", false);
+  expect(writeCount("DELETE", "/admin/calendars/course-schedules/series-1")).toBe(removeWrites);
+  await expect(scheduleRow).toBeVisible();
+  await answerConfirmation(page, removeSchedule, "Bu ders programı serisini kaldırmak istiyor musunuz? Serideki tüm ders oturumları arşivlenecektir.", true);
   await expect(page.getByText("Ders programı satırı kaldırıldı")).toBeVisible();
   await expect(page.locator(".row.courseSchedule")).toHaveCount(0);
 
@@ -168,6 +178,25 @@ async function login(page: Page): Promise<void> {
   await page.getByLabel("Şifre").fill("QaAdmin-2026!");
   await page.getByRole("button", { name: /Admin Paneline Gir/ }).click();
   await expect(page.getByText("admin@qa.local")).toBeVisible();
+}
+
+async function answerConfirmation(
+  page: Page,
+  trigger: Locator,
+  expectedMessage: string,
+  accept: boolean
+): Promise<void> {
+  const dialogPromise = page.waitForEvent("dialog");
+  const clickPromise = trigger.click();
+  const dialog = await dialogPromise;
+  expect(dialog.type()).toBe("confirm");
+  expect(dialog.message()).toBe(expectedMessage);
+  await (accept ? dialog.accept() : dialog.dismiss());
+  await clickPromise;
+}
+
+function writeCount(method: string, path: string): number {
+  return writes.filter((write) => write.method === method && write.path === path).length;
 }
 
 async function handleMockApi(request: IncomingMessage, response: ServerResponse): Promise<void> {

@@ -216,11 +216,11 @@ export const accountDeletionHtml = `<!doctype html>
         <div class="grid">
           <label>
             E-posta adresi
-            <input id="email" name="email" type="email" autocomplete="email" required>
+            <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
           </label>
           <label>
             &#350;ifre
-            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
           </label>
         </div>
         <div class="actions">
@@ -232,7 +232,7 @@ export const accountDeletionHtml = `<!doctype html>
         <div class="grid">
           <label>
             E-postana gelen kod
-            <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" required>
+            <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" pattern="[0-9]{6}" required>
           </label>
           <label>
             Silme tercihi

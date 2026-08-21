@@ -1,7 +1,9 @@
 import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AdminCalendarService } from "../src/modules/calendars/admin-calendar.service.js";
+import { CalendarService } from "../src/modules/calendars/calendar.service.js";
 import { InMemoryCalendarRepository } from "../src/modules/calendars/in-memory-calendar.repository.js";
+import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import { InMemoryPdfRepository } from "../src/modules/pdf/in-memory-pdf.repository.js";
 import { PdfProcessingService } from "../src/modules/pdf/pdf-processing.service.js";
 
@@ -35,6 +37,92 @@ async function createApprovedExtractedEvents() {
 }
 
 describe("AdminCalendarService", () => {
+  it("propagates a published manual admin event only to students in its academic scope", async () => {
+    const calendarRepository = new InMemoryCalendarRepository();
+    const authRepository = new InMemoryAuthRepository();
+    const adminService = new AdminCalendarService(calendarRepository, new InMemoryPdfRepository());
+    const studentService = new CalendarService(calendarRepository, authRepository);
+    const matchingStudent = await authRepository.createUser({
+      fullName: "Matching Student",
+      email: "matching@student.example.edu.tr",
+      passwordHash: "test-only-hash",
+      role: "student",
+      universityId: "sample-university-1",
+      facultyId: "engineering",
+      departmentId: "computer-engineering",
+      status: "active"
+    });
+    const otherDepartmentStudent = await authRepository.createUser({
+      fullName: "Other Department Student",
+      email: "other@student.example.edu.tr",
+      passwordHash: "test-only-hash",
+      role: "student",
+      universityId: "sample-university-1",
+      facultyId: "engineering",
+      departmentId: "industrial-engineering",
+      status: "active"
+    });
+    const draft = await adminService.createManualDraft({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "Admin to student propagation",
+      createdBy: "admin-1",
+      events: [{
+        facultyId: "engineering",
+        departmentId: "computer-engineering",
+        title: "Bilgisayar Muhendisligi Kayit Yenileme",
+        description: "Admin panelinden eklenen kapsamli etkinlik",
+        category: "course_registration",
+        term: "fall",
+        startDate: "2026-09-14",
+        location: "Ogrenci Isleri"
+      }]
+    });
+
+    await adminService.publishCalendar(draft.calendar.id, "admin-1");
+    await adminService.createCourseScheduleSeries({
+      universityId: "sample-university-1",
+      facultyId: "engineering",
+      departmentId: "computer-engineering",
+      academicYear: "2026-2027",
+      term: "fall",
+      title: "Veri Yapilari",
+      courseName: "CENG 201",
+      location: "A-201",
+      startDate: "2026-09-15T09:00:00+03:00",
+      endDate: "2026-09-15T10:00:00+03:00",
+      repeatWeekly: false
+    });
+
+    const matchingCalendar = await studentService.getMyCalendar(matchingStudent.id);
+    const otherDepartmentCalendar = await studentService.getMyCalendar(otherDepartmentStudent.id);
+    const matchingCourseSchedule = await studentService.getMyCourseSchedules(matchingStudent.id);
+    const otherDepartmentCourseSchedule = await studentService.getMyCourseSchedules(otherDepartmentStudent.id);
+    expect(matchingCalendar.events).toEqual([
+      expect.objectContaining({
+        title: "Bilgisayar Muhendisligi Kayit Yenileme",
+        description: "Admin panelinden eklenen kapsamli etkinlik",
+        category: "course_registration",
+        facultyId: "engineering",
+        departmentId: "computer-engineering",
+        status: "published",
+        location: "Ogrenci Isleri"
+      })
+    ]);
+    expect(otherDepartmentCalendar.events).toHaveLength(0);
+    expect(matchingCourseSchedule).toEqual(expect.objectContaining({
+      sourceStatus: "parsed",
+      events: [expect.objectContaining({
+        title: "Veri Yapilari",
+        courseName: "CENG 201",
+        location: "A-201",
+        departmentId: "computer-engineering",
+        status: "published"
+      })]
+    }));
+    expect(otherDepartmentCourseSchedule.events).toHaveLength(0);
+  });
+
   it("preserves explicit course and location metadata on manually authored events", async () => {
     const service = new AdminCalendarService(
       new InMemoryCalendarRepository(),

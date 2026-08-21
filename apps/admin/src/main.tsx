@@ -26,11 +26,17 @@ import {
   X
 } from "lucide-react";
 import "./styles.css";
+import { confirmAdminDestructiveAction } from "./destructive-actions";
+import {
+  adminRoles,
+  canAccessAdminRoute,
+  canManageGlobalAdminData,
+  type AdminRole,
+  type AdminRoute
+} from "./routes";
 
 type ApiState<T> = { loading: boolean; data?: T; error?: string };
 type JsonRecord = Record<string, unknown>;
-type AdminRoute = "dashboard" | "inputs" | "catalog" | "sources" | "pdf" | "calendar" | "notifications" | "audit" | "users";
-type AdminRole = "content_editor" | "university_admin" | "super_admin";
 type AuthSession = { accessToken: string; refreshToken?: string; user: { id: string; fullName: string; email: string; role: AdminRole | "student" } };
 
 interface UniversityRecord { id: string; name: string; city: string; type: string; status: string; websiteUrl?: string; announcementUrl?: string; academicCalendarUrl?: string; emailDomains?: string[]; }
@@ -89,12 +95,12 @@ interface AdminUserRecord {
 }
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "https://academic-api.anssoft.com.tr";
-const adminRoles = new Set(["content_editor", "university_admin", "super_admin"]);
+const adminRoleSet = new Set<string>(adminRoles);
 const adminSessionStorageKey = "academic-calendar-admin-session";
 
 const routes: Array<{ id: AdminRoute; label: string; icon: ReactNode; description: string }> = [
   { id: "dashboard", label: "Panel", icon: <LayoutDashboard size={18} />, description: "Operasyon özeti ve hızlı giriş noktaları" },
-  { id: "inputs", label: "Girişler", icon: <Pencil size={18} />, description: "Manuel katalog, alan adı ve takvim girişi" },
+  { id: "inputs", label: "Girişler", icon: <Pencil size={18} />, description: "Ders programı ve yetkili katalog girişleri" },
   { id: "catalog", label: "Katalog", icon: <Building2 size={18} />, description: "Üniversiteler, fakülteler ve bölümler" },
   { id: "sources", label: "Duyuru Kaynakları", icon: <Rss size={18} />, description: "Resmî duyuru ve etkinlik kaynaklarını yönetin" },
   { id: "pdf", label: "PDF İşlemleri", icon: <FileText size={18} />, description: "Kaynak oluşturma ve çıkarım incelemesi" },
@@ -203,7 +209,7 @@ function readStoredSession(): AuthSession | null {
     const raw = window.sessionStorage.getItem(adminSessionStorageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AuthSession;
-    if (!parsed.accessToken || !parsed.user || !adminRoles.has(parsed.user.role)) return null;
+    if (!parsed.accessToken || !parsed.user || !adminRoleSet.has(parsed.user.role)) return null;
     return parsed;
   } catch {
     return null;
@@ -223,6 +229,23 @@ function istanbulTemporalValue(date: string, time: string): string {
   if (!time) return date;
   const normalizedTime = time.length === 5 ? `${time}:00` : time;
   return `${date}T${normalizedTime}+03:00`;
+}
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  const fallback = response.statusText || "İşlem tamamlanamadı";
+  try {
+    const raw = await response.text();
+    if (!raw) return `${response.status} ${fallback}`;
+    const parsed = JSON.parse(raw) as { message?: unknown };
+    const message = Array.isArray(parsed.message)
+      ? parsed.message.filter((item): item is string => typeof item === "string").join(" ")
+      : typeof parsed.message === "string"
+        ? parsed.message
+        : fallback;
+    return `${response.status} ${message}`;
+  } catch {
+    return `${response.status} ${fallback}`;
+  }
 }
 
 type PanelStateProps = {
@@ -259,8 +282,8 @@ function App() {
   const initialHandoffToken = handoffTokenFromHash();
   const initialStoredSession = readStoredSession();
   const [activeRoute, setActiveRoute] = useState<AdminRoute>(routeFromHash);
-  const [session, setSession] = useState<AuthSession | null>(() => initialStoredSession);
-  const [token, setToken] = useState(() => initialStoredSession?.accessToken ?? "");
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [token, setToken] = useState("");
   const [authState, setAuthState] = useState<ApiState<AuthSession>>({ loading: Boolean(initialHandoffToken || initialStoredSession) });
   const [entityType, setEntityType] = useState("academic_calendar");
   const [entityId, setEntityId] = useState("");
@@ -271,6 +294,7 @@ function App() {
   const [facultyId, setFacultyId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [message, setMessage] = useState("");
+  const [actionError, setActionError] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [userStatus, setUserStatus] = useState("");
   const [editingUserId, setEditingUserId] = useState("");
@@ -291,11 +315,17 @@ function App() {
   const [domainSuggestions, setDomainSuggestions] = useState<ApiState<DomainSuggestionRecord[]>>({ loading: false });
   const [academicUnitSuggestions, setAcademicUnitSuggestions] = useState<ApiState<AcademicUnitSuggestionRecord[]>>({ loading: false });
   const hasToken = token.trim().length > 0;
+  const currentRole = session?.user.role === "student" ? undefined : session?.user.role;
+  const visibleRoutes = routes.filter((route) => canAccessAdminRoute(currentRole, route.id));
+  const renderedRoute = canAccessAdminRoute(currentRole, activeRoute) ? activeRoute : "dashboard";
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
-  const activeRouteConfig = routes.find((route) => route.id === activeRoute) ?? routes[0]!;
+  const activeRouteConfig = routes.find((route) => route.id === renderedRoute) ?? routes[0]!;
 
   useEffect(() => {
-    const onHashChange = () => setActiveRoute(routeFromHash());
+    const onHashChange = () => {
+      setActiveRoute(routeFromHash());
+      setActionError("");
+    };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
@@ -319,17 +349,26 @@ function App() {
 
   useEffect(() => {
     if (!hasToken) return;
-    if (activeRoute === "users" && !usersState.data && !usersState.loading) void loadUsers();
-    if (activeRoute === "inputs") {
+    if (renderedRoute === "users" && !usersState.data && !usersState.loading) void loadUsers();
+    if (renderedRoute === "inputs") {
       if (!universities.data && !universities.loading) void loadUniversities();
-      if (!domainSuggestions.data && !domainSuggestions.loading) void loadDomainSuggestions();
-      if (!academicUnitSuggestions.data && !academicUnitSuggestions.loading) void loadAcademicUnitSuggestions();
+      if (canManageGlobalAdminData(currentRole)) {
+        if (!domainSuggestions.data && !domainSuggestions.loading) void loadDomainSuggestions();
+        if (!academicUnitSuggestions.data && !academicUnitSuggestions.loading) void loadAcademicUnitSuggestions();
+      }
     }
-    if (activeRoute === "sources") {
+    if (renderedRoute === "sources") {
       if (!universities.data && !universities.loading) void loadUniversities();
       if (!announcementSources.data && !announcementSources.loading) void loadAnnouncementSources();
     }
-  }, [activeRoute, hasToken]);
+  }, [renderedRoute, hasToken, currentRole]);
+
+  useEffect(() => {
+    if (!hasToken || canAccessAdminRoute(currentRole, activeRoute)) return;
+    window.history.replaceState(null, "", `${window.location.pathname}#/dashboard`);
+    setActiveRoute("dashboard");
+    setActionError("Bu bölüm için hesabınızın yetkisi yok.");
+  }, [activeRoute, currentRole, hasToken]);
 
   function ensureToken() {
     if (!hasToken) {
@@ -346,7 +385,7 @@ function App() {
       const response = await fetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${storedSession.accessToken}` } });
       if (!response.ok) throw new Error("Yönetici oturumunuzun süresi doldu. Lütfen tekrar giriş yapın.");
       const user = await response.json() as AuthSession["user"];
-      if (!adminRoles.has(user.role)) {
+      if (!adminRoleSet.has(user.role)) {
         storeSession(null);
         setSession(null);
         setToken("");
@@ -373,7 +412,7 @@ function App() {
       const response = await fetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!response.ok) throw new Error("Yönetici oturumu doğrulanamadı.");
       const user = await response.json() as AuthSession["user"];
-      if (!adminRoles.has(user.role)) {
+      if (!adminRoleSet.has(user.role)) {
         storeSession(null);
         setSession(null);
         setToken("");
@@ -426,7 +465,7 @@ function App() {
       if (!response.ok) throw new Error("E-posta veya şifre doğru değil.");
 
       const nextSession = await response.json() as AuthSession;
-      if (!nextSession.accessToken || !nextSession.user || !adminRoles.has(nextSession.user.role)) {
+      if (!nextSession.accessToken || !nextSession.user || !adminRoleSet.has(nextSession.user.role)) {
         throw new Error("Bu hesap yönetici paneline erişemez.");
       }
 
@@ -451,10 +490,19 @@ function App() {
   async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(`${apiBaseUrl}${path}`, { ...options, headers: { "Content-Type": "application/json", ...headers, ...(options.headers ?? {}) } });
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(body ? `${response.status} ${body}` : `${response.status} ${response.statusText}`);
+      throw new Error(await responseErrorMessage(response));
     }
     return response.json() as Promise<T>;
+  }
+
+  function uiAction<TArgs extends unknown[]>(action: (...args: TArgs) => Promise<unknown>) {
+    return (...args: TArgs) => {
+      setMessage("");
+      setActionError("");
+      void action(...args).catch((error) => {
+        setActionError(error instanceof Error ? error.message : String(error));
+      });
+    };
   }
 
   async function runAction<T>(setter: (state: ApiState<T>) => void, action: () => Promise<T>, success?: string) {
@@ -502,6 +550,7 @@ function App() {
 
   async function archiveUniversity(id: string) {
     if (!ensureToken()) return;
+    if (!confirmAdminDestructiveAction("archiveUniversity")) return;
     await request<JsonRecord>(`/admin/universities/${id}`, { method: "DELETE" });
     await loadUniversities();
   }
@@ -572,6 +621,7 @@ function App() {
 
   async function deactivateAnnouncementSource(id: string) {
     if (!ensureToken()) return;
+    if (!confirmAdminDestructiveAction("deactivateAnnouncementSource")) return;
     await request<JsonRecord>(`/admin/announcements/sources/${id}`, { method: "DELETE" });
     await loadAnnouncementSources();
     setMessage("Kaynak pasife alındı");
@@ -627,6 +677,7 @@ function App() {
 
   async function deleteCourseScheduleSeries(seriesId: string) {
     if (!ensureToken()) return;
+    if (!confirmAdminDestructiveAction("removeCourseScheduleSeries")) return;
     await request<JsonRecord>(`/admin/calendars/course-schedules/${seriesId}`, { method: "DELETE" });
     await loadCourseSchedules();
     setMessage("Ders programı satırı kaldırıldı");
@@ -676,6 +727,7 @@ function App() {
 
   async function rejectAcademicUnitSuggestion(id: string) {
     if (!ensureToken()) return;
+    if (!confirmAdminDestructiveAction("rejectAcademicUnitSuggestion")) return;
     await request<AcademicUnitSuggestionRecord>(`/admin/users/academic-unit-suggestions/${id}/reject`, { method: "POST" });
     await loadAcademicUnitSuggestions();
     setMessage("Akademik birim önerisi reddedildi");
@@ -763,6 +815,7 @@ function App() {
 
   async function rejectEvent(id: string) {
     if (!ensureToken()) return;
+    if (!confirmAdminDestructiveAction("rejectExtractedEvent")) return;
     await request<JsonRecord>(`/admin/extracted-events/${id}/reject`, { method: "POST", body: JSON.stringify({ adminNote: "Operasyon konsolundan reddedildi" }) });
     await loadExtractedEvents();
   }
@@ -793,6 +846,7 @@ function App() {
       setMessage("Takvim ID'si gerekli.");
       return;
     }
+    if (!confirmAdminDestructiveAction("rollbackPublishedCalendar")) return;
 
     await request<JsonRecord>(`/admin/calendars/${calendarId}/rollback`, { method: "POST" });
     setMessage("Takvim geri alındı");
@@ -877,8 +931,7 @@ function App() {
 
   async function deleteUser(id: string) {
     if (!ensureToken()) return;
-    const confirmed = window.confirm("Bu kullanıcıyı yönetimden silmek istiyor musunuz?");
-    if (!confirmed) return;
+    if (!confirmAdminDestructiveAction("deleteUser")) return;
     await request<JsonRecord>(`/admin/users/${id}`, { method: "DELETE" });
     await loadUsers();
     setMessage("Kullanıcı silindi");
@@ -886,6 +939,7 @@ function App() {
 
   const pageProps = {
     hasToken,
+    role: currentRole,
     universities,
     faculties,
     departments,
@@ -925,44 +979,44 @@ function App() {
     updateManualEvent,
     addManualEventRow,
     removeManualEventRow,
-    loadUniversities,
-    createUniversity,
-    archiveUniversity,
-    loadFaculties,
-    loadDepartments,
-    loadAnnouncementSources,
-    createAnnouncementSource,
-    updateAnnouncementSource,
-    deactivateAnnouncementSource,
-    ingestAnnouncementSource,
-    loadCourseSchedules,
-    createCourseSchedule,
-    deleteCourseScheduleSeries,
-    createFaculty,
-    createDepartment,
-    addUniversityEmailDomain,
-    loadDomainSuggestions,
-    loadAcademicUnitSuggestions,
-    approveAcademicUnitSuggestion,
-    rejectAcademicUnitSuggestion,
-    createManualCalendar,
-    createPdfSource,
-    processPdf,
-    loadExtractedEvents,
-    approveEvent,
-    rejectEvent,
-    createCalendarDraft,
-    publishCalendar,
-    rollbackCalendar,
-    loadAudit,
-    exportAudit,
-    processDue,
-    loadFailed,
-    retryJob,
-    loadDeliveries,
-    loadUsers,
-    updateUser,
-    deleteUser
+    loadUniversities: uiAction(loadUniversities),
+    createUniversity: uiAction(createUniversity),
+    archiveUniversity: uiAction(archiveUniversity),
+    loadFaculties: uiAction(loadFaculties),
+    loadDepartments: uiAction(loadDepartments),
+    loadAnnouncementSources: uiAction(loadAnnouncementSources),
+    createAnnouncementSource: uiAction(createAnnouncementSource),
+    updateAnnouncementSource: uiAction(updateAnnouncementSource),
+    deactivateAnnouncementSource: uiAction(deactivateAnnouncementSource),
+    ingestAnnouncementSource: uiAction(ingestAnnouncementSource),
+    loadCourseSchedules: uiAction(loadCourseSchedules),
+    createCourseSchedule: uiAction(createCourseSchedule),
+    deleteCourseScheduleSeries: uiAction(deleteCourseScheduleSeries),
+    createFaculty: uiAction(createFaculty),
+    createDepartment: uiAction(createDepartment),
+    addUniversityEmailDomain: uiAction(addUniversityEmailDomain),
+    loadDomainSuggestions: uiAction(loadDomainSuggestions),
+    loadAcademicUnitSuggestions: uiAction(loadAcademicUnitSuggestions),
+    approveAcademicUnitSuggestion: uiAction(approveAcademicUnitSuggestion),
+    rejectAcademicUnitSuggestion: uiAction(rejectAcademicUnitSuggestion),
+    createManualCalendar: uiAction(createManualCalendar),
+    createPdfSource: uiAction(createPdfSource),
+    processPdf: uiAction(processPdf),
+    loadExtractedEvents: uiAction(loadExtractedEvents),
+    approveEvent: uiAction(approveEvent),
+    rejectEvent: uiAction(rejectEvent),
+    createCalendarDraft: uiAction(createCalendarDraft),
+    publishCalendar: uiAction(publishCalendar),
+    rollbackCalendar: uiAction(rollbackCalendar),
+    loadAudit: uiAction(loadAudit),
+    exportAudit: uiAction(exportAudit),
+    processDue: uiAction(processDue),
+    loadFailed: uiAction(loadFailed),
+    retryJob: uiAction(retryJob),
+    loadDeliveries: uiAction(loadDeliveries),
+    loadUsers: uiAction(loadUsers),
+    updateUser: uiAction(updateUser),
+    deleteUser: uiAction(deleteUser)
   };
 
   if (!hasToken) {
@@ -1015,8 +1069,13 @@ function App() {
         <div className="brand"><ShieldCheck size={22} /> Akademik Takvim Yönetimi</div>
         <p className="sidebarTagline">Katalog, yayınlama, kullanıcılar ve bildirim güvenliği için operasyon merkezi.</p>
         <nav aria-label="Yönetici bölümleri">
-          {routes.map((route) => (
-            <a key={route.id} href={`#/${route.id}`} className={activeRoute === route.id ? "active" : ""}>
+          {visibleRoutes.map((route) => (
+            <a
+              key={route.id}
+              href={`#/${route.id}`}
+              className={renderedRoute === route.id ? "active" : ""}
+              aria-current={renderedRoute === route.id ? "page" : undefined}
+            >
               {route.icon}
               <span>{route.label}</span>
             </a>
@@ -1037,29 +1096,31 @@ function App() {
             <span>{message}</span>
           </div>
         )}
-        {activeRoute === "dashboard" && <DashboardPage {...pageProps} />}
-        {activeRoute === "inputs" && <InputsPage {...pageProps} />}
-        {activeRoute === "catalog" && <CatalogPage {...pageProps} />}
-        {activeRoute === "sources" && <AnnouncementSourcesPage {...pageProps} />}
-        {activeRoute === "pdf" && <PdfPage {...pageProps} />}
-        {activeRoute === "calendar" && <CalendarPage {...pageProps} />}
-        {activeRoute === "notifications" && <NotificationsPage {...pageProps} />}
-        {activeRoute === "audit" && <AuditPage {...pageProps} />}
-        {activeRoute === "users" && <UsersPage {...pageProps} />}
+        {actionError && <PanelState kind="error" text={actionError} />}
+        {renderedRoute === "dashboard" && <DashboardPage {...pageProps} />}
+        {renderedRoute === "inputs" && <InputsPage {...pageProps} />}
+        {renderedRoute === "catalog" && <CatalogPage {...pageProps} />}
+        {renderedRoute === "sources" && <AnnouncementSourcesPage {...pageProps} />}
+        {renderedRoute === "pdf" && <PdfPage {...pageProps} />}
+        {renderedRoute === "calendar" && <CalendarPage {...pageProps} />}
+        {renderedRoute === "notifications" && <NotificationsPage {...pageProps} />}
+        {renderedRoute === "audit" && <AuditPage {...pageProps} />}
+        {renderedRoute === "users" && <UsersPage {...pageProps} />}
       </section>
     </main>
   );
 }
 
 function DashboardPage(props: any) {
+  const canManageGlobalData = canManageGlobalAdminData(props.role);
   const tiles = [
-    { href: "#/sources", icon: <Rss size={20} />, title: "Duyuru Kaynakları", body: "Resmî duyuru, haber ve etkinlik sayfalarını ve yenileme sıklıklarını yönetin." },
-    { href: "#/catalog", icon: <Building2 size={20} />, title: "Katalog", body: "Üniversiteleri oluşturup arşivleyin, fakülte ve bölümleri bağlayın." },
-    { href: "#/inputs", icon: <Pencil size={20} />, title: "Girişler", body: "Üniversite, bölüm, e-posta alan adı ve manuel takvim satırları girin." },
-    { href: "#/pdf", icon: <FileText size={20} />, title: "PDF İşlemleri", body: "Kaynak oluşturun, çıkarımı işleyin ve inceleme adaylarını onaylayın." },
-    { href: "#/calendar", icon: <CalendarCheck size={20} />, title: "Yayınlama", body: "Onaylanan etkinlikleri öğrenciye açık takvim sürümlerine dönüştürün." },
-    { href: "#/users", icon: <Users size={20} />, title: "Kullanıcılar", body: "Kullanıcı arayın, rolleri düzenleyin, hesapları kilitleyin veya kayıtları kaldırın." }
-  ];
+    { route: "sources" as const, href: "#/sources", icon: <Rss size={20} />, title: "Duyuru Kaynakları", body: "Resmî duyuru, haber ve etkinlik sayfalarını ve yenileme sıklıklarını yönetin." },
+    { route: "catalog" as const, href: "#/catalog", icon: <Building2 size={20} />, title: "Katalog", body: "Üniversiteleri oluşturup arşivleyin, fakülte ve bölümleri bağlayın." },
+    { route: "inputs" as const, href: "#/inputs", icon: <Pencil size={20} />, title: "Girişler", body: canManageGlobalData ? "Üniversite, bölüm, e-posta alan adı ve manuel takvim satırları girin." : "Yetkili olduğunuz akademik birimler için ders programı satırlarını yönetin." },
+    { route: "pdf" as const, href: "#/pdf", icon: <FileText size={20} />, title: "PDF İşlemleri", body: "Kaynak oluşturun, çıkarımı işleyin ve inceleme adaylarını onaylayın." },
+    { route: "calendar" as const, href: "#/calendar", icon: <CalendarCheck size={20} />, title: "Yayınlama", body: "Onaylanan etkinlikleri öğrenciye açık takvim sürümlerine dönüştürün." },
+    { route: "users" as const, href: "#/users", icon: <Users size={20} />, title: "Kullanıcılar", body: "Kullanıcı arayın, rolleri düzenleyin, hesapları kilitleyin veya kayıtları kaldırın." }
+  ].filter((tile) => canAccessAdminRoute(props.role, tile.route));
 
   return (
     <section className="dashboardGrid">
@@ -1089,6 +1150,8 @@ function DashboardPage(props: any) {
 }
 
 function InputsPage(props: any) {
+  const canManageGlobalData = canManageGlobalAdminData(props.role);
+  const [repeatWeekly, setRepeatWeekly] = useState(true);
   const courseScheduleSeries = new Map<string, { first: CourseScheduleEventRecord; count: number }>();
   for (const event of props.courseSchedules.data ?? []) {
     const key = event.scheduleSeriesId ?? event.id;
@@ -1098,6 +1161,7 @@ function InputsPage(props: any) {
 
   return (
     <section className="pageStack">
+      {canManageGlobalData && <>
       <section className="panel wide">
         <div className="panelHeader">
           <div>
@@ -1136,18 +1200,18 @@ function InputsPage(props: any) {
           <button className="btn btn-primary" disabled={!props.hasToken}><Check size={18} /> Alan Adını İlişkilendir</button>
         </form>
         <form className="gridForm sourceForm" onSubmit={props.createFaculty}>
-          <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required />
-          <input name="name" placeholder="Fakülte" required />
+          <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required aria-label="Fakülte için üniversite ID" />
+          <input name="name" placeholder="Fakülte" required aria-label="Fakülte adı" />
           <input name="websiteUrl" type="url" placeholder="Fakülte web sitesi" aria-label="Fakülte web sitesi" />
           <input name="announcementUrl" type="url" placeholder="Duyuru adresi" aria-label="Fakülte duyuru adresi" />
           <button className="btn btn-primary" disabled={!props.hasToken}><Check size={18} /> Fakülte Ekle</button>
         </form>
         <div className="chips">{(props.faculties.data ?? []).map((faculty: FacultyRecord) => <button className="btn btn-chip" type="button" key={faculty.id} onClick={() => props.setFacultyId(faculty.id)}>{faculty.name}</button>)}</div>
         <form className="gridForm sourceForm" onSubmit={props.createDepartment}>
-          <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required />
-          <input name="facultyId" value={props.facultyId} onChange={(event) => props.setFacultyId(event.target.value)} placeholder="Fakülte ID" required />
-          <input name="name" placeholder="Bölüm" required />
-          <select name="educationLevel" defaultValue="bachelor">
+          <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required aria-label="Bölüm için üniversite ID" />
+          <input name="facultyId" value={props.facultyId} onChange={(event) => props.setFacultyId(event.target.value)} placeholder="Fakülte ID" required aria-label="Bölüm için fakülte ID" />
+          <input name="name" placeholder="Bölüm" required aria-label="Bölüm adı" />
+          <select name="educationLevel" defaultValue="bachelor" aria-label="Eğitim düzeyi">
             <option value="associate">{educationLevelLabels.associate}</option>
             <option value="bachelor">{educationLevelLabels.bachelor}</option>
             <option value="master">{educationLevelLabels.master}</option>
@@ -1209,6 +1273,8 @@ function InputsPage(props: any) {
         </div>
       </section>
 
+      </>}
+
       <section className="panel wide">
         <div className="panelHeader">
           <div>
@@ -1238,8 +1304,8 @@ function InputsPage(props: any) {
           <label className="fieldLabel">İlk ders günü<input name="startDate" type="date" required /></label>
           <label className="fieldLabel">Başlangıç<input name="startTime" type="time" defaultValue="09:00" required /></label>
           <label className="fieldLabel">Bitiş<input name="endTime" type="time" defaultValue="10:00" required /></label>
-          <label className="fieldLabel">Tekrar sonu<input name="repeatUntil" type="date" required /></label>
-          <label className="miniCheck"><input name="repeatWeekly" type="checkbox" defaultChecked /> Haftalık tekrarla</label>
+          <label className="fieldLabel">Tekrar sonu<input name="repeatUntil" type="date" required={repeatWeekly} disabled={!repeatWeekly} /></label>
+          <label className="miniCheck"><input name="repeatWeekly" type="checkbox" checked={repeatWeekly} onChange={(event) => setRepeatWeekly(event.target.checked)} /> Haftalık tekrarla</label>
           <button className="btn btn-primary" disabled={!props.hasToken}><Save size={18} /> Dersi Yayınla</button>
         </form>
         {props.courseSchedules.loading && <PanelState kind="loading" text="Ders programı yükleniyor..." />}
@@ -1257,7 +1323,7 @@ function InputsPage(props: any) {
         </div>
       </section>
 
-      <section className="panel wide">
+      {canManageGlobalData && <section className="panel wide">
         <div className="panelHeader">
           <div>
             <h2><CalendarCheck size={20} /> Manuel Akademik Takvim</h2>
@@ -1266,18 +1332,18 @@ function InputsPage(props: any) {
         </div>
         <form className="manualCalendar" onSubmit={props.createManualCalendar}>
           <div className="toolbar four">
-            <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required />
-            <input name="academicYear" placeholder="2026-2027" required />
-            <input name="title" placeholder="Takvim başlığı" required />
+            <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required aria-label="Manuel takvim üniversite ID" />
+            <input name="academicYear" placeholder="2026-2027" required aria-label="Manuel takvim akademik yılı" />
+            <input name="title" placeholder="Takvim başlığı" required aria-label="Manuel takvim başlığı" />
             <button className="btn btn-secondary" type="button" onClick={props.addManualEventRow}><Pencil size={18} /> Satır Ekle</button>
           </div>
           <div className="table">
             {props.manualEvents.map((row: any, index: number) => (
               <div className="row manualEvent" key={index}>
-                <input value={row.title} onChange={(event) => props.updateManualEvent(index, "title", event.target.value)} placeholder="Etkinlik başlığı" required />
-                <input value={row.courseName} onChange={(event) => props.updateManualEvent(index, "courseName", event.target.value)} placeholder="Ders adı / kodu" />
-                <input value={row.location} onChange={(event) => props.updateManualEvent(index, "location", event.target.value)} placeholder="Derslik / yer" />
-                <select value={row.category} onChange={(event) => props.updateManualEvent(index, "category", event.target.value)}>
+                <input value={row.title} onChange={(event) => props.updateManualEvent(index, "title", event.target.value)} placeholder="Etkinlik başlığı" required aria-label={`${index + 1}. etkinlik başlığı`} />
+                <input value={row.courseName} onChange={(event) => props.updateManualEvent(index, "courseName", event.target.value)} placeholder="Ders adı / kodu" aria-label={`${index + 1}. etkinlik ders adı veya kodu`} />
+                <input value={row.location} onChange={(event) => props.updateManualEvent(index, "location", event.target.value)} placeholder="Derslik / yer" aria-label={`${index + 1}. etkinlik yeri`} />
+                <select value={row.category} onChange={(event) => props.updateManualEvent(index, "category", event.target.value)} aria-label={`${index + 1}. etkinlik kategorisi`}>
                   <option value="course_registration">{eventCategoryLabels.course_registration}</option>
                   <option value="course_add_drop">{eventCategoryLabels.course_add_drop}</option>
                   <option value="midterm_exam">{eventCategoryLabels.midterm_exam}</option>
@@ -1288,30 +1354,38 @@ function InputsPage(props: any) {
                   <option value="holiday">{eventCategoryLabels.holiday}</option>
                   <option value="custom_event">{eventCategoryLabels.custom_event}</option>
                 </select>
-                <select value={row.term} onChange={(event) => props.updateManualEvent(index, "term", event.target.value)}>
+                <select value={row.term} onChange={(event) => props.updateManualEvent(index, "term", event.target.value)} aria-label={`${index + 1}. etkinlik dönemi`}>
                   <option value="fall">{termLabels.fall}</option>
                   <option value="spring">{termLabels.spring}</option>
                   <option value="summer">{termLabels.summer}</option>
                   <option value="full_year">{termLabels.full_year}</option>
                   <option value="unknown">{termLabels.unknown}</option>
                 </select>
-                <input type="date" value={row.startDate} onChange={(event) => props.updateManualEvent(index, "startDate", event.target.value)} required />
-                <input type="time" value={row.startTime} onChange={(event) => props.updateManualEvent(index, "startTime", event.target.value)} aria-label="Başlangıç saati" />
-                <input type="date" value={row.endDate} onChange={(event) => props.updateManualEvent(index, "endDate", event.target.value)} />
-                <input type="time" value={row.endTime} onChange={(event) => props.updateManualEvent(index, "endTime", event.target.value)} aria-label="Bitiş saati" />
-                <input type="date" value={row.repeatUntil} onChange={(event) => props.updateManualEvent(index, "repeatUntil", event.target.value)} disabled={!row.repeatWeekly} aria-label="Haftalık tekrar bitişi" />
-                <input value={row.facultyId} onChange={(event) => props.updateManualEvent(index, "facultyId", event.target.value)} placeholder="Fakülte ID" />
-                <input value={row.departmentId} onChange={(event) => props.updateManualEvent(index, "departmentId", event.target.value)} placeholder="Bölüm ID" />
+                <input type="date" value={row.startDate} onChange={(event) => props.updateManualEvent(index, "startDate", event.target.value)} required aria-label={`${index + 1}. etkinlik başlangıç tarihi`} />
+                <input type="time" value={row.startTime} onChange={(event) => props.updateManualEvent(index, "startTime", event.target.value)} aria-label={`${index + 1}. etkinlik başlangıç saati`} />
+                <input type="date" value={row.endDate} onChange={(event) => props.updateManualEvent(index, "endDate", event.target.value)} aria-label={`${index + 1}. etkinlik bitiş tarihi`} />
+                <input type="time" value={row.endTime} onChange={(event) => props.updateManualEvent(index, "endTime", event.target.value)} aria-label={`${index + 1}. etkinlik bitiş saati`} />
+                <input type="date" value={row.repeatUntil} onChange={(event) => props.updateManualEvent(index, "repeatUntil", event.target.value)} disabled={!row.repeatWeekly} aria-label={`${index + 1}. etkinlik haftalık tekrar bitişi`} />
+                <input value={row.facultyId} onChange={(event) => props.updateManualEvent(index, "facultyId", event.target.value)} placeholder="Fakülte ID" aria-label={`${index + 1}. etkinlik fakülte ID`} />
+                <input value={row.departmentId} onChange={(event) => props.updateManualEvent(index, "departmentId", event.target.value)} placeholder="Bölüm ID" aria-label={`${index + 1}. etkinlik bölüm ID`} />
                 <label className="miniCheck"><input type="checkbox" checked={row.offset7} onChange={(event) => props.updateManualEvent(index, "offset7", event.target.checked)} /> 7 gün</label>
                 <label className="miniCheck"><input type="checkbox" checked={row.offset1} onChange={(event) => props.updateManualEvent(index, "offset1", event.target.checked)} /> 1 gün</label>
                 <label className="miniCheck"><input type="checkbox" checked={row.repeatWeekly} onChange={(event) => props.updateManualEvent(index, "repeatWeekly", event.target.checked)} /> Haftalık</label>
-                <button className="btn btn-danger" type="button" onClick={() => props.removeManualEventRow(index)}><Trash2 size={16} /></button>
+                <button
+                  className="btn btn-danger"
+                  type="button"
+                  onClick={() => props.removeManualEventRow(index)}
+                  disabled={props.manualEvents.length === 1}
+                  aria-label={`${index + 1}. etkinlik satırını kaldır`}
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             ))}
           </div>
           <button className="btn btn-primary" disabled={!props.hasToken}><Save size={18} /> Manuel Taslak Oluştur</button>
         </form>
-      </section>
+      </section>}
     </section>
   );
 }

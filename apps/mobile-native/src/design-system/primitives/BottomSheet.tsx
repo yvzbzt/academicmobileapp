@@ -264,7 +264,7 @@ export function BottomSheet({
 function KeyboardAwareSheetViewport({ children }: { children: ReactNode }) {
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior="padding"
       keyboardVerticalOffset={0}
       pointerEvents="box-none"
       style={styles.keyboardAvoidingView}

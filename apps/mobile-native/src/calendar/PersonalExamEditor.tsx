@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   AccessibilityInfo,
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -70,6 +71,7 @@ export function PersonalExamEditor({
   const { fontScale, width } = useWindowDimensions();
   const compact = width < 360 || fontScale >= 1.7;
   const [draft, setDraft] = useState<PersonalExamDraft>(emptyPersonalExamDraft);
+  const [initialDraft, setInitialDraft] = useState<PersonalExamDraft>(emptyPersonalExamDraft);
   const [errors, setErrors] = useState<PersonalExamDraftErrors>({});
   const [formError, setFormError] = useState<string>();
   const [pickerMode, setPickerMode] = useState<"date" | "time" | null>(null);
@@ -79,13 +81,35 @@ export function PersonalExamEditor({
 
   useEffect(() => {
     if (!visible) return;
-    setDraft(exam ? personalExamDraftFromRecord(exam) : emptyPersonalExamDraft());
+    const nextDraft = exam ? personalExamDraftFromRecord(exam) : emptyPersonalExamDraft();
+    setDraft(nextDraft);
+    setInitialDraft(nextDraft);
     setErrors({});
     setFormError(undefined);
     setPickerMode(null);
   }, [exam?.examDate, exam?.id, exam?.kind, exam?.locationNote, exam?.reminderMinutesBefore, exam?.title, visible]);
 
   const pickerValue = useMemo(() => selectionDateFromDraft(draft), [draft]);
+  const hasUnsavedChanges = useMemo(
+    () => !personalExamDraftsEqual(draft, initialDraft),
+    [draft, initialDraft],
+  );
+
+  const requestDismiss = () => {
+    if (busy) return;
+    if (!hasUnsavedChanges) {
+      onDismiss();
+      return;
+    }
+    Alert.alert(
+      "Değişiklikler kaydedilmedi",
+      "Bu formdaki değişikliklerden vazgeçmek istiyor musun?",
+      [
+        { text: "Düzenlemeye devam et", style: "cancel" },
+        { text: "Değişikliklerden vazgeç", style: "destructive", onPress: onDismiss },
+      ],
+    );
+  };
 
   const restorePickerFocus = (closingMode: "date" | "time") => {
     setTimeout(() => {
@@ -139,7 +163,7 @@ export function PersonalExamEditor({
       dismissible={!busy}
       headerLayout="centered-leading-dismiss"
       loading={busy}
-      onDismiss={onDismiss}
+      onDismiss={requestDismiss}
       returnFocusRef={returnFocusRef}
       style={styles.sheet}
       title={exam ? "Kişisel etkinliği düzenle" : "Kişisel etkinlik ekle"}
@@ -377,7 +401,7 @@ export function PersonalExamEditor({
             accessibilityLabel="Vazgeç"
             disabled={busy}
             label="İptal"
-            onPress={onDismiss}
+            onPress={requestDismiss}
             style={styles.cancelAction}
             variant="secondary"
           />
@@ -393,6 +417,15 @@ export function PersonalExamEditor({
       </View>
     </BottomSheet>
   );
+}
+
+function personalExamDraftsEqual(left: PersonalExamDraft, right: PersonalExamDraft): boolean {
+  return left.title === right.title
+    && left.date === right.date
+    && left.time === right.time
+    && (left.locationNote ?? "") === (right.locationNote ?? "")
+    && left.kind === right.kind
+    && left.reminderMinutesBefore === right.reminderMinutesBefore;
 }
 
 function FieldIcon({

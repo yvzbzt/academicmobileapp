@@ -19,6 +19,7 @@ import { FirebasePushSender, type PushMessageInput, type PushSender } from "../s
 import { readRuntimeConfig } from "../src/config/runtime-config.js";
 import { assertValidEnvironment, validateEnvironment } from "../src/config/environment-validation.js";
 import { InfrastructureHealthService } from "../src/modules/health/infrastructure-health.service.js";
+import { HealthController } from "../src/modules/health/health.controller.js";
 import { BootstrapSeedService } from "../src/bootstrap/bootstrap-seed.service.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import type { AuthUserRecord } from "../src/modules/auth/auth.types.js";
@@ -541,6 +542,28 @@ describe("operation services", () => {
     expect(readiness.dependencies.some((dependency) => dependency.name === "firestore")).toBe(false);
     expect(ping).toHaveBeenCalledTimes(1);
     expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("keeps public readiness responses minimal and uses 503 for degraded dependencies", async () => {
+    const infrastructure = {
+      readiness: vi.fn()
+        .mockResolvedValueOnce({
+          status: "ok",
+          dependencies: [{ name: "mongodb", status: "ok", detail: "internal detail" }]
+        })
+        .mockResolvedValueOnce({
+          status: "degraded",
+          dependencies: [{ name: "mongodb", status: "down", detail: "MONGO_SECRET_HOST" }]
+        })
+    } as unknown as InfrastructureHealthService;
+    const controller = new HealthController(infrastructure);
+    const response = { status: vi.fn() };
+
+    await expect(controller.ready(response as never)).resolves.toEqual({ status: "ok" });
+    expect(response.status).not.toHaveBeenCalled();
+
+    await expect(controller.ready(response as never)).resolves.toEqual({ status: "degraded" });
+    expect(response.status).toHaveBeenCalledWith(503);
   });
 
   it("reports Mongo as down even when the legacy repository selector requests memory", async () => {

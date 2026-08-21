@@ -54,6 +54,7 @@ import {
 import {
   NavigationSurface,
   Screen,
+  referencePalette,
   usePlatformAdaptation,
   useReducedMotion,
   useTheme
@@ -191,6 +192,7 @@ const MainTabs = createBottomTabNavigator<MainTabParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const ANDROID_TAB_PRESS_DEDUPE_MS = 500;
 const ANDROID_TAB_PRESS_RETRY_DELAY_MS = 80;
+const NAVIGATION_RAIL_WIDTH = 128;
 
 interface RouteContentValue {
   activeRoute: AppVisibleRoute;
@@ -304,6 +306,21 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
         fullBleed
         keyboardSafe
         readableWidth="form"
+      >
+        {globalFeedback}
+        {screens[route]}
+      </Screen>
+    );
+  }
+
+  if (route === "Register") {
+    return (
+      <Screen
+        contentStyle={styles.registerContent}
+        edges={["top", "left", "right", "bottom"]}
+        keyboardSafe
+        readableWidth="form"
+        style={styles.registerSurface}
       >
         {globalFeedback}
         {screens[route]}
@@ -797,6 +814,7 @@ function ShellTabLabel({
       style={[
         theme.typography.navLabel,
         styles.tabLabel,
+        adaptation.navigationLayout === "navigation-rail" && styles.railTabLabel,
         {
           color,
           fontSize: contract.navigationLabelFontSize,
@@ -898,16 +916,22 @@ function AuthenticatedNavigator() {
           ),
           tabBarInactiveBackgroundColor: "transparent",
           tabBarInactiveTintColor: theme.colors.text.secondary,
-          tabBarItemStyle: styles.tabItem,
+          tabBarItemStyle: useNavigationRail ? styles.railTabItem : styles.tabItem,
           tabBarLabel: ({ color }) => (
             <ShellTabLabel color={color} label={definition.label} />
           ),
+          tabBarLabelPosition: useNavigationRail ? "below-icon" : undefined,
           tabBarPosition: useNavigationRail ? "left" : "bottom",
           tabBarStyle: {
             backgroundColor: "transparent",
             borderColor: theme.colors.border.subtle,
             display: contentOwnsBottomChrome ? "none" : "flex",
             height: bottomNavigationHeight,
+            maxWidth: useNavigationRail ? NAVIGATION_RAIL_WIDTH : undefined,
+            minWidth: useNavigationRail ? NAVIGATION_RAIL_WIDTH : undefined,
+            paddingBottom: useNavigationRail ? Math.max(insets.bottom, 8) : undefined,
+            paddingTop: useNavigationRail ? Math.max(insets.top, 12) : undefined,
+            width: useNavigationRail ? NAVIGATION_RAIL_WIDTH : undefined,
           },
           tabBarVariant: useNavigationRail ? "material" : "uikit",
         };
@@ -1303,6 +1327,13 @@ const styles = StyleSheet.create({
   content: {
     gap: 14
   },
+  registerSurface: {
+    backgroundColor: referencePalette.white,
+  },
+  registerContent: {
+    backgroundColor: referencePalette.white,
+    justifyContent: "center",
+  },
   tabItem: {
     alignItems: "center",
     flex: 1,
@@ -1310,10 +1341,23 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingTop: 5,
   },
+  railTabItem: {
+    alignItems: "center",
+    flex: 0,
+    height: 78,
+    justifyContent: "center",
+    minHeight: 72,
+    paddingHorizontal: 8,
+    paddingTop: 0,
+    width: "100%",
+  },
   tabLabel: {
     marginTop: 1,
     maxWidth: 76,
     textAlign: "center",
+  },
+  railTabLabel: {
+    maxWidth: 100,
   },
   tabIconIndicator: {
     alignItems: "center",

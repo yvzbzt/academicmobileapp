@@ -269,6 +269,15 @@ export function CalendarExperience({
     setAnchorDate(nextDate);
   };
 
+  const toggleSearch = () => {
+    if (searchVisible) {
+      setSearchQuery("");
+      setSearchVisible(false);
+      return;
+    }
+    setSearchVisible(true);
+  };
+
   const renderItem: ListRenderItem<CalendarListEntry> = ({ item: entry }) => (
     <View style={[styles.entry, { gap: theme.spacing.xs }]}>
       {entry.headingDate ? (
@@ -311,7 +320,7 @@ export function CalendarExperience({
           setEditorVisible(true);
         }}
         onMenuPress={() => changeView("agenda")}
-        onSearchPress={() => setSearchVisible((current) => !current)}
+        onSearchPress={toggleSearch}
         searchVisible={searchVisible}
         view={view}
       />
@@ -527,12 +536,6 @@ function CalendarScreenHeader({
   const agenda = view === "agenda";
   return (
     <View style={styles.screenHeader}>
-      <CalendarIconButton
-        disabled={!onAccountMenuPress}
-        label="Hesap menüsünü aç"
-        name="menu-outline"
-        onPress={onAccountMenuPress ?? (() => undefined)}
-      />
       <Text
         accessibilityRole="header"
         adjustsFontSizeToFit
@@ -577,7 +580,7 @@ function CalendarIconButton({
   buttonRef?: RefObject<NativeView | null>;
   disabled?: boolean;
   label: string;
-  name: "add" | "calendar-outline" | "close-outline" | "list-outline" | "menu-outline" | "search-outline";
+  name: "add" | "calendar-outline" | "close-outline" | "list-outline" | "search-outline";
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -731,7 +734,6 @@ function MonthNavigator({
       </Pressable>
       <View style={styles.monthTitle}>
         <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>{label}</Text>
-        <Ionicons color={theme.colors.text.primary} name="chevron-down" size={18} />
       </View>
       <Pressable accessibilityLabel="Sonraki ay" accessibilityRole="button" hitSlop={10} onPress={onNext} style={styles.arrowButton}>
         <Ionicons color={theme.colors.text.primary} name="chevron-forward" size={27} />

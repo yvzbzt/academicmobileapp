@@ -67,6 +67,8 @@ export interface AnnouncementSourceRecord {
   updatedAt: Date;
 }
 
+export type AnnouncementSourceScope = Pick<AnnouncementSourceRecord, "scopeType" | "scopeId">;
+
 export interface AnnouncementItem {
   id: string;
   sourceId: string;
@@ -144,6 +146,12 @@ export interface SavedAnnouncementStatus {
 
 export interface AnnouncementRepository {
   listSourcesByScope(input: { universityId: string; facultyId?: string; departmentId?: string }): Promise<AnnouncementSourceRecord[]>;
+  listSourcesByScopeSet(input: {
+    scopes: AnnouncementSourceScope[];
+    status?: AnnouncementSourceStatus;
+    limit: number;
+    offset: number;
+  }): Promise<AnnouncementSourceRecord[]>;
   listAllSources(input?: { status?: AnnouncementSourceStatus; limit?: number; offset?: number }): Promise<AnnouncementSourceRecord[]>;
   findSourceById(id: string): Promise<AnnouncementSourceRecord | null>;
   upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord>;

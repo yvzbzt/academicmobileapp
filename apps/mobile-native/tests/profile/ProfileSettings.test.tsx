@@ -104,6 +104,8 @@ describe("Phase 10 profile and settings presentation", () => {
     ));
 
     expect(screen.getByRole("header", { name: "Ayarlar" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Ayarlar" })).toHaveProp("maxFontSizeMultiplier", 1.35);
+    expect(screen.getByRole("header", { name: "Ayarlar" })).toHaveProp("numberOfLines", 1);
     expect(screen.queryByText("Ada Lovelace")).toBeNull();
     expect(screen.queryByText("ada@example.invalid")).toBeNull();
     expect(screen.getByRole("header", { name: "Akademik bilgiler" })).toBeVisible();
@@ -112,9 +114,12 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(screen.getByRole("button", { name: "Akademik bilgiler" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Bildirim tercihleri" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Takip edilen üniversiteler" })).toBeVisible();
+    expect(screen.getByText("Örnek Üniversitesi · Fakülte, bölüm, sınıf ve dönem bilgilerin")).toHaveProp("maxFontSizeMultiplier", 1.35);
+    expect(screen.getByText("Örnek Üniversitesi · Fakülte, bölüm, sınıf ve dönem bilgilerin")).toHaveProp("numberOfLines", 3);
+    expect(screen.getAllByText("Akademik bilgiler").some((node) => node.props.maxFontSizeMultiplier === 1.35)).toBe(true);
     expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
-    fireEvent.press(screen.getByRole("button", { name: "Hesap menüsünü aç" }));
-    expect(onOpenAccountMenu).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
+    expect(onOpenAccountMenu).not.toHaveBeenCalled();
     expect(screen.getByText("Sürüm 0.1.1")).toBeVisible();
     expect(screen.queryByText(/Derleme/u)).toBeNull();
     expect(screen.queryByText(/tema|görünüm|takipçi|öğrenci kimliği/iu)).toBeNull();

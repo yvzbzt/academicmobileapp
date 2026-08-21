@@ -449,6 +449,62 @@ describe("AuthApplicationService", () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it("allows exactly one concurrent rotation without creating a second session", async () => {
+    const { service: authService, sender, authRepository } = createAuthService();
+    const registerResult = await authService.register({
+      email: "concurrent-rotation@campus.edu.tr",
+      password: "StrongPass123!",
+      passwordConfirmation: "StrongPass123!"
+    });
+    await authService.verifyEmail({
+      email: registerResult.email,
+      code: sender.sent[0]!.code,
+      deviceId: "initial-device"
+    });
+    const firstSession = await authService.login({
+      email: registerResult.email,
+      password: "StrongPass123!",
+      deviceId: "initial-device"
+    });
+
+    const outcomes = await Promise.allSettled([
+      authService.refresh({ refreshToken: firstSession.refreshToken, deviceId: "race-device-a" }),
+      authService.refresh({ refreshToken: firstSession.refreshToken, deviceId: "race-device-b" })
+    ]);
+    const successes = outcomes.filter((outcome) => outcome.status === "fulfilled");
+    const failures = outcomes.filter((outcome) => outcome.status === "rejected");
+
+    expect(successes).toHaveLength(1);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.reason).toBeInstanceOf(UnauthorizedException);
+    const refreshTokens = [
+      ...(authRepository as unknown as { refreshTokens: Map<string, Record<string, unknown>> }).refreshTokens.values()
+    ];
+    expect(refreshTokens).toHaveLength(2);
+
+    const winningSession = successes[0]!.value;
+    const nextSession = await authService.refresh({
+      refreshToken: winningSession.refreshToken,
+      deviceId: "race-winner-device"
+    });
+
+    await expect(authService.refresh({
+      refreshToken: firstSession.refreshToken,
+      deviceId: "sequential-reuse-device"
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+    const tokenService = new TokenService();
+    await expect(authRepository.findRefreshTokenByHash(
+      tokenService.hashRefreshToken(firstSession.refreshToken)
+    )).resolves.toEqual(expect.objectContaining({
+      revokedAt: expect.any(Date),
+      reusedAt: expect.any(Date)
+    }));
+    await expect(authService.refresh({
+      refreshToken: nextSession.refreshToken,
+      deviceId: "revoked-family-device"
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
   it("stamps refresh records and rejects a generation mismatch without rotating it", async () => {
     const { service: authService, sender, authRepository } = createAuthService();
     const registerResult = await authService.register({

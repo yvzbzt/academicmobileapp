@@ -69,6 +69,7 @@ h1, h2, h3, p { margin: 0; }
 /* ── Shell ──────────────────────────────────────────────────── */
 .shell {
   min-height: 100dvh;
+  min-width: 0;
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr);
 }
@@ -77,6 +78,7 @@ h1, h2, h3, p { margin: 0; }
 
 /* ── Sidebar ────────────────────────────────────────────────── */
 .sidebar {
+  min-width: 0;
   position: sticky;
   top: 0;
   z-index: 3;
@@ -160,6 +162,7 @@ h1, h2, h3, p { margin: 0; }
 /* ── Content ────────────────────────────────────────────────── */
 .content {
   width: 100%;
+  min-width: 0;
   max-width: 1480px;
   padding: 28px 24px;
 }
@@ -346,6 +349,7 @@ textarea:focus-visible {
 
 /* ── Panels ──────────────────────────────────────────────────── */
 .panel {
+  min-width: 0;
   background: var(--surface-0);
   border: 1px solid var(--ink-200);
   border-radius: var(--r-md);
@@ -357,6 +361,7 @@ textarea:focus-visible {
 .panel.wide { max-width: none; }
 
 .pageStack {
+  min-width: 0;
   display: grid;
   gap: 16px;
 }
@@ -758,7 +763,7 @@ pre {
 
 /* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 1080px) {
-  .shell { grid-template-columns: 1fr; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
 
   .sidebar {
     position: static;
@@ -776,6 +781,7 @@ pre {
   .toolbar.five,
   .gridForm,
   .gridForm.compact,
+  .gridForm.sourceForm,
   .gridForm.sourceManagerForm,
   .gridForm.scheduleForm { grid-template-columns: 1fr; }
 

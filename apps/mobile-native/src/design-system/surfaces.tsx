@@ -1,7 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import {
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   View,
@@ -92,7 +91,7 @@ export function Screen({
     >
       {keyboardSafe ? (
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior="padding"
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.keyboardSafe}
         >

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
+import { adminUniversityAccessFor } from "../../common/authorization/admin-university-access.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
@@ -84,37 +85,37 @@ export class AdminAnnouncementsController {
   constructor(@Inject(AnnouncementIngestionService) private readonly ingestionService: AnnouncementIngestionService) {}
 
   @Get("sources")
-  listSources(@Query() query: AnnouncementSourcesQueryDto) {
-    return this.ingestionService.listSources(query);
+  listSources(@CurrentUser() user: AuthenticatedUser, @Query() query: AnnouncementSourcesQueryDto) {
+    return this.ingestionService.listSourcesForAdmin(adminUniversityAccessFor(user), query);
   }
 
   @Post("sources")
-  createSource(@Body() body: CreateAnnouncementSourceDto) {
-    return this.ingestionService.createManualSource(body);
+  createSource(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateAnnouncementSourceDto) {
+    return this.ingestionService.createManualSourceForAdmin(adminUniversityAccessFor(user), body);
   }
 
   @Put("sources/:id")
-  updateSource(@Param("id") id: string, @Body() body: UpdateAnnouncementSourceDto) {
-    return this.ingestionService.updateManualSource(id, body);
+  updateSource(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: UpdateAnnouncementSourceDto) {
+    return this.ingestionService.updateManualSourceForAdmin(adminUniversityAccessFor(user), id, body);
   }
 
   @Delete("sources/:id")
-  deleteSource(@Param("id") id: string) {
-    return this.ingestionService.deactivateManualSource(id);
+  deleteSource(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.ingestionService.deactivateManualSourceForAdmin(adminUniversityAccessFor(user), id);
   }
 
   @Post("sources/:id/ingest")
-  ingestSource(@Param("id") id: string) {
-    return this.ingestionService.ingestSourceById(id);
+  ingestSource(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.ingestionService.ingestSourceByIdForAdmin(adminUniversityAccessFor(user), id);
   }
 
   @Post("discover")
-  discoverSources(@Body() body: AnnouncementDiscoveryRequestDto) {
-    return this.ingestionService.runDiscoveryAndIngestion(body);
+  discoverSources(@CurrentUser() user: AuthenticatedUser, @Body() body: AnnouncementDiscoveryRequestDto) {
+    return this.ingestionService.runDiscoveryAndIngestionForAdmin(adminUniversityAccessFor(user), body);
   }
 
   @Post("ingest")
-  ingestSources(@Body() body: AnnouncementIngestionRequestDto) {
-    return this.ingestionService.runIngestion(body);
+  ingestSources(@CurrentUser() user: AuthenticatedUser, @Body() body: AnnouncementIngestionRequestDto) {
+    return this.ingestionService.runIngestionForAdmin(adminUniversityAccessFor(user), body);
   }
 }

@@ -18,6 +18,13 @@ export type CalendarClassification =
   | "holiday"
   | "academic";
 
+export type AcademicEventPresentationKind =
+  | "exam"
+  | "application"
+  | "registration"
+  | "holiday"
+  | "academic";
+
 export interface CalendarAcademicEvent {
   id: string;
   title: string;
@@ -126,11 +133,19 @@ const REGISTRATION_CATEGORIES = new Set([
   "course_registration",
   "course_renewal",
   "course_add_drop",
-  "graduation_application",
   "tuition_payment",
-  "horizontal_transfer",
   "summer_school_registration",
 ]);
+
+const APPLICATION_CATEGORIES = new Set([
+  "graduation_application",
+  "horizontal_transfer",
+]);
+
+const NON_EVENT_TITLE_CONTEXT = /\b(?:sonuc|sonuclar|sonuclari|sonuclarin|sonuclarinin|not|notlar|notlari|notlarin|notlarinin|duyuru|duyurusu|duyurular|duyurulari|kilavuz|kilavuzu|rehber|rehberi|degerlendirme|itiraz|istatistik|istatistikleri)\b/u;
+const EXAM_TITLE_TOKEN = /\bsinav(?:i|lar|lari|larin|larinin)?\b/u;
+const APPLICATION_TITLE_TOKEN = /\b(?:basvuru|basvurusu|basvurular|basvurulari|basvurularin|basvurularinin)\b/u;
+const REGISTRATION_TITLE_TOKEN = /\b(?:kayit|kaydi|kayitlar|kayitlari|kayitlarin|kayitlarinin|kayitlanma|kayit yenileme)\b/u;
 
 const MILLISECONDS_PER_HOUR = 60 * 60 * 1000;
 const TIMEZONE_TRANSITION_SEARCH_HOURS = 48;
@@ -199,7 +214,7 @@ export function buildCalendarItems(input: {
     const category = cleanText(event.category);
     if (!id || !title || !category || academicCalendarDayNumber(event.startDate) === null) return [];
     if (event.endDate && academicCalendarDayNumber(event.endDate) === null) return [];
-    const classification = classifyCalendarCategory(category);
+    const classification = classifyCalendarCategory(category, title);
     const temporalKind = event.temporalKind
       ?? (isDateOnlyValue(event.startDate) ? "date" : "timestamp");
     const endTemporalKind = event.endDate
@@ -264,15 +279,36 @@ export function buildCalendarItems(input: {
   });
 }
 
-export function classifyCalendarCategory(category: string): CalendarClassification {
+export function classifyAcademicEventPresentation(
+  category: string,
+  title = "",
+): AcademicEventPresentationKind {
+  const normalizedCategory = category.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+  if (EXAM_CATEGORIES.has(normalizedCategory) || normalizedCategory.includes("exam")) return "exam";
+  if (APPLICATION_CATEGORIES.has(normalizedCategory) || normalizedCategory.includes("application")) {
+    return "application";
+  }
+  if (REGISTRATION_CATEGORIES.has(normalizedCategory)
+    || normalizedCategory.includes("registration")
+    || normalizedCategory.includes("renewal")
+    || normalizedCategory.includes("add_drop")) {
+    const titleKind = inferAcademicTitlePresentation(title);
+    if (titleKind === "exam" || titleKind === "application") return titleKind;
+    return "registration";
+  }
+  if (normalizedCategory === "holiday") return "holiday";
+  if (normalizedCategory !== "custom_event" && normalizedCategory !== "custom" && normalizedCategory !== "") {
+    return "academic";
+  }
+  return inferAcademicTitlePresentation(title);
+}
+
+export function classifyCalendarCategory(category: string, title = ""): CalendarClassification {
   if (category === "personal_exam") return "personal_exam";
   if (category.startsWith("personal_")) return "personal";
-  if (EXAM_CATEGORIES.has(category) || category.includes("exam")) return "exam";
-  if (REGISTRATION_CATEGORIES.has(category)
-    || category.includes("registration")
-    || category.includes("application")) return "registration";
-  if (category === "holiday") return "holiday";
-  return "academic";
+  const presentation = classifyAcademicEventPresentation(category, title);
+  if (presentation === "application" || presentation === "registration") return "registration";
+  return presentation;
 }
 
 export function classificationLabel(classification: CalendarClassification): string {
@@ -280,7 +316,7 @@ export function classificationLabel(classification: CalendarClassification): str
     case "personal_exam": return "Kişisel sınav";
     case "personal": return "Kişisel etkinlik";
     case "exam": return "Sınav";
-    case "registration": return "Son Başvuru";
+    case "registration": return "Kayıt ve başvuru";
     case "holiday": return "Tatil";
     case "academic": return "Etkinlik";
   }
@@ -702,4 +738,41 @@ function localDateOnly(value: Date): string {
 function cleanText(value: string): string | null {
   const normalized = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
   return normalized || null;
+}
+
+function inferAcademicTitlePresentation(title: string): AcademicEventPresentationKind {
+  const normalized = foldAcademicTitle(title);
+  if (!normalized || NON_EVENT_TITLE_CONTEXT.test(normalized)) return "academic";
+  if (EXAM_TITLE_TOKEN.test(normalized) && APPLICATION_TITLE_TOKEN.test(normalized)) {
+    return EXAM_TITLE_TOKEN.exec(normalized)!.index < APPLICATION_TITLE_TOKEN.exec(normalized)!.index
+      ? "application"
+      : "exam";
+  }
+  if (EXAM_TITLE_TOKEN.test(normalized)) return "exam";
+  if (APPLICATION_TITLE_TOKEN.test(normalized)) return "application";
+  if (REGISTRATION_TITLE_TOKEN.test(normalized)) return "registration";
+  if (/\b(?:resmi tatil|bayram|tatil)\b/u.test(normalized)) return "holiday";
+  return "academic";
+}
+
+function foldAcademicTitle(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
+    .replace(/\u0130/g, "I")
+    .replace(/ğ/g, "g")
+    .replace(/Ğ/g, "G")
+    .replace(/ü/g, "u")
+    .replace(/Ü/g, "U")
+    .replace(/ş/g, "s")
+    .replace(/Ş/g, "S")
+    .replace(/ö/g, "o")
+    .replace(/Ö/g, "O")
+    .replace(/ç/g, "c")
+    .replace(/Ç/g, "C")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
 }

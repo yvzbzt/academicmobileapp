@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, InternalServerErrorException, NotFoundException, Optional } from "@nestjs/common";
+import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import type { PdfRepository } from "../pdf/pdf.types.js";
+import type { CatalogRepository, DepartmentRecord, FacultyRecord } from "../catalog/catalog.types.js";
 import { AuditService } from "../audit/audit.service.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
@@ -50,8 +52,34 @@ export class AdminCalendarService {
     @Inject("CalendarRepository") private readonly calendarRepository: CalendarRepository,
     @Inject("PdfRepository") private readonly pdfRepository: PdfRepository,
     @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService,
-    @Optional() @Inject(AuditService) private readonly auditService?: AuditService
+    @Optional() @Inject(AuditService) private readonly auditService?: AuditService,
+    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository
   ) {}
+
+  async listCourseSchedulesForAdmin(
+    access: AdminUniversityAccess,
+    input: { universityId: string; departmentId: string; academicYear?: string }
+  ): Promise<AcademicEventRecord[]> {
+    assertUniversityTarget(access, input.universityId);
+    await this.requireDepartmentInUniversity(input.universityId, input.departmentId);
+    return this.listCourseSchedules(input);
+  }
+
+  async createCourseScheduleSeriesForAdmin(
+    access: AdminUniversityAccess,
+    input: Parameters<AdminCalendarService["createCourseScheduleSeries"]>[0]
+  ) {
+    assertUniversityTarget(access, input.universityId);
+    await this.requireCourseScheduleUnit(input.universityId, input.facultyId, input.departmentId);
+    return this.createCourseScheduleSeries(input);
+  }
+
+  async archiveCourseScheduleSeriesForAdmin(access: AdminUniversityAccess, seriesId: string) {
+    return this.archiveCourseScheduleSeries(
+      seriesId,
+      access.kind === "university" ? access.universityId : undefined
+    );
+  }
 
   async createDraftFromApprovedExtractedEvents(input: CreateCalendarDraftInput): Promise<CalendarDraftResponse> {
     const source = await this.pdfRepository.findPdfSourceById(input.sourcePdfId);
@@ -226,11 +254,41 @@ export class AdminCalendarService {
       .filter((event) => input.academicYear ? event.academicYear === input.academicYear : true);
   }
 
-  async archiveCourseScheduleSeries(seriesId: string): Promise<{ seriesId: string; archivedCount: number }> {
+  async archiveCourseScheduleSeries(seriesId: string, universityId?: string): Promise<{ seriesId: string; archivedCount: number }> {
     if (!seriesId.trim()) throw new BadRequestException("Course schedule series is required.");
-    const archivedCount = await this.calendarRepository.archiveEventsByScheduleSeries(seriesId);
+    const archivedCount = await this.calendarRepository.archiveEventsByScheduleSeries(seriesId, universityId);
     if (archivedCount === 0) throw new NotFoundException("Course schedule series not found.");
     return { seriesId, archivedCount };
+  }
+
+  private async requireCourseScheduleUnit(universityId: string, facultyId: string, departmentId: string): Promise<void> {
+    const catalog = this.requireCatalogRepository();
+    const faculty = (await catalog.listFaculties(universityId, "active"))
+      .find((candidate) => candidate.id === facultyId && candidate.universityId === universityId);
+    if (!faculty) throw new NotFoundException("Academic unit not found.");
+    const department = (await catalog.listDepartments(faculty.id, "active"))
+      .find((candidate) => candidate.id === departmentId && candidate.universityId === universityId);
+    if (!department) throw new NotFoundException("Academic unit not found.");
+  }
+
+  private async requireDepartmentInUniversity(universityId: string, departmentId: string): Promise<DepartmentRecord> {
+    const catalog = this.requireCatalogRepository();
+    const faculties = await catalog.listFaculties(universityId);
+    const departments = (await Promise.all(
+      faculties.map((faculty: FacultyRecord) => catalog.listDepartments(faculty.id))
+    )).flat();
+    const department = departments.find((candidate) => (
+      candidate.id === departmentId && candidate.universityId === universityId
+    ));
+    if (!department) throw new NotFoundException("Academic unit not found.");
+    return department;
+  }
+
+  private requireCatalogRepository(): CatalogRepository {
+    if (!this.catalogRepository) {
+      throw new InternalServerErrorException("Catalog repository is required for course-schedule authorization.");
+    }
+    return this.catalogRepository;
   }
 
   async updateCalendar(calendarId: string, input: { title?: string }): Promise<AcademicCalendarRecord> {

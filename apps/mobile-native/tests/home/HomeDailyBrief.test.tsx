@@ -10,6 +10,18 @@ jest.mock("@react-navigation/native", () => {
   return { ...actual, useScrollToTop: jest.fn() };
 });
 
+const mockWindowDimensions = jest.fn(() => ({
+  fontScale: 2,
+  height: 568,
+  scale: 2,
+  width: 320,
+}));
+
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
+  __esModule: true,
+  default: () => mockWindowDimensions(),
+}));
+
 const now = new Date(2026, 7, 1, 10, 0, 0);
 const callbacks = {
   onCompleteProfile: jest.fn(),
@@ -122,13 +134,17 @@ describe("Phase 7 Home daily brief", () => {
     expect(useScrollToTop).toHaveBeenCalledWith(expect.objectContaining({ current: expect.anything() }));
   });
 
-  it("renders the white hierarchy with a functional top bar and compact next-event card", async () => {
+  it("renders the branded hierarchy with avatar-owned account access and the weekly dashboard", async () => {
     await renderHome(props());
 
     expect(screen.getByTestId("home-top-bar")).toBeOnTheScreen();
-    expect(screen.getByRole("header", { name: "Ana Sayfa" })).toBeOnTheScreen();
+    expect(screen.queryByRole("header", { name: "Ana Sayfa" })).toBeNull();
+    expect(screen.getByText("Akademik Takvim")).toBeOnTheScreen();
     expect(screen.getByText("Sıradaki")).toBeOnTheScreen();
     expect(screen.getByTestId("home-focus-card")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Haftalık Takvim" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Senin için" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Kişisel etkinlik ekle" })).toBeOnTheScreen();
     expect(screen.getAllByText(/Ağustos 2026/u).some((node) => node.props.numberOfLines === 1)).toBe(true);
     expect(screen.getByRole("header", { name: "Önemli duyuru" })).toHaveTextContent("Öne çıkan duyurular");
 
@@ -136,6 +152,29 @@ describe("Phase 7 Home daily brief", () => {
     fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));
     expect(callbacks.onOpenAccountMenu).toHaveBeenCalledTimes(1);
     expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds fixed focus-card typography at 320 dp and 200% font scale", async () => {
+    const longTitle = "Lisansüstü programlara yatay geçiş başvuruları ve belge teslim süreci";
+    await renderHome(props({
+      events: [{
+        category: "horizontal_transfer",
+        id: "long-focus-event",
+        startDate: new Date(2026, 7, 1, 13).toISOString(),
+        title: longTitle,
+      }],
+    }));
+
+    expect(screen.getByText("Gün kaldı")).toHaveProp("maxFontSizeMultiplier", 1.25);
+    expect(screen.getByText("Gün kaldı")).toHaveProp("numberOfLines", 2);
+    expect(screen.getByText("Akademik Takvim")).toHaveProp("adjustsFontSizeToFit", true);
+    expect(screen.getByText("Sıradaki")).toHaveProp("maxFontSizeMultiplier", 1.3);
+    const boundedHeroTitle = screen.getAllByText(longTitle).find(
+      (node) => node.props.maxFontSizeMultiplier === 1.35,
+    );
+    expect(boundedHeroTitle).toBeDefined();
+    expect(boundedHeroTitle).toHaveProp("numberOfLines", 2);
+    expect(screen.getAllByText("13:00").some((node) => node.props.maxFontSizeMultiplier === 1.3)).toBe(true);
   });
 
   it("keeps the incomplete-profile prompt compact and locally dismissible", async () => {
@@ -165,6 +204,49 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getByText("Veri Yapıları")).toBeOnTheScreen();
     expect(screen.getByText("Mühendislik Fak. – A Blok 201")).toBeOnTheScreen();
     expect(screen.getAllByText("Veri Yapıları Final Sınavı").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("renders legacy custom_event records with consistent exam, application, and registration semantics", async () => {
+    await renderHome(props({
+      events: [
+        {
+          id: "application",
+          title: "Lisansüstü Programlara Yatay Geçiş Başvuruları",
+          category: "custom_event",
+          startDate: "2026-08-01",
+        },
+        {
+          id: "registration",
+          title: "Lisans Programlarına Çift Anadal ve Yan Dal Kayıtları",
+          category: "custom_event",
+          startDate: "2026-08-01",
+        },
+        {
+          id: "exam",
+          title: "Azami Süreyi Dolduran Öğrenciler için Ek Sınavlar",
+          category: "custom_event",
+          startDate: "2026-08-01",
+        },
+        {
+          id: "second-registration",
+          title: "Ders kayıt tarihleri",
+          category: "course_registration",
+          startDate: "2026-08-02",
+        },
+        {
+          id: "results",
+          title: "Final sınavı sonuçları",
+          category: "custom_event",
+          startDate: "2026-08-02",
+        },
+      ],
+    }));
+
+    expect(screen.getByText("1 başvuru · 2 kayıt · 1 sınav")).toBeOnTheScreen();
+    expect(screen.getByText("Sınav")).toBeOnTheScreen();
+    expect(screen.getByText("Başvuru")).toBeOnTheScreen();
+    expect(screen.getByText("Kayıt")).toBeOnTheScreen();
+    expect(screen.queryByText("4 kayıt")).not.toBeOnTheScreen();
   });
 
   it("renders academic event clocks in the event timezone instead of the device timezone", async () => {
@@ -330,12 +412,12 @@ describe("Phase 7 Home daily brief", () => {
     const longTitle = "2026-2027 eğitim öğretim yılı güz dönemi ders kayıtları ve danışman onay süreci hakkında çok uzun Türkçe duyuru başlığı";
     await renderHome(props({ announcements: [content({ title: longTitle })], calendarLoading: true }));
     expect(screen.getByLabelText("Öğrenci günlük özeti").props.accessibilityState).toEqual({ busy: true });
-    expect(screen.getByRole("header", { name: "Bugün" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Senin için" })).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Sıradaki önemli tarih" })).toBeOnTheScreen();
     expect(screen.getByText(longTitle).props.numberOfLines).toBeUndefined();
     expect(screen.queryByText("Yaz Okulu")).not.toBeOnTheScreen();
     expect(screen.queryByText("YÖK")).not.toBeOnTheScreen();
-    expect(screen.queryByText(/^Duyurular$/u)).not.toBeOnTheScreen();
+    expect(screen.getAllByText(/^Duyurular$/u)).toHaveLength(1);
   });
 
   it("selects Android and iOS adaptations while content remains opaque", async () => {

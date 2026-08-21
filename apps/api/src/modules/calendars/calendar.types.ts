@@ -101,7 +101,7 @@ export interface CalendarRepository {
   archivePublishedCalendars(universityId: string, academicYear: string): Promise<number>;
   createEvents(input: Array<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<AcademicEventRecord[]>;
   updateEventsByCalendar(calendarId: string, input: Partial<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<number>;
-  archiveEventsByScheduleSeries(scheduleSeriesId: string): Promise<number>;
+  archiveEventsByScheduleSeries(scheduleSeriesId: string, universityId?: string): Promise<number>;
   listEventsByCalendar(calendarId: string): Promise<AcademicEventRecord[]>;
   listPublishedEvents(filters: CalendarEventFilters): Promise<AcademicEventRecord[]>;
   listUpcomingEvents(filters: UpcomingEventFilters): Promise<AcademicEventRecord[]>;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   HOME_RECENT_ANNOUNCEMENT_LIMIT,
+  classifyHomeAcademicEvent,
   formatRemainingTime,
   homeAvailability,
   isImportantAnnouncement,
@@ -11,10 +12,12 @@ import {
   resolveHomeLayout,
   resolveHomePrimaryState,
   selectExamCountdownItems,
+  selectHomeDayMarkerKind,
   selectImportantAnnouncement,
   selectNearestImportantItem,
   selectRecentAnnouncements,
   selectTodayItems,
+  summarizeHomeWeek,
 } from "../../apps/mobile-native/src/home/home-model";
 import type { TrustedMobileContentRecord } from "../../apps/mobile-native/src/content/content-trust";
 
@@ -69,6 +72,80 @@ describe("Phase 7 Home daily-brief contracts", () => {
     ], [], now);
     expect(selected).toMatchObject({ id: "nearest", kind: "deadline", courseName: "Veri Yapıları", location: "A Blok 201" });
     expect(formatRemainingTime(selected!.date, now)).toBe("2 saat kaldı");
+  });
+
+  it("classifies legacy VPS custom_event titles consistently across cards, markers, and weekly summary", () => {
+    const events = [
+      {
+        id: "application",
+        title: "Lisansüstü Programlara Yatay Geçiş Başvuruları",
+        category: "custom_event",
+        startDate: "2026-08-01",
+      },
+      {
+        id: "registration",
+        title: "Lisans Programlarına Çift Anadal ve Yan Dal Kayıtları",
+        category: "custom_event",
+        startDate: "2026-08-01",
+      },
+      {
+        id: "additional-exams",
+        title: "Azami Süreyi Dolduran Öğrenciler için Ek Sınavlar",
+        category: "custom_event",
+        startDate: "2026-08-01",
+      },
+      {
+        id: "second-registration",
+        title: "Ders kayıt tarihleri",
+        category: "course_registration",
+        startDate: "2026-08-02",
+      },
+      {
+        id: "information",
+        title: "Final sınavı sonuçları",
+        category: "custom_event",
+        startDate: "2026-08-02",
+      },
+    ];
+
+    expect(events.map(classifyHomeAcademicEvent)).toEqual([
+      "deadline",
+      "registration",
+      "exam",
+      "registration",
+      "event",
+    ]);
+    expect(selectTodayItems(events, [], now).map((item) => [item.id, item.kind])).toEqual([
+      ["additional-exams", "exam"],
+      ["application", "deadline"],
+      ["registration", "registration"],
+    ]);
+    expect(selectHomeDayMarkerKind(now, events, [])).toBe("exam");
+    expect(summarizeHomeWeek(events, [], now)).toEqual({
+      applications: 1,
+      registrations: 2,
+      exams: 1,
+      total: 4,
+    });
+  });
+
+  it("uses title fallback for exam countdowns without promoting informational titles", () => {
+    const selected = selectExamCountdownItems([
+      {
+        id: "placement-exam",
+        title: "Yeni Kayıt Öğrencileri için Yeterlik ve Seviye Tespit Sınavı",
+        category: "custom_event",
+        startDate: "2026-08-02",
+      },
+      {
+        id: "exam-results",
+        title: "Yeterlik sınavı sonuçları",
+        category: "custom_event",
+        startDate: "2026-08-02",
+      },
+    ], [], now);
+
+    expect(selected.map((item) => item.id)).toEqual(["placement-exam"]);
   });
 
   it("keeps date-only calendar exams visible without stripping their temporal metadata", () => {

@@ -269,6 +269,15 @@ export class MongoAuthRepository implements AuthRepository {
     return document ? toRefreshTokenRecord(document) : null;
   }
 
+  async consumeRefreshTokenForRotation(id: string, revokedAt: Date): Promise<boolean> {
+    const model = await this.model("RefreshToken", refreshTokenSchema);
+    const result = await model.updateOne(
+      { _id: id, revokedAt: { $exists: false } },
+      { $set: { revokedAt } }
+    );
+    return result.modifiedCount === 1;
+  }
+
   async revokeRefreshToken(id: string, revokedAt: Date): Promise<void> {
     const model = await this.model("RefreshToken", refreshTokenSchema);
     await model.findByIdAndUpdate(id, { revokedAt });

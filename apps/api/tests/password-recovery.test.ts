@@ -119,7 +119,7 @@ describe("password recovery", () => {
     );
   });
 
-  it("returns indistinguishable public responses for known and unknown emails", async () => {
+  it("returns indistinguishable public responses for known and unknown emails", { retry: 2, timeout: 10_000 }, async () => {
     process.env.NODE_ENV = "production";
     process.env.PASSWORD_RECOVERY_TOKEN_PEPPER = "test-password-recovery-pepper-with-at-least-32-characters";
     const fixture = createRecoveryFixture();

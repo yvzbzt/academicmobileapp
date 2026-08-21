@@ -6,6 +6,7 @@ import {
   renderAsync,
   screen,
 } from "@testing-library/react-native";
+import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AccountGenerationGuard } from "../../src/auth/session-integrity";
 import { CalendarEventDetail } from "../../src/calendar/CalendarEventDetail";
@@ -80,6 +81,7 @@ async function renderCalendar(runtime: PersonalExamRuntime) {
 describe("Phase 9 personal-exam cancellation", () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
   });
 
   afterEach(async () => {
@@ -87,6 +89,7 @@ describe("Phase 9 personal-exam cancellation", () => {
       jest.runOnlyPendingTimers();
     });
     cleanup();
+    jest.restoreAllMocks();
     jest.useRealTimers();
   });
 
@@ -96,6 +99,7 @@ describe("Phase 9 personal-exam cancellation", () => {
     fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinlik ekle" }));
     fireEvent.changeText(screen.getByLabelText("Etkinlik adı"), "Kaydedilmemesi gereken sınav");
     fireEvent.press(screen.getByRole("button", { name: "Vazgeç" }));
+    confirmDiscard();
     await runtime.waitForIdle();
 
     expect(runtime.getSnapshot().exams).toEqual([ORIGINAL_EXAM]);
@@ -125,6 +129,7 @@ describe("Phase 9 personal-exam cancellation", () => {
     fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinliği düzenle" }));
     fireEvent.changeText(screen.getByLabelText("Etkinlik adı"), "Değiştirilmemesi gereken ad");
     fireEvent.press(screen.getByRole("button", { name: "Vazgeç" }));
+    confirmDiscard();
     await runtime.waitForIdle();
 
     expect(runtime.getSnapshot().exams).toEqual([ORIGINAL_EXAM]);
@@ -165,3 +170,14 @@ describe("Phase 9 personal-exam cancellation", () => {
     expect(storage.operations).toEqual([]);
   });
 });
+
+function confirmDiscard() {
+  const alertMock = jest.mocked(Alert.alert);
+  const latestCall = alertMock.mock.calls[alertMock.mock.calls.length - 1];
+  expect(latestCall?.[0]).toBe("Değişiklikler kaydedilmedi");
+  const discard = latestCall?.[2]?.find((action) => action.text === "Değişikliklerden vazgeç");
+  expect(discard).toBeDefined();
+  act(() => {
+    discard?.onPress?.();
+  });
+}

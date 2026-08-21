@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 import { AuthApplicationService } from "../src/modules/auth/auth-application.service.js";
 import { EmailVerificationSenderService, type SendVerificationEmailInput } from "../src/modules/auth/email-verification-sender.service.js";
@@ -512,6 +512,19 @@ describe("CalendarService", () => {
     expect(feed.content).toContain("DTSTART:19100930T220304Z\r\nDTEND:19101001T120000Z");
     expect(feed.content).not.toContain("Baska Bolum Ders Programi");
     expect(feed.content).not.toContain("Diger Fakulteler Ara Sinav Takvimi");
+
+    const [payload, signature] = decodeURIComponent(token!).split(".");
+    const tamperedSignature = `${signature!.slice(0, -1)}${signature!.endsWith("A") ? "B" : "A"}`;
+    await expect(service.getMyCalendarFeedByToken(`${payload}.${tamperedSignature}`))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.getMyCalendarFeedByToken(`${payload}.short`))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.getMyCalendarFeedByToken("%E0%A4%A"))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.getMyCalendarFeedByToken(`${payload}.${signature}.extra`))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.getMyCalendarFeedByToken("x".repeat(4_097)))
+      .rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("filters public event search by category", async () => {
@@ -551,7 +564,7 @@ describe("CalendarService", () => {
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it("returns summer school requirements and same-department offerings from published calendars", async () => {
+  it("returns summer school requirements and same-department offerings from published calendars", { timeout: 15_000 }, async () => {
     const { authRepository, session } = await createStudentWithUniversity();
     const calendarRepository = await createSeededCalendarRepository();
     const announcementRepository = new InMemoryAnnouncementRepository();

@@ -133,8 +133,7 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByRole("header", { name: "3 Ağustos Pazartesi" })).toBeOnTheScreen();
     expect(screen.getByTestId("calendar-view-announcement").props.accessibilityLiveRegion)
       .toBe("polite");
-    fireEvent.press(screen.getByRole("button", { name: "Hesap menüsünü aç" }));
-    expect(callbacks.onOpenAccountMenu).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
 
     fireEvent.press(screen.getByRole("radio", { name: "Hafta" }));
     expect(screen.getByRole("radio", { name: "Hafta" }).props.accessibilityState).toEqual(
@@ -162,6 +161,29 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByText("Final sınavı")).toBeOnTheScreen();
     expect(screen.queryByText("Ders kayıt dönemi")).not.toBeOnTheScreen();
     expect(screen.getByText("1 etkinlik")).toBeOnTheScreen();
+  });
+
+  it("clears the active query when calendar search is closed", async () => {
+    await renderCalendar();
+
+    fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
+    fireEvent.changeText(screen.getByLabelText("Takvimde ara"), "Lineer");
+    expect(screen.getByText("Lineer Cebir")).toBeOnTheScreen();
+    expect(screen.queryByText("Final sınavı")).not.toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Takvim aramasını kapat" }));
+    expect(screen.queryByPlaceholderText("Etkinlik, ders veya konum ara")).not.toBeOnTheScreen();
+    expect(screen.getByText("Final sınavı")).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
+    expect(screen.getByPlaceholderText("Etkinlik, ders veya konum ara")).toHaveDisplayValue("");
+  });
+
+  it("keeps the month heading non-interactive without a misleading down chevron", async () => {
+    const view = await renderCalendar(props({ initialView: "month" }));
+
+    expect(screen.getByRole("header", { name: "Ağustos 2026" })).toBeOnTheScreen();
+    expect(view.UNSAFE_queryAllByProps({ name: "chevron-down" })).toHaveLength(0);
   });
 
   it("announces committed iOS view and period changes without an initial announcement", async () => {
@@ -196,11 +218,50 @@ describe("Phase 9 Calendar experience", () => {
 
   it("labels event type with icon-backed text and never invents a clock for date-only data", async () => {
     await renderCalendar();
-    expect(screen.getByText("Son Başvuru")).toBeOnTheScreen();
+    expect(screen.getByText("Kayıt ve başvuru")).toBeOnTheScreen();
     expect(screen.getAllByText("Sınav").length).toBeGreaterThan(0);
     expect(screen.getByText("Kişisel planın")).toBeOnTheScreen();
     expect(screen.getAllByText("Tüm gün").length).toBeGreaterThan(0);
     expect(screen.queryByText(/00:00/u)).not.toBeOnTheScreen();
+  });
+
+  it("presents legacy VPS custom_event titles with defensive title fallback", async () => {
+    await renderCalendar(props({
+      academicEvents: [
+        {
+          id: "application",
+          title: "Lisansüstü Programlara Yatay Geçiş Başvuruları",
+          category: "custom_event",
+          startDate: "2026-08-27",
+        },
+        {
+          id: "registration",
+          title: "Lisans Programlarına Çift Anadal ve Yan Dal Kayıtları",
+          category: "custom_event",
+          startDate: "2026-08-28",
+        },
+        {
+          id: "exam",
+          title: "Azami Süreyi Dolduran Öğrenciler için Ek Sınavlar",
+          category: "custom_event",
+          startDate: "2026-08-29",
+        },
+        {
+          id: "results",
+          title: "Final sınavı sonuçları",
+          category: "custom_event",
+          startDate: "2026-08-30",
+        },
+      ],
+      initialAnchorDate: "2026-08-27",
+      now: new Date("2026-08-27T09:00:00.000+03:00"),
+      personalExams: [],
+    }));
+
+    expect(screen.getByRole("button", { name: /Kayıt ve başvuru.*Yatay Geçiş Başvuruları/u })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /Kayıt ve başvuru.*Yan Dal Kayıtları/u })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /Sınav.*Ek Sınavlar/u })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /Etkinlik.*Final sınavı sonuçları/u })).toBeOnTheScreen();
   });
 
   it("renders timestamp ranges in the academic event timezone", async () => {

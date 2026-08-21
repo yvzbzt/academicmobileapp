@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeAccountAuthProvider,
   readRecentAuthenticationResponse,
+  recentAuthenticationFailureMessage,
   recentAuthenticationHeader,
   recentAuthenticationMethods,
-  recentAuthenticationPurpose
+  recentAuthenticationPurpose,
+  shouldRefreshSessionAfterRecentAuthenticationFailure
 } from "../../apps/mobile-native/src/auth/recent-authentication";
 
 describe("mobile native recent authentication", () => {
@@ -37,6 +39,17 @@ describe("mobile native recent authentication", () => {
     expect(recentAuthenticationPurpose("data")).toBe("delete_personal_data");
     expect(recentAuthenticationPurpose("account")).toBe("delete_account");
     expect(recentAuthenticationPurpose("data")).not.toBe(recentAuthenticationPurpose("account"));
+  });
+
+  it("keeps invalid recent-auth credentials distinct from an expired bearer session", () => {
+    expect(shouldRefreshSessionAfterRecentAuthenticationFailure(401, "AUTH_INVALID_CREDENTIALS")).toBe(false);
+    expect(shouldRefreshSessionAfterRecentAuthenticationFailure(401, "AUTH_SESSION_INVALID")).toBe(true);
+    expect(shouldRefreshSessionAfterRecentAuthenticationFailure(403, undefined)).toBe(false);
+    expect(recentAuthenticationFailureMessage("password", "AUTH_INVALID_CREDENTIALS"))
+      .toBe("Hesap şifren yanlış. Kontrol edip tekrar dene.");
+    expect(recentAuthenticationFailureMessage("google", "AUTH_INVALID_CREDENTIALS"))
+      .toBe("Google hesabın doğrulanamadı. Hesabı yeniden seçip tekrar dene.");
+    expect(recentAuthenticationFailureMessage("password", "AUTH_SESSION_INVALID")).toBeUndefined();
   });
 
   it("requests a fresh action-specific proof before each destructive call and never persists it", () => {

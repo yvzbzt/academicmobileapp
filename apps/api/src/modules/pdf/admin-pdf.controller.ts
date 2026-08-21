@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { adminUniversityAccessFor } from "../../common/authorization/admin-university-access.js";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
@@ -15,27 +16,33 @@ export class AdminPdfController {
 
   @Post("pdf-sources")
   createPdfSource(@CurrentUser() user: AuthenticatedUser, @Body() body: CreatePdfSourceDto) {
-    return this.pdfProcessingService.createPdfSource({ ...body, uploadedBy: user.id });
+    return this.pdfProcessingService.createPdfSourceForAdmin(
+      adminUniversityAccessFor(user),
+      { ...body, uploadedBy: user.id }
+    );
   }
 
   @Post("pdf-sources/:id/process")
-  processPdfSource(@Param("id") id: string) {
-    return this.pdfProcessingService.processPdfSource(id);
+  processPdfSource(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.pdfProcessingService.processPdfSourceForAdmin(adminUniversityAccessFor(user), id);
   }
 
   @Get("pdf-sources/:id")
-  getPdfSource(@Param("id") id: string) {
-    return this.pdfProcessingService.getPdfSource(id);
+  getPdfSource(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.pdfProcessingService.getPdfSourceForAdmin(adminUniversityAccessFor(user), id);
   }
 
   @Get("pdf-sources/:id/extracted-events")
-  listPdfExtractedEvents(@Param("id") id: string) {
-    return this.pdfProcessingService.listExtractedEvents({ pdfSourceId: id });
+  listPdfExtractedEvents(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.pdfProcessingService.listExtractedEventsForAdmin(
+      adminUniversityAccessFor(user),
+      { pdfSourceId: id }
+    );
   }
 
   @Get("extracted-events")
-  listExtractedEvents(@Query() query: ListExtractedEventsQueryDto) {
-    return this.pdfProcessingService.listExtractedEvents({
+  listExtractedEvents(@CurrentUser() user: AuthenticatedUser, @Query() query: ListExtractedEventsQueryDto) {
+    return this.pdfProcessingService.listExtractedEventsForAdmin(adminUniversityAccessFor(user), {
       ...(query.pdfSourceId ? { pdfSourceId: query.pdfSourceId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.limit ? { limit: query.limit } : {}),
@@ -44,13 +51,13 @@ export class AdminPdfController {
   }
 
   @Get("extracted-events/:id")
-  getExtractedEvent(@Param("id") id: string) {
-    return this.pdfProcessingService.getExtractedEvent(id);
+  getExtractedEvent(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.pdfProcessingService.getExtractedEventForAdmin(adminUniversityAccessFor(user), id);
   }
 
   @Patch("extracted-events/:id")
-  updateExtractedEvent(@Param("id") id: string, @Body() body: UpdateExtractedEventDto) {
-    return this.pdfProcessingService.updateExtractedEvent(id, {
+  updateExtractedEvent(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: UpdateExtractedEventDto) {
+    return this.pdfProcessingService.updateExtractedEventForAdmin(adminUniversityAccessFor(user), id, {
       ...(body.normalizedTitle ? { normalizedTitle: body.normalizedTitle } : {}),
       ...(body.normalizedCategory ? { normalizedCategory: body.normalizedCategory } : {}),
       ...(body.startDate !== undefined ? { startDate: body.startDate } : {}),
@@ -61,11 +68,11 @@ export class AdminPdfController {
 
   @Post("extracted-events/:id/approve")
   approveExtractedEvent(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
-    return this.pdfProcessingService.approveExtractedEvent(id, user.id);
+    return this.pdfProcessingService.approveExtractedEventForAdmin(adminUniversityAccessFor(user), id, user.id);
   }
 
   @Post("extracted-events/:id/reject")
   rejectExtractedEvent(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: RejectExtractedEventDto) {
-    return this.pdfProcessingService.rejectExtractedEvent(id, user.id, body.adminNote);
+    return this.pdfProcessingService.rejectExtractedEventForAdmin(adminUniversityAccessFor(user), id, user.id, body.adminNote);
   }
 }

@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { canonicalContentKey, canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class InMemoryAnnouncementRepository implements AnnouncementRepository {
@@ -30,6 +30,21 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
       .filter((source) => input.status !== "active" || source.trustStatus === "trusted")
       .sort((left, right) => right.priority - left.priority || left.sourceName.localeCompare(right.sourceName, "tr-TR"))
       .slice(input.offset ?? 0, (input.offset ?? 0) + (input.limit ?? 500));
+  }
+
+  async listSourcesByScopeSet(input: {
+    scopes: AnnouncementSourceScope[];
+    status?: AnnouncementSourceStatus;
+    limit: number;
+    offset: number;
+  }): Promise<AnnouncementSourceRecord[]> {
+    const scopeKeys = new Set(input.scopes.map((scope) => `${scope.scopeType}\u0000${scope.scopeId}`));
+    return [...this.sources.values()]
+      .filter((source) => scopeKeys.has(`${source.scopeType}\u0000${source.scopeId}`))
+      .filter((source) => (input.status ? source.status === input.status : true))
+      .filter((source) => input.status !== "active" || source.trustStatus === "trusted")
+      .sort((left, right) => right.priority - left.priority || left.sourceName.localeCompare(right.sourceName, "tr-TR"))
+      .slice(input.offset, input.offset + input.limit);
   }
 
   async findSourceById(id: string): Promise<AnnouncementSourceRecord | null> {

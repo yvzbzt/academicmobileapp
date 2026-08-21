@@ -1,10 +1,17 @@
-import { Body, Controller, Get, Headers, Inject, Ip, Post, Query, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Inject, Ip, Post, Query, Res, UseGuards, ValidationPipe } from "@nestjs/common";
 import type { Response } from "express";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "./auth.types.js";
 import { AuthApplicationService } from "./auth-application.service.js";
-import { GoogleLoginDto, LoginDto, PasswordRecoveryConfirmDto, PasswordRecoveryRequestDto, RecentAuthenticationDto, RefreshTokenDto, RegisterDto, ResendVerificationCodeDto, VerifyEmailDto, VerifyEmailQueryDto } from "./auth.dto.js";
+import { GoogleLoginDto, LoginDto, LogoutDto, PasswordRecoveryConfirmDto, PasswordRecoveryRequestDto, RecentAuthenticationDto, RefreshTokenDto, RegisterDto, ResendVerificationCodeDto, VerifyEmailDto, VerifyEmailQueryDto } from "./auth.dto.js";
+
+const logoutBodyValidationPipe = new ValidationPipe({
+  expectedType: LogoutDto,
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true
+});
 
 @Controller("auth")
 export class AuthController {
@@ -81,7 +88,7 @@ export class AuthController {
 
   @Post("logout")
   @UseGuards(JwtAuthGuard)
-  async logout(@Body() body: Pick<RefreshTokenDto, "refreshToken">): Promise<{ status: "ok" }> {
+  async logout(@Body(logoutBodyValidationPipe) body: LogoutDto): Promise<{ status: "ok" }> {
     await this.authService.logout(body.refreshToken);
     return { status: "ok" };
   }

@@ -55,7 +55,7 @@ import {
   type RouteOwner,
   type UnknownRoute
 } from "./src/navigation";
-import { Banner, DesignSystemPreview, ListItem, ThemeProvider } from "./src/design-system";
+import { Banner, BottomSheet, DesignSystemPreview, ListItem, ThemeProvider } from "./src/design-system";
 import { Section } from "./src/components/Section";
 import {
   GOOGLE_CALENDAR_EVENTS_SCOPE,
@@ -65,6 +65,7 @@ import {
   type GoogleCalendarSyncResult
 } from "./src/google-calendar/google-calendar-sync";
 import {
+  GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED,
   GOOGLE_CALENDAR_CONNECTION_SCHEMA_VERSION,
   GoogleCalendarLifecycleGuard,
   executeGoogleCalendarLifecycle,
@@ -75,6 +76,7 @@ import {
   planGoogleCalendarExactMappingLookups,
   planGoogleCalendarLifecycle,
   readGoogleCalendarConnectionRecordV3,
+  resolveGoogleCalendarAuthorizationErrorPresentation,
   settledGoogleCalendarLifecycleState,
   type GoogleCalendarConnectionRecordV3,
   type GoogleCalendarLifecycleState
@@ -147,9 +149,11 @@ import { RecentAuthenticationPanel } from "./src/auth/RecentAuthenticationPanel"
 import {
   normalizeAccountAuthProvider,
   readRecentAuthenticationResponse,
+  recentAuthenticationFailureMessage,
   recentAuthenticationHeader,
   recentAuthenticationMethods,
   recentAuthenticationPurpose,
+  shouldRefreshSessionAfterRecentAuthenticationFailure,
   type AccountAuthProvider,
   type DestructiveAccountAction,
   type RecentAuthenticationMethod
@@ -887,7 +891,8 @@ function resolveApiBaseUrl(): string {
   const fromEnv = normalizeBaseUrl(process.env.EXPO_PUBLIC_API_URL ?? "");
   if (fromEnv) return fromEnv;
 
-  if (!__DEV__) return PRODUCTION_API_BASE_URL;
+  const useLocalDevApi = process.env.EXPO_PUBLIC_USE_LOCAL_API === "1";
+  if (!__DEV__ || !useLocalDevApi) return PRODUCTION_API_BASE_URL;
 
   const scriptUrl =
     typeof NativeModules?.SourceCode?.scriptURL === "string"
@@ -1323,6 +1328,9 @@ function MainApplication() {
   const [alarmEnabled, setAlarmEnabled] = useState(false);
   const [alarmMode, setAlarmMode] = useState<AlarmMode>("all_calendar");
   const [categoryDraft, setCategoryDraft] = useState<Record<string, boolean>>({});
+  const alarmEnabledRef = useRef(false);
+  const alarmModeRef = useRef<AlarmMode>("all_calendar");
+  const categoryDraftRef = useRef<Record<string, boolean>>({});
   const [academicProfileSaveState, setAcademicProfileSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -2580,6 +2588,18 @@ function MainApplication() {
   }, []);
 
   useEffect(() => {
+    alarmEnabledRef.current = alarmEnabled;
+  }, [alarmEnabled]);
+
+  useEffect(() => {
+    alarmModeRef.current = alarmMode;
+  }, [alarmMode]);
+
+  useEffect(() => {
+    categoryDraftRef.current = categoryDraft;
+  }, [categoryDraft]);
+
+  useEffect(() => {
     if (!preferences.data) return;
 
     const draft: Record<string, boolean> = {};
@@ -2588,6 +2608,9 @@ function MainApplication() {
     }
 
     const allEnabled = availableCategories.every((category) => draft[category] !== false);
+    categoryDraftRef.current = draft;
+    alarmEnabledRef.current = preferences.data.enabled;
+    alarmModeRef.current = allEnabled ? "all_calendar" : "selected_fields";
     setCategoryDraft(draft);
     setAlarmEnabled(preferences.data.enabled);
     setAlarmMode(allEnabled ? "all_calendar" : "selected_fields");
@@ -3490,7 +3513,11 @@ function MainApplication() {
         const body = await response.text();
         if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
         const payload = readApiErrorPayload(body);
-        if (response.status === 401 && token && !requestOptions.skipAuthRefresh) {
+        if (
+          token
+          && !requestOptions.skipAuthRefresh
+          && shouldRefreshSessionAfterRecentAuthenticationFailure(response.status, payload.errorCode)
+        ) {
           const refreshedSession = await refreshAuthenticatedSession(token);
           if (refreshedSession && (!ownerSnapshot || accountGuardRef.current.isCurrent(ownerSnapshot))) {
             return apiRequest<T>(path, options, refreshedSession.accessToken, {
@@ -3693,6 +3720,7 @@ function MainApplication() {
     }
 
     const isRegister = authMode === "register";
+    const normalizedEmail = email.trim().toLowerCase();
     authOperationInProgressRef.current = true;
     try {
       setBusy(true);
@@ -3702,7 +3730,7 @@ function MainApplication() {
           {
             method: "POST",
             body: JSON.stringify({
-              email: email.trim().toLowerCase(),
+              email: normalizedEmail,
               password,
               deviceId: currentDeviceId
             })
@@ -3733,7 +3761,7 @@ function MainApplication() {
           method: "POST",
           body: JSON.stringify({
             fullName: fullName.trim(),
-            email: email.trim().toLowerCase(),
+            email: normalizedEmail,
             password,
             passwordConfirmation: registrationPasswordConfirmation
           })
@@ -3991,14 +4019,16 @@ function MainApplication() {
     }
 
     authOperationInProgressRef.current = true;
+    let verificationCompleted = false;
     try {
       setBusy(true);
+      const normalizedEmail = email.trim().toLowerCase();
       await apiRequest<{ status: "verified"; email: string }>(
         AUTH_ENDPOINTS.verifyEmail,
         {
           method: "POST",
           body: JSON.stringify({
-            email: email.trim().toLowerCase(),
+            email: normalizedEmail,
             code: verificationToken.trim(),
             deviceId: currentDeviceId
           })
@@ -4006,6 +4036,7 @@ function MainApplication() {
         undefined,
         { authOperation: "verify_email" }
       );
+      verificationCompleted = true;
 
       setPendingVerification(null);
       try {
@@ -4018,12 +4049,52 @@ function MainApplication() {
       setRegisterDepartmentId("");
       setRegisterClassLevel(null);
       setOnboardingInitialDraft(EMPTY_ACADEMIC_ONBOARDING_DRAFT);
+      if (!password) {
+        setAuthMode("login");
+        setAuthStage("auth");
+        setMessage({ text: "E-posta doğrulandı. Giriş yapmak için şifreni gir.", tone: "success" });
+        return;
+      }
+
+      const nextSession = await apiRequest<SessionPayload>(
+        AUTH_ENDPOINTS.login,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: normalizedEmail,
+            password,
+            deviceId: currentDeviceId
+          })
+        },
+        undefined,
+        { authOperation: "login" }
+      );
       setAuthMode("login");
       setAuthStage("auth");
-      setMessage({ text: "E-posta doğrulandı. Giriş yaptıktan sonra akademik profilini tamamlayabilirsin.", tone: "success" });
+      const snapshot = await activateSession(nextSession);
+      setPassword("");
+      setMessage(null);
+      const contextReady = await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+      if (!contextReady) {
+        if (sessionRef.current?.user.id === nextSession.user.id) {
+          setHydrationError("Hesap bağlamı hazırlanamadı. Bağlantını kontrol edip tekrar dene.");
+          setHydrationStatus("error");
+        }
+        return;
+      }
+      setAuthenticatedContextPending(false);
     } catch (error) {
+      if (verificationCompleted) {
+        setAuthMode("login");
+        setAuthStage("auth");
+      }
       setMessage({
-        text: userMessageFromError(error, "E-posta doğrulanamadı"),
+        text: userMessageFromError(
+          error,
+          verificationCompleted
+            ? "E-posta doğrulandı ancak giriş otomatik tamamlanamadı. Şifrenle giriş yap."
+            : "E-posta doğrulanamadı"
+        ),
         tone: "error"
       });
     } finally {
@@ -4539,10 +4610,7 @@ function MainApplication() {
     setBusy(false);
     reportCleanupResult("logout", reconciledResult, ownerId);
     if (reconciledResult.complete) {
-      setMessage({
-        text: "Çıkış yapıldı. Google Takvim'e daha önce eklenen uygulama kayıtları korunur.",
-        tone: "info"
-      });
+      setMessage(null);
     } else {
       // The cleanup banner owns this partial-success state. Rendering a second
       // auth error banner makes the fixed login viewport needlessly cramped.
@@ -4860,7 +4928,13 @@ function MainApplication() {
       else await deleteAccount(proof);
     } catch (error) {
       if (!(error instanceof StaleAccountRequestError)) {
-        setRecentAuthError(userMessageFromError(error, "Kimliğin doğrulanamadı. Tekrar deneyebilirsin."));
+        const controlledMessage = error instanceof ApiRequestError
+          ? recentAuthenticationFailureMessage(method, error.code)
+          : undefined;
+        setRecentAuthError(
+          controlledMessage
+          ?? userMessageFromError(error, "Kimliğin doğrulanamadı. Tekrar deneyebilirsin."),
+        );
       }
     } finally {
       setRecentAuthPassword("");
@@ -5808,14 +5882,18 @@ function MainApplication() {
       let currentUser = GoogleSignin.getCurrentUser();
       if (!currentUser) {
         const signInResult = await GoogleSignin.signIn();
-        if (isCancelledResponse(signInResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
+        if (isCancelledResponse(signInResult)) {
+          throw new Error(GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED);
+        }
         currentUser = signInResult.data;
       }
 
       const scopeResult = await GoogleSignin.addScopes({
         scopes: [GOOGLE_CALENDAR_EVENTS_SCOPE]
       });
-      if (scopeResult && isCancelledResponse(scopeResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
+      if (scopeResult && isCancelledResponse(scopeResult)) {
+        throw new Error(GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED);
+      }
 
       const tokens = await GoogleSignin.getTokens();
       const selectedUser = GoogleSignin.getCurrentUser()?.user ?? currentUser.user;
@@ -6171,18 +6249,19 @@ function MainApplication() {
         });
       }
     } catch (error) {
+      const authorizationErrorPresentation = resolveGoogleCalendarAuthorizationErrorPresentation(
+        error,
+        statusCodes.SIGN_IN_CANCELLED,
+      );
       if (
         error instanceof StaleAccountRequestError
         || (error instanceof Error && error.name === "AbortError")
         || !accountGuardRef.current.isCurrent(ownerSnapshot)
       ) {
         return;
-      } else if (error instanceof Error && error.message === "GOOGLE_CALENDAR_CANCELLED") {
+      } else if (authorizationErrorPresentation.kind === "cancelled") {
         setGoogleCalendarState(authorizationInterruptionState);
-        setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
-      } else if (isErrorWithCode(error) && error.code === statusCodes.SIGN_IN_CANCELLED) {
-        setGoogleCalendarState(authorizationInterruptionState);
-        setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
+        setGoogleCalendarError(authorizationErrorPresentation.persistentError);
       } else if (isErrorWithCode(error) && error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         setGoogleCalendarState(authorizationInterruptionState);
         setGoogleCalendarError("Google Play Hizmetleri bu cihazda hazır değil veya güncellenmeli.");
@@ -6396,32 +6475,37 @@ function MainApplication() {
   }
 
   function updateCategory(category: string, enabled: boolean): void {
-    setCategoryDraft((previous) => ({
-      ...previous,
-      [category]: enabled
-    }));
+    const next = { ...categoryDraftRef.current, [category]: enabled };
+    categoryDraftRef.current = next;
+    setCategoryDraft(next);
     setNotificationPreferenceOutcome("idle");
     setNotificationPreferenceError(undefined);
   }
 
   function updateAlarmMode(mode: AlarmMode): void {
+    alarmModeRef.current = mode;
     setAlarmMode(mode);
     setNotificationPreferenceOutcome("idle");
     setNotificationPreferenceError(undefined);
     if (mode === "all_calendar") {
       const everythingOn: Record<string, boolean> = {};
       for (const category of availableCategories) everythingOn[category] = true;
+      categoryDraftRef.current = everythingOn;
       setCategoryDraft(everythingOn);
     }
   }
 
   function updateAlarmEnabled(enabled: boolean): void {
+    alarmEnabledRef.current = enabled;
     setAlarmEnabled(enabled);
     setNotificationPreferenceOutcome("idle");
     setNotificationPreferenceError(undefined);
   }
 
   function discardNotificationPreferenceChanges(): void {
+    alarmEnabledRef.current = initialNotificationPreference.enabled;
+    alarmModeRef.current = initialNotificationPreference.mode;
+    categoryDraftRef.current = { ...initialNotificationPreference.categories };
     setAlarmEnabled(initialNotificationPreference.enabled);
     setAlarmMode(initialNotificationPreference.mode);
     setCategoryDraft({ ...initialNotificationPreference.categories });
@@ -6439,9 +6523,12 @@ function MainApplication() {
     }
     if (accountCleanupInProgressRef.current) return;
 
+    const desiredEnabled = alarmEnabledRef.current;
+    const desiredMode = alarmModeRef.current;
+    const desiredCategories = { ...categoryDraftRef.current };
     const categoryPayload: Record<string, boolean> = {};
     for (const category of availableCategories) {
-      categoryPayload[category] = alarmMode === "all_calendar" ? true : Boolean(categoryDraft[category]);
+      categoryPayload[category] = desiredMode === "all_calendar" ? true : Boolean(desiredCategories[category]);
     }
 
     const existing = preferences.data;
@@ -6453,7 +6540,7 @@ function MainApplication() {
       setNotificationPreferenceOutcome("saving");
       setNotificationPreferenceError(undefined);
       const coordinator = notificationCoordinatorRef.current;
-      if (alarmEnabled) {
+      if (desiredEnabled) {
         if (!coordinator) {
           setAlarmEnabled(false);
           setNotificationPreferenceOutcome("error");
@@ -6494,8 +6581,8 @@ function MainApplication() {
         {
           method: "PATCH",
           body: JSON.stringify({
-            enabled: alarmEnabled && Boolean(coordinator?.getState().active),
-            ...(alarmEnabled && coordinator?.getState().active
+            enabled: desiredEnabled && Boolean(coordinator?.getState().active),
+            ...(desiredEnabled && coordinator?.getState().active
               ? { deliveryConsentVersion: "phase3-v1" }
               : {}),
             categories: categoryPayload,
@@ -6513,7 +6600,7 @@ function MainApplication() {
         { ownerSnapshot }
       ));
 
-      if (!alarmEnabled && coordinator) {
+      if (!desiredEnabled && coordinator) {
         const detachedState = await coordinator.setPreferenceEnabled(false);
         if (detachedState.registration === "error") {
           setCleanupIssue({
@@ -6541,7 +6628,7 @@ function MainApplication() {
         tone: "success"
       });
     } catch (error) {
-      if (alarmEnabled) await notificationCoordinatorRef.current?.setPreferenceEnabled(false).catch(() => undefined);
+      if (desiredEnabled) await notificationCoordinatorRef.current?.setPreferenceEnabled(false).catch(() => undefined);
       if (error instanceof StaleAccountRequestError) return;
       const controlledNotificationError = userMessageFromError(error, "Alarm ayarları kaydedilemedi");
       setNotificationPreferenceOutcome("error");
@@ -6969,7 +7056,7 @@ function MainApplication() {
             feedback={sharedFeedback}
             onChangeEmail={returnToLoginForm}
             onCodeChange={(value) => {
-              setVerificationToken(normalizeNumericCode(value, 4));
+              setVerificationToken(normalizeNumericCode(value, 6));
               setMessage(null);
             }}
             onDismissFeedback={() => setMessage(null)}
@@ -7116,7 +7203,7 @@ function MainApplication() {
     if (AUTH_ROUTE_NAMES.has(route) || route === "AcademicOnboarding") {
       return (
         <>
-          {renderCleanupIssue()}
+          {cleanupIssue?.action === "logout" ? null : renderCleanupIssue()}
           {renderAuthOnboardingScreen(route)}
         </>
       );
@@ -8840,20 +8927,28 @@ function MainApplication() {
     ? "dirty" as const
     : academicProfileSaveState;
   const recentAuthenticationPanel = recentAuthAction ? (
-    <RecentAuthenticationPanel
-      action={recentAuthAction}
-      busy={recentAuthBusy}
-      error={recentAuthError}
-      methods={availableRecentAuthMethods}
-      onCancel={dismissRecentAuthentication}
-      onPasswordChange={(value) => {
-        setRecentAuthPassword(value);
-        setRecentAuthError(undefined);
-      }}
-      onSubmitGoogle={() => void submitRecentAuthentication("google")}
-      onSubmitPassword={() => void submitRecentAuthentication("password")}
-      password={recentAuthPassword}
-    />
+    <BottomSheet
+      dismissible={!recentAuthBusy}
+      onDismiss={dismissRecentAuthentication}
+      scrollable
+      title="Kimliğini yeniden doğrula"
+      visible
+    >
+      <RecentAuthenticationPanel
+        action={recentAuthAction}
+        busy={recentAuthBusy}
+        error={recentAuthError}
+        methods={availableRecentAuthMethods}
+        onCancel={dismissRecentAuthentication}
+        onPasswordChange={(value) => {
+          setRecentAuthPassword(value);
+          setRecentAuthError(undefined);
+        }}
+        onSubmitGoogle={() => void submitRecentAuthentication("google")}
+        onSubmitPassword={() => void submitRecentAuthentication("password")}
+        password={recentAuthPassword}
+      />
+    </BottomSheet>
   ) : undefined;
   const profileOverviewScreen = session ? (
     <>
@@ -9144,8 +9239,9 @@ function MainApplication() {
 function RoutedStatusBar() {
   return (
     <StatusBar
+      backgroundColor="#FFFFFF"
       style="dark"
-      translucent
+      translucent={false}
     />
   );
 }

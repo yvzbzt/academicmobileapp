@@ -1,9 +1,10 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
+import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchSourceItems, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
 import { canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
-import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceStatus } from "./announcements.types.js";
+import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 export interface AnnouncementDiscoveryResult {
@@ -60,36 +61,11 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
 
   async runSourceDiscovery(input: { limit?: number; offset?: number; concurrency?: number } = {}) {
     const universities = await this.listUniversities(input.limit ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_BATCH_SIZE, 205), input.offset ?? 0);
-    const discoveryResults = await runWithConcurrency(universities, input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_CONCURRENCY, 4), async (university) => {
-      const result = await discoverAnnouncementSourceForUniversity(university, { timeoutMs: readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000) });
-      if (result.status !== "source_found" || !result.sourceUrl) return result;
-      const officialHomepage = university.websiteUrl ?? result.homepageUrl;
-      if (!officialHomepage || !isOfficialContentUrl(result.sourceUrl, officialHomepage)) {
-        const { sourceUrl: _sourceUrl, parser: _parser, ...rest } = result;
-        void _sourceUrl;
-        void _parser;
-        return { ...rest, status: "homepage_found_no_items" as const, itemCount: 0, sampleTitles: [], error: "SOURCE_DOMAIN_NOT_OFFICIAL" };
-      }
-
-      await this.announcementRepository.upsertSource({
-        scopeType: "university",
-        scopeId: university.id,
-        sourceName: `${university.name} Duyurular`,
-        sourceUrl: result.sourceUrl,
-        contentType: "announcement",
-        parser: result.parser ?? "auto",
-        priority: 20,
-        status: "active",
-        homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
-        discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
-        healthStatus: result.itemCount > 0 ? "healthy" : "degraded",
-        lastCheckedAt: new Date(),
-        ...(result.itemCount > 0 ? { lastSuccessAt: new Date() } : {}),
-        consecutiveFailures: result.itemCount > 0 ? 0 : 1,
-        itemCount: result.itemCount
-      });
-      return result;
-    });
+    const discoveryResults = await runWithConcurrency(
+      universities,
+      input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_CONCURRENCY, 4),
+      (university) => this.discoverUniversitySource(university)
+    );
 
     return {
       summary: summarizeDiscovery(discoveryResults),
@@ -122,6 +98,93 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
   async listSources(input: { status?: "active" | "inactive"; limit?: number; offset?: number } = {}) {
     await this.ensureStaticAnnouncementSources();
     return this.announcementRepository.listAllSources(input);
+  }
+
+  async listSourcesForAdmin(
+    access: AdminUniversityAccess,
+    input: { status?: "active" | "inactive"; limit?: number; offset?: number } = {}
+  ) {
+    if (access.kind === "global") return this.listSources(input);
+    await this.ensureStaticAnnouncementSources();
+    return this.announcementRepository.listSourcesByScopeSet({
+      scopes: await this.listAnnouncementScopesForUniversity(access.universityId),
+      ...(input.status ? { status: input.status } : {}),
+      limit: Math.min(Math.max(input.limit ?? 1000, 1), 1000),
+      offset: Math.max(input.offset ?? 0, 0)
+    });
+  }
+
+  async createManualSourceForAdmin(access: AdminUniversityAccess, input: ManualAnnouncementSourceInput) {
+    assertUniversityTarget(access, input.universityId);
+    return this.createManualSource(input);
+  }
+
+  async updateManualSourceForAdmin(access: AdminUniversityAccess, id: string, input: ManualAnnouncementSourceUpdateInput) {
+    await this.getSourceForAdmin(access, id);
+    return this.updateManualSource(id, input);
+  }
+
+  async deactivateManualSourceForAdmin(access: AdminUniversityAccess, id: string) {
+    await this.getSourceForAdmin(access, id);
+    return this.deactivateManualSource(id);
+  }
+
+  async ingestSourceByIdForAdmin(access: AdminUniversityAccess, id: string) {
+    await this.getSourceForAdmin(access, id);
+    return this.ingestSourceById(id);
+  }
+
+  async runSourceDiscoveryForAdmin(
+    access: AdminUniversityAccess,
+    input: { limit?: number; offset?: number; concurrency?: number } = {}
+  ) {
+    if (access.kind === "global") return this.runSourceDiscovery(input);
+    const university = await this.catalogRepository.findUniversityById(access.universityId);
+    if (!university || university.status !== "active") throw new NotFoundException("University not found.");
+    const universities = (input.offset ?? 0) > 0 ? [] : [university];
+    const results = await runWithConcurrency(
+      universities,
+      input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_CONCURRENCY, 4),
+      (candidate) => this.discoverUniversitySource(candidate)
+    );
+    return { summary: summarizeDiscovery(results), results };
+  }
+
+  async runIngestionForAdmin(
+    access: AdminUniversityAccess,
+    input: { limit?: number; offset?: number; concurrency?: number } = {}
+  ) {
+    if (access.kind === "global") return this.runIngestion(input);
+    const sources = await this.listSourcesForAdmin(access, {
+      status: "active",
+      limit: input.limit ?? 1000,
+      offset: input.offset ?? 0
+    });
+    const results = await runWithConcurrency(
+      sources,
+      input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
+      (source) => this.ingestSource(source)
+    );
+    return { summary: summarizeIngestion(results), results };
+  }
+
+  async runDiscoveryAndIngestionForAdmin(
+    access: AdminUniversityAccess,
+    input: { limit?: number; offset?: number; refreshSources?: boolean; concurrency?: number } = {}
+  ) {
+    if (access.kind === "global") return this.runDiscoveryAndIngestion(input);
+    const discovery = await this.runSourceDiscoveryForAdmin(access, input);
+    const ingestion = await this.runIngestionForAdmin(access, {
+      ...(input.limit ? { limit: input.limit } : {}),
+      ...(input.offset !== undefined ? { offset: input.offset } : {}),
+      ...(input.concurrency ? { concurrency: input.concurrency } : {})
+    });
+    return {
+      discovery: discovery.summary,
+      ingestion: ingestion.summary,
+      discoveryResults: discovery.results,
+      ingestionResults: ingestion.results
+    };
   }
 
   async createManualSource(input: ManualAnnouncementSourceInput) {
@@ -347,6 +410,71 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
 
   private async listUniversities(limit: number, offset: number): Promise<UniversityRecord[]> {
     return this.catalogRepository.listUniversities({ status: "active", limit, offset });
+  }
+
+  private async discoverUniversitySource(university: UniversityRecord): Promise<AnnouncementDiscoveryResult> {
+    const result = await discoverAnnouncementSourceForUniversity(university, {
+      timeoutMs: readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000)
+    });
+    if (result.status !== "source_found" || !result.sourceUrl) return result;
+    const officialHomepage = university.websiteUrl ?? result.homepageUrl;
+    if (!officialHomepage || !isOfficialContentUrl(result.sourceUrl, officialHomepage)) {
+      const { sourceUrl: _sourceUrl, parser: _parser, ...rest } = result;
+      void _sourceUrl;
+      void _parser;
+      return {
+        ...rest,
+        status: "homepage_found_no_items",
+        itemCount: 0,
+        sampleTitles: [],
+        error: "SOURCE_DOMAIN_NOT_OFFICIAL"
+      };
+    }
+
+    await this.announcementRepository.upsertSource({
+      scopeType: "university",
+      scopeId: university.id,
+      sourceName: `${university.name} Duyurular`,
+      sourceUrl: result.sourceUrl,
+      contentType: "announcement",
+      parser: result.parser ?? "auto",
+      priority: 20,
+      status: "active",
+      homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
+      discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
+      healthStatus: result.itemCount > 0 ? "healthy" : "degraded",
+      lastCheckedAt: new Date(),
+      ...(result.itemCount > 0 ? { lastSuccessAt: new Date() } : {}),
+      consecutiveFailures: result.itemCount > 0 ? 0 : 1,
+      itemCount: result.itemCount
+    });
+    return result;
+  }
+
+  private async listAnnouncementScopesForUniversity(universityId: string): Promise<AnnouncementSourceScope[]> {
+    const faculties = await this.catalogRepository.listFaculties(universityId);
+    const departments = (await Promise.all(faculties.map((faculty) => this.catalogRepository.listDepartments(faculty.id)))).flat();
+    return [
+      { scopeType: "university", scopeId: universityId },
+      ...faculties.map((faculty) => ({ scopeType: "faculty" as const, scopeId: faculty.id })),
+      ...departments
+        .filter((department) => department.universityId === universityId)
+        .map((department) => ({ scopeType: "department" as const, scopeId: department.id }))
+    ];
+  }
+
+  private async getSourceForAdmin(access: AdminUniversityAccess, id: string): Promise<AnnouncementSourceRecord> {
+    const source = await this.announcementRepository.findSourceById(id);
+    if (!source) throw new NotFoundException("Announcement source not found.");
+    if (access.kind === "global") return source;
+    const allowedScopes = new Set(
+      (await this.listAnnouncementScopesForUniversity(access.universityId))
+        .map((scope) => `${scope.scopeType}\u0000${scope.scopeId}`)
+    );
+    if (!allowedScopes.has(`${source.scopeType}\u0000${source.scopeId}`)) {
+      throw new NotFoundException("Announcement source not found.");
+    }
+    return source;
   }
 
   private async resolveManualScope(input: ManualAnnouncementSourceInput): Promise<{ scopeId: string; homepageUrl: string }> {

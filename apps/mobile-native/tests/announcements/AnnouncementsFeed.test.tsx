@@ -268,7 +268,11 @@ describe("Phase 8 Announcements feed", () => {
 
     expect(screen.getByTestId("announcements-top-bar")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Duyurular" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Duyurular" })).toHaveProp("maxFontSizeMultiplier", 1.3);
+    expect(screen.getByRole("header", { name: "Duyurular" })).toHaveProp("numberOfLines", 1);
+    expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
     expect(screen.getByTestId("announcements-search-frame")).toBeOnTheScreen();
+    expect(screen.getByRole("search", { name: "Duyurularda ara" })).toHaveProp("maxFontSizeMultiplier", 1.3);
     expect(screen.getByTestId("announcements-reminder-banner")).toBeOnTheScreen();
 
     fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));

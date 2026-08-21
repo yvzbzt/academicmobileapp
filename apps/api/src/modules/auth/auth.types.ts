@@ -250,6 +250,7 @@ export interface AuthRepository {
   consumeRecentAuthenticationProof(input: ConsumeRecentAuthenticationProofInput): Promise<boolean>;
   createRefreshToken(input: CreateRefreshTokenInput): Promise<RefreshTokenRecord>;
   findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRecord | null>;
+  consumeRefreshTokenForRotation(id: string, revokedAt: Date): Promise<boolean>;
   revokeRefreshToken(id: string, revokedAt: Date): Promise<void>;
   markRefreshTokenReused(id: string, reusedAt: Date): Promise<void>;
   revokeRefreshTokenFamily(familyId: string, revokedAt: Date): Promise<void>;

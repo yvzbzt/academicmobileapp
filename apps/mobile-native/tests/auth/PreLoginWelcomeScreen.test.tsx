@@ -4,15 +4,25 @@ import { PreLoginWelcomeScreen } from "../../src/auth/PreLoginWelcomeScreen";
 import { renderWithTheme } from "../design-system/test-utils";
 
 describe("PreLoginWelcomeScreen", () => {
-  it("pages through three instructional vector slides without fake agenda data", async () => {
+  it("pages through the three design-package slides in the required order", async () => {
     const onContinue = jest.fn();
     const view = await renderWithTheme(
       <PreLoginWelcomeScreen onContinue={onContinue} />,
     );
 
-    expect(screen.getByTestId("prelogin-slide-0")).toBeVisible();
-    expect(screen.getByTestId("prelogin-slide-1")).toBeVisible();
-    expect(screen.getByTestId("prelogin-slide-2")).toBeVisible();
+    expect(screen.getByLabelText("Akademik Takvim logosu")).toBeVisible();
+    expect(screen.getByTestId("prelogin-slide-0")).toHaveProp(
+      "accessibilityLabel",
+      expect.stringMatching(/1 \/ 3\. Duyuruları tek yerden takip et/u),
+    );
+    expect(screen.getByTestId("prelogin-slide-1")).toHaveProp(
+      "accessibilityLabel",
+      expect.stringMatching(/2 \/ 3\. Dönemini rahatça planla/u),
+    );
+    expect(screen.getByTestId("prelogin-slide-2")).toHaveProp(
+      "accessibilityLabel",
+      expect.stringMatching(/3 \/ 3\. Kendi düzenini oluştur/u),
+    );
     expect(screen.queryByText("Bugünün planı")).toBeNull();
     expect(screen.queryByText("Ders kaydı son günü")).toBeNull();
     expect(screen.queryByText("Ana Sayfa")).toBeNull();

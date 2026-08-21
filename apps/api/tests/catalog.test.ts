@@ -40,6 +40,15 @@ describe("CatalogService", () => {
     expect(university.slug).toBe("ege-test-universitesi");
     expect(faculty.universityId).toBe(university.id);
     expect(department.facultyId).toBe(faculty.id);
+    await expect(service.listUniversities({ search: "Ege Test" })).resolves.toEqual([
+      expect.objectContaining({ id: university.id, name: university.name, status: "active" })
+    ]);
+    await expect(service.listFaculties(university.id)).resolves.toEqual([
+      expect.objectContaining({ id: faculty.id, universityId: university.id, status: "active" })
+    ]);
+    await expect(service.listDepartments(faculty.id)).resolves.toEqual([
+      expect.objectContaining({ id: department.id, facultyId: faculty.id, status: "active" })
+    ]);
   });
 
   it("updates source URLs according to the university/faculty/department hierarchy", async () => {

@@ -4,8 +4,11 @@ export function getModel(connection: Connection, name: string, schema: Schema): 
   return (connection.models[name] as Model<Record<string, unknown>> | undefined) ?? connection.model<Record<string, unknown>>(name, schema);
 }
 
-export function toDomainRecord<TRecord>(document: { id: string; toObject: () => Record<string, unknown> }): TRecord {
-  const { _id, __v, ...rest } = document.toObject();
+export function toDomainRecord<TRecord>(document: {
+  id: string;
+  toObject: (options?: { flattenMaps?: boolean }) => Record<string, unknown>;
+}): TRecord {
+  const { _id, __v, ...rest } = document.toObject({ flattenMaps: true });
   void _id;
   void __v;
   return { ...rest, id: document.id } as TRecord;

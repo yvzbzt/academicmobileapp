@@ -97,18 +97,18 @@ export function Banner({
           accessibilityRole="alert"
           style={{ gap: theme.spacing.xxs }}
         >
-          <Text style={[theme.typography.bodyStrong, { color: palette.foreground }]}>
+          <Text maxFontSizeMultiplier={1.35} numberOfLines={2} style={[theme.typography.bodyStrong, { color: palette.foreground }]}>
             {title}
           </Text>
           {message ? (
-            <Text style={[theme.typography.body, { color: palette.foreground }]}>
+            <Text maxFontSizeMultiplier={1.35} numberOfLines={4} style={[theme.typography.body, { color: palette.foreground }]}>
               {message}
             </Text>
           ) : null}
         </View>
         {actionLabel && onAction ? (
           <View>
-            <Button compact label={actionLabel} onPress={onAction} variant="secondary" />
+            <Button compact label={actionLabel} maxFontSizeMultiplier={1.3} onPress={onAction} variant="secondary" />
           </View>
         ) : null}
       </View>
@@ -116,7 +116,7 @@ export function Banner({
         <IconButton
           accessibilityLabel={dismissAccessibilityLabel}
           icon={
-            <Text style={[theme.typography.bodyStrong, { color: palette.foreground }]}>×</Text>
+            <Text maxFontSizeMultiplier={1.2} style={[theme.typography.bodyStrong, { color: palette.foreground }]}>×</Text>
           }
           onPress={onDismiss}
         />
@@ -255,16 +255,18 @@ export function EmptyState({
       >
         <Text
           accessibilityRole="header"
+          maxFontSizeMultiplier={1.4}
+          numberOfLines={3}
           style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}
         >
           {title}
         </Text>
-        <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>
+        <Text maxFontSizeMultiplier={1.35} style={[theme.typography.body, { color: theme.colors.text.secondary }]}>
           {description}
         </Text>
       </View>
       {actionLabel && onAction ? (
-        <Button label={actionLabel} onPress={onAction} variant="secondary" />
+        <Button label={actionLabel} maxFontSizeMultiplier={1.35} onPress={onAction} variant="secondary" />
       ) : null}
     </View>
   );
@@ -306,21 +308,23 @@ export function ErrorState({
       >
         <Text
           accessibilityRole="header"
+          maxFontSizeMultiplier={1.4}
+          numberOfLines={3}
           style={[theme.typography.sectionTitle, { color: theme.colors.status.error }]}
         >
           {title}
         </Text>
-        <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>
+        <Text maxFontSizeMultiplier={1.35} style={[theme.typography.body, { color: theme.colors.text.secondary }]}>
           {description}
         </Text>
         {technicalDetails ? (
-          <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
+          <Text maxFontSizeMultiplier={1.3} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
             {technicalDetails}
           </Text>
         ) : null}
       </View>
       {actionLabel && onAction ? (
-        <Button label={actionLabel} onPress={onAction} />
+        <Button label={actionLabel} maxFontSizeMultiplier={1.35} onPress={onAction} />
       ) : null}
     </View>
   );

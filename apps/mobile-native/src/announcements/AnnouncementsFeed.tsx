@@ -298,18 +298,12 @@ export function AnnouncementsFeed({
   const header = (
     <View style={[styles.header, { gap: theme.spacing.md }]}>
       <View style={styles.pageTitleRow} testID="announcements-top-bar">
-        <Pressable
-          accessibilityLabel="Hesap menüsünü aç"
-          accessibilityRole="button"
-          disabled={!onOpenAccountMenu}
-          hitSlop={8}
-          onPress={onOpenAccountMenu}
-          style={({ pressed }) => [styles.notificationGlyph, pressed && styles.pressed]}
-        >
-          <Ionicons color={REFERENCE_COLORS.navy} name="menu-outline" size={27} />
-        </Pressable>
         <Text
           accessibilityRole="header"
+          adjustsFontSizeToFit
+          maxFontSizeMultiplier={1.3}
+          minimumFontScale={0.8}
+          numberOfLines={1}
           style={[theme.typography.screenTitle, styles.pageTitle, { color: REFERENCE_COLORS.navy }]}
         >
           Duyurular
@@ -338,11 +332,12 @@ export function AnnouncementsFeed({
           accessibilityRole="search"
           autoCapitalize="none"
           autoCorrect={false}
+          maxFontSizeMultiplier={1.3}
           onChangeText={(value) => {
             resultAnnouncementRequestedRef.current = true;
             setSearchText(value);
           }}
-          placeholder="Başlık, özet veya kaynak ara"
+          placeholder={layout.supportsLargeText ? "Duyurularda ara" : "Başlık, özet veya kaynak ara"}
           placeholderTextColor={referencePalette.academicPlaceholder}
           returnKeyType="search"
           selectionColor={REFERENCE_COLORS.blue}
@@ -403,8 +398,8 @@ export function AnnouncementsFeed({
         >
           <Ionicons color={REFERENCE_COLORS.secondary} name="options-outline" size={19} />
           <View style={styles.sourceFilterCopy}>
-            <Text style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}>Kaynak</Text>
-            <Text numberOfLines={1} style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}>{selectedSourceLabel}</Text>
+            <Text maxFontSizeMultiplier={1.25} style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}>Kaynak</Text>
+            <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}>{selectedSourceLabel}</Text>
           </View>
           {sourceFilter !== "all" ? (
             <View style={[styles.activeFilterDot, { backgroundColor: REFERENCE_COLORS.blue }]} />
@@ -498,7 +493,7 @@ export function AnnouncementsFeed({
                 ]}
               >
                 <Ionicons color={selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.secondary} name={option.icon} size={20} />
-                <Text style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}>{option.label}</Text>
+                <Text maxFontSizeMultiplier={1.35} numberOfLines={1} style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}>{option.label}</Text>
                 {selected ? <Ionicons color={REFERENCE_COLORS.blue} name="checkmark" size={20} /> : null}
               </Pressable>
               {destinationAction ? (
@@ -570,6 +565,7 @@ function FilterPill({
         size={17}
       />
       <Text
+        maxFontSizeMultiplier={1.25}
         numberOfLines={1}
         style={[
           theme.typography.metaStrong,
@@ -637,10 +633,11 @@ function FeedRow({
         <View
           style={[styles.typeBadge, { backgroundColor: palette.soft }]}
         >
-          <Text style={[theme.typography.navLabel, { color: palette.accent }]}>{typeLabel}</Text>
+          <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[theme.typography.navLabel, { color: palette.accent }]}>{typeLabel}</Text>
         </View>
         <View style={styles.sourceIdentity}>
           <Text
+            maxFontSizeMultiplier={1.25}
             numberOfLines={1}
             style={[theme.typography.metaStrong, styles.sourceName, { color: REFERENCE_COLORS.secondary }]}
           >
@@ -649,6 +646,7 @@ function FeedRow({
           <Ionicons color={REFERENCE_COLORS.blue} name="checkmark-circle" size={15} />
         </View>
         <Text
+          maxFontSizeMultiplier={1.2}
           numberOfLines={1}
           style={[theme.typography.meta, styles.timestamp, { color: REFERENCE_COLORS.secondary }]}
         >
@@ -665,6 +663,8 @@ function FeedRow({
         </View>
         <View style={styles.feedCopy}>
           <Text
+            maxFontSizeMultiplier={1.35}
+            numberOfLines={3}
             style={[theme.typography.cardTitle, styles.feedTitle, { color: REFERENCE_COLORS.navy }]}
           >
             {record.title}
@@ -672,6 +672,7 @@ function FeedRow({
           {record.summary ? (
             <Text
               ellipsizeMode="tail"
+              maxFontSizeMultiplier={1.3}
               numberOfLines={3}
               style={[theme.typography.meta, styles.feedSummary, { color: REFERENCE_COLORS.secondary }]}
             >
@@ -679,6 +680,8 @@ function FeedRow({
             </Text>
           ) : null}
           <Text
+            maxFontSizeMultiplier={1.2}
+            numberOfLines={1}
             style={[theme.typography.navLabel, styles.scopeLabel, { color: palette.accent }]}
           >
             {scopeLabel}
@@ -746,18 +749,20 @@ function AnnouncementReminderBanner({ onPress }: { onPress?: () => void }) {
       </View>
       <View style={styles.reminderCopy}>
         <Text
+          maxFontSizeMultiplier={1.3}
           style={[theme.typography.bodyStrong, styles.reminderTitle, { color: REFERENCE_COLORS.navy }]}
         >
           Duyurular için bildirim al
         </Text>
         <Text
+          maxFontSizeMultiplier={1.3}
           numberOfLines={2}
           style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
         >
           Önemli duyurular için bildirimlerini açmayı unutma.
         </Text>
         <View style={styles.reminderAction}>
-          <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.blue }]}>Bildirimleri Aç</Text>
+          <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.blue }]}>Bildirimleri Aç</Text>
           <Ionicons color={REFERENCE_COLORS.blue} name="chevron-forward" size={17} />
         </View>
       </View>
@@ -1027,7 +1032,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 28,
     lineHeight: 34,
-    textAlign: "center",
+    textAlign: "left",
   },
   pageTitleRow: {
     alignItems: "center",

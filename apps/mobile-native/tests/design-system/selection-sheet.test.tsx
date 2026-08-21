@@ -177,9 +177,7 @@ describe("accessible SelectField", () => {
     await userEvent.press(screen.getByRole("combobox", { name: "Kurum" }));
 
     expect(screen.getByLabelText("Kurum ara")).toHaveProp("autoFocus", true);
-    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe(
-      Platform.OS === "ios" ? "padding" : "height",
-    );
+    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe("padding");
     const optionList = screen.UNSAFE_getByType(FlatList);
     expect(optionList.props.keyboardDismissMode).toBe(
       Platform.OS === "ios" ? "interactive" : "on-drag",

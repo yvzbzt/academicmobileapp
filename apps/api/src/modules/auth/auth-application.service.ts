@@ -295,7 +295,10 @@ export class AuthApplicationService {
     }
     if (user.status !== "active") throw unauthorizedAuthError(AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
 
-    await this.authRepository.revokeRefreshToken(existingToken.id, new Date());
+    const consumed = await this.authRepository.consumeRefreshTokenForRotation(existingToken.id, new Date());
+    if (!consumed) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_INVALID, "Session is no longer valid.");
+    }
     return this.createSession(user, input.deviceId, input.ipAddress, input.userAgent, existingToken.familyId);
   }
 

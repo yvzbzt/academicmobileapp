@@ -37,8 +37,9 @@ export class InMemoryPdfRepository implements PdfRepository {
     return records;
   }
 
-  async listExtractedEvents(input: { pdfSourceId?: string; status?: ExtractedEventStatus; limit: number; offset: number }): Promise<ExtractedEventRecord[]> {
+  async listExtractedEvents(input: { universityId?: string; pdfSourceId?: string; status?: ExtractedEventStatus; limit: number; offset: number }): Promise<ExtractedEventRecord[]> {
     return [...this.extractedEvents.values()]
+      .filter((event) => (input.universityId ? event.universityId === input.universityId : true))
       .filter((event) => (input.pdfSourceId ? event.pdfSourceId === input.pdfSourceId : true))
       .filter((event) => (input.status ? event.status === input.status : true))
       .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())

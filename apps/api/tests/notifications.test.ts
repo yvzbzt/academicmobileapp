@@ -1,7 +1,9 @@
 import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 import type { AuthUserRecord } from "../src/modules/auth/auth.types.js";
+import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import { AdminCalendarService } from "../src/modules/calendars/admin-calendar.service.js";
+import { CalendarService } from "../src/modules/calendars/calendar.service.js";
 import { InMemoryCalendarRepository } from "../src/modules/calendars/in-memory-calendar.repository.js";
 import { InMemoryNotificationRepository } from "../src/modules/notifications/in-memory-notification.repository.js";
 import { GENERIC_PUSH_NOTIFICATION_BODY, GENERIC_PUSH_NOTIFICATION_TITLE, NotificationWorkerService } from "../src/modules/notifications/notification-worker.service.js";
@@ -286,6 +288,84 @@ describe("NotificationsService", () => {
     }));
     expect(cancelled.status).toBe("cancelled");
     expect(await repository.listDueJobs(new Date("2026-10-01T03:31:00.000Z"), 10)).toHaveLength(0);
+  });
+
+  it("creates an alarm for a university-level calendar event returned by the student's calendar", async () => {
+    const authRepository = new InMemoryAuthRepository();
+    const student = await authRepository.createUser({
+      fullName: "Scoped Student",
+      email: "scoped-student@example.com",
+      passwordHash: "unused-test-hash",
+      role: "student",
+      universityId: "university-1",
+      facultyId: "faculty-1",
+      departmentId: "department-1",
+      status: "active"
+    });
+    if (!student.universityId || !student.facultyId || !student.departmentId) {
+      throw new Error("Expected student academic scope fixture.");
+    }
+    const user = {
+      id: student.id,
+      email: student.email,
+      role: student.role,
+      universityId: student.universityId,
+      facultyId: student.facultyId,
+      departmentId: student.departmentId
+    };
+    const calendarRepository = new InMemoryCalendarRepository();
+    const calendar = await calendarRepository.createCalendar({
+      universityId: user.universityId!,
+      academicYear: "2026-2027",
+      title: "Published university calendar",
+      status: "published",
+      version: 1
+    });
+    const [event] = await calendarRepository.createEvents([{
+      calendarId: calendar.id,
+      universityId: calendar.universityId,
+      academicYear: calendar.academicYear,
+      term: "fall",
+      category: "custom_event",
+      title: "University Senate Meeting",
+      startDate: new Date("2026-10-15T09:00:00.000Z"),
+      timezone: "Europe/Istanbul",
+      status: "published",
+      notificationRules: []
+    }]);
+    if (!event) throw new Error("Expected university-level calendar event fixture.");
+    const visibleCalendar = await new CalendarService(calendarRepository, authRepository).getMyCalendar(student.id);
+    const notificationRepository = new InMemoryNotificationRepository();
+    const notificationsService = new NotificationsService(notificationRepository, calendarRepository);
+
+    expect(visibleCalendar.events.map((candidate) => candidate.id)).toContain(event.id);
+
+    const alarm = await notificationsService.createStudentAlarm(user, {
+      eventType: "calendar_event",
+      targetId: event.id,
+      scheduledFor: "2026-10-15T09:00:00.000Z",
+      trigger: "before",
+      amount: 1,
+      unit: "days"
+    });
+    const jobs = await notificationRepository.listJobsByCalendar(calendar.id);
+
+    expect(alarm).toEqual(expect.objectContaining({
+      eventType: "calendar_event",
+      targetId: event.id,
+      title: event.title,
+      status: "scheduled"
+    }));
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        destinationType: "calendar_event",
+        destinationId: event.id,
+        destinationScopeType: "university",
+        destinationScopeId: calendar.universityId,
+        userId: student.id,
+        alarmId: alarm.id
+      })
+    ]);
   });
 });
 

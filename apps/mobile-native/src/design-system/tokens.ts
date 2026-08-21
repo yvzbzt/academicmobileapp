@@ -80,6 +80,40 @@ export const referencePalette = {
   welcomeOrangeSoft: "#FFF2E7",
 } as const;
 
+export const authScreenColors = {
+  fieldIcon: "#176C8A",
+  fieldIconSurface: "#F1F7F8",
+  googleBorder: "#D7E5EF",
+  socialIcon: "#466274",
+  socialSurface: "#F7FAFB",
+  socialBorder: "#DDE8EF",
+  passwordWeak: "#FF6B5F",
+  passwordMedium: "#F5B622",
+  passwordGood: "#16B8A6",
+  passwordStrong: "#18A875",
+  passwordWeakText: "#D94B42",
+  passwordMediumText: "#C28100",
+  passwordGoodText: "#078A7D",
+  passwordStrongText: "#087955",
+  disabledSurface: "#E6EAF1",
+} as const;
+
+export const preLoginWelcomeColors = {
+  brandNavy: "#071B50",
+  body: "#64738F",
+  trust: "#1768D9",
+  canvasCool: "#FBFCFF",
+  canvasWarm: "#FFFCF7",
+  success: "#73D65C",
+  paginationIdle: "#8796AE",
+} as const;
+
+export const homeDailyBriefColors = {
+  avatarBorder: "#FFFFFF33",
+  announcementSurface: "#FFB719",
+  summaryDivider: "#FFFFFF42",
+} as const;
+
 export interface SemanticColors {
   accent: {
     blue: string;
@@ -171,25 +205,25 @@ const lightColors: SemanticColors = {
     secondary: "#5B6577",
     disabled: "#5B6577",
     inverse: referencePalette.white,
-    link: "#315F72",
+    link: "#176C8A",
   },
   border: {
     subtle: "#E2E8F0",
     default: "#758197",
     strong: "#526079",
-    focus: "#3D6F8E",
+    focus: referencePalette.academicBlue,
   },
   action: {
-    primary: "#3D6F8E",
+    primary: referencePalette.academicBlue,
     onPrimary: referencePalette.white,
-    primaryPressed: "#315B76",
+    primaryPressed: referencePalette.academicBlueDeep,
     primaryRipple: "#FFFFFF33",
-    secondary: "#EAF3F5",
-    secondaryPressed: "#DCEAEC",
-    ghostPressed: "#EEF4F5",
+    secondary: referencePalette.academicBlueSoft,
+    secondaryPressed: referencePalette.academicBlueSurfaceStrong,
+    ghostPressed: referencePalette.academicBlueSurface,
     disabled: "#E8EDF5",
     onDisabled: "#526079",
-    focus: "#3D6F8E",
+    focus: referencePalette.academicBlue,
   },
   status: {
     success: "#0F766E",
@@ -203,13 +237,13 @@ const lightColors: SemanticColors = {
     errorContainer: "#FEF2F2",
     onError: referencePalette.white,
     onErrorContainer: "#991B1B",
-    info: "#3D6F8E",
-    infoContainer: "#EAF3F5",
-    onInfoContainer: "#284F63",
+    info: referencePalette.academicBlue,
+    infoContainer: referencePalette.academicBlueSoft,
+    onInfoContainer: referencePalette.academicTextInfo,
   },
   state: {
-    pressed: "#3D6F8E1A",
-    selected: "#EAF3F5",
+    pressed: referencePalette.academicBlueDeepAlpha18,
+    selected: referencePalette.academicBlueSoft,
     scrim: "#0B173999",
     skeleton: "#DDE7F3",
     skeletonHighlight: "#F2F6FB",

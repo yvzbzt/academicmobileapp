@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { adminUniversityAccessFor } from "../../common/authorization/admin-university-access.js";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
@@ -36,20 +37,20 @@ export class AdminCalendarController {
 
   @Get("course-schedules")
   @Roles("content_editor", "university_admin", "super_admin")
-  listCourseSchedules(@Query() query: CourseScheduleQueryDto) {
-    return this.adminCalendarService.listCourseSchedules(query);
+  listCourseSchedules(@CurrentUser() user: AuthenticatedUser, @Query() query: CourseScheduleQueryDto) {
+    return this.adminCalendarService.listCourseSchedulesForAdmin(adminUniversityAccessFor(user), query);
   }
 
   @Post("course-schedules")
   @Roles("content_editor", "university_admin", "super_admin")
-  createCourseSchedule(@Body() body: CreateCourseScheduleDto) {
-    return this.adminCalendarService.createCourseScheduleSeries(body);
+  createCourseSchedule(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateCourseScheduleDto) {
+    return this.adminCalendarService.createCourseScheduleSeriesForAdmin(adminUniversityAccessFor(user), body);
   }
 
   @Delete("course-schedules/:seriesId")
   @Roles("content_editor", "university_admin", "super_admin")
-  deleteCourseSchedule(@Param("seriesId") seriesId: string) {
-    return this.adminCalendarService.archiveCourseScheduleSeries(seriesId);
+  deleteCourseSchedule(@CurrentUser() user: AuthenticatedUser, @Param("seriesId") seriesId: string) {
+    return this.adminCalendarService.archiveCourseScheduleSeriesForAdmin(adminUniversityAccessFor(user), seriesId);
   }
 
   @Patch(":id")
