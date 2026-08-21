@@ -1,5 +1,8 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { BadRequestException, Inject, Injectable, InternalServerErrorException, NotFoundException, Optional } from "@nestjs/common";
+import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import type { PdfRepository } from "../pdf/pdf.types.js";
+import type { CatalogRepository, DepartmentRecord, FacultyRecord } from "../catalog/catalog.types.js";
 import { AuditService } from "../audit/audit.service.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
@@ -27,14 +30,56 @@ export interface PublishCalendarResponse {
   archivedCalendarCount: number;
 }
 
+interface ManualCalendarEventInput {
+  title: string;
+  category: AcademicEventCategory;
+  term: AcademicTerm;
+  startDate: string;
+  endDate?: string;
+  repeatWeekly?: boolean;
+  repeatUntil?: string;
+  facultyId?: string;
+  departmentId?: string;
+  courseName?: string;
+  description?: string;
+  location?: string;
+  notificationRules?: Array<{ offsetDays: number; offsetHours?: number; trigger?: "before" | "at_time" | "approaching"; enabled: boolean }>;
+}
+
 @Injectable()
 export class AdminCalendarService {
   constructor(
     @Inject("CalendarRepository") private readonly calendarRepository: CalendarRepository,
     @Inject("PdfRepository") private readonly pdfRepository: PdfRepository,
     @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService,
-    @Optional() @Inject(AuditService) private readonly auditService?: AuditService
+    @Optional() @Inject(AuditService) private readonly auditService?: AuditService,
+    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository
   ) {}
+
+  async listCourseSchedulesForAdmin(
+    access: AdminUniversityAccess,
+    input: { universityId: string; departmentId: string; academicYear?: string }
+  ): Promise<AcademicEventRecord[]> {
+    assertUniversityTarget(access, input.universityId);
+    await this.requireDepartmentInUniversity(input.universityId, input.departmentId);
+    return this.listCourseSchedules(input);
+  }
+
+  async createCourseScheduleSeriesForAdmin(
+    access: AdminUniversityAccess,
+    input: Parameters<AdminCalendarService["createCourseScheduleSeries"]>[0]
+  ) {
+    assertUniversityTarget(access, input.universityId);
+    await this.requireCourseScheduleUnit(input.universityId, input.facultyId, input.departmentId);
+    return this.createCourseScheduleSeries(input);
+  }
+
+  async archiveCourseScheduleSeriesForAdmin(access: AdminUniversityAccess, seriesId: string) {
+    return this.archiveCourseScheduleSeries(
+      seriesId,
+      access.kind === "university" ? access.universityId : undefined
+    );
+  }
 
   async createDraftFromApprovedExtractedEvents(input: CreateCalendarDraftInput): Promise<CalendarDraftResponse> {
     const source = await this.pdfRepository.findPdfSourceById(input.sourcePdfId);
@@ -100,22 +145,12 @@ export class AdminCalendarService {
     academicYear: string;
     title: string;
     createdBy: string;
-    events: Array<{
-      title: string;
-      category: AcademicEventCategory;
-      term: AcademicTerm;
-      startDate: string;
-      endDate?: string;
-      facultyId?: string;
-      departmentId?: string;
-      courseName?: string;
-      description?: string;
-      location?: string;
-      notificationRules?: Array<{ offsetDays: number; offsetHours?: number; trigger?: "before" | "at_time" | "approaching"; enabled: boolean }>;
-    }>;
+    events: ManualCalendarEventInput[];
   }): Promise<CalendarDraftResponse> {
     if (input.events.length === 0) throw new BadRequestException("At least one event is required.");
-    const validatedEvents = input.events.map((event) => ({
+    const expandedEvents = input.events.flatMap(expandWeeklyManualEvent);
+    if (expandedEvents.length > 500) throw new BadRequestException("Manual calendar cannot contain more than 500 expanded events.");
+    const validatedEvents = expandedEvents.map((event) => ({
       event,
       temporal: academicTemporalFields(event.startDate, event.endDate)
     }));
@@ -152,6 +187,108 @@ export class AdminCalendarService {
     );
 
     return { calendar, events };
+  }
+
+  async createCourseScheduleSeries(input: {
+    universityId: string;
+    facultyId: string;
+    departmentId: string;
+    academicYear: string;
+    term: AcademicTerm;
+    title: string;
+    courseName?: string;
+    startDate: string;
+    endDate?: string;
+    repeatWeekly?: boolean;
+    repeatUntil?: string;
+    location?: string;
+  }): Promise<{ seriesId: string; calendar: AcademicCalendarRecord; events: AcademicEventRecord[] }> {
+    const calendar = await this.calendarRepository.findPublishedCalendar(input.universityId, input.academicYear);
+    if (!calendar) throw new BadRequestException("Publish the university academic calendar before adding a course schedule.");
+
+    const occurrences = expandWeeklyManualEvent({
+      title: input.title,
+      ...(input.courseName ? { courseName: input.courseName } : {}),
+      ...(input.location ? { location: input.location } : {}),
+      category: "course_schedule",
+      term: input.term,
+      startDate: input.startDate,
+      ...(input.endDate ? { endDate: input.endDate } : {}),
+      ...(input.repeatWeekly ? { repeatWeekly: true } : {}),
+      ...(input.repeatUntil ? { repeatUntil: input.repeatUntil } : {}),
+      facultyId: input.facultyId,
+      departmentId: input.departmentId,
+      notificationRules: []
+    });
+    const seriesId = randomUUID();
+    const prepared = occurrences.map((event) => ({ event, temporal: academicTemporalFields(event.startDate, event.endDate) }));
+    const events = await this.calendarRepository.createEvents(prepared.map(({ event, temporal }) => ({
+      calendarId: calendar.id,
+      universityId: input.universityId,
+      facultyId: input.facultyId,
+      departmentId: input.departmentId,
+      academicYear: input.academicYear,
+      term: input.term,
+      category: "course_schedule" as const,
+      title: event.title.trim(),
+      ...(event.courseName?.trim() ? { courseName: event.courseName.trim() } : {}),
+      ...(event.location?.trim() ? { location: event.location.trim() } : {}),
+      scheduleSeriesId: seriesId,
+      ...temporal,
+      timezone: "Europe/Istanbul" as const,
+      status: "published" as const,
+      notificationRules: []
+    })));
+    return { seriesId, calendar, events };
+  }
+
+  async listCourseSchedules(input: { universityId: string; departmentId: string; academicYear?: string }): Promise<AcademicEventRecord[]> {
+    const events = await this.calendarRepository.listPublishedEvents({
+      universityId: input.universityId,
+      departmentId: input.departmentId,
+      category: "course_schedule",
+      limit: 500,
+      offset: 0
+    });
+    return events.filter((event) => event.departmentId === input.departmentId)
+      .filter((event) => input.academicYear ? event.academicYear === input.academicYear : true);
+  }
+
+  async archiveCourseScheduleSeries(seriesId: string, universityId?: string): Promise<{ seriesId: string; archivedCount: number }> {
+    if (!seriesId.trim()) throw new BadRequestException("Course schedule series is required.");
+    const archivedCount = await this.calendarRepository.archiveEventsByScheduleSeries(seriesId, universityId);
+    if (archivedCount === 0) throw new NotFoundException("Course schedule series not found.");
+    return { seriesId, archivedCount };
+  }
+
+  private async requireCourseScheduleUnit(universityId: string, facultyId: string, departmentId: string): Promise<void> {
+    const catalog = this.requireCatalogRepository();
+    const faculty = (await catalog.listFaculties(universityId, "active"))
+      .find((candidate) => candidate.id === facultyId && candidate.universityId === universityId);
+    if (!faculty) throw new NotFoundException("Academic unit not found.");
+    const department = (await catalog.listDepartments(faculty.id, "active"))
+      .find((candidate) => candidate.id === departmentId && candidate.universityId === universityId);
+    if (!department) throw new NotFoundException("Academic unit not found.");
+  }
+
+  private async requireDepartmentInUniversity(universityId: string, departmentId: string): Promise<DepartmentRecord> {
+    const catalog = this.requireCatalogRepository();
+    const faculties = await catalog.listFaculties(universityId);
+    const departments = (await Promise.all(
+      faculties.map((faculty: FacultyRecord) => catalog.listDepartments(faculty.id))
+    )).flat();
+    const department = departments.find((candidate) => (
+      candidate.id === departmentId && candidate.universityId === universityId
+    ));
+    if (!department) throw new NotFoundException("Academic unit not found.");
+    return department;
+  }
+
+  private requireCatalogRepository(): CatalogRepository {
+    if (!this.catalogRepository) {
+      throw new InternalServerErrorException("Catalog repository is required for course-schedule authorization.");
+    }
+    return this.catalogRepository;
   }
 
   async updateCalendar(calendarId: string, input: { title?: string }): Promise<AcademicCalendarRecord> {
@@ -220,4 +357,39 @@ export class AdminCalendarService {
     });
     return rolledBack;
   }
+}
+
+function expandWeeklyManualEvent(event: ManualCalendarEventInput): ManualCalendarEventInput[] {
+  const { repeatWeekly: _repeatWeekly, repeatUntil: _repeatUntil, ...base } = event;
+  if (!event.repeatWeekly) return [base];
+  if (!event.repeatUntil || !/^\d{4}-\d{2}-\d{2}$/u.test(event.repeatUntil)) {
+    throw new BadRequestException("Weekly events require a YYYY-MM-DD repeatUntil date.");
+  }
+
+  const firstCalendarDate = event.startDate.slice(0, 10);
+  if (event.repeatUntil < firstCalendarDate) {
+    throw new BadRequestException("Weekly event repeatUntil cannot be before startDate.");
+  }
+
+  const occurrences: ManualCalendarEventInput[] = [];
+  let startDate = event.startDate;
+  let endDate = event.endDate;
+  for (let count = 0; count < 54 && startDate.slice(0, 10) <= event.repeatUntil; count += 1) {
+    occurrences.push({ ...base, startDate, ...(endDate ? { endDate } : {}) });
+    startDate = addTemporalDays(startDate, 7);
+    if (endDate) endDate = addTemporalDays(endDate, 7);
+  }
+  return occurrences;
+}
+
+function addTemporalDays(value: string, days: number): string {
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  const instant = new Date(value);
+  instant.setUTCDate(instant.getUTCDate() + days);
+  return instant.toISOString();
 }

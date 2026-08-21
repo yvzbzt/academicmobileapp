@@ -10,7 +10,13 @@ import {
   SelectField,
   type SelectFieldOption,
 } from "../../src/design-system/primitives/SelectField";
-import { AccessibilityInfo, Text } from "react-native";
+import {
+  AccessibilityInfo,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Text,
+} from "react-native";
 import { renderWithTheme } from "./test-utils";
 
 const options = [
@@ -156,6 +162,29 @@ describe("accessible SelectField", () => {
 
     expect(screen.getByRole("summary", { name: "Henüz kurum yok." })).toBeVisible();
   });
+
+  it("keeps searchable options usable while the software keyboard is open", async () => {
+    await renderWithTheme(
+      <SelectField
+        label="Kurum"
+        onSearchValueChange={jest.fn()}
+        onValueChange={jest.fn()}
+        options={options}
+        searchValue=""
+        value={null}
+      />,
+    );
+    await userEvent.press(screen.getByRole("combobox", { name: "Kurum" }));
+
+    expect(screen.getByLabelText("Kurum ara")).toHaveProp("autoFocus", true);
+    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe("padding");
+    const optionList = screen.UNSAFE_getByType(FlatList);
+    expect(optionList.props.keyboardDismissMode).toBe(
+      Platform.OS === "ios" ? "interactive" : "on-drag",
+    );
+    expect(optionList.props.keyboardShouldPersistTaps).toBe("always");
+  });
+
   it("exposes an invalid selector state with controlled error copy", async () => {
     await renderWithTheme(
       <SelectField

@@ -5,6 +5,7 @@ import type { QueueService } from "../../queue/queue.types.js";
 import type { AuthRepository, AuthUserRecord } from "../auth/auth.types.js";
 import type { AnnouncementRepository } from "../announcements/announcements.types.js";
 import type { CalendarRepository } from "../calendars/calendar.types.js";
+import type { FollowedAcademicScopeRecord, UserDataRepository } from "../users/user-data.types.js";
 import { createNotificationDeliveryAttemptIdentity, notificationDeliveryAttemptVersion, safeProviderMessageId } from "./notification-delivery-attempt.js";
 import { announcementDestinationFingerprint, calendarDestinationFingerprint } from "./notification-destination.js";
 import { NOTIFICATION_DELIVERY_CONSENT_VERSION } from "./notification.types.js";
@@ -58,7 +59,8 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
     @Inject("PushSender") private readonly pushSender: PushSender,
     @Optional() @Inject("AuthRepository") private readonly authRepository?: Pick<AuthRepository, "findUserById">,
     @Optional() @Inject("AnnouncementRepository") private readonly announcementRepository?: AnnouncementRepository,
-    @Optional() @Inject("CalendarRepository") private readonly calendarRepository?: CalendarRepository
+    @Optional() @Inject("CalendarRepository") private readonly calendarRepository?: CalendarRepository,
+    @Optional() @Inject("UserDataRepository") private readonly userDataRepository?: Pick<UserDataRepository, "listFollowedAcademicScopesByUserId">
   ) {}
 
   onApplicationBootstrap(): void {
@@ -433,11 +435,21 @@ export class NotificationWorkerService implements OnApplicationBootstrap, Before
     let fenced = deliveryFences.length;
     let retryableFailureReason: NotificationSendResult["retryableFailureReason"];
     let quietRescheduleAt: Date | undefined;
+    const followedScopeRequests = new Map<string, Promise<FollowedAcademicScopeRecord[]>>();
 
     for (const device of devices) {
       if (alreadyFenced.has(device.id)) continue;
       const user = await this.findDeviceUser(device);
-      if (!isUserInJobScope(user, job)) {
+      let followedScopes: FollowedAcademicScopeRecord[] = [];
+      if (user && isAnnouncementNotificationJob(job) && this.userDataRepository) {
+        let request = followedScopeRequests.get(user.id);
+        if (!request) {
+          request = this.userDataRepository.listFollowedAcademicScopesByUserId(user.id);
+          followedScopeRequests.set(user.id, request);
+        }
+        followedScopes = await request;
+      }
+      if (!isUserInJobScope(user, job, followedScopes)) {
         await this.recordDelivery(job, device, "skipped", undefined, "scope_mismatch");
         skipped += 1;
         continue;
@@ -629,29 +641,46 @@ function dateAfterElapsed(base: Date, wallClockStartedAt: number, wallClockObser
   return new Date(base.getTime() + Math.max(0, wallClockObservedAt - wallClockStartedAt));
 }
 
-function isUserInJobScope(user: AuthUserRecord | null, job: NotificationJobRecord): boolean {
+function isUserInJobScope(
+  user: AuthUserRecord | null,
+  job: NotificationJobRecord,
+  followedScopes: readonly FollowedAcademicScopeRecord[] = []
+): boolean {
   if (job.userId) return Boolean(user && user.id === job.userId && user.status === "active" && user.role === "student");
   if (!user) return false;
   if (user.status !== "active" || user.role !== "student") return false;
   if (job.universityId === "*") {
     if (job.departmentId) {
-      return job.destinationScopeType === "department"
+      const primaryMatch = job.destinationScopeType === "department"
         && job.destinationScopeId === job.departmentId
         && user.departmentId === job.departmentId;
+      return primaryMatch || followedScopes.some((scope) => scope.departmentId === job.departmentId);
     }
     if (job.facultyId) {
-      return job.destinationScopeType === "faculty"
+      const primaryMatch = job.destinationScopeType === "faculty"
         && job.destinationScopeId === job.facultyId
         && user.facultyId === job.facultyId;
+      return primaryMatch || followedScopes.some((scope) => scope.facultyId === job.facultyId);
     }
     return job.category === "yok_event"
       && job.destinationScopeType === "university"
       && job.destinationScopeId === YOK_SCOPE_ID;
   }
-  if (user.universityId !== job.universityId) return false;
-  if (job.departmentId) return user.departmentId === job.departmentId;
-  if (job.facultyId) return user.facultyId === job.facultyId;
-  return true;
+  const primaryMatch = user.universityId === job.universityId
+    && (job.departmentId ? user.departmentId === job.departmentId
+      : job.facultyId ? user.facultyId === job.facultyId
+        : true);
+  if (primaryMatch) return true;
+  if (!isAnnouncementNotificationJob(job)) return false;
+  return followedScopes.some((scope) => {
+    if (job.departmentId) return scope.departmentId === job.departmentId;
+    if (job.facultyId) return scope.facultyId === job.facultyId;
+    return scope.universityId === job.universityId;
+  });
+}
+
+function isAnnouncementNotificationJob(job: NotificationJobRecord): boolean {
+  return job.destinationType === "announcement" || job.eventType === "announcement";
 }
 
 function isEligibleForJob(preference: NotificationPreferenceRecord | null, job: NotificationJobRecord): boolean {

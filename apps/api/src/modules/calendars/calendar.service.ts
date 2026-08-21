@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional, UnauthorizedException } from "@nestjs/common";
 import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
@@ -344,7 +344,7 @@ export class CalendarService {
       .filter((event) => event.departmentId === departmentId)
       .filter((event) => isAcceptableAcademicYear(event.academicYear))
       .sort(compareEventStart)
-      .slice(0, 200);
+      .slice(0, 500);
 
     const sourceUrl = await this.findDepartmentScheduleSource({
       universityId,
@@ -584,9 +584,24 @@ function signCalendarFeedToken(userId: string): string {
 }
 
 function verifyCalendarFeedToken(token: string): string {
-  const [payload, signature] = decodeURIComponent(token).split(".");
+  if (!token || token.length > 4_096) throw new UnauthorizedException("Invalid calendar feed token.");
+  let parts: string[];
+  try {
+    parts = decodeURIComponent(token).split(".");
+  } catch {
+    throw new UnauthorizedException("Invalid calendar feed token.");
+  }
+  if (parts.length !== 2) throw new UnauthorizedException("Invalid calendar feed token.");
+  const [payload, signature] = parts;
   if (!payload || !signature) throw new UnauthorizedException("Invalid calendar feed token.");
-  if (signature !== signCalendarFeedPayload(payload)) throw new UnauthorizedException("Invalid calendar feed token.");
+  const suppliedSignature = Buffer.from(signature, "utf8");
+  const expectedSignature = Buffer.from(signCalendarFeedPayload(payload), "utf8");
+  if (
+    suppliedSignature.length !== expectedSignature.length
+    || !timingSafeEqual(suppliedSignature, expectedSignature)
+  ) {
+    throw new UnauthorizedException("Invalid calendar feed token.");
+  }
 
   try {
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;

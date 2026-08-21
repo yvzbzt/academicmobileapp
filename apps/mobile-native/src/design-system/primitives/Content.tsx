@@ -58,7 +58,7 @@ export function Card({
       borderRadius: theme.radii.prominent,
       padding: theme.spacing.md,
     },
-    variant === "elevated" || variant === "outlined"
+    variant === "elevated"
       ? resolveElevationStyle("low", adaptation.platform, theme)
       : null,
     style,

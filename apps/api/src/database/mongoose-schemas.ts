@@ -3,7 +3,8 @@ import { Schema } from "mongoose";
 export const userSchema = new Schema(
   {
     fullName: { type: String, required: true, trim: true },
-    email: { type: String, required: true, lowercase: true, trim: true, unique: true },
+    email: { type: String, required: true, trim: true },
+    emailLookupHash: { type: String, required: false, select: false },
     credentialGeneration: { type: Number, required: true, default: 0, min: 0 },
     passwordRecoveryAttempt: {
       tokenHash: { type: String, required: false },
@@ -20,7 +21,8 @@ export const userSchema = new Schema(
     emailVerifiedAt: { type: Date, required: false },
     passwordHash: { type: String, required: true, select: true },
     authProvider: { type: String, required: false, enum: ["password", "google", "password_google"], default: "password" },
-    firebaseAuthUid: { type: String, required: false, index: true },
+    firebaseAuthUid: { type: String, required: false },
+    firebaseAuthUidLookupHash: { type: String, required: false, select: false },
     role: {
       type: String,
       required: true,
@@ -38,8 +40,8 @@ export const userSchema = new Schema(
   { collection: "users", timestamps: true }
 );
 
-userSchema.index({ email: 1 }, { unique: true, name: "users_email_unique" });
-userSchema.index({ firebaseAuthUid: 1 }, { sparse: true, name: "users_firebase_auth_uid" });
+userSchema.index({ emailLookupHash: 1 }, { unique: true, sparse: true, name: "users_email_lookup_unique" });
+userSchema.index({ firebaseAuthUidLookupHash: 1 }, { unique: true, sparse: true, name: "users_firebase_auth_uid_lookup" });
 userSchema.index({ universityId: 1, status: 1 }, { name: "users_university_status" });
 
 export const refreshTokenSchema = new Schema(
@@ -124,7 +126,8 @@ export const academicUnitSuggestionSchema = new Schema(
   {
     _id: { type: String, required: true },
     userId: { type: String, required: true },
-    userEmail: { type: String, required: true, lowercase: true, trim: true },
+    userEmail: { type: String, required: true, trim: true },
+    userEmailLookupHash: { type: String, required: false, select: false },
     universityId: { type: String, required: true },
     facultyName: { type: String, required: true, trim: true },
     departmentName: { type: String, required: false, trim: true },
@@ -254,6 +257,7 @@ export const announcementSourceSchema = new Schema(
     lastError: { type: String, required: false, trim: true },
     consecutiveFailures: { type: Number, required: false, min: 0 },
     itemCount: { type: Number, required: false, min: 0 },
+    fetchIntervalMinutes: { type: Number, required: false, min: 5, max: 10080, default: 180 },
     discoveredAt: { type: Date, required: false },
     trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
     trustReasonCodes: [{ type: String, required: false }],
@@ -265,6 +269,7 @@ export const announcementSourceSchema = new Schema(
 announcementSourceSchema.index({ scopeType: 1, scopeId: 1, status: 1 }, { name: "announcement_sources_scope_status" });
 announcementSourceSchema.index({ sourceUrl: 1, scopeType: 1, scopeId: 1 }, { unique: true, name: "announcement_sources_unique_scope_url" });
 announcementSourceSchema.index({ canonicalUrl: 1, scopeType: 1, scopeId: 1 }, { name: "announcement_sources_canonical_scope" });
+announcementSourceSchema.index({ status: 1, lastCheckedAt: 1 }, { name: "announcement_sources_due_checks" });
 
 export const announcementItemSchema = new Schema(
   {
@@ -393,6 +398,7 @@ export const academicEventSchema = new Schema(
     courseName: { type: String, required: false, trim: true, maxlength: 240 },
     description: { type: String, required: false },
     location: { type: String, required: false, trim: true, maxlength: 240 },
+    scheduleSeriesId: { type: String, required: false, index: true },
     temporalKind: { type: String, required: false, enum: ["date", "timestamp"], index: true },
     endTemporalKind: { type: String, required: false, enum: ["date", "timestamp"] },
     dateOnlyStart: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u, index: true },
@@ -420,6 +426,7 @@ export const academicEventSchema = new Schema(
 
 academicEventSchema.index({ universityId: 1, status: 1, startDate: 1 }, { name: "events_university_status_start" });
 academicEventSchema.index({ universityId: 1, category: 1, startDate: 1 }, { name: "events_category_date" });
+academicEventSchema.index({ scheduleSeriesId: 1, status: 1 }, { name: "events_schedule_series_status" });
 
 export const pdfSourceSchema = new Schema(
   {
@@ -488,6 +495,7 @@ export const deviceTokenSchema = new Schema(
     userId: { type: String, required: true, index: true },
     platform: { type: String, required: true, enum: ["ios", "android", "web"] },
     token: { type: String, required: true },
+    tokenLookupHash: { type: String, required: false, select: false },
     installationHash: { type: String, required: false },
     status: { type: String, required: true, enum: ["active", "disabled"], default: "active", index: true },
     lastSeenAt: { type: Date, required: true }
@@ -495,7 +503,7 @@ export const deviceTokenSchema = new Schema(
   { collection: "device_tokens", timestamps: true }
 );
 
-deviceTokenSchema.index({ token: 1 }, { unique: true, name: "device_tokens_token_unique" });
+deviceTokenSchema.index({ tokenLookupHash: 1 }, { unique: true, sparse: true, name: "device_tokens_token_lookup_unique" });
 deviceTokenSchema.index({ installationHash: 1 }, { unique: true, sparse: true, name: "device_tokens_installation_unique" });
 deviceTokenSchema.index({ userId: 1, status: 1 }, { name: "device_tokens_user_status" });
 
@@ -508,6 +516,7 @@ export const notificationPreferenceSchema = new Schema(
     reminderOffsets: [{ type: Number, required: true, min: 0, max: 30 }],
     reminderRules: [
       {
+        _id: false,
         trigger: { type: String, required: true, enum: ["before", "at_time", "approaching"] },
         amount: { type: Number, required: true, min: 0, max: 720 },
         unit: { type: String, required: true, enum: ["days", "hours"] },

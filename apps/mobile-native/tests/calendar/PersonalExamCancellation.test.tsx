@@ -6,6 +6,7 @@ import {
   renderAsync,
   screen,
 } from "@testing-library/react-native";
+import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AccountGenerationGuard } from "../../src/auth/session-integrity";
 import { CalendarEventDetail } from "../../src/calendar/CalendarEventDetail";
@@ -80,6 +81,7 @@ async function renderCalendar(runtime: PersonalExamRuntime) {
 describe("Phase 9 personal-exam cancellation", () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
   });
 
   afterEach(async () => {
@@ -87,15 +89,17 @@ describe("Phase 9 personal-exam cancellation", () => {
       jest.runOnlyPendingTimers();
     });
     cleanup();
+    jest.restoreAllMocks();
     jest.useRealTimers();
   });
 
   it("cancels new-exam entry with no append, storage write, or visible-list change", async () => {
     const { runtime, storage } = await createHarness([ORIGINAL_EXAM]);
     await renderCalendar(runtime);
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel sınav ekle" }));
-    fireEvent.changeText(screen.getByLabelText("Sınav adı"), "Kaydedilmemesi gereken sınav");
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinlik ekle" }));
+    fireEvent.changeText(screen.getByLabelText("Etkinlik adı"), "Kaydedilmemesi gereken sınav");
     fireEvent.press(screen.getByRole("button", { name: "Vazgeç" }));
+    confirmDiscard();
     await runtime.waitForIdle();
 
     expect(runtime.getSnapshot().exams).toEqual([ORIGINAL_EXAM]);
@@ -122,9 +126,10 @@ describe("Phase 9 personal-exam cancellation", () => {
         </ThemeProvider>
       </SafeAreaProvider>,
     );
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel sınavı düzenle" }));
-    fireEvent.changeText(screen.getByLabelText("Sınav adı"), "Değiştirilmemesi gereken ad");
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinliği düzenle" }));
+    fireEvent.changeText(screen.getByLabelText("Etkinlik adı"), "Değiştirilmemesi gereken ad");
     fireEvent.press(screen.getByRole("button", { name: "Vazgeç" }));
+    confirmDiscard();
     await runtime.waitForIdle();
 
     expect(runtime.getSnapshot().exams).toEqual([ORIGINAL_EXAM]);
@@ -144,7 +149,7 @@ describe("Phase 9 personal-exam cancellation", () => {
   it("dismisses the native date picker without changing draft, runtime, or storage", async () => {
     const { runtime, storage } = await createHarness();
     await renderCalendar(runtime);
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel sınav ekle" }));
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinlik ekle" }));
     fireEvent.press(screen.getByRole("button", { name: "Tarih seçilmedi" }));
     fireEvent(screen.getByLabelText("Sistem tarih seçici"), "change", { type: "dismissed" });
     expect(screen.getByRole("button", { name: "Tarih seçilmedi" })).toBeOnTheScreen();
@@ -156,7 +161,7 @@ describe("Phase 9 personal-exam cancellation", () => {
   it("dismisses the native time picker without changing draft, runtime, or storage", async () => {
     const { runtime, storage } = await createHarness();
     await renderCalendar(runtime);
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel sınav ekle" }));
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinlik ekle" }));
     fireEvent.press(screen.getByRole("button", { name: "Saat seçilmedi" }));
     fireEvent(screen.getByLabelText("Sistem saat seçici"), "change", { type: "dismissed" });
     expect(screen.getByRole("button", { name: "Saat seçilmedi" })).toBeOnTheScreen();
@@ -165,3 +170,14 @@ describe("Phase 9 personal-exam cancellation", () => {
     expect(storage.operations).toEqual([]);
   });
 });
+
+function confirmDiscard() {
+  const alertMock = jest.mocked(Alert.alert);
+  const latestCall = alertMock.mock.calls[alertMock.mock.calls.length - 1];
+  expect(latestCall?.[0]).toBe("Değişiklikler kaydedilmedi");
+  const discard = latestCall?.[2]?.find((action) => action.text === "Değişikliklerden vazgeç");
+  expect(discard).toBeDefined();
+  act(() => {
+    discard?.onPress?.();
+  });
+}

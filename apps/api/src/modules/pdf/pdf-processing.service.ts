@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
+import { assertUniversityOwnedRecord, assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import { mapAcademicEventCategory } from "../../domain/category-mapper.js";
 import { calculateConfidenceScore } from "../../domain/confidence-score.js";
 import { normalizeAcademicDate } from "../../domain/date-normalizer.js";
@@ -23,6 +24,14 @@ interface PdfEventLineCandidate {
   sourcePage: number;
 }
 
+interface UpdateExtractedEventInput {
+  normalizedTitle?: string;
+  normalizedCategory?: AcademicEventCategory;
+  startDate?: string;
+  endDate?: string;
+  adminNote?: string;
+}
+
 @Injectable()
 export class PdfProcessingService {
   private readonly logger = new Logger(PdfProcessingService.name);
@@ -31,6 +40,67 @@ export class PdfProcessingService {
     @Inject("PdfRepository") private readonly pdfRepository: PdfRepository,
     @Inject(PdfOcrService) private readonly ocrService: Pick<PdfOcrService, "extractText">
   ) {}
+
+  async createPdfSourceForAdmin(access: AdminUniversityAccess, input: CreatePdfSourceInput): Promise<PdfSourceRecord> {
+    assertUniversityTarget(access, input.universityId);
+    return this.createPdfSource(input);
+  }
+
+  async processPdfSourceForAdmin(access: AdminUniversityAccess, pdfSourceId: string) {
+    await this.getPdfSourceForAdmin(access, pdfSourceId);
+    return this.processPdfSource(pdfSourceId);
+  }
+
+  async getPdfSourceForAdmin(access: AdminUniversityAccess, id: string): Promise<PdfSourceRecord> {
+    const source = await this.getPdfSource(id);
+    assertUniversityOwnedRecord(access, source.universityId, "PDF source");
+    return source;
+  }
+
+  async listExtractedEventsForAdmin(
+    access: AdminUniversityAccess,
+    input: { pdfSourceId?: string; status?: ExtractedEventStatus; limit?: number; offset?: number }
+  ): Promise<ExtractedEventRecord[]> {
+    if (input.pdfSourceId) await this.getPdfSourceForAdmin(access, input.pdfSourceId);
+    return this.listExtractedEvents({
+      ...input,
+      ...(access.kind === "university" ? { universityId: access.universityId } : {})
+    });
+  }
+
+  async getExtractedEventForAdmin(access: AdminUniversityAccess, id: string): Promise<ExtractedEventRecord> {
+    const event = await this.getExtractedEvent(id);
+    assertUniversityOwnedRecord(access, event.universityId, "Extracted event");
+    return event;
+  }
+
+  async updateExtractedEventForAdmin(
+    access: AdminUniversityAccess,
+    id: string,
+    input: UpdateExtractedEventInput
+  ): Promise<ExtractedEventRecord> {
+    await this.getExtractedEventForAdmin(access, id);
+    return this.updateExtractedEvent(id, input);
+  }
+
+  async approveExtractedEventForAdmin(
+    access: AdminUniversityAccess,
+    id: string,
+    reviewedBy: string
+  ): Promise<ExtractedEventRecord> {
+    await this.getExtractedEventForAdmin(access, id);
+    return this.approveExtractedEvent(id, reviewedBy);
+  }
+
+  async rejectExtractedEventForAdmin(
+    access: AdminUniversityAccess,
+    id: string,
+    reviewedBy: string,
+    adminNote?: string
+  ): Promise<ExtractedEventRecord> {
+    await this.getExtractedEventForAdmin(access, id);
+    return this.rejectExtractedEvent(id, reviewedBy, adminNote);
+  }
 
   async createPdfSource(input: CreatePdfSourceInput): Promise<PdfSourceRecord> {
     this.validatePdfSource(input);
@@ -129,8 +199,9 @@ export class PdfProcessingService {
     return source;
   }
 
-  async listExtractedEvents(input: { pdfSourceId?: string; status?: ExtractedEventStatus; limit?: number; offset?: number }): Promise<ExtractedEventRecord[]> {
+  async listExtractedEvents(input: { universityId?: string; pdfSourceId?: string; status?: ExtractedEventStatus; limit?: number; offset?: number }): Promise<ExtractedEventRecord[]> {
     return this.pdfRepository.listExtractedEvents({
+      ...(input.universityId ? { universityId: input.universityId } : {}),
       ...(input.pdfSourceId ? { pdfSourceId: input.pdfSourceId } : {}),
       ...(input.status ? { status: input.status } : {}),
       limit: Math.min(Math.max(input.limit ?? 50, 1), 100),
@@ -146,7 +217,7 @@ export class PdfProcessingService {
 
   async updateExtractedEvent(
     id: string,
-    input: { normalizedTitle?: string; normalizedCategory?: AcademicEventCategory; startDate?: string; endDate?: string; adminNote?: string }
+    input: UpdateExtractedEventInput
   ): Promise<ExtractedEventRecord> {
     const current = await this.pdfRepository.findExtractedEventById(id);
     if (!current) throw new NotFoundException("Extracted event not found.");

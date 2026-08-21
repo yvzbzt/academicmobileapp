@@ -74,6 +74,44 @@ export const referencePalette = {
   emeraldContainer: "#DDF8F2",
   amberStrong: "#D97706",
   amberContainer: "#FFF4D6",
+  welcomeBlue: "#3D6F8E",
+  welcomeBlueSoft: "#EAF3F5",
+  welcomeOrange: "#B66A2C",
+  welcomeOrangeSoft: "#FFF2E7",
+} as const;
+
+export const authScreenColors = {
+  fieldIcon: "#176C8A",
+  fieldIconSurface: "#F1F7F8",
+  googleBorder: "#D7E5EF",
+  socialIcon: "#466274",
+  socialSurface: "#F7FAFB",
+  socialBorder: "#DDE8EF",
+  passwordWeak: "#FF6B5F",
+  passwordMedium: "#F5B622",
+  passwordGood: "#16B8A6",
+  passwordStrong: "#18A875",
+  passwordWeakText: "#D94B42",
+  passwordMediumText: "#C28100",
+  passwordGoodText: "#078A7D",
+  passwordStrongText: "#087955",
+  disabledSurface: "#E6EAF1",
+} as const;
+
+export const preLoginWelcomeColors = {
+  brandNavy: "#071B50",
+  body: "#64738F",
+  trust: "#1768D9",
+  canvasCool: "#FBFCFF",
+  canvasWarm: "#FFFCF7",
+  success: "#73D65C",
+  paginationIdle: "#8796AE",
+} as const;
+
+export const homeDailyBriefColors = {
+  avatarBorder: "#FFFFFF33",
+  announcementSurface: "#FFB719",
+  summaryDivider: "#FFFFFF42",
 } as const;
 
 export interface SemanticColors {
@@ -167,25 +205,25 @@ const lightColors: SemanticColors = {
     secondary: "#5B6577",
     disabled: "#5B6577",
     inverse: referencePalette.white,
-    link: "#1D4ED8",
+    link: "#176C8A",
   },
   border: {
     subtle: "#E2E8F0",
     default: "#758197",
     strong: "#526079",
-    focus: "#2563EB",
+    focus: referencePalette.academicBlue,
   },
   action: {
-    primary: referencePalette.blue,
+    primary: referencePalette.academicBlue,
     onPrimary: referencePalette.white,
-    primaryPressed: "#1D4ED8",
+    primaryPressed: referencePalette.academicBlueDeep,
     primaryRipple: "#FFFFFF33",
-    secondary: "#EFF6FF",
-    secondaryPressed: "#DBEAFE",
-    ghostPressed: "#EAF2FF",
+    secondary: referencePalette.academicBlueSoft,
+    secondaryPressed: referencePalette.academicBlueSurfaceStrong,
+    ghostPressed: referencePalette.academicBlueSurface,
     disabled: "#E8EDF5",
     onDisabled: "#526079",
-    focus: "#2563EB",
+    focus: referencePalette.academicBlue,
   },
   status: {
     success: "#0F766E",
@@ -199,13 +237,13 @@ const lightColors: SemanticColors = {
     errorContainer: "#FEF2F2",
     onError: referencePalette.white,
     onErrorContainer: "#991B1B",
-    info: "#2563EB",
-    infoContainer: "#EAF2FF",
-    onInfoContainer: "#1746A2",
+    info: referencePalette.academicBlue,
+    infoContainer: referencePalette.academicBlueSoft,
+    onInfoContainer: referencePalette.academicTextInfo,
   },
   state: {
-    pressed: "#2563EB1A",
-    selected: "#EAF2FF",
+    pressed: referencePalette.academicBlueDeepAlpha18,
+    selected: referencePalette.academicBlueSoft,
     scrim: "#0B173999",
     skeleton: "#DDE7F3",
     skeletonHighlight: "#F2F6FB",
@@ -281,16 +319,16 @@ const darkColors: SemanticColors = {
 };
 
 export const typography = {
-  display: { fontFamily: "Inter_700Bold", fontSize: 28, lineHeight: 34, fontWeight: "700" as const },
-  screenTitle: { fontFamily: "Inter_700Bold", fontSize: 24, lineHeight: 30, fontWeight: "700" as const },
-  sectionTitle: { fontFamily: "Inter_700Bold", fontSize: 20, lineHeight: 26, fontWeight: "700" as const },
-  cardTitle: { fontFamily: "Inter_600SemiBold", fontSize: 17, lineHeight: 23, fontWeight: "600" as const },
-  body: { fontFamily: "Inter_400Regular", fontSize: 16, lineHeight: 23, fontWeight: "400" as const },
-  bodyStrong: { fontFamily: "Inter_600SemiBold", fontSize: 16, lineHeight: 23, fontWeight: "600" as const },
-  label: { fontFamily: "Inter_600SemiBold", fontSize: 14, lineHeight: 19, fontWeight: "600" as const },
-  meta: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 18, fontWeight: "400" as const },
-  metaStrong: { fontFamily: "Inter_500Medium", fontSize: 13, lineHeight: 18, fontWeight: "500" as const },
-  navLabel: { fontFamily: "Inter_500Medium", fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
+  display: { fontSize: 26, lineHeight: 32, fontWeight: "700" as const },
+  screenTitle: { fontSize: 22, lineHeight: 28, fontWeight: "700" as const },
+  sectionTitle: { fontSize: 18, lineHeight: 24, fontWeight: "700" as const },
+  cardTitle: { fontSize: 16, lineHeight: 22, fontWeight: "600" as const },
+  body: { fontSize: 16, lineHeight: 23, fontWeight: "400" as const },
+  bodyStrong: { fontSize: 16, lineHeight: 23, fontWeight: "600" as const },
+  label: { fontSize: 14, lineHeight: 19, fontWeight: "600" as const },
+  meta: { fontSize: 13, lineHeight: 18, fontWeight: "400" as const },
+  metaStrong: { fontSize: 13, lineHeight: 18, fontWeight: "500" as const },
+  navLabel: { fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
 } as const;
 
 export const spacing = {
@@ -306,9 +344,9 @@ export const spacing = {
 
 export const radii = {
   small: 6,
-  control: 10,
-  card: 14,
-  prominent: 18,
+  control: 8,
+  card: 10,
+  prominent: 12,
   pill: 999,
 } as const;
 

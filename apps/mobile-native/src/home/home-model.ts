@@ -7,6 +7,7 @@ import {
   type AcademicTemporalKind,
   type AcademicTemporalValue,
 } from "../temporal/academic-temporal";
+import { classifyAcademicEventPresentation } from "../calendar/calendar-model";
 
 export const HOME_RECENT_ANNOUNCEMENT_LIMIT = 3;
 
@@ -24,6 +25,7 @@ export interface HomeManualExam {
   title: string;
   examDate: string;
   locationNote?: string;
+  kind?: "exam" | "class" | "study" | "event" | "task" | "other";
 }
 
 export interface HomeExamCountdownItem extends AcademicTemporalValue {
@@ -43,7 +45,16 @@ export interface HomeImportantItem {
   temporalKind?: AcademicTemporalKind;
   endTemporalKind?: AcademicTemporalKind;
   timezone?: string;
-  kind: "exam" | "deadline" | "registration" | "event";
+  kind: HomeImportantKind;
+}
+
+export type HomeImportantKind = "exam" | "deadline" | "registration" | "event";
+
+export interface HomeWeeklySummary {
+  applications: number;
+  exams: number;
+  registrations: number;
+  total: number;
 }
 
 export type HomePrimaryState =
@@ -75,6 +86,13 @@ const IMPORTANT_CATEGORY_ORDER = new Map<string, number>([
   ["application_deadline", 2],
   ["registration_deadline", 2],
 ]);
+
+const IMPORTANT_KIND_ORDER: Record<HomeImportantKind, number> = {
+  exam: 0,
+  deadline: 1,
+  registration: 2,
+  event: 3,
+};
 
 export function isSameLocalCalendarDay(value: string, now: Date): boolean {
   const dateOnly = parseDateOnly(value);
@@ -114,10 +132,10 @@ export function selectTodayItems(
     .map((exam) => ({
       id: exam.id,
       title: exam.title,
-      category: "personal_exam",
+      category: `personal_${exam.kind ?? "exam"}`,
       date: exam.examDate,
       ...(exam.locationNote ? { location: exam.locationNote } : {}),
-      kind: "exam" as const,
+      kind: exam.kind === undefined || exam.kind === "exam" ? "exam" as const : "event" as const,
     }));
   return [...academic, ...personal].sort(compareImportantItems);
 }
@@ -132,13 +150,13 @@ export function selectNearestImportantItem(
     ...manualExams.map((exam) => ({
       id: exam.id,
       title: exam.title,
-      category: "personal_exam",
+      category: `personal_${exam.kind ?? "exam"}`,
       date: exam.examDate,
       ...(exam.locationNote ? { location: exam.locationNote } : {}),
-      kind: "exam" as const,
+      kind: exam.kind === undefined || exam.kind === "exam" ? "exam" as const : "event" as const,
     })),
   ].filter((item) => {
-    if (item.category !== "personal_exam") return true;
+    if (!item.category.startsWith("personal_")) return true;
     const time = Date.parse(item.date);
     return !Number.isNaN(time) && time >= now.getTime();
   });
@@ -150,9 +168,8 @@ export function selectExamCountdownItems(
   manualExams: HomeManualExam[],
   now: Date
 ): HomeExamCountdownItem[] {
-  const examCategories = new Set(["midterm_exam", "final_exam", "makeup_exam", "single_course_exam"]);
   const calendarExams: HomeExamCountdownItem[] = events
-    .filter((event) => examCategories.has(event.category))
+    .filter((event) => classifyHomeAcademicEvent(event) === "exam")
     .map((event) => ({
       id: event.id,
       title: event.title,
@@ -162,16 +179,80 @@ export function selectExamCountdownItems(
       ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {}),
       source: "calendar"
     }));
-  const personalExams: HomeExamCountdownItem[] = manualExams.map((exam) => ({
+  const personalExams: HomeExamCountdownItem[] = manualExams
+    .filter((exam) => exam.kind === undefined || exam.kind === "exam")
+    .map((exam) => ({
     id: exam.id,
     title: exam.title,
     startDate: exam.examDate,
     temporalKind: "timestamp",
     source: "manual"
-  }));
+    }));
   return [...calendarExams, ...personalExams]
     .filter((exam) => isAcademicTemporalCurrentOrFuture(exam, now))
     .sort(compareAcademicTemporalStart);
+}
+
+export function classifyHomeAcademicEvent(
+  event: Pick<HomeAcademicEvent, "category" | "title">,
+): HomeImportantKind {
+  switch (classifyAcademicEventPresentation(event.category, event.title)) {
+    case "exam": return "exam";
+    case "application": return "deadline";
+    case "registration": return "registration";
+    case "holiday":
+    case "academic":
+      return "event";
+  }
+}
+
+export function selectHomeDayMarkerKind(
+  day: Date,
+  events: readonly HomeAcademicEvent[],
+  manualExams: readonly HomeManualExam[],
+): HomeImportantKind | null {
+  const kinds: HomeImportantKind[] = events
+    .filter((event) => isAcademicTemporalActiveOnDay(event, day))
+    .map(classifyHomeAcademicEvent);
+  kinds.push(...manualExams
+    .filter((exam) => isSameLocalCalendarDay(exam.examDate, day))
+    .map((exam): HomeImportantKind => (
+      exam.kind === undefined || exam.kind === "exam" ? "exam" : "event"
+    )));
+  return kinds.sort((left, right) => IMPORTANT_KIND_ORDER[left] - IMPORTANT_KIND_ORDER[right])[0] ?? null;
+}
+
+export function summarizeHomeWeek(
+  events: readonly HomeAcademicEvent[],
+  manualExams: readonly HomeManualExam[],
+  now: Date,
+): HomeWeeklySummary {
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const weekStart = localCalendarDayNumber(monday);
+  const weekEnd = weekStart + 7 * 86_400_000;
+  const startsInWeek = (value: string): boolean => {
+    const day = calendarDayNumber(value);
+    return day !== null && day >= weekStart && day < weekEnd;
+  };
+  const summary: HomeWeeklySummary = {
+    applications: 0,
+    exams: 0,
+    registrations: 0,
+    total: 0,
+  };
+
+  events.filter((event) => startsInWeek(event.startDate)).forEach((event) => {
+    const kind = classifyHomeAcademicEvent(event);
+    if (kind === "exam") summary.exams += 1;
+    else if (kind === "deadline") summary.applications += 1;
+    else if (kind === "registration") summary.registrations += 1;
+  });
+  summary.exams += manualExams.filter((exam) => (
+    (exam.kind === undefined || exam.kind === "exam") && startsInWeek(exam.examDate)
+  )).length;
+  summary.total = summary.applications + summary.registrations + summary.exams;
+  return summary;
 }
 
 export function orderHomeAnnouncements(
@@ -287,13 +368,7 @@ export function formatRemainingTime(
 
 function toImportantItem(event: HomeAcademicEvent): HomeImportantItem {
   const category = event.category;
-  const kind = category.includes("exam")
-    ? "exam"
-    : category.includes("registration") || category.includes("renewal") || category.includes("add_drop")
-      ? "registration"
-      : category.includes("deadline") || category.includes("application")
-        ? "deadline"
-        : "event";
+  const kind = classifyHomeAcademicEvent(event);
   return {
     id: event.id,
     title: event.title,
@@ -315,6 +390,8 @@ function compareImportantItems(left: HomeImportantItem, right: HomeImportantItem
     { startDate: right.date, ...(right.temporalKind ? { temporalKind: right.temporalKind } : {}) }
   );
   if (dateDifference) return dateDifference;
+  const kindDifference = IMPORTANT_KIND_ORDER[left.kind] - IMPORTANT_KIND_ORDER[right.kind];
+  if (kindDifference) return kindDifference;
   const priorityDifference = (IMPORTANT_CATEGORY_ORDER.get(left.category) ?? 9)
     - (IMPORTANT_CATEGORY_ORDER.get(right.category) ?? 9);
   return priorityDifference || left.id.localeCompare(right.id, "tr-TR");

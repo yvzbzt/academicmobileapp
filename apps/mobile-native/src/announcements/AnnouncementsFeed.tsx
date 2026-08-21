@@ -13,7 +13,6 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,6 +24,7 @@ import {
 } from "react-native";
 import {
   Banner,
+  BottomSheet,
   EmptyState,
   ErrorState,
   Skeleton,
@@ -133,6 +133,7 @@ export interface AnnouncementsFeedProps {
   onOpenYok?: () => void;
   onOpenSummerSchool?: () => void;
   onOpenNotificationSettings?: () => void;
+  onOpenAccountMenu?: () => void;
 }
 
 export function AnnouncementsFeed({
@@ -165,6 +166,7 @@ export function AnnouncementsFeed({
   onOpenYok,
   onOpenSummerSchool,
   onOpenNotificationSettings,
+  onOpenAccountMenu,
 }: AnnouncementsFeedProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
@@ -179,6 +181,7 @@ export function AnnouncementsFeed({
     initialContentTypeFilter,
   );
   const [sourceFilter, setSourceFilter] = useState<FeedSourceFilter>(initialSourceFilter);
+  const [sourceMenuVisible, setSourceMenuVisible] = useState(false);
   const resultAnnouncementRequestedRef = useRef(false);
 
   useEffect(() => {
@@ -281,9 +284,11 @@ export function AnnouncementsFeed({
   };
 
   const selectSource = (value: FeedSourceFilter) => {
-    if (sourceFilter === value) return;
-    resultAnnouncementRequestedRef.current = true;
-    setSourceFilter(value);
+    if (sourceFilter !== value) {
+      resultAnnouncementRequestedRef.current = true;
+      setSourceFilter(value);
+    }
+    setSourceMenuVisible(false);
   };
 
   const renderItem: ListRenderItem<ContentFeedItem> = ({ item }) => (
@@ -295,6 +300,10 @@ export function AnnouncementsFeed({
       <View style={styles.pageTitleRow} testID="announcements-top-bar">
         <Text
           accessibilityRole="header"
+          adjustsFontSizeToFit
+          maxFontSizeMultiplier={1.3}
+          minimumFontScale={0.8}
+          numberOfLines={1}
           style={[theme.typography.screenTitle, styles.pageTitle, { color: REFERENCE_COLORS.navy }]}
         >
           Duyurular
@@ -323,11 +332,12 @@ export function AnnouncementsFeed({
           accessibilityRole="search"
           autoCapitalize="none"
           autoCorrect={false}
+          maxFontSizeMultiplier={1.3}
           onChangeText={(value) => {
             resultAnnouncementRequestedRef.current = true;
             setSearchText(value);
           }}
-          placeholder="Başlık, özet veya kaynak ara"
+          placeholder={layout.supportsLargeText ? "Duyurularda ara" : "Başlık, özet veya kaynak ara"}
           placeholderTextColor={referencePalette.academicPlaceholder}
           returnKeyType="search"
           selectionColor={REFERENCE_COLORS.blue}
@@ -371,37 +381,31 @@ export function AnnouncementsFeed({
         </ScrollView>
       </FilterGroup>
 
-      <FilterGroup title="Akademik kapsam ve kaynak">
-        <ScrollView
-          contentContainerStyle={styles.filterRail}
-          horizontal
-          keyboardShouldPersistTaps="handled"
-          showsHorizontalScrollIndicator={false}
+      <FilterGroup title="Kaynak">
+        <Pressable
+          aria-expanded={sourceMenuVisible}
+          accessibilityLabel={`Kaynak filtresi. ${selectedSourceLabel}`}
+          accessibilityRole="button"
+          onPress={() => setSourceMenuVisible(true)}
+          style={({ pressed }) => [
+            styles.sourceFilterButton,
+            {
+              backgroundColor: pressed ? REFERENCE_COLORS.blueSoft : REFERENCE_COLORS.background,
+              borderColor: sourceFilter === "all" ? REFERENCE_COLORS.border : REFERENCE_COLORS.blue,
+            },
+          ]}
+          testID="announcements-source-filter"
         >
-          {SOURCE_FILTERS.map((option) => (
-            <View key={option.value} style={styles.compoundSourceFilter}>
-              <FilterPill
-                accessibilityLabel={`${option.label} kaynak filtresi`}
-                icon={option.icon}
-                label={option.shortLabel}
-                onPress={() => selectSource(option.value)}
-                selected={sourceFilter === option.value}
-              />
-              {option.value === "yok" && onOpenYok ? (
-                <SourceDestinationButton
-                  accessibilityLabel="YÖK sayfasını aç"
-                  onPress={onOpenYok}
-                />
-              ) : null}
-              {option.value === "summer-school" && onOpenSummerSchool ? (
-                <SourceDestinationButton
-                  accessibilityLabel="Yaz Okulu sayfasını aç"
-                  onPress={onOpenSummerSchool}
-                />
-              ) : null}
-            </View>
-          ))}
-        </ScrollView>
+          <Ionicons color={REFERENCE_COLORS.secondary} name="options-outline" size={19} />
+          <View style={styles.sourceFilterCopy}>
+            <Text maxFontSizeMultiplier={1.25} style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}>Kaynak</Text>
+            <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}>{selectedSourceLabel}</Text>
+          </View>
+          {sourceFilter !== "all" ? (
+            <View style={[styles.activeFilterDot, { backgroundColor: REFERENCE_COLORS.blue }]} />
+          ) : null}
+          <Ionicons color={REFERENCE_COLORS.secondary} name="chevron-down" size={18} />
+        </Pressable>
       </FilterGroup>
 
       <View
@@ -419,6 +423,7 @@ export function AnnouncementsFeed({
   );
 
   return (
+    <>
     <FlatList
       ref={listRef}
       accessibilityLabel="Güvenilir akademik içerik akışı"
@@ -462,6 +467,50 @@ export function AnnouncementsFeed({
       testID={`announcements-feed-${adaptation.platform}-${layout.filterGroupsStacked ? "stacked" : "wrapped"}-${layout.supportsLargeText ? "large-text" : "standard-text"}-limit-${serverLimit ?? "none"}`}
       windowSize={7}
     />
+    <BottomSheet
+      onDismiss={() => setSourceMenuVisible(false)}
+      title="Kaynak filtresi"
+      visible={sourceMenuVisible}
+    >
+      <View accessibilityRole="radiogroup" style={styles.sourceMenuList}>
+        {SOURCE_FILTERS.map((option) => {
+          const selected = sourceFilter === option.value;
+          const destinationAction = option.value === "yok"
+            ? onOpenYok
+            : option.value === "summer-school"
+              ? onOpenSummerSchool
+              : undefined;
+          return (
+            <View key={option.value} style={[styles.sourceMenuRow, { borderBottomColor: REFERENCE_COLORS.border }]}>
+              <Pressable
+                accessibilityLabel={`${option.label} kaynak filtresi`}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                onPress={() => selectSource(option.value)}
+                style={({ pressed }) => [
+                  styles.sourceMenuOption,
+                  pressed && { backgroundColor: REFERENCE_COLORS.blueSoft },
+                ]}
+              >
+                <Ionicons color={selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.secondary} name={option.icon} size={20} />
+                <Text maxFontSizeMultiplier={1.35} numberOfLines={1} style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}>{option.label}</Text>
+                {selected ? <Ionicons color={REFERENCE_COLORS.blue} name="checkmark" size={20} /> : null}
+              </Pressable>
+              {destinationAction ? (
+                <SourceDestinationButton
+                  accessibilityLabel={`${option.label} sayfasını aç`}
+                  onPress={() => {
+                    setSourceMenuVisible(false);
+                    destinationAction();
+                  }}
+                />
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    </BottomSheet>
+    </>
   );
 }
 
@@ -516,6 +565,7 @@ function FilterPill({
         size={17}
       />
       <Text
+        maxFontSizeMultiplier={1.25}
         numberOfLines={1}
         style={[
           theme.typography.metaStrong,
@@ -583,10 +633,11 @@ function FeedRow({
         <View
           style={[styles.typeBadge, { backgroundColor: palette.soft }]}
         >
-          <Text style={[theme.typography.navLabel, { color: palette.accent }]}>{typeLabel}</Text>
+          <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[theme.typography.navLabel, { color: palette.accent }]}>{typeLabel}</Text>
         </View>
         <View style={styles.sourceIdentity}>
           <Text
+            maxFontSizeMultiplier={1.25}
             numberOfLines={1}
             style={[theme.typography.metaStrong, styles.sourceName, { color: REFERENCE_COLORS.secondary }]}
           >
@@ -595,6 +646,7 @@ function FeedRow({
           <Ionicons color={REFERENCE_COLORS.blue} name="checkmark-circle" size={15} />
         </View>
         <Text
+          maxFontSizeMultiplier={1.2}
           numberOfLines={1}
           style={[theme.typography.meta, styles.timestamp, { color: REFERENCE_COLORS.secondary }]}
         >
@@ -611,6 +663,8 @@ function FeedRow({
         </View>
         <View style={styles.feedCopy}>
           <Text
+            maxFontSizeMultiplier={1.35}
+            numberOfLines={3}
             style={[theme.typography.cardTitle, styles.feedTitle, { color: REFERENCE_COLORS.navy }]}
           >
             {record.title}
@@ -618,6 +672,7 @@ function FeedRow({
           {record.summary ? (
             <Text
               ellipsizeMode="tail"
+              maxFontSizeMultiplier={1.3}
               numberOfLines={3}
               style={[theme.typography.meta, styles.feedSummary, { color: REFERENCE_COLORS.secondary }]}
             >
@@ -625,6 +680,8 @@ function FeedRow({
             </Text>
           ) : null}
           <Text
+            maxFontSizeMultiplier={1.2}
+            numberOfLines={1}
             style={[theme.typography.navLabel, styles.scopeLabel, { color: palette.accent }]}
           >
             {scopeLabel}
@@ -683,27 +740,29 @@ function AnnouncementReminderBanner({ onPress }: { onPress?: () => void }) {
       style={({ pressed }) => [styles.reminderBanner, pressed && styles.pressed]}
       testID="announcements-reminder-banner"
     >
-      <Image
+      <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        resizeMode="cover"
-        source={require("../../assets/announcements-reminder-students.png")}
-        style={styles.reminderBackground}
-      />
+        style={[styles.reminderIcon, { backgroundColor: theme.colors.action.secondary }]}
+      >
+        <Ionicons color={theme.colors.action.primary} name="notifications-outline" size={25} />
+      </View>
       <View style={styles.reminderCopy}>
         <Text
+          maxFontSizeMultiplier={1.3}
           style={[theme.typography.bodyStrong, styles.reminderTitle, { color: REFERENCE_COLORS.navy }]}
         >
-          Hiçbir duyuruyu kaçırma 🎉
+          Duyurular için bildirim al
         </Text>
         <Text
+          maxFontSizeMultiplier={1.3}
           numberOfLines={2}
           style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
         >
           Önemli duyurular için bildirimlerini açmayı unutma.
         </Text>
         <View style={styles.reminderAction}>
-          <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.blue }]}>Bildirimleri Aç</Text>
+          <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.blue }]}>Bildirimleri Aç</Text>
           <Ionicons color={REFERENCE_COLORS.blue} name="chevron-forward" size={17} />
         </View>
       </View>
@@ -872,10 +931,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 40,
   },
-  compoundSourceFilter: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 4,
+  activeFilterDot: {
+    borderRadius: 3,
+    height: 6,
+    width: 6,
   },
   feedActions: {
     alignItems: "center",
@@ -934,7 +993,7 @@ const styles = StyleSheet.create({
   },
   filterPill: {
     alignItems: "center",
-    borderRadius: 22,
+    borderRadius: 8,
     borderWidth: 1,
     flexDirection: "row",
     gap: 7,
@@ -970,8 +1029,10 @@ const styles = StyleSheet.create({
     minHeight: 64,
   },
   pageTitle: {
+    flex: 1,
     fontSize: 28,
     lineHeight: 34,
+    textAlign: "left",
   },
   pageTitleRow: {
     alignItems: "center",
@@ -988,27 +1049,28 @@ const styles = StyleSheet.create({
     gap: 3,
     marginTop: 2,
   },
-  reminderBackground: {
-    bottom: 0,
-    height: "100%",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: "100%",
-  },
   reminderBanner: {
+    alignItems: "center",
     borderColor: referencePalette.academicBorderBlueMuted,
-    borderRadius: 18,
+    borderRadius: 8,
     borderWidth: 1,
-    minHeight: 112,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 96,
     overflow: "hidden",
     paddingHorizontal: 14,
     paddingVertical: 13,
   },
+  reminderIcon: {
+    alignItems: "center",
+    borderRadius: 8,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
   reminderCopy: {
+    flex: 1,
     gap: 2,
-    marginLeft: "48%",
     minWidth: 0,
   },
   reminderTitle: {
@@ -1039,7 +1101,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.background,
     borderColor: REFERENCE_COLORS.border,
-    borderRadius: 18,
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: "row",
     minHeight: 58,
@@ -1060,10 +1122,41 @@ const styles = StyleSheet.create({
   sourceDestinationButton: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.blueSoft,
-    borderRadius: 18,
+    borderRadius: 8,
     height: 36,
     justifyContent: "center",
     width: 36,
+  },
+  sourceFilterButton: {
+    alignItems: "center",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 52,
+    paddingHorizontal: 12,
+  },
+  sourceFilterCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sourceMenuList: {
+    minHeight: 0,
+  },
+  sourceMenuOption: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 52,
+    minWidth: 0,
+    paddingHorizontal: 8,
+  },
+  sourceMenuRow: {
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    minHeight: 52,
   },
   sourceIdentity: {
     alignItems: "center",

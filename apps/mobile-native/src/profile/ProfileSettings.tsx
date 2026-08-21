@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  Image,
   Pressable,
   StyleSheet,
   Switch,
@@ -56,51 +55,65 @@ export interface ProfileOverviewScreenProps {
   googleCalendar: GoogleCalendarPresentation;
   googleAccountEmail?: string;
   appVersion: string;
-  buildNumber: string | number;
   avatarUri?: string;
   loading?: boolean;
   error?: string;
+  followedUniversityCount?: number;
   onRetry?: () => void;
   onOpenAcademicProfile: () => void;
+  onOpenFollowedUniversities: () => void;
   onOpenNotifications: () => void;
   onOpenGoogleCalendar: () => void;
   onOpenAccountManagement: () => void;
+  onLogout: () => void | Promise<void>;
+  onOpenAccountMenu?: () => void;
+}
+
+const PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER = 1.35;
+
+function boundedTextLineHeight(baseLineHeight: number, fontScale: number, maximumMultiplier: number): number {
+  if (!Number.isFinite(fontScale) || fontScale <= maximumMultiplier) return baseLineHeight;
+  return (baseLineHeight * maximumMultiplier) / fontScale;
 }
 
 /** The profile root is an ordered settings index, not a second dashboard. */
 export function ProfileOverviewScreen({
-  fullName,
-  email,
   academicSummary,
   notificationTruth,
   googleCalendar,
-  googleAccountEmail,
   appVersion,
-  buildNumber,
-  avatarUri,
-  loading = false,
   error,
+  followedUniversityCount = 0,
   onRetry,
+  onOpenAccountMenu,
   onOpenAcademicProfile,
+  onOpenFollowedUniversities,
   onOpenNotifications,
   onOpenGoogleCalendar,
-  onOpenAccountManagement,
 }: ProfileOverviewScreenProps) {
   const theme = useTheme();
-  const layout = useProfileLayout();
-  const normalizedName = fullName.trim() || "Ad bilgisi yok";
-  const normalizedEmail = email.trim() || "E-posta bilgisi yok";
-  const [avatarFailed, setAvatarFailed] = useState(false);
-  useEffect(() => setAvatarFailed(false), [avatarUri]);
-  const avatarSource = avatarUri?.trim() && !avatarFailed
-    ? { uri: avatarUri.trim() }
-    : require("../../assets/profile-default-avatar.png");
+  const { fontScale } = useWindowDimensions();
 
   return (
     <SettingsBody gap={theme.spacing.md}>
       <View style={styles.profileTopBar}>
-        <View style={styles.profileTopSpacer} />
-        <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Profil</Text>
+        <Text
+          accessibilityRole="header"
+          adjustsFontSizeToFit
+          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+          minimumFontScale={0.85}
+          numberOfLines={1}
+          style={[
+            theme.typography.screenTitle,
+            styles.profileOverviewTitle,
+            {
+              color: theme.colors.text.primary,
+              lineHeight: boundedTextLineHeight(theme.typography.screenTitle.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+            },
+          ]}
+        >
+          Ayarlar
+        </Text>
         <Pressable
           accessibilityLabel="Bildirim tercihlerini aç"
           accessibilityRole="button"
@@ -118,180 +131,153 @@ export function ProfileOverviewScreen({
           actionLabel={onRetry ? "Tekrar dene" : undefined}
           message="Son doğrulanmış profil bilgileri gösteriliyor."
           onAction={onRetry}
-          title="Profil yenilenemedi"
+          title="Ayarlar yenilenemedi"
           tone="error"
         />
       ) : null}
 
-      {loading ? <ProfileSummarySkeleton /> : (
-        <Card
-          accessibilityLabel={`${normalizedName}. ${academicSummary.universityLabel}. ${academicSummary.complete ? "Akademik profil tamamlandı" : "Akademik profil eksik"}. ${normalizedEmail}.`}
-          style={[
-            styles.profileReferenceHero,
-            {
-              backgroundColor: theme.colors.status.infoContainer,
-              borderColor: theme.colors.border.subtle,
-              borderRadius: theme.radii.prominent,
-              padding: theme.spacing.lg,
-            },
-          ]}
-          variant="elevated"
-        >
-          <Image
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            resizeMode="cover"
-            source={require("../../assets/academic-profile-campus.png")}
-            style={styles.profileCampusBackdrop}
-          />
-          <View style={[styles.profileHeroMain, layout.largeText && styles.profileHeroMainStacked, { gap: theme.spacing.md }]}>
-            <View style={styles.profileAvatarFrame}>
-              <Image
-                accessibilityLabel={`${normalizedName} profil fotoğrafı`}
-                onError={() => {
-                  if (avatarUri?.trim()) setAvatarFailed(true);
-                }}
-                resizeMode="cover"
-                source={avatarSource}
-                style={[
-                  styles.profilePortrait,
-                  {
-                    backgroundColor: theme.colors.background.surface,
-                    borderColor: theme.colors.background.surface,
-                    borderRadius: theme.radii.pill,
-                  },
-                ]}
-              />
-              <View style={[styles.profileCameraBadge, { backgroundColor: theme.colors.background.surface, borderColor: theme.colors.border.subtle, borderRadius: theme.radii.pill }]}>
-                <Ionicons color={theme.colors.action.primary} name="camera-outline" size={17} />
-              </View>
-            </View>
-            <View style={[styles.profileHeroCopy, { gap: theme.spacing.xxs }]}>
-              <Text style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>{normalizedName}</Text>
-              <Text
-                ellipsizeMode="middle"
-                numberOfLines={layout.largeText ? 3 : 2}
-                style={[theme.typography.body, { color: theme.colors.text.secondary }]}
-              >
-                {normalizedEmail}
-              </Text>
-              <View
-                style={[
-                  styles.profileStudentBadge,
-                  {
-                    alignSelf: layout.largeText ? "stretch" : "flex-start",
-                    backgroundColor: theme.colors.background.surface,
-                    borderColor: theme.colors.action.primary,
-                    borderRadius: theme.radii.control,
-                    gap: theme.spacing.xs,
-                  },
-                ]}
-              >
-                <Ionicons color={theme.colors.action.primary} name="school-outline" size={17} />
-                <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>Lisans Öğrencisi</Text>
-              </View>
-            </View>
-          </View>
-          <Text style={[theme.typography.body, styles.profileHeroTagline, { color: theme.colors.text.primary }]}>Akademik yolculuğunda her zaman bir adım önde.</Text>
-        </Card>
-      )}
-
-      <ProfileReferenceSection title="AKADEMİK BİLGİLER">
-        <ListItem
+      <ProfileReferenceSection title="Akademik bilgiler">
+        <ProfileOverviewItem
           accessibilityHint="Akademik profil düzenleme ekranını açar."
           leading={<SettingsIcon name="school-outline" tone="primary" />}
           onPress={onOpenAcademicProfile}
-          style={styles.profileMenuRow}
           supportingText={`${academicSummary.universityLabel} · Fakülte, bölüm, sınıf ve dönem bilgilerin`}
-          title="Akademik Bilgiler"
+          title="Akademik bilgiler"
+          trailing={<Chevron />}
+        />
+        <ProfileOverviewItem
+          accessibilityHint="Duyurularını takip ettiğin ek üniversiteleri açar."
+          leading={<SettingsIcon name="business-outline" tone="success" />}
+          onPress={onOpenFollowedUniversities}
+          supportingText={`${followedUniversityCount} ek üniversite`}
+          title="Takip edilen üniversiteler"
           trailing={<Chevron />}
         />
       </ProfileReferenceSection>
 
-      <ProfileReferenceSection title="BİLDİRİM TERCİHLERİ">
-        <ListItem
+      <ProfileReferenceSection title="Bildirimler">
+        <ProfileOverviewItem
           accessibilityHint="Bildirim tercihi ve cihaz teslimat durumunu açar."
           leading={<SettingsIcon name="notifications-outline" tone="warning" />}
           onPress={onOpenNotifications}
-          style={styles.profileMenuRow}
           supportingText={`${notificationTruth.title} · Etkinlik, ders ve sınav hatırlatmalarını yönet`}
-          title="Bildirim Tercihleri"
+          title="Bildirim tercihleri"
           trailing={<Chevron />}
         />
       </ProfileReferenceSection>
 
-      <ProfileReferenceSection title="BAĞLANTILAR">
-        <ListItem
+      <ProfileReferenceSection title="Bağlantılar">
+        <ProfileOverviewItem
           accessibilityHint="Google Takvim bağlantı yönetimini açar."
           leading={<SettingsIcon name="calendar-outline" tone="success" />}
           onPress={onOpenGoogleCalendar}
-          style={styles.profileMenuRow}
           supportingText="Takvimini senkronize et, hiçbir etkinliği kaçırma"
-          title="Google Takvim Bağlantısı"
+          title="Google Takvim bağlantısı"
           trailing={(
             <View style={[styles.profileTrailingStatus, { gap: theme.spacing.sm }]}>
-              <Text style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}>{googleCalendar.label === "Bağlı" ? "Bağlı" : googleCalendar.label}</Text>
+              <Text
+                maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+                numberOfLines={1}
+                style={[
+                  theme.typography.metaStrong,
+                  {
+                    color: theme.colors.text.link,
+                    lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+                  },
+                ]}
+              >
+                {googleCalendar.label === "Bağlı" ? "Bağlı" : googleCalendar.label}
+              </Text>
               <Chevron />
             </View>
           )}
         />
       </ProfileReferenceSection>
 
-      <ProfileReferenceSection title="HESAP">
-        <ListItem
-          accessibilityHint="Hesap bilgilerini açar."
-          leading={<SettingsIcon name="person-outline" tone="success" />}
-          onPress={onOpenAccountManagement}
-          style={styles.profileMenuRow}
-          supportingText="E-posta, şifre ve hesap ayarlarını güncelle"
-          title="Hesap Bilgileri"
-          trailing={<Chevron />}
-        />
-        <ListItem
-          accessibilityHint="Gizlilik ve güvenlik seçeneklerini açar."
-          leading={<SettingsIcon name="shield-checkmark-outline" tone="primary" />}
-          onPress={onOpenAccountManagement}
-          style={styles.profileMenuRow}
-          supportingText="Verilerini ve gizlilik tercihlerini yönet"
-          title="Gizlilik ve Güvenlik"
-          trailing={<Chevron />}
-        />
-      </ProfileReferenceSection>
-
-      <View
+      <Text
+        maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
         style={[
-          styles.profileSecurityBanner,
+          theme.typography.navLabel,
+          styles.profileVersion,
           {
-            backgroundColor: theme.colors.status.warningContainer,
-            borderColor: theme.colors.status.warning,
-            borderRadius: theme.radii.card,
-            gap: theme.spacing.sm,
-            padding: theme.spacing.md,
+            color: theme.colors.text.secondary,
+            lineHeight: boundedTextLineHeight(theme.typography.navLabel.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
           },
         ]}
       >
-        <SettingsIcon name="lock-closed" tone="warning" />
-        <View style={styles.flexOne}>
-          <Text style={[theme.typography.bodyStrong, { color: theme.colors.status.onWarningContainer }]}>Güvenliğin bizim için önemli</Text>
-          <Text style={[theme.typography.meta, { color: theme.colors.status.onWarningContainer }]}>Hesap ve veri işlemlerin güvenlik önlemleriyle korunur. İşlem yapmadan önce kimliğin doğrulanır.</Text>
-        </View>
-        <Ionicons color={theme.colors.action.primary} name="lock-closed" size={34} />
-      </View>
-
-      <Card style={styles.sectionCard} variant="elevated">
-        <ListItem
-          accessibilityHint="Hesap silme ve veri dışa aktarma işlemlerini açar."
-          leading={<SettingsIcon name="warning-outline" tone="error" />}
-          onPress={onOpenAccountManagement}
-          style={styles.profileMenuRow}
-          supportingText="Hesabını silme veya verilerini dışa aktarma gibi işlemler içerir."
-          title="Tehlikeli İşlemler"
-          trailing={<Ionicons color={theme.colors.status.error} name="chevron-down" size={21} />}
-        />
-      </Card>
-
-      <Text style={[theme.typography.navLabel, styles.profileVersion, { color: theme.colors.text.secondary }]}>Sürüm {appVersion} · Derleme {String(buildNumber)}{googleAccountEmail ? ` · ${googleAccountEmail}` : ""}</Text>
+        Sürüm {appVersion}
+      </Text>
     </SettingsBody>
+  );
+}
+
+function ProfileOverviewItem({
+  accessibilityHint,
+  leading,
+  onPress,
+  supportingText,
+  title,
+  trailing,
+}: {
+  accessibilityHint: string;
+  leading: ReactNode;
+  onPress: (event: GestureResponderEvent) => void;
+  supportingText: string;
+  title: string;
+  trailing: ReactNode;
+}) {
+  const theme = useTheme();
+  const { fontScale } = useWindowDimensions();
+
+  return (
+    <Pressable
+      accessibilityHint={accessibilityHint}
+      accessibilityLabel={title}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.profileMenuRow,
+        styles.profileOverviewItem,
+        {
+          backgroundColor: pressed ? theme.colors.action.ghostPressed : theme.colors.background.surface,
+          borderColor: theme.colors.border.subtle,
+          gap: theme.spacing.sm,
+          paddingHorizontal: theme.spacing.md,
+          paddingVertical: theme.spacing.sm,
+        },
+      ]}
+    >
+      <View importantForAccessibility="no">{leading}</View>
+      <View style={[styles.profileOverviewItemCopy, { gap: theme.spacing.xxs }]}>
+        <Text
+          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+          numberOfLines={fontScale > 1.45 ? 2 : undefined}
+          style={[
+            theme.typography.bodyStrong,
+            {
+              color: theme.colors.text.primary,
+              lineHeight: boundedTextLineHeight(theme.typography.bodyStrong.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+            },
+          ]}
+        >
+          {title}
+        </Text>
+        <Text
+          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+          numberOfLines={fontScale > 1.45 ? 3 : undefined}
+          style={[
+            theme.typography.meta,
+            {
+              color: theme.colors.text.secondary,
+              lineHeight: boundedTextLineHeight(theme.typography.meta.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+            },
+          ]}
+        >
+          {supportingText}
+        </Text>
+      </View>
+      <View importantForAccessibility="no">{trailing}</View>
+    </Pressable>
   );
 }
 
@@ -319,10 +305,10 @@ export function AcademicProfileSettingsScreen({
 
   return (
     <SettingsBody gap={theme.spacing.lg}>
-      <ScreenHeading
-        description="Üniversite zorunludur. Fakülte, bölüm ve sınıf isteğe bağlıdır; üst seçim değiştiğinde alt seçimler temizlenir."
-        title="Akademik profili düzenle"
-      />
+      <View style={[styles.academicProfileIntro, { gap: theme.spacing.xs }]}>
+        <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>Seçimlerini güncelle</Text>
+        <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Üniversite zorunludur. Fakülte, bölüm ve sınıf isteğe bağlıdır.</Text>
+      </View>
 
       {saveState === "saved" ? <Banner title="Akademik profil kaydedildi" tone="success" /> : null}
       {saveState === "error" ? (
@@ -336,29 +322,17 @@ export function AcademicProfileSettingsScreen({
         <Banner message="Kaydetmeden ayrılırsan bu seçimler uygulanmaz." title="Kaydedilmemiş değişiklikler" tone="warning" />
       ) : null}
 
-      <Card
-        style={[
-          styles.formCard,
-          {
-            backgroundColor: theme.colors.background.surface,
-            borderColor: theme.colors.border.subtle,
-            gap: theme.spacing.lg,
-          },
-        ]}
-        variant="elevated"
+      <View
+        accessibilityLabel="Akademik profil formu"
+        accessibilityState={{ busy: disabled }}
+        style={{ gap: theme.spacing.md }}
       >
-        <View
-          accessibilityLabel="Akademik profil formu"
-          accessibilityState={{ busy: disabled }}
-          style={{ gap: theme.spacing.md }}
-        >
-          <AcademicProfileFieldGroup
-            {...fieldProps}
-            busy={disabled}
-            validationAttempt={validationAttempt}
-          />
-        </View>
-      </Card>
+        <AcademicProfileFieldGroup
+          {...fieldProps}
+          busy={disabled}
+          validationAttempt={validationAttempt}
+        />
+      </View>
 
       <View style={[styles.actionRow, layout.stackActions && styles.actionColumn, { gap: theme.spacing.sm }]}>
         <Button
@@ -500,12 +474,6 @@ export function resolveNotificationHeroLayout(
   return safeWidth < 410 || safeFontScale >= 1.3 ? "stacked" : "side-by-side";
 }
 
-function resolveNotificationHeroStackedArtHeight(windowWidth: number): number {
-  const safeWidth = Number.isFinite(windowWidth) && windowWidth > 0 ? windowWidth : 320;
-  const totalHorizontalGutter = safeWidth < 375 ? 32 : 40;
-  return Math.round(Math.min(240, Math.max(120, (safeWidth - totalHorizontalGutter) / 2)));
-}
-
 export function NotificationSettingsScreen({
   truth,
   preferenceEnabled,
@@ -528,7 +496,6 @@ export function NotificationSettingsScreen({
   const { fontScale, width } = useWindowDimensions();
   const heroLayout = resolveNotificationHeroLayout(width, fontScale);
   const stackedHero = heroLayout === "stacked";
-  const stackedArtHeight = resolveNotificationHeroStackedArtHeight(width);
   const [openSettingsBusy, setOpenSettingsBusy] = useState(false);
   const [openSettingsError, setOpenSettingsError] = useState<string | undefined>();
   const openSettingsPendingRef = useRef(false);
@@ -580,19 +547,38 @@ export function NotificationSettingsScreen({
           stackedHero ? styles.notificationHeroCopyStacked : styles.notificationHeroCopySideBySide,
           { gap: theme.spacing.sm },
         ]}>
-          <Text style={[theme.typography.display, { color: theme.colors.text.primary }]}>Önemli akademik hatırlatmalar cebinizde</Text>
-          <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Sınav, duyuru, başvuru ve etkinlikleri kaçırmamak için bildirim tercihlerinizi kişiselleştirin.</Text>
+          <Text style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Önemli tarihleri zamanında hatırla</Text>
+          <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Sınav, duyuru, başvuru ve etkinlik bildirimlerini ihtiyacına göre seç.</Text>
         </View>
-        <Image
+        <View
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          resizeMode={stackedHero ? "contain" : "cover"}
-          source={require("../../assets/notification-reminders-hero.png")}
-          style={stackedHero
-            ? [styles.notificationHeroImageStacked, { height: stackedArtHeight }]
-            : styles.notificationHeroImageSideBySide}
-          testID="notification-hero-art"
-        />
+          style={[
+            styles.notificationHeroPreview,
+            stackedHero ? styles.notificationHeroPreviewStacked : styles.notificationHeroPreviewSideBySide,
+            {
+              backgroundColor: theme.colors.background.subtle,
+              borderColor: theme.colors.border.subtle,
+              borderRadius: theme.radii.card,
+            },
+          ]}
+          testID="notification-hero-preview"
+        >
+          <View style={styles.notificationPreviewHeader}>
+            <View style={[styles.notificationPreviewIcon, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.card }]}>
+              <Ionicons color={theme.colors.action.primary} name="notifications-outline" size={22} />
+            </View>
+            <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Hatırlatmalar</Text>
+          </View>
+          <View style={[styles.notificationPreviewRow, { borderTopColor: theme.colors.border.subtle }]}>
+            <Text style={[theme.typography.meta, styles.flexOne, { color: theme.colors.text.secondary }]}>Sınavlar</Text>
+            <Ionicons color={theme.colors.status.success} name="checkmark-circle" size={18} />
+          </View>
+          <View style={[styles.notificationPreviewRow, { borderTopColor: theme.colors.border.subtle }]}>
+            <Text style={[theme.typography.meta, styles.flexOne, { color: theme.colors.text.secondary }]}>Duyurular</Text>
+            <Ionicons color={theme.colors.status.success} name="checkmark-circle" size={18} />
+          </View>
+        </View>
       </View>
 
       <Pressable
@@ -645,19 +631,18 @@ export function NotificationSettingsScreen({
       {truth.kind === "error" && onRetry ? (
         <Button fullWidth label="Bildirim durumunu tekrar denetle" onPress={onRetry} variant="secondary" />
       ) : null}
-
       <ProfileReferenceSection title="BİLDİRİM TÜRLERİ">
-        {!preferenceEnabled ? (
-          <NotificationPreferenceRow
-            disabled={busy}
-            icon="notifications-outline"
-            label="Akademik hatırlatmalar"
-            onValueChange={onPreferenceEnabledChange}
-            supportingText="Bildirim tercihlerini etkinleştir"
-            tone="primary"
-            value={preferenceEnabled}
-          />
-        ) : null}
+        <NotificationPreferenceRow
+          disabled={busy}
+          icon="notifications-outline"
+          label="Akademik hatırlatmalar"
+          onValueChange={onPreferenceEnabledChange}
+          supportingText={preferenceEnabled
+            ? "Bildirim teslimatını devre dışı bırak"
+            : "Bildirim tercihlerini etkinleştir"}
+          tone="primary"
+          value={preferenceEnabled}
+        />
         {groupedCategories.map((group) => {
           return (
             <NotificationPreferenceRow
@@ -979,7 +964,8 @@ export interface AccountDataSettingsScreenProps {
     action: "data" | "account";
     requestId: number;
   };
-  onLogout: () => void | Promise<void>;
+  /** Legacy preview input; logout is intentionally owned by the profile root. */
+  onLogout?: () => void | Promise<void>;
   onDeleteData: () => void | Promise<void>;
   onDeleteAccount: () => void | Promise<void>;
 }
@@ -993,7 +979,6 @@ export function AccountDataSettingsScreen({
   feedback,
   recentAuthentication,
   recentAuthenticationReturnFocus,
-  onLogout,
   onDeleteData,
   onDeleteAccount,
 }: AccountDataSettingsScreenProps) {
@@ -1003,16 +988,13 @@ export function AccountDataSettingsScreen({
   const [confirmation, setConfirmation] = useState<AccountConfirmation | null>(null);
   const [confirmationBusy, setConfirmationBusy] = useState(false);
   const [confirmationError, setConfirmationError] = useState<string | undefined>();
-  const [logoutBusy, setLogoutBusy] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | undefined>();
   const confirmationPendingRef = useRef(false);
-  const logoutPendingRef = useRef(false);
   const handledReturnFocusRequestRef = useRef(0);
   const dataRef = useRef<NativeView | null>(null);
   const accountRef = useRef<NativeView | null>(null);
   const dataFocusTargetRef = useRef<number | null>(null);
   const accountFocusTargetRef = useRef<number | null>(null);
-  const effectiveBusy = busy || confirmationBusy || logoutBusy;
+  const effectiveBusy = busy || confirmationBusy;
   const controlsLocked = effectiveBusy || Boolean(recentAuthentication);
   const copy = accountConfirmationCopy(confirmation, email);
 
@@ -1042,21 +1024,6 @@ export function AccountDataSettingsScreen({
     }
   };
 
-  const submitLogout = async () => {
-    if (logoutPendingRef.current) return;
-    logoutPendingRef.current = true;
-    setLogoutBusy(true);
-    setLogoutError(undefined);
-    try {
-      await onLogout();
-    } catch {
-      setLogoutError("Oturum kapatılamadı. Hesap durumunu doğrulayıp tekrar deneyebilirsin.");
-    } finally {
-      logoutPendingRef.current = false;
-      setLogoutBusy(false);
-    }
-  };
-
   const confirm = async () => {
     if (!confirmation || confirmationPendingRef.current) return;
     confirmationPendingRef.current = true;
@@ -1077,8 +1044,8 @@ export function AccountDataSettingsScreen({
   return (
     <SettingsBody gap={theme.spacing.lg}>
       <ScreenHeading
-        description="Oturumunu kapatabilir veya hesabına ait verileri yönetebilirsin. Silme işlemleri için amaca bağlı yakın zamanda kimlik doğrulaması gerekir."
-        title="Hesap ve veri"
+        description="Uygulama verilerini veya hesabını silme işlemlerini buradan yönetebilirsin. Devam etmeden önce kimliğin yeniden doğrulanır."
+        title="Veri ve hesap silme"
       />
 
       {feedback ? (
@@ -1091,21 +1058,12 @@ export function AccountDataSettingsScreen({
               : "Hesap işlemi bilgisi"}
           tone={feedback.tone}
         />
-      ) : error || logoutError ? (
-        <Banner message={error ?? logoutError} title="Hesap işlemi tamamlanamadı" tone="error" />
+      ) : error ? (
+        <Banner message={error} title="Hesap işlemi tamamlanamadı" tone="error" />
       ) : null}
 
-      <SettingsSection title="Oturum">
-        <ListItem
-          leading={<SettingsIcon name="person-circle-outline" tone="primary" />}
-          title="Hesap"
-          supportingText={email.trim() || "E-posta bilgisi yok"}
-        />
-        <Button disabled={controlsLocked} fullWidth label="Çıkış yap" loading={logoutBusy} onPress={() => void submitLogout()} variant="secondary" />
-      </SettingsSection>
-
       <View
-        accessibilityLabel={`Tehlikeli alan. ${dangerExpanded ? "Açık" : "Kapalı"}.`}
+        accessibilityLabel={`Silme seçenekleri. ${dangerExpanded ? "Açık" : "Kapalı"}.`}
         accessibilityState={{ expanded: dangerExpanded, busy: effectiveBusy }}
         style={{ gap: theme.spacing.sm }}
       >
@@ -1113,26 +1071,26 @@ export function AccountDataSettingsScreen({
           aria-expanded={dangerExpanded}
           disabled={controlsLocked}
           fullWidth
-          label={dangerExpanded ? "Tehlikeli alanı kapat" : "Tehlikeli alanı göster"}
+          label={dangerExpanded ? "Silme seçeneklerini gizle" : "Silme seçeneklerini göster"}
           onPress={() => setDangerExpanded((current) => !current)}
-          variant="danger"
+          variant="secondary"
         />
         {dangerExpanded ? (
           <Card
             style={[
               styles.dangerCard,
               {
-                backgroundColor: theme.colors.status.errorContainer,
-                borderColor: theme.colors.status.error,
+                backgroundColor: theme.colors.background.surface,
+                borderColor: theme.colors.border.subtle,
                 gap: theme.spacing.md,
               },
             ]}
           >
             <View style={[styles.dangerHeading, { gap: theme.spacing.sm }]}>
-              <SettingsIcon name="warning-outline" tone="error" />
+              <SettingsIcon name="trash-outline" tone="neutral" />
               <View style={[styles.flexOne, { gap: theme.spacing.xs }]}>
-                <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.status.onErrorContainer }]}>Tehlikeli alan</Text>
-                <Text style={[theme.typography.body, { color: theme.colors.status.onErrorContainer }]}>Bu işlemler geri alınamaz. Önce kapsamı okuyup ayrı bir onay vermen gerekir.</Text>
+                <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>Silme seçenekleri</Text>
+                <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Her işlem kapsamını ayrı ayrı açıklar ve son adımda yeniden onay ister.</Text>
               </View>
             </View>
             <Button
@@ -1254,9 +1212,24 @@ function ScreenHeading({
 
 function ProfileReferenceSection({ title, children }: { title: string; children: ReactNode }) {
   const theme = useTheme();
+  const { fontScale } = useWindowDimensions();
   return (
     <View style={{ gap: theme.spacing.xs }}>
-      <Text accessibilityRole="header" style={[theme.typography.label, styles.profileSectionLabel, { color: theme.colors.text.secondary }]}>{title}</Text>
+      <Text
+        accessibilityRole="header"
+        maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+        numberOfLines={1}
+        style={[
+          theme.typography.label,
+          styles.profileSectionLabel,
+          {
+            color: theme.colors.text.secondary,
+            lineHeight: boundedTextLineHeight(theme.typography.label.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+          },
+        ]}
+      >
+        {title}
+      </Text>
       <Card
         style={[
           styles.sectionCard,
@@ -1271,6 +1244,13 @@ function ProfileReferenceSection({ title, children }: { title: string; children:
       </Card>
     </View>
   );
+}
+
+function profileInitials(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/u).filter(Boolean);
+  if (parts.length === 0) return "Ö";
+  return `${parts[0]?.[0] ?? ""}${parts.length > 1 ? parts.at(-1)?.[0] ?? "" : ""}`
+    .toLocaleUpperCase("tr-TR");
 }
 
 function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
@@ -1612,7 +1592,7 @@ function screenHeadingPresentation(title: string): {
   if (title === "Google Takvim") {
     return { icon: "logo-google", tone: "success" };
   }
-  if (title === "Hesap ve veri") {
+  if (title === "Veri ve hesap silme") {
     return { icon: "shield-outline", tone: "error" };
   }
   return { icon: "settings-outline", tone: "neutral" };
@@ -1690,8 +1670,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     minHeight: 52,
   },
-  profileTopSpacer: {
-    width: 48,
+  profileOverviewTitle: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "left",
+  },
+  profileOverviewItem: {
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    minWidth: 0,
+  },
+  profileOverviewItemCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   profileBellButton: {
     alignItems: "center",
@@ -1710,17 +1702,9 @@ const styles = StyleSheet.create({
     width: 10,
   },
   profileReferenceHero: {
-    minHeight: 190,
+    minHeight: 132,
     overflow: "hidden",
     position: "relative",
-  },
-  profileCampusBackdrop: {
-    bottom: -36,
-    height: 152,
-    opacity: 0.18,
-    position: "absolute",
-    right: -22,
-    width: "76%",
   },
   profileHeroMain: {
     alignItems: "center",
@@ -1732,24 +1716,18 @@ const styles = StyleSheet.create({
     flexDirection: "column",
   },
   profileAvatarFrame: {
-    height: 104,
+    height: 80,
     position: "relative",
-    width: 104,
+    width: 80,
   },
   profilePortrait: {
-    borderWidth: 4,
-    height: 104,
-    width: 104,
+    borderWidth: 1,
+    height: 80,
+    width: 80,
   },
-  profileCameraBadge: {
+  profileInitials: {
     alignItems: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    bottom: 0,
-    height: 34,
     justifyContent: "center",
-    position: "absolute",
-    right: -1,
-    width: 34,
   },
   profileHeroCopy: {
     flex: 1,
@@ -1763,12 +1741,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  profileHeroTagline: {
-    marginTop: 14,
-    zIndex: 1,
-  },
   profileSectionLabel: {
-    letterSpacing: 0.5,
+    letterSpacing: 0,
     paddingHorizontal: 4,
   },
   profileTrailingStatus: {
@@ -1794,40 +1768,59 @@ const styles = StyleSheet.create({
     width: 48,
   },
   notificationHero: {
-    overflow: "hidden",
-    position: "relative",
+    gap: 16,
   },
   notificationHeroSideBySide: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 220,
+    minHeight: 160,
   },
   notificationHeroStacked: {
     alignItems: "stretch",
     flexDirection: "column",
   },
   notificationHeroCopy: {
-    paddingLeft: 8,
-    zIndex: 1,
+    paddingHorizontal: 4,
   },
   notificationHeroCopySideBySide: {
     flex: 1,
-    maxWidth: "57%",
+    maxWidth: "58%",
   },
   notificationHeroCopyStacked: {
     maxWidth: "100%",
     paddingRight: 8,
     width: "100%",
   },
-  notificationHeroImageSideBySide: {
-    height: "100%",
-    position: "absolute",
-    right: -12,
-    width: "108%",
+  notificationHeroPreview: {
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 12,
   },
-  notificationHeroImageStacked: {
-    alignSelf: "stretch",
+  notificationHeroPreviewSideBySide: {
+    flex: 1,
+    maxWidth: "42%",
+    minWidth: 150,
+  },
+  notificationHeroPreviewStacked: {
     width: "100%",
+  },
+  notificationPreviewHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+    minHeight: 40,
+  },
+  notificationPreviewIcon: {
+    alignItems: "center",
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  notificationPreviewRow: {
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    minHeight: 34,
+    paddingVertical: 6,
   },
   notificationPermissionCard: {
     alignItems: "center",
@@ -1948,8 +1941,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  formCard: {
-    overflow: "visible",
+  academicProfileIntro: {
+    paddingHorizontal: 4,
   },
   summaryCard: {
   },

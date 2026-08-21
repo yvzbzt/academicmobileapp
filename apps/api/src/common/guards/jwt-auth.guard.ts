@@ -9,6 +9,9 @@ type RequestWithUser = Request & {
     email: string;
     role: "student" | "content_editor" | "university_admin" | "super_admin";
     credentialGeneration: number;
+    universityId?: string;
+    facultyId?: string;
+    departmentId?: string;
   };
 };
 
@@ -39,7 +42,10 @@ export class JwtAuthGuard implements CanActivate {
         id: currentUser.id,
         email: currentUser.email,
         role: currentUser.role,
-        credentialGeneration: currentUser.credentialGeneration
+        credentialGeneration: currentUser.credentialGeneration,
+        ...(currentUser.universityId ? { universityId: currentUser.universityId } : {}),
+        ...(currentUser.facultyId ? { facultyId: currentUser.facultyId } : {}),
+        ...(currentUser.departmentId ? { departmentId: currentUser.departmentId } : {})
       };
       return true;
     } catch {

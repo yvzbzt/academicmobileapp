@@ -88,6 +88,21 @@ export class InMemoryCalendarRepository implements CalendarRepository {
     return updatedCount;
   }
 
+  async archiveEventsByScheduleSeries(scheduleSeriesId: string, universityId?: string): Promise<number> {
+    let updatedCount = 0;
+    for (const [index, event] of this.events.entries()) {
+      if (
+        event.scheduleSeriesId === scheduleSeriesId
+        && (!universityId || event.universityId === universityId)
+        && event.status !== "archived"
+      ) {
+        this.events[index] = { ...event, status: "archived", updatedAt: new Date() };
+        updatedCount += 1;
+      }
+    }
+    return updatedCount;
+  }
+
   async listEventsByCalendar(calendarId: string): Promise<AcademicEventRecord[]> {
     return this.events
       .filter((event) => event.calendarId === calendarId)

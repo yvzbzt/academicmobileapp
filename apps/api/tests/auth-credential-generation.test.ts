@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuthUserRecord } from "../src/modules/auth/auth.types.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import { MongoAuthRepository } from "../src/modules/auth/mongo-auth.repository.js";
+import { revealSensitiveValue } from "../src/security/data-protection.js";
 
 const future = new Date("2099-01-01T00:00:00.000Z");
 const past = new Date("2026-01-01T00:00:00.000Z");
@@ -334,7 +335,10 @@ describe("credential-generation repository contract", () => {
 
     const updated = await repository.updateUserByAdmin("user-1", { fullName: "Mongo Name", credentialGeneration: 1 } as never);
 
-    expect(findByIdAndUpdate).toHaveBeenCalledWith("user-1", { $set: { fullName: "Mongo Name" } }, { new: true });
+    const persistedUpdate = findByIdAndUpdate.mock.calls[0]?.[1] as { $set: { fullName: string } };
+    expect(persistedUpdate.$set.fullName).toMatch(/^enc:v1:/u);
+    expect(revealSensitiveValue(persistedUpdate.$set.fullName, "user.fullName")).toBe("Mongo Name");
+    expect(persistedUpdate.$set).not.toHaveProperty("credentialGeneration");
     expect(updated).toEqual(expect.objectContaining({ credentialGeneration: 14, fullName: "Mongo Name" }));
   });
 });

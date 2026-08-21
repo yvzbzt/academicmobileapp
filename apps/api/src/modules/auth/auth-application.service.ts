@@ -295,7 +295,10 @@ export class AuthApplicationService {
     }
     if (user.status !== "active") throw unauthorizedAuthError(AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
 
-    await this.authRepository.revokeRefreshToken(existingToken.id, new Date());
+    const consumed = await this.authRepository.consumeRefreshTokenForRotation(existingToken.id, new Date());
+    if (!consumed) {
+      throw unauthorizedAuthError(AUTH_ERROR_CODES.SESSION_INVALID, "Session is no longer valid.");
+    }
     return this.createSession(user, input.deviceId, input.ipAddress, input.userAgent, existingToken.familyId);
   }
 
@@ -363,7 +366,7 @@ export class AuthApplicationService {
   }
 
   private async consumeVerificationToken(rawToken: string) {
-    const tokenHash = this.tokenService.hashOpaqueToken(rawToken);
+    const tokenHash = this.tokenService.hashEmailVerificationToken(rawToken);
     const record = await this.authRepository.findEmailVerificationTokenByHash(tokenHash);
     if (!record) throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_TOKEN_INVALID, "Invalid verification token.");
 
@@ -386,12 +389,12 @@ export class AuthApplicationService {
   }
 
   private async consumeVerificationCode(email: string, code: string) {
-    if (!/^\d{4}$/.test(code.trim())) {
+    if (!/^\d{6}$/.test(code.trim())) {
       throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_CODE_INVALID, "Invalid verification code.");
     }
     const user = await this.authRepository.findUserByEmail(email.trim().toLowerCase());
     if (!user) throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_CODE_INVALID, "Invalid verification code.");
-    const tokenHash = this.tokenService.hashOpaqueToken(code.trim());
+    const tokenHash = this.tokenService.hashEmailVerificationToken(code.trim());
     const record = await this.authRepository.findEmailVerificationTokenByHash(tokenHash);
     if (!record || record.userId !== user.id || record.consumedAt) {
       throw unauthorizedAuthError(AUTH_ERROR_CODES.VERIFICATION_CODE_INVALID, "Invalid verification code.");

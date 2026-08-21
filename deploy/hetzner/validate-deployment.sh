@@ -195,6 +195,10 @@ for variable_name in \
   MONGO_APP_PASSWORD \
   JWT_ACCESS_SECRET \
   JWT_REFRESH_SECRET \
+  EMAIL_VERIFICATION_TOKEN_PEPPER \
+  PASSWORD_RECOVERY_TOKEN_PEPPER \
+  DATA_ENCRYPTION_KEY \
+  DATA_LOOKUP_HMAC_SECRET \
   CALENDAR_FEED_SECRET; do
   value="${!variable_name:-}"
   [[ -z "${value}" ]] && continue
@@ -202,7 +206,9 @@ for variable_name in \
     fail "a protected value from ${variable_name} appears in container logs"
   fi
 done
-unset MONGO_ROOT_PASSWORD MONGO_APP_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET CALENDAR_FEED_SECRET
+unset MONGO_ROOT_PASSWORD MONGO_APP_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET
+unset EMAIL_VERIFICATION_TOKEN_PEPPER PASSWORD_RECOVERY_TOKEN_PEPPER
+unset DATA_ENCRYPTION_KEY DATA_LOOKUP_HMAC_SECRET CALENDAR_FEED_SECRET
 
 api_logs="$(docker logs anssoft-backend 2>&1)"
 if grep -Eiq 'uncaught|unhandled rejection|fatal|EADDRINUSE|MONGODB_[A-Z_]*FAILED' <<<"${api_logs}"; then

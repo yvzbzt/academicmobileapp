@@ -110,6 +110,10 @@ export function ThemeProvider({
       return;
     }
 
+    if (typeof AccessibilityInfo.isReduceTransparencyEnabled !== "function") {
+      return;
+    }
+
     let mounted = true;
     void AccessibilityInfo.isReduceTransparencyEnabled()
       .then((enabled) => {

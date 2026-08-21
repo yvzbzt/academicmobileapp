@@ -81,7 +81,7 @@ function previewProps(scenario: HomeDailyBriefPreviewScenario): HomeDailyBriefPr
   const base: HomeDailyBriefProps = {
     fullName: "Deniz Yılmaz",
     profileComplete: scenario !== "incomplete",
-    universityName: scenario === "incomplete" ? undefined : "Örnek Üniversitesi",
+    universityName: scenario === "incomplete" ? undefined : "Kampüs Üniversitesi",
     facultyName: scenario === "incomplete" ? undefined : "Mühendislik Fakültesi",
     departmentName: scenario === "incomplete" ? undefined : "Bilgisayar Mühendisliği",
     events: scenario === "populated" || scenario === "stale" || scenario === "long-title" ? [{
@@ -128,17 +128,17 @@ function previewAnnouncement(id: string, title: string, publishedAt: string): Tr
   return {
     id,
     sourceId: "preview-source",
-    sourceName: "Örnek Üniversitesi Öğrenci İşleri",
+    sourceName: "Kampüs Üniversitesi Öğrenci İşleri",
     scopeType: "university",
     scopeId: "preview-university",
     title,
-    summary: "Öğrencilerin işlem tarihlerini kaçırmaması için yayımlanan sentetik bilgilendirme özeti.",
+    summary: "Öğrencilerin işlem tarihlerini kaçırmaması için yayımlanan bilgilendirme özeti.",
     link: canonicalUrl,
     canonicalUrl,
     officialSourceUrl,
     sourceRelationships: [{
       sourceId: "preview-source",
-      sourceName: "Örnek Üniversitesi Öğrenci İşleri",
+      sourceName: "Kampüs Üniversitesi Öğrenci İşleri",
       officialSourceUrl,
       scopeType: "university",
       scopeId: "preview-university",

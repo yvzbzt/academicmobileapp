@@ -76,7 +76,7 @@ describe("Phase 9 Calendar detail", () => {
     expect(screen.getByText("Örnek Üniversitesi Akademik Takvimi")).toBeOnTheScreen();
     expect(screen.getByText("Örnek Üniversitesi · Mühendislik Fakültesi · Bilgisayar Mühendisliği")).toBeOnTheScreen();
     expect(screen.queryByText(/00:00/u)).not.toBeOnTheScreen();
-    expect(screen.queryByRole("button", { name: "Kişisel sınavı düzenle" })).not.toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Kişisel etkinliği düzenle" })).not.toBeOnTheScreen();
   });
 
   it("renders trusted timestamp details in the event timezone", async () => {
@@ -103,11 +103,11 @@ describe("Phase 9 Calendar detail", () => {
 
   it("edits an owner-scoped personal exam through the same native picker form", async () => {
     await renderDetail(personalItem);
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel sınavı düzenle" }));
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinliği düzenle" }));
     expect(screen.getByTestId("bottom-sheet").props.accessibilityLabel).toBe(
-      "Kişisel sınav düzenleme alt sayfası",
+      "Kişisel etkinlik düzenleme alt sayfası",
     );
-    fireEvent.changeText(screen.getByLabelText("Sınav adı"), "Lineer Cebir finali");
+    fireEvent.changeText(screen.getByLabelText("Etkinlik adı"), "Lineer Cebir finali");
     fireEvent.press(screen.getByRole("button", { name: "Değişiklikleri kaydet" }));
     expect(onUpdate).toHaveBeenCalledWith("exam", expect.objectContaining({ title: "Lineer Cebir finali" }));
   });
@@ -123,10 +123,10 @@ describe("Phase 9 Calendar detail", () => {
   it("requires a native destructive confirmation before delete", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     await renderDetail(personalItem);
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel sınavı sil" }));
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinliği sil" }));
     expect(alert).toHaveBeenCalledTimes(1);
     const options = alert.mock.calls[0][2];
-    expect(options?.map((option) => option.text)).toEqual(["Vazgeç", "Sınavı sil"]);
+    expect(options?.map((option) => option.text)).toEqual(["Vazgeç", "Etkinliği sil"]);
     options?.[1].onPress?.();
     expect(onDelete).toHaveBeenCalledWith("exam");
   });

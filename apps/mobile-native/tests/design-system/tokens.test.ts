@@ -41,14 +41,7 @@ describe("reference design tokens", () => {
     }
   });
 
-  it("maps the complete text hierarchy to loaded Inter faces", () => {
-    expect(new Set(Object.values(typography).map((token) => token.fontFamily))).toEqual(
-      new Set([
-        "Inter_400Regular",
-        "Inter_500Medium",
-        "Inter_600SemiBold",
-        "Inter_700Bold",
-      ]),
-    );
+  it("uses the native platform typeface throughout the text hierarchy", () => {
+    expect(Object.values(typography).every((token) => !("fontFamily" in token))).toBe(true);
   });
 });

@@ -258,6 +258,13 @@ export class InMemoryAuthRepository implements AuthRepository {
     return token ? normalizeRefreshTokenRecord(token) : null;
   }
 
+  async consumeRefreshTokenForRotation(id: string, revokedAt: Date): Promise<boolean> {
+    const token = this.refreshTokens.get(id);
+    if (!token || token.revokedAt) return false;
+    this.refreshTokens.set(id, normalizeRefreshTokenRecord({ ...token, revokedAt }));
+    return true;
+  }
+
   async revokeRefreshToken(id: string, revokedAt: Date): Promise<void> {
     const token = this.refreshTokens.get(id);
     if (token) this.refreshTokens.set(id, normalizeRefreshTokenRecord({ ...token, revokedAt }));

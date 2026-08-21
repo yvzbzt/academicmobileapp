@@ -54,6 +54,7 @@ describe("Phase 4 typed route graph", () => {
     expect(CALENDAR_ROUTE_NAMES).toEqual(["Calendar", "CalendarEventDetail"]);
     expect(SETTINGS_ROUTE_NAMES).toEqual([
       "AcademicProfileSettings",
+      "FollowedUniversitiesSettings",
       "NotificationSettings",
       "GoogleCalendarSettings",
       "AccountDataSettings"

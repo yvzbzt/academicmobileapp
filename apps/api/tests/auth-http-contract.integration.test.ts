@@ -225,6 +225,20 @@ describe("auth and academic-profile HTTP contracts", () => {
       user: expect.objectContaining({ email: "http.student@example.com" })
     }));
 
+    const invalidLogoutBodies: Array<{ name: string; body?: string }> = [
+      { name: "missing" },
+      { name: "empty object", body: JSON.stringify({}) },
+      { name: "empty refresh token", body: JSON.stringify({ refreshToken: "" }) }
+    ];
+    for (const invalidLogout of invalidLogoutBodies) {
+      const response = await request("/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${login.body.accessToken as string}` },
+        ...(invalidLogout.body === undefined ? {} : { body: invalidLogout.body })
+      });
+      expect(response.status, invalidLogout.name).toBe(400);
+    }
+
     const rotated = await request("/auth/refresh-token", {
       method: "POST",
       body: JSON.stringify({ refreshToken: login.body.refreshToken, deviceId: "http-device" })

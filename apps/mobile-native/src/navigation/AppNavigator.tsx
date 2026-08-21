@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   CommonActions,
   NavigationContainer,
+  TabActions,
   createNavigationContainerRef,
   getFocusedRouteNameFromRoute,
   type NavigationState,
@@ -41,9 +42,9 @@ import {
   findNodeHandle,
   Keyboard,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
   useWindowDimensions,
   type LayoutChangeEvent,
@@ -53,10 +54,12 @@ import {
 import {
   NavigationSurface,
   Screen,
+  referencePalette,
   usePlatformAdaptation,
   useReducedMotion,
   useTheme
 } from "../design-system";
+import { runtimeDiagnostic } from "../performance/runtime-diagnostics";
 import { isSafeRouteIdentifier } from "./routes";
 import {
   PRIMARY_TABS,
@@ -94,6 +97,7 @@ export type AppVisibleRoute =
   | "CalendarEventDetail"
   | "Profile"
   | "AcademicProfileSettings"
+  | "FollowedUniversitiesSettings"
   | "NotificationSettings"
   | "GoogleCalendarSettings"
   | "AccountDataSettings"
@@ -165,6 +169,7 @@ type CalendarStackParamList = {
 type SettingsStackParamList = {
   Profile: undefined;
   AcademicProfileSettings: undefined;
+  FollowedUniversitiesSettings: undefined;
   NotificationSettings: undefined;
   GoogleCalendarSettings: undefined;
   AccountDataSettings: undefined;
@@ -185,8 +190,12 @@ const CalendarStack = createNativeStackNavigator<CalendarStackParamList>();
 const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 const MainTabs = createBottomTabNavigator<MainTabParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
+const ANDROID_TAB_PRESS_DEDUPE_MS = 500;
+const ANDROID_TAB_PRESS_RETRY_DELAY_MS = 80;
+const NAVIGATION_RAIL_WIDTH = 128;
 
 interface RouteContentValue {
+  activeRoute: AppVisibleRoute;
   screens: AppScreenSlots;
   globalFeedback?: ReactNode;
   navigationLocked: boolean;
@@ -231,7 +240,7 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
           onPress: () => {
             leaveAlertVisibleRef.current = false;
             routeLeaveGuard.onDiscard();
-            navigation.dispatch(data.action);
+            setTimeout(() => navigation.dispatch(data.action), 0);
           },
         },
       ],
@@ -248,10 +257,15 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   const hasStackHeader = hasAuthenticatedShell && !isContentOwnedHeaderRoute(route);
   const hasFormLayout = isAuthOrOnboardingRoute(route)
     || route === "AcademicProfileSettings"
+    || route === "FollowedUniversitiesSettings"
     || route === "AccountDataSettings";
+  const authenticatedContentOwnsBottomChrome = hasAuthenticatedShell
+    && !isPrimaryTabRootRoute(route);
   const authenticatedEdges = adaptation.navigationLayout === "navigation-rail"
     ? ["right", "bottom"] as const
-    : ["left", "right"] as const;
+    : authenticatedContentOwnsBottomChrome
+      ? ["left", "right", "bottom"] as const
+      : ["left", "right"] as const;
   const authenticatedScreenEdges: readonly Edge[] = hasStackHeader
     ? authenticatedEdges
     : ["top", ...authenticatedEdges];
@@ -279,6 +293,35 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   if (route === "Introduction") {
     return (
       <Screen edges={["top", "left", "right", "bottom"]} fullBleed>
+        {globalFeedback}
+        {screens[route]}
+      </Screen>
+    );
+  }
+
+  if (route === "Login") {
+    return (
+      <Screen
+        edges={["top", "left", "right", "bottom"]}
+        fullBleed
+        keyboardSafe
+        readableWidth="form"
+      >
+        {globalFeedback}
+        {screens[route]}
+      </Screen>
+    );
+  }
+
+  if (route === "Register") {
+    return (
+      <Screen
+        contentStyle={styles.registerContent}
+        edges={["top", "left", "right", "bottom"]}
+        keyboardSafe
+        readableWidth="form"
+        style={styles.registerSurface}
+      >
         {globalFeedback}
         {screens[route]}
       </Screen>
@@ -342,6 +385,7 @@ const CalendarScreen = routeComponent("Calendar");
 const CalendarEventDetailScreen = routeComponent("CalendarEventDetail");
 const ProfileScreen = routeComponent("Profile");
 const AcademicProfileSettingsScreen = routeComponent("AcademicProfileSettings");
+const FollowedUniversitiesSettingsScreen = routeComponent("FollowedUniversitiesSettings");
 const NotificationSettingsScreen = routeComponent("NotificationSettings");
 const GoogleCalendarSettingsScreen = routeComponent("GoogleCalendarSettings");
 const AccountDataSettingsScreen = routeComponent("AccountDataSettings");
@@ -475,11 +519,13 @@ function HomeNavigator() {
 }
 
 function AnnouncementsNavigator() {
+  const { activeRoute } = useRouteContent();
   const { navigationLocked } = useRouteContent();
   const reducedMotion = useReducedMotion();
   const theme = useTheme();
   return (
     <AnnouncementStack.Navigator
+      initialRouteName={isAnnouncementStackRoute(activeRoute) ? activeRoute : "Announcements"}
       screenOptions={{
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
@@ -501,11 +547,13 @@ function AnnouncementsNavigator() {
 }
 
 function CalendarNavigator() {
+  const { activeRoute } = useRouteContent();
   const { navigationLocked } = useRouteContent();
   const reducedMotion = useReducedMotion();
   const theme = useTheme();
   return (
     <CalendarStack.Navigator
+      initialRouteName={isCalendarStackRoute(activeRoute) ? activeRoute : "Calendar"}
       screenOptions={{
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
@@ -530,27 +578,29 @@ function SettingsNavigator() {
   const theme = useTheme();
   return (
     <SettingsStack.Navigator
+      initialRouteName="Profile"
       screenOptions={{
         animation: reducedMotion ? "none" : "default",
         contentStyle: { backgroundColor: theme.colors.background.canvas },
         gestureEnabled: !navigationLocked,
         header: renderShellStackHeader,
-        headerBackTitle: "Profil",
+        headerBackTitle: "Ayarlar",
       }}
     >
       <SettingsStack.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{ headerShown: false, title: "Profil" }}
+        options={{ headerShown: false, title: "Ayarlar" }}
       />
       <SettingsStack.Screen name="AcademicProfileSettings" component={AcademicProfileSettingsScreen} options={{ title: "Akademik Profil" }} />
+      <SettingsStack.Screen name="FollowedUniversitiesSettings" component={FollowedUniversitiesSettingsScreen} options={{ title: "Üniversite Takipleri" }} />
       <SettingsStack.Screen
         name="NotificationSettings"
         component={NotificationSettingsScreen}
         options={{ headerShown: false, title: "Bildirim tercihleri" }}
       />
       <SettingsStack.Screen name="GoogleCalendarSettings" component={GoogleCalendarSettingsScreen} options={{ title: "Google Takvim" }} />
-      <SettingsStack.Screen name="AccountDataSettings" component={AccountDataSettingsScreen} options={{ title: "Hesap ve Veri" }} />
+      <SettingsStack.Screen name="AccountDataSettings" component={AccountDataSettingsScreen} options={{ title: "Hesap ve veri" }} />
     </SettingsStack.Navigator>
   );
 }
@@ -593,6 +643,7 @@ function ShellBottomTabBar({
   const theme = useTheme();
   const onHeightChange = useContext(BottomTabBarHeightCallbackContext);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const lastAndroidTabPressRef = useRef<{ routeKey: string; handledAt: number } | null>(null);
   const { fontScale, width } = useWindowDimensions();
   const contract = resolveAppShellLayoutContract({
     platform: adaptation.platform,
@@ -632,6 +683,13 @@ function ShellBottomTabBar({
     if (contentOwnsBottomChrome) onHeightChange?.(0);
   }, [contentOwnsBottomChrome, onHeightChange]);
 
+  useEffect(() => {
+    runtimeDiagnostic("navigation.tab_visible", {
+      route: activeTabRoute?.name ?? "unknown",
+      index: state.index,
+    });
+  }, [activeTabRoute?.name, state.index]);
+
   const renderTab = (routeIndex: number) => {
     const route = state.routes[routeIndex];
     if (!route) return null;
@@ -640,13 +698,37 @@ function ShellBottomTabBar({
     const focused = state.index === routeIndex;
     const color = focused ? activeTint : inactiveTint;
     const onPress = () => {
+      runtimeDiagnostic("navigation.tab_press", {
+        route: route.name,
+        focused,
+        platform: Platform.OS,
+      });
+      let androidPressToken: number | null = null;
+      if (Platform.OS === "android") {
+        const now = Date.now();
+        const previous = lastAndroidTabPressRef.current;
+        if (previous?.routeKey === route.key && now - previous.handledAt < ANDROID_TAB_PRESS_DEDUPE_MS) return;
+        lastAndroidTabPressRef.current = { routeKey: route.key, handledAt: now };
+        androidPressToken = now;
+      }
       const event = navigation.emit({
         type: "tabPress",
         target: route.key,
         canPreventDefault: true,
       });
       if (!focused && !event.defaultPrevented) {
-        navigation.navigate(route.name, route.params);
+        const jumpToRoute = () => navigation.dispatch(TabActions.jumpTo(route.name, route.params));
+        runtimeDiagnostic("navigation.tab_dispatch", { route: route.name });
+        jumpToRoute();
+        if (Platform.OS === "android" && androidPressToken !== null) {
+          setTimeout(() => {
+            const previous = lastAndroidTabPressRef.current;
+            if (previous?.routeKey !== route.key || previous.handledAt !== androidPressToken) return;
+            const tabState = navigation.getState();
+            const targetIndex = tabState.routes.findIndex((candidate) => candidate.key === route.key);
+            if (targetIndex >= 0 && tabState.index !== targetIndex) jumpToRoute();
+          }, ANDROID_TAB_PRESS_RETRY_DELAY_MS);
+        }
       }
     };
     const onLongPress = () => {
@@ -654,21 +736,23 @@ function ShellBottomTabBar({
     };
 
     return (
-      <Pressable
+      <TouchableOpacity
+        activeOpacity={0.72}
         key={route.key}
         accessibilityHint={`${definition.label} sekmesini açar.`}
         accessibilityLabel={descriptor.options.tabBarAccessibilityLabel ?? definition.label}
         accessibilityRole="button"
         accessibilityState={{ selected: focused }}
-        android_ripple={{ color: theme.colors.state.pressed, borderless: false }}
+        delayPressIn={0}
         onLongPress={onLongPress}
         onPress={onPress}
-        style={({ pressed }) => [styles.tabItem, pressed && styles.tabItemPressed]}
+        onPressIn={Platform.OS === "android" ? onPress : undefined}
+        style={styles.tabItem}
         testID={descriptor.options.tabBarButtonTestID}
       >
         <ShellTabIcon color={color} focused={focused} route={definition.route} size={22} />
         <ShellTabLabel color={color} label={definition.label} />
-      </Pressable>
+      </TouchableOpacity>
     );
   };
 
@@ -730,6 +814,7 @@ function ShellTabLabel({
       style={[
         theme.typography.navLabel,
         styles.tabLabel,
+        adaptation.navigationLayout === "navigation-rail" && styles.railTabLabel,
         {
           color,
           fontSize: contract.navigationLabelFontSize,
@@ -749,7 +834,35 @@ const tabNavigators: Record<keyof MainTabParamList, () => React.JSX.Element> = {
   ProfileTab: SettingsNavigator,
 };
 
+function isAnnouncementStackRoute(route: AppVisibleRoute): route is keyof AnnouncementStackParamList {
+  return route === "Announcements"
+    || route === "SummerSchool"
+    || route === "YokAnnouncements"
+    || route === "AnnouncementDetail";
+}
+
+function isCalendarStackRoute(route: AppVisibleRoute): route is keyof CalendarStackParamList {
+  return route === "Calendar" || route === "CalendarEventDetail";
+}
+
+function isSettingsStackRoute(route: AppVisibleRoute): route is keyof SettingsStackParamList {
+  return route === "Profile"
+    || route === "AcademicProfileSettings"
+    || route === "FollowedUniversitiesSettings"
+    || route === "NotificationSettings"
+    || route === "GoogleCalendarSettings"
+    || route === "AccountDataSettings";
+}
+
+function tabRouteForVisibleRoute(route: AppVisibleRoute): keyof MainTabParamList {
+  if (isAnnouncementStackRoute(route)) return "AnnouncementsTab";
+  if (isCalendarStackRoute(route)) return "CalendarTab";
+  if (isSettingsStackRoute(route)) return "ProfileTab";
+  return "HomeTab";
+}
+
 function AuthenticatedNavigator() {
+  const { activeRoute } = useRouteContent();
   const adaptation = usePlatformAdaptation();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -766,7 +879,7 @@ function AuthenticatedNavigator() {
       : undefined;
   return (
     <MainTabs.Navigator
-      initialRouteName="HomeTab"
+      initialRouteName={tabRouteForVisibleRoute(activeRoute)}
       backBehavior="history"
       tabBar={useNavigationRail ? undefined : renderShellBottomTabBar}
       screenOptions={({ route }) => {
@@ -775,6 +888,8 @@ function AuthenticatedNavigator() {
         const contentOwnsBottomChrome = focusedContentRoute !== definition.rootRoute;
         return {
           headerShown: false,
+          freezeOnBlur: true,
+          lazy: true,
           sceneStyle: { backgroundColor: theme.colors.background.canvas },
           tabBarAccessibilityLabel: definition.label,
           tabBarActiveBackgroundColor: "transparent",
@@ -801,16 +916,22 @@ function AuthenticatedNavigator() {
           ),
           tabBarInactiveBackgroundColor: "transparent",
           tabBarInactiveTintColor: theme.colors.text.secondary,
-          tabBarItemStyle: styles.tabItem,
+          tabBarItemStyle: useNavigationRail ? styles.railTabItem : styles.tabItem,
           tabBarLabel: ({ color }) => (
             <ShellTabLabel color={color} label={definition.label} />
           ),
+          tabBarLabelPosition: useNavigationRail ? "below-icon" : undefined,
           tabBarPosition: useNavigationRail ? "left" : "bottom",
           tabBarStyle: {
             backgroundColor: "transparent",
             borderColor: theme.colors.border.subtle,
             display: contentOwnsBottomChrome ? "none" : "flex",
             height: bottomNavigationHeight,
+            maxWidth: useNavigationRail ? NAVIGATION_RAIL_WIDTH : undefined,
+            minWidth: useNavigationRail ? NAVIGATION_RAIL_WIDTH : undefined,
+            paddingBottom: useNavigationRail ? Math.max(insets.bottom, 8) : undefined,
+            paddingTop: useNavigationRail ? Math.max(insets.top, 12) : undefined,
+            width: useNavigationRail ? NAVIGATION_RAIL_WIDTH : undefined,
           },
           tabBarVariant: useNavigationRail ? "material" : "uikit",
         };
@@ -898,13 +1019,21 @@ function requestAction(request: AppNavigationRequest) {
         }
       });
     case "Profile":
+      return CommonActions.navigate("Authenticated", {
+        screen: "ProfileTab",
+        params: { screen: "Profile" }
+      });
     case "AcademicProfileSettings":
+    case "FollowedUniversitiesSettings":
     case "NotificationSettings":
     case "GoogleCalendarSettings":
     case "AccountDataSettings":
       return CommonActions.navigate("Authenticated", {
         screen: "ProfileTab",
-        params: { screen: request.route }
+        params: {
+          screen: request.route,
+          initial: false,
+        }
       });
     case "UnknownRoute":
       return CommonActions.navigate("UnknownRoute");
@@ -945,11 +1074,12 @@ export function AppNavigator({
   const pendingRequestRef = useRef<{ key: string; expectedLeaf: AppVisibleRoute } | null>(null);
   const lastControlledRouteRef = useRef<string | null>(null);
   const contextValue = useMemo<RouteContentValue>(() => ({
+    activeRoute,
     screens,
     globalFeedback,
     navigationLocked,
     routeLeaveGuard,
-  }), [globalFeedback, navigationLocked, routeLeaveGuard, screens]);
+  }), [activeRoute, globalFeedback, navigationLocked, routeLeaveGuard, screens]);
 
   const acknowledgeVisibleRequest = useCallback((leaf: string | undefined): void => {
     if (!leaf || !request || !requestMatchesRootSurface(request.route, rootSurface)) return;
@@ -974,6 +1104,10 @@ export function AppNavigator({
 
   useEffect(() => {
     if (!ready || !navigationRef.isReady()) return;
+    // Authenticated tab and stack navigation already reports its visible leaf
+    // upstream. Re-dispatching that delayed value can bounce a slow first mount
+    // back to the previously visible tab.
+    if (rootSurface === "authenticated") return;
     if (!isControlledBaseRoute(activeRoute)) return;
     const controlledKey = `${rootSurface}:${activeRoute}`;
     if (lastControlledRouteRef.current === controlledKey) return;
@@ -1082,6 +1216,7 @@ function isControlledBaseRoute(route: AppVisibleRoute): boolean {
 
 function isNestedProfileSettingsRoute(route: string | undefined): boolean {
   return route === "AcademicProfileSettings"
+    || route === "FollowedUniversitiesSettings"
     || route === "NotificationSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
@@ -1110,7 +1245,7 @@ function isVisibleRoute(value: string): value is AppVisibleRoute {
     "PasswordRecoveryRequest", "PasswordRecoveryCode", "PasswordRecoveryConfirm",
     "AcademicOnboarding",
     "Home", "Announcements", "SummerSchool", "YokAnnouncements", "AnnouncementDetail",
-    "Calendar", "CalendarEventDetail", "Profile", "AcademicProfileSettings",
+    "Calendar", "CalendarEventDetail", "Profile", "AcademicProfileSettings", "FollowedUniversitiesSettings",
     "NotificationSettings", "GoogleCalendarSettings", "AccountDataSettings", "UnknownRoute"
   ].includes(value);
 }
@@ -1135,6 +1270,7 @@ function isAuthenticatedRoute(route: AppVisibleRoute): boolean {
     || route === "CalendarEventDetail"
     || route === "Profile"
     || route === "AcademicProfileSettings"
+    || route === "FollowedUniversitiesSettings"
     || route === "NotificationSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
@@ -1169,8 +1305,9 @@ const ROUTE_ACCESSIBILITY_TITLES: Readonly<Record<AppVisibleRoute, string>> = {
   AnnouncementDetail: "Duyuru Detayı",
   Calendar: "Takvim",
   CalendarEventDetail: "Takvim Ayrıntısı",
-  Profile: "Profil",
+  Profile: "Ayarlar",
   AcademicProfileSettings: "Akademik Profil",
+  FollowedUniversitiesSettings: "Üniversite Takipleri",
   NotificationSettings: "Bildirim tercihleri",
   GoogleCalendarSettings: "Google Takvim",
   AccountDataSettings: "Hesap ve Veri",
@@ -1190,6 +1327,13 @@ const styles = StyleSheet.create({
   content: {
     gap: 14
   },
+  registerSurface: {
+    backgroundColor: referencePalette.white,
+  },
+  registerContent: {
+    backgroundColor: referencePalette.white,
+    justifyContent: "center",
+  },
   tabItem: {
     alignItems: "center",
     flex: 1,
@@ -1197,13 +1341,23 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingTop: 5,
   },
-  tabItemPressed: {
-    opacity: 0.72,
+  railTabItem: {
+    alignItems: "center",
+    flex: 0,
+    height: 78,
+    justifyContent: "center",
+    minHeight: 72,
+    paddingHorizontal: 8,
+    paddingTop: 0,
+    width: "100%",
   },
   tabLabel: {
     marginTop: 1,
     maxWidth: 76,
     textAlign: "center",
+  },
+  railTabLabel: {
+    maxWidth: 100,
   },
   tabIconIndicator: {
     alignItems: "center",

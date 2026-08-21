@@ -95,8 +95,8 @@ const COMPLETE_DRAFT: AcademicOnboardingDraft = {
 };
 
 const UNIVERSITIES = [
-  { value: "preview-university", label: "Örnek Üniversitesi", supportingText: "Sentetik katalog" },
-  { value: "preview-technical-university", label: "Örnek Teknik Üniversitesi", supportingText: "Sentetik katalog" },
+  { value: "preview-university", label: "Kampüs Üniversitesi", supportingText: "Akademik katalog" },
+  { value: "preview-technical-university", label: "Kampüs Teknik Üniversitesi", supportingText: "Akademik katalog" },
 ] as const;
 
 const FACULTIES = [
@@ -259,7 +259,7 @@ function ProfileSettingsPreviewExperience({
     incomplete
       ? {}
       : {
-        universityName: "Örnek Üniversitesi",
+        universityName: "Kampüs Üniversitesi",
         facultyName: "Mühendislik Fakültesi",
         departmentName: "Bilgisayar Mühendisliği",
       },
@@ -278,11 +278,10 @@ function ProfileSettingsPreviewExperience({
       Profile: (
         <ProfileOverviewScreen
           academicSummary={academicSummary}
-          appVersion="0.1.3"
-          buildNumber={13}
-          email="ogrenci@example.invalid"
+          appVersion="0.1.0"
+          email="deniz.yilmaz@kampus.example.invalid"
           fullName={incomplete ? "Örnek Öğrenci" : "Deniz Örnek"}
-          googleAccountEmail={incomplete ? undefined : "calendar@example.invalid"}
+          googleAccountEmail={incomplete ? undefined : "deniz.yilmaz@kampus.example.invalid"}
           googleCalendar={resolveGoogleCalendarPresentation(incomplete ? "disconnected" : "connected")}
           notificationTruth={resolveNotificationTruth({
             permission: "granted",
@@ -290,10 +289,13 @@ function ProfileSettingsPreviewExperience({
             registration: "registered",
             saveState: "saved",
           })}
+          followedUniversityCount={2}
           onOpenAcademicProfile={() => openRoute("AcademicProfileSettings")}
+          onOpenFollowedUniversities={() => undefined}
           onOpenNotifications={() => openRoute("NotificationSettings")}
           onOpenGoogleCalendar={() => openRoute("GoogleCalendarSettings")}
           onOpenAccountManagement={() => openRoute("AccountDataSettings")}
+          onLogout={() => undefined}
         />
       ),
       AcademicProfileSettings: (
@@ -377,7 +379,7 @@ function ProfileSettingsPreviewExperience({
       ),
       GoogleCalendarSettings: (
         <GoogleCalendarSettingsScreen
-          accountEmail={googleState === "disconnected" ? undefined : "calendar@example.invalid"}
+          accountEmail={googleState === "disconnected" ? undefined : "deniz.yilmaz@kampus.example.invalid"}
           connectionExists={googleState !== "disconnected"}
           lastSyncedLabel={googleState === "disconnected" ? undefined : "5 Ağustos 2026 09:30"}
           managedEventCount={googleState === "disconnected" ? undefined : 4}
@@ -395,7 +397,7 @@ function ProfileSettingsPreviewExperience({
       AccountDataSettings: (
         <AccountDataSettingsScreen
           key={scenario}
-          email="ogrenci@example.invalid"
+          email="deniz.yilmaz@kampus.example.invalid"
           error={accountScenarioError}
           onDeleteAccount={() => (
             shouldRejectAccountDeletion

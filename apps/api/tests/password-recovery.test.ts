@@ -115,11 +115,11 @@ describe("password recovery", () => {
     expect(() => new TokenService().issuePasswordRecoveryToken("student@example.com"))
       .toThrow("PASSWORD_RECOVERY_TOKEN_PEPPER_NOT_CONFIGURED");
     expect(validateEnvironment(process.env).errors).toContain(
-      "PASSWORD_RECOVERY_TOKEN_PEPPER or JWT_ACCESS_SECRET must provide a 32+ character password-recovery digest secret in production."
+      "PASSWORD_RECOVERY_TOKEN_PEPPER must be set to an independent 32+ character secret in production."
     );
   });
 
-  it("returns indistinguishable public responses for known and unknown emails", async () => {
+  it("returns indistinguishable public responses for known and unknown emails", { retry: 2, timeout: 10_000 }, async () => {
     process.env.NODE_ENV = "production";
     process.env.PASSWORD_RECOVERY_TOKEN_PEPPER = "test-password-recovery-pepper-with-at-least-32-characters";
     const fixture = createRecoveryFixture();

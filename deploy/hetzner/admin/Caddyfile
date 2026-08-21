@@ -11,6 +11,7 @@
 		Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self' https://academic-api.anssoft.com.tr https://cloudflareinsights.com; font-src 'self' data: https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"
 		Permissions-Policy "camera=(), geolocation=(), microphone=()"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 	}

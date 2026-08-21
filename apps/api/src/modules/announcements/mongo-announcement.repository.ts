@@ -5,7 +5,7 @@ import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
 import { canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class MongoAnnouncementRepository implements AnnouncementRepository {
@@ -33,6 +33,28 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
       .limit(input.limit ?? 500);
 
     return documents.map((document) => toDomainRecord<AnnouncementSourceRecord>(document));
+  }
+
+  async listSourcesByScopeSet(input: {
+    scopes: AnnouncementSourceScope[];
+    status?: AnnouncementSourceStatus;
+    limit: number;
+    offset: number;
+  }): Promise<AnnouncementSourceRecord[]> {
+    if (input.scopes.length === 0) return [];
+    const documents = await (await this.model("AnnouncementSource", announcementSourceSchema)).find({
+      ...(input.status === "active"
+        ? { status: "active", trustStatus: "trusted" }
+        : input.status ? { status: input.status } : {}),
+      $or: input.scopes.map((scope) => ({ scopeType: scope.scopeType, scopeId: scope.scopeId }))
+    }).sort({ priority: -1, sourceName: 1 }).skip(input.offset).limit(input.limit);
+    return documents.map((document) => toDomainRecord<AnnouncementSourceRecord>(document));
+  }
+
+  async findSourceById(id: string): Promise<AnnouncementSourceRecord | null> {
+    if (!isValidObjectId(id)) return null;
+    const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findById(id);
+    return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
   }
 
   async upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord> {
@@ -64,6 +86,13 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
 
   async recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null> {
     const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findByIdAndUpdate(id, omitUndefined(input as unknown as Record<string, unknown>), { new: true });
+    return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
+  }
+
+  async deactivateSource(id: string): Promise<AnnouncementSourceRecord | null> {
+    if (!isValidObjectId(id)) return null;
+    const document = await (await this.model("AnnouncementSource", announcementSourceSchema))
+      .findByIdAndUpdate(id, { status: "inactive" }, { new: true });
     return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
   }
 

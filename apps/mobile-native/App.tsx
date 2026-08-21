@@ -2,13 +2,6 @@ import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  useFonts,
-} from "@expo-google-fonts/inter";
-import {
   GoogleSignin,
   isCancelledResponse,
   isErrorWithCode,
@@ -20,6 +13,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  InteractionManager,
   Linking,
   NativeModules,
   Platform,
@@ -38,7 +32,12 @@ import {
   type AppScreenSlots,
   type AppVisibleRoute
 } from "./src/navigation/AppNavigator";
+import { AccountDrawer } from "./src/navigation/AccountDrawer";
 import { AppShellPreview } from "./src/navigation/AppShellPreview";
+import {
+  nextRuntimeDiagnosticId,
+  runtimeDiagnostic,
+} from "./src/performance/runtime-diagnostics";
 import {
   BootstrapErrorState,
   BootstrapLoadingState,
@@ -56,7 +55,7 @@ import {
   type RouteOwner,
   type UnknownRoute
 } from "./src/navigation";
-import { Banner, DesignSystemPreview, ListItem, ThemeProvider } from "./src/design-system";
+import { Banner, BottomSheet, DesignSystemPreview, ListItem, ThemeProvider } from "./src/design-system";
 import { Section } from "./src/components/Section";
 import {
   GOOGLE_CALENDAR_EVENTS_SCOPE,
@@ -66,6 +65,7 @@ import {
   type GoogleCalendarSyncResult
 } from "./src/google-calendar/google-calendar-sync";
 import {
+  GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED,
   GOOGLE_CALENDAR_CONNECTION_SCHEMA_VERSION,
   GoogleCalendarLifecycleGuard,
   executeGoogleCalendarLifecycle,
@@ -76,6 +76,8 @@ import {
   planGoogleCalendarExactMappingLookups,
   planGoogleCalendarLifecycle,
   readGoogleCalendarConnectionRecordV3,
+  resolveGoogleCalendarAuthorizationErrorPresentation,
+  settledGoogleCalendarLifecycleState,
   type GoogleCalendarConnectionRecordV3,
   type GoogleCalendarLifecycleState
 } from "./src/google-calendar/google-calendar-lifecycle";
@@ -90,6 +92,7 @@ import {
   createPendingNotificationDestinationRecord,
   isSamePendingNotificationDestinationRecord,
   openNotificationSettings,
+  notificationReminderRulesForMutation,
   parsePendingNotificationDestinationRecord,
   resolveNotificationDestination,
   serializePendingNotificationDestinationRecord,
@@ -146,9 +149,11 @@ import { RecentAuthenticationPanel } from "./src/auth/RecentAuthenticationPanel"
 import {
   normalizeAccountAuthProvider,
   readRecentAuthenticationResponse,
+  recentAuthenticationFailureMessage,
   recentAuthenticationHeader,
   recentAuthenticationMethods,
   recentAuthenticationPurpose,
+  shouldRefreshSessionAfterRecentAuthenticationFailure,
   type AccountAuthProvider,
   type DestructiveAccountAction,
   type RecentAuthenticationMethod
@@ -186,6 +191,10 @@ import {
   ProfileOverviewScreen
 } from "./src/profile/ProfileSettings";
 import {
+  FollowedUniversitiesSettingsScreen,
+  type FollowedUniversityRecord,
+} from "./src/profile/FollowedUniversitiesSettings";
+import {
   ProfileSettingsPreview,
   type ProfileSettingsPreviewScenario
 } from "./src/profile/ProfileSettingsPreview";
@@ -219,6 +228,7 @@ import {
   selectUniversityAcademicCalendarEvents,
   type CalendarItem
 } from "./src/calendar/calendar-model";
+import { normalizeLegacyAllDayCalendarEvent } from "./src/calendar/calendar-display-normalization";
 import {
   PersonalExamRuntime,
   StalePersonalExamOperationError,
@@ -226,6 +236,7 @@ import {
   type PersonalExamMutationInput,
   type PersonalExamMutationResult
 } from "./src/calendar/personal-exam-runtime";
+import { PersonalCalendarReminderCoordinator } from "./src/calendar/personal-calendar-reminders";
 import {
   CalendarPreview,
   type CalendarPreviewScenario
@@ -299,6 +310,7 @@ const AUTHENTICATED_ROUTE_NAMES = new Set<AppVisibleRoute>([
   "CalendarEventDetail",
   "Profile",
   "AcademicProfileSettings",
+  "FollowedUniversitiesSettings",
   "NotificationSettings",
   "GoogleCalendarSettings",
   "AccountDataSettings",
@@ -341,6 +353,7 @@ function routeBelongsToLegacyTab(route: AppVisibleRoute, tab: TabId): boolean {
     case "profile":
       return route === "Profile"
         || route === "AcademicProfileSettings"
+        || route === "FollowedUniversitiesSettings"
         || route === "NotificationSettings"
         || route === "GoogleCalendarSettings"
         || route === "AccountDataSettings";
@@ -377,6 +390,7 @@ function navigationTargetForProtectedRoute(route: ProtectedAppRoute): {
       };
     case "Profile":
     case "AcademicProfileSettings":
+    case "FollowedUniversitiesSettings":
     case "NotificationSettings":
     case "GoogleCalendarSettings":
     case "AccountDataSettings":
@@ -496,6 +510,13 @@ type CalendarPayload = {
   sourceStatus?: "parsed" | "source_only";
 };
 
+type DepartmentSchedulePayload = {
+  profile: { universityId: string; facultyId?: string; departmentId?: string };
+  events: EventRecord[];
+  sourceUrl?: string;
+  sourceStatus: "parsed" | "source_only" | "missing";
+};
+
 type LegacyGoogleCalendarConnectionRecord = {
   ownerId: string;
   accountEmail: string;
@@ -587,8 +608,7 @@ const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
 const GOOGLE_CALENDAR_V2_STORAGE_PREFIX = "native_google_calendar_connection_v2";
 const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v3";
 // Sourced from app.json; kept visible here so Profile never reports a package-only placeholder.
-const NATIVE_APP_VERSION = "0.1.3";
-const NATIVE_ANDROID_BUILD_NUMBER = 14;
+const NATIVE_APP_VERSION = "0.1.0";
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -683,7 +703,7 @@ const UNIVERSITY_TYPE_LABELS: Record<string, string> = {
 
 const PRODUCTION_API_BASE_URL = "https://academic-api.anssoft.com.tr";
 const DEFAULT_GOOGLE_WEB_CLIENT_ID = "315186329318-911ks4c825vjrd5lpk608ugie7m8lujj.apps.googleusercontent.com";
-const DEFAULT_GOOGLE_ANDROID_CLIENT_ID = "315186329318-mbbpc4rjd1ipirfnsl3vdetjfi8ir2ff.apps.googleusercontent.com";
+const DEFAULT_GOOGLE_ANDROID_CLIENT_ID = "315186329318-u6gd6lklnfkddc6kmsq7qvls8vgoei1k.apps.googleusercontent.com";
 
 const GOOGLE_EXPO_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID);
 const GOOGLE_WEB_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) ?? GOOGLE_EXPO_CLIENT_ID ?? DEFAULT_GOOGLE_WEB_CLIENT_ID;
@@ -871,7 +891,8 @@ function resolveApiBaseUrl(): string {
   const fromEnv = normalizeBaseUrl(process.env.EXPO_PUBLIC_API_URL ?? "");
   if (fromEnv) return fromEnv;
 
-  if (!__DEV__) return PRODUCTION_API_BASE_URL;
+  const useLocalDevApi = process.env.EXPO_PUBLIC_USE_LOCAL_API === "1";
+  if (!__DEV__ || !useLocalDevApi) return PRODUCTION_API_BASE_URL;
 
   const scriptUrl =
     typeof NativeModules?.SourceCode?.scriptURL === "string"
@@ -942,13 +963,13 @@ function normalizeEventRecordsForDisplay(events: EventRecord[]): EventRecord[] {
       location: _location,
       ...baseEvent
     } = event;
-    return [{
+    return [normalizeLegacyAllDayCalendarEvent({
       ...baseEvent,
       title,
       ...(courseName ? { courseName } : {}),
       ...(description ? { description } : {}),
       ...(location ? { location } : {})
-    }];
+    })];
   });
 }
 
@@ -1099,7 +1120,7 @@ function cleanupTargetLabel(target: AccountCleanupTarget): string {
     session_storage: "cihaz oturumu",
     pending_verification_storage: "doğrulama kurtarma kaydı",
     pending_notification_storage: "bekleyen bildirim hedefi",
-    manual_exam_storage: "kişisel sınav kaydı",
+    manual_exam_storage: "kişisel takvim kaydı",
     google_connection_storage: "Google Takvim bağlantı kaydı",
     google_managed_events: "Google Takvim'e eklenen uygulama kayıtları",
     google_access: "Google erişim izni",
@@ -1223,6 +1244,9 @@ async function deleteStoredValue(key: string): Promise<void> {
 }
 
 function MainApplication() {
+  const renderDiagnosticStartedAt = Date.now();
+  const renderDiagnosticSequenceRef = useRef(0);
+  const renderDiagnosticId = ++renderDiagnosticSequenceRef.current;
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authStage, setAuthStage] = useState<AuthStage>("auth");
   const [preloginWelcomeGate, setPreloginWelcomeGate] = useState<
@@ -1283,11 +1307,14 @@ function MainApplication() {
   const [faculties, setFaculties] = useState<Loadable<FacultyRecord[]>>({ loading: false });
   const [departments, setDepartments] = useState<Loadable<DepartmentRecord[]>>({ loading: false });
   const [calendar, setCalendar] = useState<Loadable<CalendarPayload>>({ loading: false });
+  const [courseSchedule, setCourseSchedule] = useState<Loadable<DepartmentSchedulePayload>>({ loading: false });
   const [upcoming, setUpcoming] = useState<Loadable<EventRecord[]>>({ loading: false });
   const [announcements, setAnnouncements] = useState<Loadable<TrustedContentCollection>>({ loading: false });
   const [yokAnnouncements, setYokAnnouncements] = useState<Loadable<TrustedContentCollection>>({ loading: false });
   const [summerSchool, setSummerSchool] = useState<Loadable<SummerSchoolPayload>>({ loading: false });
   const [preferences, setPreferences] = useState<Loadable<NotificationPreferencePayload>>({ loading: false });
+  const [followedUniversities, setFollowedUniversities] = useState<Loadable<FollowedUniversityRecord[]>>({ loading: false });
+  const [followedUniversityBusyId, setFollowedUniversityBusyId] = useState<string | undefined>();
   const [manualExamState, setManualExamState] = useState<PersonalExamRuntimeState>({
     ownerId: null,
     hydrated: false,
@@ -1301,6 +1328,9 @@ function MainApplication() {
   const [alarmEnabled, setAlarmEnabled] = useState(false);
   const [alarmMode, setAlarmMode] = useState<AlarmMode>("all_calendar");
   const [categoryDraft, setCategoryDraft] = useState<Record<string, boolean>>({});
+  const alarmEnabledRef = useRef(false);
+  const alarmModeRef = useRef<AlarmMode>("all_calendar");
+  const categoryDraftRef = useRef<Record<string, boolean>>({});
   const [academicProfileSaveState, setAcademicProfileSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -1357,6 +1387,7 @@ function MainApplication() {
     error?: string;
   } | null>(null);
   const [academicProfileExpanded, setAcademicProfileExpanded] = useState(false);
+  const [accountDrawerVisible, setAccountDrawerVisible] = useState(false);
   const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
   const [contentFeedLimit, setContentFeedLimit] = useState(CONTENT_FEED_INITIAL_LIMIT);
   const [contentFeedPagination, setContentFeedPagination] = useState<{
@@ -1393,6 +1424,10 @@ function MainApplication() {
   const notificationForegroundUnsubscribeRef = useRef<(() => void) | null>(null);
   const notificationTapAdapterRef = useRef<FirebaseNotificationTapAdapter | null>(null);
   const notificationFailClosedPromiseRef = useRef<Promise<void> | null>(null);
+  const notificationReconcilePromiseRef = useRef<{
+    ownerId: string;
+    operation: Promise<void>;
+  } | null>(null);
   const notificationNavigationRequestRef = useRef<{
     requestKey: string;
     record: ReturnType<typeof createPendingNotificationDestinationRecord>;
@@ -1402,6 +1437,14 @@ function MainApplication() {
   const authOperationInProgressRef = useRef(false);
   const activationAttemptRef = useRef(0);
   const hydrationInProgressRef = useRef(false);
+
+  useEffect(() => {
+    runtimeDiagnostic("render.commit", {
+      id: renderDiagnosticId,
+      activeTab,
+      elapsedMs: Date.now() - renderDiagnosticStartedAt,
+    });
+  });
   const personalExamRuntimeRef = useRef<PersonalExamRuntime | null>(null);
   if (!personalExamRuntimeRef.current) {
     personalExamRuntimeRef.current = new PersonalExamRuntime({
@@ -1421,11 +1464,20 @@ function MainApplication() {
           failedTargets: ["manual_exam_storage"],
           ownerId
         });
-        setMessage({ text: "Sınavlar cihazda saklanamadı. Lütfen tekrar dene.", tone: "error" });
+        setMessage({ text: "Kişisel takvim cihazda saklanamadı. Lütfen tekrar dene.", tone: "error" });
       }
     });
   }
   const personalExamRuntime = personalExamRuntimeRef.current;
+  const personalCalendarReminderCoordinatorRef = useRef<PersonalCalendarReminderCoordinator | null>(null);
+  if (!personalCalendarReminderCoordinatorRef.current) {
+    personalCalendarReminderCoordinatorRef.current = new PersonalCalendarReminderCoordinator({
+      getItemAsync: getStoredValue,
+      setItemAsync: (key, value) => enqueueStorageMutation(() => setStoredValue(key, value)),
+      deleteItemAsync: (key) => enqueueStorageMutation(() => deleteStoredValue(key)),
+    });
+  }
+  const personalCalendarReminderCoordinator = personalCalendarReminderCoordinatorRef.current;
 
   const accessToken = session?.accessToken;
   const availableRecentAuthMethods = recentAuthenticationMethods(
@@ -1457,6 +1509,13 @@ function MainApplication() {
     () => (calendar.data?.events ?? []).filter((event) => event.category.startsWith("summer_school")),
     [calendar.data?.events]
   );
+  const universityAcademicCalendarEvents = useMemo(
+    () => [
+      ...selectUniversityAcademicCalendarEvents(calendar.data?.events ?? []),
+      ...(courseSchedule.data?.events ?? [])
+    ],
+    [calendar.data?.events, courseSchedule.data?.events]
+  );
   const summerSchoolAnnouncements = useMemo(
     () => normalizeTrustedContentCollection([
       ...(summerSchool.data?.ownAnnouncements ?? []),
@@ -1469,12 +1528,21 @@ function MainApplication() {
     || summerSchoolAnnouncements.length > 0;
   const contentFeedHasMore = trustedContentCollectionHasMore(announcements.data, contentFeedLimit)
     || trustedContentCollectionHasMore(yokAnnouncements.data, contentFeedLimit);
-  const contentFeedSourceErrors = [announcements.error, yokAnnouncements.error, summerSchool.error]
+  const contentFeedSecondaryErrors = [yokAnnouncements.error, summerSchool.error]
     .filter((value): value is string => Boolean(value));
+  const contentFeedSourceErrors = [
+    announcements.error,
+    ...(contentFeedHasRetainedData ? contentFeedSecondaryErrors : [])
+  ].filter((value): value is string => Boolean(value));
   const contentFeedError = contentFeedSourceErrors.join(" ") || undefined;
   const contentFeedPartial = announcements.data?.state === "partial"
-    || yokAnnouncements.data?.state === "partial"
-    || summerSchool.data?.contentState === "partial"
+    || (
+      contentFeedHasRetainedData
+      && (
+        yokAnnouncements.data?.state === "partial"
+        || summerSchool.data?.contentState === "partial"
+      )
+    )
     || (
       contentFeedHasRetainedData
       && contentFeedSourceErrors.length > 0
@@ -1482,20 +1550,24 @@ function MainApplication() {
     );
   const contentFeedStale = Boolean(
     announcements.stale
-    || yokAnnouncements.stale
-    || summerSchool.stale
     || announcements.data?.state === "stale"
-    || yokAnnouncements.data?.state === "stale"
-    || summerSchool.data?.contentState === "stale"
+    || (
+      contentFeedHasRetainedData
+      && (
+        yokAnnouncements.stale
+        || summerSchool.stale
+        || yokAnnouncements.data?.state === "stale"
+        || summerSchool.data?.contentState === "stale"
+      )
+    )
   );
-  const contentFeedLoading = announcements.loading
-    || yokAnnouncements.loading
+  const contentFeedSecondaryLoading = yokAnnouncements.loading
     || summerSchool.loading;
-  const contentFeedAttempted = Boolean(
-    announcements.attempted
-    && yokAnnouncements.attempted
-    && summerSchool.attempted
+  const contentFeedLoading = Boolean(
+    announcements.loading
+    || (contentFeedHasRetainedData && contentFeedSecondaryLoading)
   );
+  const contentFeedAttempted = Boolean(announcements.attempted);
   const yokAvailabilityMessage = contentAvailabilityMessage(yokAnnouncements.data?.state, yokAnnouncements.stale);
   const summerAvailabilityMessage = contentAvailabilityMessage(summerSchool.data?.contentState, summerSchool.stale);
   const summerDateAvailabilityMessage = contentAvailabilityMessage(undefined, calendar.stale);
@@ -1860,6 +1932,7 @@ function MainApplication() {
     let destinationTitle: string | undefined;
     let destinationAnnouncement: AnnouncementRecord | undefined;
     let destinationCalendarEvent: EventRecord | undefined;
+    let destinationPersonalCalendarItem: Parameters<typeof buildCalendarItems>[0]["personalExams"][number] | undefined;
     const resolution = await resolveNotificationDestination({
       record,
       currentOwner: { ownerId: ownerSnapshot.ownerId, generation: ownerSnapshot.generation },
@@ -1869,6 +1942,18 @@ function MainApplication() {
       },
       isAvailable: async (destination) => {
         if (destination.type === "calendar_event") {
+          if (destination.id.startsWith("personal:")) {
+            const personalId = destination.id.slice("personal:".length);
+            const personalState = personalExamRuntime.getSnapshot();
+            const match = personalState.ownerId === ownerSnapshot.ownerId && personalState.hydrated
+              ? personalState.exams.find((item) => item.id === personalId)
+              : undefined;
+            if (match) {
+              destinationTitle = match.title;
+              destinationPersonalCalendarItem = match;
+            }
+            return Boolean(match);
+          }
           let payload: EventRecord;
           try {
             payload = await apiRequest<EventRecord>(
@@ -1990,7 +2075,13 @@ function MainApplication() {
       } else if (resolution.destination.type === "calendar_event") {
         announcementDetailRequestGenerationRef.current += 1;
         setAnnouncementDetailLoad(null);
-        const detailItem = destinationCalendarEvent
+        const detailItem = destinationPersonalCalendarItem
+          ? buildCalendarItems({
+              academicEvents: [],
+              personalExams: [destinationPersonalCalendarItem],
+              academicSourceLabel: "Kişisel takvim"
+            })[0]
+          : destinationCalendarEvent
           ? buildCalendarItems({
             academicEvents: [destinationCalendarEvent],
             personalExams: [],
@@ -2490,10 +2581,23 @@ function MainApplication() {
 
     GoogleSignin.configure({
       scopes: ["email", "profile"],
+      offlineAccess: false,
       ...(GOOGLE_WEB_CLIENT_ID ? { webClientId: GOOGLE_WEB_CLIENT_ID } : {}),
       ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {})
     });
   }, []);
+
+  useEffect(() => {
+    alarmEnabledRef.current = alarmEnabled;
+  }, [alarmEnabled]);
+
+  useEffect(() => {
+    alarmModeRef.current = alarmMode;
+  }, [alarmMode]);
+
+  useEffect(() => {
+    categoryDraftRef.current = categoryDraft;
+  }, [categoryDraft]);
 
   useEffect(() => {
     if (!preferences.data) return;
@@ -2504,6 +2608,9 @@ function MainApplication() {
     }
 
     const allEnabled = availableCategories.every((category) => draft[category] !== false);
+    categoryDraftRef.current = draft;
+    alarmEnabledRef.current = preferences.data.enabled;
+    alarmModeRef.current = allEnabled ? "all_calendar" : "selected_fields";
     setCategoryDraft(draft);
     setAlarmEnabled(preferences.data.enabled);
     setAlarmMode(allEnabled ? "all_calendar" : "selected_fields");
@@ -2527,14 +2634,77 @@ function MainApplication() {
       || activeTab === "summer";
     if (!announcementsExperienceVisible) return;
 
-    if (!yokAnnouncements.loading && !yokAnnouncements.data) {
-      void loadYokAnnouncements(true, contentFeedLimit);
+    if (registerUniversityId && !announcements.loading && !announcements.data && !announcements.attempted) {
+      void loadAnnouncements(undefined, registerUniversityId);
+      return;
     }
 
-    if (registerUniversityId && !summerSchool.loading && !summerSchool.data) {
-      void loadSummerSchool();
-    }
-  }, [activeTab, contentFeedLimit, session?.user.id, registerUniversityId]);
+    if (announcements.loading || !announcements.attempted) return;
+
+    const shouldLoadYokAnnouncements = !yokAnnouncements.loading
+      && !yokAnnouncements.data
+      && !yokAnnouncements.attempted;
+    const shouldLoadSummerSchool = Boolean(
+      registerUniversityId
+      && !summerSchool.loading
+      && !summerSchool.data
+      && !summerSchool.attempted
+    );
+    if (!shouldLoadYokAnnouncements && !shouldLoadSummerSchool) return;
+
+    let cancelled = false;
+    let secondaryFeedWarmup: ReturnType<typeof InteractionManager.runAfterInteractions> | null = null;
+    const secondaryFeedTimer = setTimeout(() => {
+      secondaryFeedWarmup = InteractionManager.runAfterInteractions(() => {
+        if (cancelled) return;
+        if (shouldLoadYokAnnouncements) {
+          void loadYokAnnouncements(true, contentFeedLimit);
+        }
+        if (shouldLoadSummerSchool) {
+          void loadSummerSchool();
+        }
+      });
+    }, 1_200);
+    return () => {
+      cancelled = true;
+      clearTimeout(secondaryFeedTimer);
+      secondaryFeedWarmup?.cancel();
+    };
+  }, [
+    activeTab,
+    announcements.data,
+    announcements.attempted,
+    announcements.loading,
+    contentFeedLimit,
+    registerUniversityId,
+    session?.user.id,
+    summerSchool.data,
+    summerSchool.attempted,
+    summerSchool.loading,
+    yokAnnouncements.data,
+    yokAnnouncements.attempted,
+    yokAnnouncements.loading
+  ]);
+
+  useEffect(() => {
+    runtimeDiagnostic("feed.state", {
+      tab: activeTab,
+      visible: activeTab === "announcements" || activeTab === "yok" || activeTab === "summer",
+      primaryLoading: announcements.loading,
+      primaryAttempted: Boolean(announcements.attempted),
+      primaryItemCount: announcements.data?.items.length ?? 0,
+      primaryError: Boolean(announcements.error),
+      secondaryLoading: yokAnnouncements.loading || summerSchool.loading,
+    });
+  }, [
+    activeTab,
+    announcements.attempted,
+    announcements.data?.items.length,
+    announcements.error,
+    announcements.loading,
+    summerSchool.loading,
+    yokAnnouncements.loading,
+  ]);
 
   useEffect(() => {
     const needsPublicCatalog = (authMode === "register" && authStage === "auth")
@@ -2560,17 +2730,23 @@ function MainApplication() {
 
   async function hydrateApplication(): Promise<void> {
     if (hydrationInProgressRef.current) return;
+    const hydrationDiagnosticStartedAt = Date.now();
+    runtimeDiagnostic("bootstrap.start");
     hydrationInProgressRef.current = true;
     setHydrationStatus("loading");
     setPreloginWelcomeGate("loading");
     setHydrationError(null);
     setCleanupIssue(null);
     try {
-      await restoreDeviceId();
-      const [storedWelcomeCompletion, storedSessionValue] = await Promise.all([
+      const [, storedWelcomeCompletion, storedSessionValue] = await Promise.all([
+        restoreDeviceId(),
         getStoredValue(PRELOGIN_WELCOME_COMPLETION_STORAGE_KEY),
         getStoredValue(SESSION_STORAGE_KEY),
       ]);
+      runtimeDiagnostic("bootstrap.storage_ready", {
+        elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+        hasStoredSession: Boolean(storedSessionValue),
+      });
       const resolvedWelcomeGate = resolvePreloginWelcomeGate({
         storedCompletion: storedWelcomeCompletion,
         storedSession: storedSessionValue,
@@ -2584,84 +2760,51 @@ function MainApplication() {
       } else {
         setPreloginWelcomeGate(resolvedWelcomeGate);
       }
-      let restoredSession = await restoreSession();
+      let restoredSession = await restoreSession(storedSessionValue);
       const recoverableTargets: AccountCleanupTarget[] = [];
 
       if (restoredSession) {
-        const storedSession = restoredSession;
-        const snapshot = accountGuardRef.current.activate(storedSession.user.id);
+        const snapshot = accountGuardRef.current.activate(restoredSession.user.id);
         setSessionOwner(snapshot);
-        googleLifecycleGuardRef.current.activate(storedSession.user.id);
-        try {
-          const refreshedSession = await apiRequest<SessionPayload>(
-            "/auth/refresh-token",
-            {
-              method: "POST",
-              body: JSON.stringify({
-                refreshToken: storedSession.refreshToken,
-                deviceId: deviceIdRef.current
-              })
-            },
-            undefined,
-            {
-              skipAuthRefresh: true,
-              authOperation: "refresh_session",
-              ownerSnapshot: snapshot
-            }
-          );
-          if (refreshedSession.user.id !== storedSession.user.id) {
-            await persistSession(null);
-            accountGuardRef.current.invalidate();
-            clearAuthenticatedMemory();
-            restoredSession = null;
-            setMessage({ text: "Kayıtlı oturum bu hesapla eşleşmedi. Lütfen tekrar giriş yap.", tone: "error" });
-          } else {
-            await persistSession(refreshedSession);
-            sessionRef.current = refreshedSession;
-            notificationCoordinatorOwnerTokenRef.current = refreshedSession;
-            setSession(refreshedSession);
-            setActiveTab("home");
-            setActiveRoute("Home");
-            restoredSession = refreshedSession;
-          }
-        } catch (error) {
-          if (
-            error instanceof ApiRequestError
-            && (error.code === "session_expired" || error.code === "disabled_account")
-          ) {
-            await persistSession(null);
-            accountGuardRef.current.invalidate();
-            clearAuthenticatedMemory();
-            restoredSession = null;
-            setMessage({ text: error.message, tone: "info" });
-          } else {
-            throw error;
-          }
-        }
+        googleLifecycleGuardRef.current.activate(restoredSession.user.id);
+        sessionRef.current = restoredSession;
+        notificationCoordinatorOwnerTokenRef.current = restoredSession;
+        setAccountAuthProvider(normalizeAccountAuthProvider(restoredSession.user.authProvider));
+        setSession(restoredSession);
+        setActiveTab("home");
+        setActiveRoute("Home");
+        runtimeDiagnostic("bootstrap.session_restored", {
+          elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+        });
       }
 
+      let authenticatedContextReady: boolean | null = null;
       if (restoredSession) {
         const snapshot = accountGuardRef.current.capture();
         if (!snapshot) throw new StaleAccountRequestError();
-        try {
-          await restoreManualExams(restoredSession.user.id, snapshot);
-        } catch (error) {
-          if (error instanceof StaleAccountRequestError) throw error;
-          personalExamRuntime.reset();
-          recoverableTargets.push("manual_exam_storage");
-        }
-        try {
-          await restoreGoogleCalendarConnection(restoredSession.user.id, snapshot);
-        } catch (error) {
-          if (error instanceof StaleAccountRequestError) throw error;
-          setGoogleCalendarIntegration(null);
-          recoverableTargets.push("google_connection_storage");
-        }
-        try {
-          await clearPendingVerification();
-        } catch {
-          recoverableTargets.push("pending_verification_storage");
-        }
+        const [contextReady] = await Promise.all([
+          bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot),
+          Promise.all([
+            restoreManualExams(restoredSession.user.id, snapshot).catch((error: unknown) => {
+              if (error instanceof StaleAccountRequestError) throw error;
+              personalExamRuntime.reset();
+              recoverableTargets.push("manual_exam_storage");
+            }),
+            restoreGoogleCalendarConnection(restoredSession.user.id, snapshot).catch((error: unknown) => {
+              if (error instanceof StaleAccountRequestError) throw error;
+              setGoogleCalendarIntegration(null);
+              recoverableTargets.push("google_connection_storage");
+            }),
+            clearPendingVerification().catch(() => {
+              recoverableTargets.push("pending_verification_storage");
+            }),
+          ]),
+        ]);
+        authenticatedContextReady = contextReady;
+        runtimeDiagnostic("bootstrap.profile_ready", {
+          elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+          ready: contextReady,
+        });
       } else {
         accountGuardRef.current.invalidate();
         setSessionOwner(null);
@@ -2693,17 +2836,18 @@ function MainApplication() {
       }
 
       if (restoredSession) {
-        await loadUniversities();
+        void loadUniversities();
         const snapshot = accountGuardRef.current.capture();
         if (snapshot) {
-          const contextReady = await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
+          const contextReady = authenticatedContextReady
+            ?? await bootstrapAuthenticatedContext(restoredSession.accessToken, snapshot);
           if (!contextReady && sessionRef.current?.user.id === restoredSession.user.id) {
             setHydrationError("Hesap bağlamı hazırlanamadı. Bağlantını kontrol edip tekrar dene.");
             setHydrationStatus("error");
             return;
           }
           if (accountGuardRef.current.isCurrent(snapshot)) {
-            await restorePendingNotificationForSession(restoredSession, snapshot).catch(() => {
+            void restorePendingNotificationForSession(restoredSession, snapshot).catch(() => {
               recoverableTargets.push("pending_notification_storage");
             });
           }
@@ -2714,7 +2858,14 @@ function MainApplication() {
         void loadUniversities();
       }
       setHydrationStatus("ready");
-    } catch {
+      runtimeDiagnostic("bootstrap.ready", {
+        elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+      });
+    } catch (error) {
+      runtimeDiagnostic("bootstrap.failure", {
+        elapsedMs: Date.now() - hydrationDiagnosticStartedAt,
+        errorType: error instanceof Error ? error.name : "unknown",
+      });
       abortAuthenticatedRequests();
       accountGuardRef.current.invalidate();
       setSessionOwner(null);
@@ -2729,8 +2880,10 @@ function MainApplication() {
     }
   }
 
-  async function restoreSession(): Promise<SessionPayload | null> {
-    const stored = await getStoredValue(SESSION_STORAGE_KEY);
+  async function restoreSession(storedValue?: string | null): Promise<SessionPayload | null> {
+    const stored = storedValue === undefined
+      ? await getStoredValue(SESSION_STORAGE_KEY)
+      : storedValue;
     if (!stored) return null;
     if (stored === SESSION_INVALIDATED_STORAGE_VALUE) {
       await deleteStoredValue(SESSION_STORAGE_KEY).catch(() => undefined);
@@ -2794,9 +2947,14 @@ function MainApplication() {
     if (!snapshot) throw new StaleAccountRequestError();
     try {
       const result = await personalExamRuntime.hydrate(ownerId, snapshot);
+      const restoredItems = personalExamRuntime.getSnapshot().exams;
+      void personalCalendarReminderCoordinator.reconcile(ownerId, restoredItems).catch(() => {
+        if (!accountGuardRef.current.isCurrent(snapshot)) return;
+        setMessage({ text: "Kişisel takvim hatırlatmaları yenilenemedi.", tone: "error" });
+      });
       if (result.legacyDiscarded) {
         setMessage({
-          text: "Sahibi doğrulanamayan eski cihaz sınavları güvenlik için bu hesaba aktarılmadı.",
+          text: "Sahibi doğrulanamayan eski kişisel takvim kayıtları bu hesaba aktarılmadı.",
           tone: "info"
         });
       }
@@ -3295,6 +3453,10 @@ function MainApplication() {
       timeoutMs?: number;
     } = {}
   ): Promise<T> {
+    const diagnosticId = nextRuntimeDiagnosticId();
+    const diagnosticStartedAt = Date.now();
+    const diagnosticPath = path.split("?", 1)[0] ?? path;
+    const diagnosticMethod = options.method ?? "GET";
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string> | undefined)
@@ -3309,6 +3471,13 @@ function MainApplication() {
     if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
     const effectiveTimeoutMs = requestOptions.timeoutMs ?? API_REQUEST_TIMEOUT_MS;
+    runtimeDiagnostic("api.start", {
+      id: diagnosticId,
+      method: diagnosticMethod,
+      path: diagnosticPath,
+      authenticated: Boolean(token),
+      timeoutMs: effectiveTimeoutMs,
+    });
     const controller = ownerSnapshot || effectiveTimeoutMs > 0 ? new AbortController() : null;
     const upstreamSignal = options.signal;
     const abortFromUpstream = () => controller?.abort();
@@ -3331,13 +3500,24 @@ function MainApplication() {
         headers,
         ...(controller ? { signal: controller.signal } : {})
       });
+      runtimeDiagnostic("api.response", {
+        id: diagnosticId,
+        method: diagnosticMethod,
+        path: diagnosticPath,
+        status: response.status,
+        elapsedMs: Date.now() - diagnosticStartedAt,
+      });
       if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
       if (!response.ok) {
         const body = await response.text();
         if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
         const payload = readApiErrorPayload(body);
-        if (response.status === 401 && token && !requestOptions.skipAuthRefresh) {
+        if (
+          token
+          && !requestOptions.skipAuthRefresh
+          && shouldRefreshSessionAfterRecentAuthenticationFailure(response.status, payload.errorCode)
+        ) {
           const refreshedSession = await refreshAuthenticatedSession(token);
           if (refreshedSession && (!ownerSnapshot || accountGuardRef.current.isCurrent(ownerSnapshot))) {
             return apiRequest<T>(path, options, refreshedSession.accessToken, {
@@ -3369,8 +3549,24 @@ function MainApplication() {
 
       const data = (await response.json()) as T;
       if (ownerSnapshot && !accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
+      runtimeDiagnostic("api.success", {
+        id: diagnosticId,
+        method: diagnosticMethod,
+        path: diagnosticPath,
+        status: response.status,
+        elapsedMs: Date.now() - diagnosticStartedAt,
+      });
       return data;
     } catch (error) {
+      runtimeDiagnostic("api.failure", {
+        id: diagnosticId,
+        method: diagnosticMethod,
+        path: diagnosticPath,
+        timedOut: requestTimedOut,
+        aborted: Boolean(controller?.signal.aborted),
+        errorType: error instanceof Error ? error.name : "unknown",
+        elapsedMs: Date.now() - diagnosticStartedAt,
+      });
       if (requestTimedOut) {
         throw new ApiRequestError("Sunucu zamanında yanıt vermedi. Lütfen tekrar dene.", 0, "network_unavailable");
       }
@@ -3421,6 +3617,44 @@ function MainApplication() {
     }
   }
 
+  function warmAuthenticatedContext(
+    token: string,
+    profileUniversityId: string,
+    ownerSnapshot: AccountGenerationSnapshot
+  ): void {
+    setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+
+        const preferenceWarmup = async () => {
+          const loadedPreferences = await loadPreferences(token, ownerSnapshot);
+          if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+          const coordinator = notificationCoordinatorRef.current;
+          const notificationSession = sessionRef.current;
+          if (coordinator && loadedPreferences && notificationSession?.user.id === ownerSnapshot.ownerId) {
+            await coordinator.activateOwner(ownerSnapshot.ownerId, loadedPreferences.enabled);
+            await reconcileNotificationDelivery(
+              { ...notificationSession, accessToken: token },
+              coordinator,
+              loadedPreferences,
+              ownerSnapshot
+            );
+          }
+        };
+        const contentWarmups = profileUniversityId
+          ? [
+              loadMyCalendar(token, ownerSnapshot),
+              loadCourseSchedule(token, ownerSnapshot),
+              loadUpcoming(token, ownerSnapshot),
+              loadFollowedUniversities(token, ownerSnapshot)
+            ]
+          : [];
+
+        void Promise.allSettled([preferenceWarmup(), ...contentWarmups]);
+      });
+    }, 1_500);
+  }
+
   async function bootstrapAuthenticatedContext(
     token: string,
     ownerSnapshot = accountGuardRef.current.capture()
@@ -3443,20 +3677,6 @@ function MainApplication() {
       await clearExpiredSession("Bu hesap artık kullanılamıyor. Lütfen farklı bir hesapla giriş yap.");
       return false;
     }
-    const loadedPreferences = await loadPreferences(token, ownerSnapshot);
-    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
-    const coordinator = notificationCoordinatorRef.current;
-    const notificationSession = sessionRef.current;
-    if (coordinator && loadedPreferences && notificationSession?.user.id === profile.id) {
-      await coordinator.activateOwner(profile.id, loadedPreferences.enabled);
-      await reconcileNotificationDelivery(
-        { ...notificationSession, accessToken: token },
-        coordinator,
-        loadedPreferences,
-        ownerSnapshot
-      );
-    }
-    if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return false;
     const profileUniversityId = profile.universityId ?? "";
     setFullName(profile.fullName);
     setEmail(profile.email);
@@ -3470,14 +3690,11 @@ function MainApplication() {
     onboardingOwnerRef.current = profileUniversityId ? null : ownerSnapshot;
     setAcademicProfileSaveState("idle");
     setAcademicProfileSaveError(undefined);
-    if (!profileUniversityId) {
-      setAuthStage("academic_onboarding");
-    }
-    if (profileUniversityId) {
-      await loadMyCalendar(token, ownerSnapshot);
-      await loadUpcoming(token, ownerSnapshot);
-    }
-    await loadAnnouncements(token, profileUniversityId, ownerSnapshot);
+    setAuthStage(profileUniversityId ? "auth" : "academic_onboarding");
+    const activeToken = sessionRef.current?.user.id === ownerSnapshot.ownerId
+      ? sessionRef.current.accessToken
+      : token;
+    warmAuthenticatedContext(activeToken, profileUniversityId, ownerSnapshot);
     return accountGuardRef.current.isCurrent(ownerSnapshot);
   }
 
@@ -3503,6 +3720,7 @@ function MainApplication() {
     }
 
     const isRegister = authMode === "register";
+    const normalizedEmail = email.trim().toLowerCase();
     authOperationInProgressRef.current = true;
     try {
       setBusy(true);
@@ -3512,7 +3730,7 @@ function MainApplication() {
           {
             method: "POST",
             body: JSON.stringify({
-              email: email.trim().toLowerCase(),
+              email: normalizedEmail,
               password,
               deviceId: currentDeviceId
             })
@@ -3543,7 +3761,7 @@ function MainApplication() {
           method: "POST",
           body: JSON.stringify({
             fullName: fullName.trim(),
-            email: email.trim().toLowerCase(),
+            email: normalizedEmail,
             password,
             passwordConfirmation: registrationPasswordConfirmation
           })
@@ -3588,15 +3806,23 @@ function MainApplication() {
   }
 
   async function handleGoogleAuth(): Promise<void> {
+    runtimeDiagnostic("google_auth.start", {
+      platform: Platform.OS,
+      configured: GOOGLE_AUTH_CONFIGURED,
+      deviceReady: Boolean(deviceId),
+    });
     if (accountCleanupInProgressRef.current || authOperationInProgressRef.current) {
+      runtimeDiagnostic("google_auth.blocked", { reason: "operation_in_progress" });
       setMessage({ text: "Başka bir hesap işlemi tamamlanıyor. Lütfen kısa bir süre bekle.", tone: "info" });
       return;
     }
     if (!GOOGLE_AUTH_CONFIGURED) {
+      runtimeDiagnostic("google_auth.blocked", { reason: "configuration_missing" });
       setMessage({ text: GOOGLE_AUTH_CONFIGURATION_MESSAGE, tone: "error" });
       return;
     }
     if (!deviceId) {
+      runtimeDiagnostic("google_auth.blocked", { reason: "device_id_pending" });
       setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
       return;
     }
@@ -3606,9 +3832,12 @@ function MainApplication() {
       setGoogleBusy(true);
       const nativeAuth = await enqueueGoogleSdkOperation(async () => {
         await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-        await clearGoogleAccountSelection();
+        runtimeDiagnostic("google_auth.play_services_ready");
         const result = await GoogleSignin.signIn();
-        if (isCancelledResponse(result)) return { cancelled: true as const, idToken: null };
+        if (isCancelledResponse(result)) {
+          runtimeDiagnostic("google_auth.native_result", { cancelled: true, hasIdToken: false });
+          return { cancelled: true as const, idToken: null };
+        }
 
         let idToken = result.data.idToken;
         if (!idToken) {
@@ -3618,6 +3847,10 @@ function MainApplication() {
             idToken = null;
           }
         }
+        runtimeDiagnostic("google_auth.native_result", {
+          cancelled: false,
+          hasIdToken: Boolean(idToken),
+        });
         return { cancelled: false as const, idToken };
       });
       if (nativeAuth.cancelled) {
@@ -3654,7 +3887,21 @@ function MainApplication() {
         return;
       }
       setAuthenticatedContextPending(false);
+      runtimeDiagnostic("google_auth.success");
     } catch (error) {
+      runtimeDiagnostic("google_auth.failure", {
+        kind: error instanceof ApiRequestError
+          ? "api"
+          : isErrorWithCode(error)
+            ? "native_sdk"
+            : "unknown",
+        code: error instanceof ApiRequestError
+          ? error.code
+          : isErrorWithCode(error)
+            ? String(error.code)
+            : undefined,
+        status: error instanceof ApiRequestError ? error.status : undefined,
+      });
       if (error instanceof StaleAccountRequestError) return;
       if (isErrorWithCode(error)) {
         if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
@@ -3761,7 +4008,7 @@ function MainApplication() {
   async function handleVerifyEmail(): Promise<void> {
     if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
     if (!isVerificationCodeComplete(verificationToken)) {
-      setMessage({ text: "Dört haneli doğrulama kodunu eksiksiz gir.", tone: "error" });
+      setMessage({ text: "Altı haneli doğrulama kodunu eksiksiz gir.", tone: "error" });
       return;
     }
 
@@ -3772,14 +4019,16 @@ function MainApplication() {
     }
 
     authOperationInProgressRef.current = true;
+    let verificationCompleted = false;
     try {
       setBusy(true);
+      const normalizedEmail = email.trim().toLowerCase();
       await apiRequest<{ status: "verified"; email: string }>(
         AUTH_ENDPOINTS.verifyEmail,
         {
           method: "POST",
           body: JSON.stringify({
-            email: email.trim().toLowerCase(),
+            email: normalizedEmail,
             code: verificationToken.trim(),
             deviceId: currentDeviceId
           })
@@ -3787,6 +4036,7 @@ function MainApplication() {
         undefined,
         { authOperation: "verify_email" }
       );
+      verificationCompleted = true;
 
       setPendingVerification(null);
       try {
@@ -3799,12 +4049,52 @@ function MainApplication() {
       setRegisterDepartmentId("");
       setRegisterClassLevel(null);
       setOnboardingInitialDraft(EMPTY_ACADEMIC_ONBOARDING_DRAFT);
+      if (!password) {
+        setAuthMode("login");
+        setAuthStage("auth");
+        setMessage({ text: "E-posta doğrulandı. Giriş yapmak için şifreni gir.", tone: "success" });
+        return;
+      }
+
+      const nextSession = await apiRequest<SessionPayload>(
+        AUTH_ENDPOINTS.login,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: normalizedEmail,
+            password,
+            deviceId: currentDeviceId
+          })
+        },
+        undefined,
+        { authOperation: "login" }
+      );
       setAuthMode("login");
       setAuthStage("auth");
-      setMessage({ text: "E-posta doğrulandı. Giriş yaptıktan sonra akademik profilini tamamlayabilirsin.", tone: "success" });
+      const snapshot = await activateSession(nextSession);
+      setPassword("");
+      setMessage(null);
+      const contextReady = await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+      if (!contextReady) {
+        if (sessionRef.current?.user.id === nextSession.user.id) {
+          setHydrationError("Hesap bağlamı hazırlanamadı. Bağlantını kontrol edip tekrar dene.");
+          setHydrationStatus("error");
+        }
+        return;
+      }
+      setAuthenticatedContextPending(false);
     } catch (error) {
+      if (verificationCompleted) {
+        setAuthMode("login");
+        setAuthStage("auth");
+      }
       setMessage({
-        text: userMessageFromError(error, "E-posta doğrulanamadı"),
+        text: userMessageFromError(
+          error,
+          verificationCompleted
+            ? "E-posta doğrulandı ancak giriş otomatik tamamlanamadı. Şifrenle giriş yap."
+            : "E-posta doğrulanamadı"
+        ),
         tone: "error"
       });
     } finally {
@@ -3841,7 +4131,7 @@ function MainApplication() {
     try {
       setBusy(true);
       setMessage(null);
-      await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
+      const savedProfile = await trackAuthenticatedMutation(() => apiRequest<UserProfile>(
         "/me/university",
         {
           method: "PATCH",
@@ -3851,25 +4141,28 @@ function MainApplication() {
         { ownerSnapshot: snapshot }
       ));
       if (!accountGuardRef.current.isCurrent(snapshot)) throw new StaleAccountRequestError();
-      setSelectedUniversityId(payload.universityId);
-      setRegisterUniversityId(payload.universityId);
-      setRegisterFacultyId(payload.facultyId ?? "");
-      setRegisterDepartmentId(payload.departmentId ?? "");
-      setRegisterClassLevel(payload.classLevel ?? null);
-      setOnboardingInitialDraft({
-        universityId: payload.universityId,
-        facultyId: payload.facultyId ?? "",
-        departmentId: payload.departmentId ?? "",
-        classLevel: payload.classLevel ?? null
-      });
+      const authoritativeDraft = profileDraftFromServer(savedProfile);
+      if (!authoritativeDraft.universityId) {
+        throw new Error("ACADEMIC_PROFILE_CONFIRMATION_FAILED");
+      }
+      setSelectedUniversityId(authoritativeDraft.universityId);
+      setRegisterUniversityId(authoritativeDraft.universityId);
+      setRegisterFacultyId(authoritativeDraft.facultyId);
+      setRegisterDepartmentId(authoritativeDraft.departmentId);
+      setRegisterClassLevel(authoritativeDraft.classLevel);
+      setOnboardingInitialDraft(authoritativeDraft);
+      setFullName(savedProfile.fullName);
+      setEmail(savedProfile.email);
+      setAccountAuthProvider(normalizeAccountAuthProvider(savedProfile.authProvider));
       setPassword("");
       setVerificationToken("");
-      const contextReady = await bootstrapAuthenticatedContext(activeSession.accessToken, snapshot);
-      if (!contextReady) return;
-      if (!accountGuardRef.current.isCurrent(snapshot)) throw new StaleAccountRequestError();
+      onboardingOwnerRef.current = null;
       setMessage(null);
       setAuthenticatedContextPending(false);
+      setActiveTab("home");
+      setActiveRoute("Home");
       setAuthStage("auth");
+      warmAuthenticatedContext(activeSession.accessToken, authoritativeDraft.universityId, snapshot);
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
       if (onboardingSaveAttemptRef.current !== onboardingAttempt) return;
@@ -4235,11 +4528,14 @@ function MainApplication() {
   }
 
   async function detachNotificationOwnerForCleanup(): Promise<void> {
+    const ownerId = sessionRef.current?.user.id;
     const coordinator = notificationCoordinatorRef.current;
-    if (!coordinator || !coordinator.getState().ownerId) return;
-    const detached = await coordinator.detachCurrentOwner();
-    if (detached.registration === "error") throw new Error("DEVICE_DETACH_FAILED");
-    await coordinator.clearOwner();
+    if (coordinator?.getState().ownerId) {
+      const detached = await coordinator.detachCurrentOwner();
+      if (detached.registration === "error") throw new Error("DEVICE_DETACH_FAILED");
+      await coordinator.clearOwner();
+    }
+    if (ownerId) await personalCalendarReminderCoordinator.cancelOwner(ownerId);
   }
 
   async function handleLogout(): Promise<void> {
@@ -4314,22 +4610,11 @@ function MainApplication() {
     setBusy(false);
     reportCleanupResult("logout", reconciledResult, ownerId);
     if (reconciledResult.complete) {
-      setMessage({
-        text: "Çıkış yapıldı. Google Takvim'e daha önce eklenen uygulama kayıtları korunur.",
-        tone: "info"
-      });
-    } else if (reconciledResult.failedTargets.every((target) => target === "server_session")) {
-      setMessage({
-        text: "Bu cihazdaki çıkış tamamlandı; sunucudaki oturumun sonlandırıldığı doğrulanamadı.",
-        tone: "info"
-      });
+      setMessage(null);
     } else {
-      setMessage({
-        text: reconciledResult.failedTargets.includes("device_registration")
-          ? "Çıkış ekranda tamamlandı; cihaz bildirim kaydı ile sunucu oturumunun temizlendiği doğrulanamadı. Aynı hesapla yeniden giriş yaptığında kayıt yeniden uzlaştırılabilir."
-          : "Çıkış ekranda tamamlandı; bazı cihaz kayıtları temizlenemedi. Aşağıdan tekrar deneyebilirsin.",
-        tone: "error"
-      });
+      // The cleanup banner owns this partial-success state. Rendering a second
+      // auth error banner makes the fixed login viewport needlessly cramped.
+      setMessage(null);
     }
   }
 
@@ -4345,7 +4630,10 @@ function MainApplication() {
     setRegisterPicker("none");
     setFaculties({ loading: false, data: [] });
     setDepartments({ loading: false, data: [] });
+    setFollowedUniversities({ loading: false });
+    setFollowedUniversityBusyId(undefined);
     setCalendar({ loading: false });
+    setCourseSchedule({ loading: false });
     setUpcoming({ loading: false });
     setAnnouncements({ loading: false });
     setYokAnnouncements({ loading: false });
@@ -4490,7 +4778,10 @@ function MainApplication() {
               if (!currentSnapshot || !accountGuardRef.current.isCurrent(currentSnapshot)) throw new StaleAccountRequestError();
               if (!await personalExamRuntime.persistCurrent(currentSnapshot)) throw new StaleAccountRequestError();
             } else {
-              await enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(issue.ownerId as string)));
+              await Promise.all([
+                enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(issue.ownerId as string))),
+                personalCalendarReminderCoordinator.cancelOwner(issue.ownerId as string)
+              ]);
             }
           } else if (target === "pending_notification_storage") {
             await persistPendingNotificationDestination(null);
@@ -4637,7 +4928,13 @@ function MainApplication() {
       else await deleteAccount(proof);
     } catch (error) {
       if (!(error instanceof StaleAccountRequestError)) {
-        setRecentAuthError(userMessageFromError(error, "Kimliğin doğrulanamadı. Tekrar deneyebilirsin."));
+        const controlledMessage = error instanceof ApiRequestError
+          ? recentAuthenticationFailureMessage(method, error.code)
+          : undefined;
+        setRecentAuthError(
+          controlledMessage
+          ?? userMessageFromError(error, "Kimliğin doğrulanamadı. Tekrar deneyebilirsin."),
+        );
       }
     } finally {
       setRecentAuthPassword("");
@@ -4725,9 +5022,10 @@ function MainApplication() {
         },
         {
           target: "manual_exam_storage",
-          run: () => enqueueStorageMutation(
-            () => deleteStoredValue(createManualExamStorageKey(currentSession.user.id))
-          )
+          run: () => Promise.all([
+            enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(currentSession.user.id))),
+            personalCalendarReminderCoordinator.cancelOwner(currentSession.user.id)
+          ]).then(() => undefined)
         },
         {
           target: "google_connection_storage",
@@ -4842,7 +5140,10 @@ function MainApplication() {
       },
       {
         target: "manual_exam_storage",
-        run: () => enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(ownerId)))
+        run: () => Promise.all([
+          enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(ownerId))),
+          personalCalendarReminderCoordinator.cancelOwner(ownerId)
+        ]).then(() => undefined)
       },
       {
         target: "google_connection_storage",
@@ -4962,8 +5263,8 @@ function MainApplication() {
 
       void Promise.allSettled([
         loadMyCalendar(accessToken),
+        loadCourseSchedule(accessToken),
         loadUpcoming(accessToken),
-        loadAnnouncements(accessToken, universityId),
         loadPreferences(accessToken)
       ]);
     } catch (error) {
@@ -5007,7 +5308,6 @@ function MainApplication() {
       invalidateContentFeedOwnership();
       setMessage({ text: "Fakülte güncellendi.", tone: "success" });
 
-      void loadAnnouncements(accessToken, registerUniversityId);
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
       setMessage({
@@ -5050,7 +5350,6 @@ function MainApplication() {
       invalidateContentFeedOwnership();
       setMessage({ text: "Bölüm güncellendi.", tone: "success" });
 
-      void loadAnnouncements(accessToken, registerUniversityId);
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
       setMessage({
@@ -5075,6 +5374,23 @@ function MainApplication() {
       setCalendar,
       () => apiRequest<CalendarPayload>("/calendar/my", {}, token, { ownerSnapshot })
         .then(normalizeCalendarPayloadForDisplay),
+      ownerSnapshot,
+      preserveDataOnRefresh
+    );
+  }
+
+  async function loadCourseSchedule(
+    tokenOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = tokenOverride === undefined
+  ): Promise<void> {
+    const token = tokenOverride ?? accessToken;
+    if (!token) return;
+
+    await withLoadable(
+      setCourseSchedule,
+      () => apiRequest<DepartmentSchedulePayload>("/calendar/my/course-schedules", {}, token, { ownerSnapshot })
+        .then((payload) => ({ ...payload, events: normalizeEventRecordsForDisplay(payload.events) })),
       ownerSnapshot,
       preserveDataOnRefresh
     );
@@ -5347,7 +5663,7 @@ function MainApplication() {
           ...(enabled ? { deliveryConsentVersion: "phase3-v1" } : {}),
           categories: existing.categories,
           reminderOffsets: existing.reminderOffsets.length ? existing.reminderOffsets : DEFAULT_REMINDER_OFFSETS,
-          reminderRules: existing.reminderRules?.length ? existing.reminderRules : DEFAULT_REMINDER_RULES,
+          reminderRules: notificationReminderRulesForMutation(existing.reminderRules, DEFAULT_REMINDER_RULES),
           quietHours: existing.quietHours ?? {
             enabled: true,
             start: "22:00",
@@ -5367,33 +5683,143 @@ function MainApplication() {
     knownPreferences?: NotificationPreferencePayload,
     knownSnapshot?: AccountGenerationSnapshot
   ): Promise<void> {
-    const ownerSnapshot = knownSnapshot ?? accountGuardRef.current.capture();
-    if (!ownerSnapshot || ownerSnapshot.ownerId !== currentSession.user.id) return;
-    let currentPreferences = knownPreferences;
-    if (!currentPreferences) {
-      currentPreferences = await apiRequest<NotificationPreferencePayload>(
-        "/notification-preferences",
-        {},
-        currentSession.accessToken,
-        { ownerSnapshot }
-      );
-      setPreferences({ loading: false, data: currentPreferences, attempted: true, stale: false });
+    const inFlight = notificationReconcilePromiseRef.current;
+    if (inFlight?.ownerId === currentSession.user.id) {
+      runtimeDiagnostic("notification.reconcile_joined");
+      return inFlight.operation;
     }
-    const coordinatorState = coordinator.getState();
-    if (
-      coordinatorState.ownerId !== currentSession.user.id
-      || coordinatorState.preferenceEnabled !== currentPreferences.enabled
-    ) {
-      await coordinator.activateOwner(currentSession.user.id, currentPreferences.enabled);
+
+    const diagnosticStartedAt = Date.now();
+    runtimeDiagnostic("notification.reconcile_start", {
+      preferenceKnown: Boolean(knownPreferences),
+    });
+    const operation = (async () => {
+      const ownerSnapshot = knownSnapshot ?? accountGuardRef.current.capture();
+      if (!ownerSnapshot || ownerSnapshot.ownerId !== currentSession.user.id) return;
+      let currentPreferences = knownPreferences;
+      if (!currentPreferences) {
+        currentPreferences = await apiRequest<NotificationPreferencePayload>(
+          "/notification-preferences",
+          {},
+          currentSession.accessToken,
+          { ownerSnapshot }
+        );
+        setPreferences({ loading: false, data: currentPreferences, attempted: true, stale: false });
+      }
+      const coordinatorState = coordinator.getState();
+      if (
+        coordinatorState.ownerId !== currentSession.user.id
+        || coordinatorState.preferenceEnabled !== currentPreferences.enabled
+      ) {
+        await coordinator.activateOwner(currentSession.user.id, currentPreferences.enabled);
+      }
+      const deliveryState = await coordinator.registerIfAlreadyGranted();
+      if (currentPreferences.enabled && !deliveryState.active) {
+        await disableNotificationDeliveryFailClosed(
+          currentSession,
+          coordinator,
+          currentPreferences,
+          ownerSnapshot
+        );
+      }
+    })();
+    notificationReconcilePromiseRef.current = {
+      ownerId: currentSession.user.id,
+      operation,
+    };
+    try {
+      await operation;
+      runtimeDiagnostic("notification.reconcile_success", {
+        elapsedMs: Date.now() - diagnosticStartedAt,
+      });
+    } catch (error) {
+      runtimeDiagnostic("notification.reconcile_failure", {
+        elapsedMs: Date.now() - diagnosticStartedAt,
+        errorType: error instanceof Error ? error.name : "unknown",
+      });
+      throw error;
+    } finally {
+      if (notificationReconcilePromiseRef.current?.operation === operation) {
+        notificationReconcilePromiseRef.current = null;
+      }
     }
-    const deliveryState = await coordinator.registerIfAlreadyGranted();
-    if (currentPreferences.enabled && !deliveryState.active) {
-      await disableNotificationDeliveryFailClosed(
-        currentSession,
-        coordinator,
-        currentPreferences,
-        ownerSnapshot
-      );
+  }
+
+  async function loadFollowedUniversities(
+    tokenOverride?: string,
+    ownerSnapshot = accountGuardRef.current.capture(),
+    preserveDataOnRefresh = tokenOverride === undefined
+  ): Promise<void> {
+    const token = tokenOverride ?? accessToken;
+    if (!token) return;
+
+    await withLoadable(
+      setFollowedUniversities,
+      () => apiRequest<FollowedUniversityRecord[]>("/me/follows", {}, token, { ownerSnapshot }),
+      ownerSnapshot,
+      preserveDataOnRefresh
+    );
+  }
+
+  async function toggleFollowedUniversity(universityId: string, shouldFollow: boolean): Promise<void> {
+    const currentSession = sessionRef.current;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!currentSession || !ownerSnapshot || followedUniversityBusyId) return;
+
+    const existing = (followedUniversities.data ?? []).find(
+      (scope) => scope.universityId === universityId && !scope.facultyId && !scope.departmentId
+    );
+    if (shouldFollow === Boolean(existing)) return;
+
+    setFollowedUniversityBusyId(universityId);
+    try {
+      if (shouldFollow) {
+        const created = await trackAuthenticatedMutation(() => apiRequest<FollowedUniversityRecord>(
+          "/me/follows",
+          { method: "POST", body: JSON.stringify({ universityId }) },
+          currentSession.accessToken,
+          { ownerSnapshot }
+        ));
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+        setFollowedUniversities((previous) => ({
+          loading: false,
+          attempted: true,
+          stale: false,
+          data: [...(previous.data ?? []).filter((scope) => scope.id !== created.id), created]
+        }));
+      } else if (existing) {
+        await trackAuthenticatedMutation(() => apiRequest<{ id: string; removed: true }>(
+          `/me/follows/${encodeURIComponent(existing.id)}`,
+          { method: "DELETE" },
+          currentSession.accessToken,
+          { ownerSnapshot }
+        ));
+        if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+        setFollowedUniversities((previous) => ({
+          loading: false,
+          attempted: true,
+          stale: false,
+          data: (previous.data ?? []).filter((scope) => scope.id !== existing.id)
+        }));
+      }
+
+      invalidateContentFeedOwnership();
+      setMessage({
+        text: shouldFollow ? "Üniversite takibe eklendi." : "Üniversite takibi kaldırıldı.",
+        tone: "success"
+      });
+      void refreshContentFeed();
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
+      setFollowedUniversities((previous) => ({
+        ...previous,
+        loading: false,
+        attempted: true,
+        stale: previous.data !== undefined,
+        error: userMessageFromError(error, "Üniversite takibi güncellenemedi.")
+      }));
+    } finally {
+      if (accountGuardRef.current.isCurrent(ownerSnapshot)) setFollowedUniversityBusyId(undefined);
     }
   }
 
@@ -5456,14 +5882,18 @@ function MainApplication() {
       let currentUser = GoogleSignin.getCurrentUser();
       if (!currentUser) {
         const signInResult = await GoogleSignin.signIn();
-        if (isCancelledResponse(signInResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
+        if (isCancelledResponse(signInResult)) {
+          throw new Error(GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED);
+        }
         currentUser = signInResult.data;
       }
 
       const scopeResult = await GoogleSignin.addScopes({
         scopes: [GOOGLE_CALENDAR_EVENTS_SCOPE]
       });
-      if (scopeResult && isCancelledResponse(scopeResult)) throw new Error("GOOGLE_CALENDAR_CANCELLED");
+      if (scopeResult && isCancelledResponse(scopeResult)) {
+        throw new Error(GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED);
+      }
 
       const tokens = await GoogleSignin.getTokens();
       const selectedUser = GoogleSignin.getCurrentUser()?.user ?? currentUser.user;
@@ -5495,6 +5925,9 @@ function MainApplication() {
     const expectedGoogleAccountId = googleCalendarIntegration?.ownerId === currentSession.user.id
       ? googleCalendarIntegration.googleAccountId
       : null;
+    const authorizationInterruptionState = settledGoogleCalendarLifecycleState(
+      googleCalendarIntegration?.state,
+    );
 
     setGoogleCalendarError(null);
     setMessage(null);
@@ -5587,7 +6020,7 @@ function MainApplication() {
 
       if (networkResult.status === "rejected") {
         setGoogleCalendarError("Ağ durumu doğrulanamadı. Google hesap izni istenmedi.");
-        setGoogleCalendarState(googleCalendarIntegration?.state ?? "disconnected");
+        setGoogleCalendarState(authorizationInterruptionState);
         return;
       }
       const preflight = evaluateGoogleCalendarPreflight({
@@ -5618,7 +6051,7 @@ function MainApplication() {
           authorization_failed: "Google Takvim yetkilendirmesi tamamlanamadı."
         };
         setGoogleCalendarError(preflightMessages[preflight.reason]);
-        setGoogleCalendarState(googleCalendarIntegration?.state ?? "disconnected");
+        setGoogleCalendarState(authorizationInterruptionState);
         return;
       }
       if (
@@ -5816,19 +6249,24 @@ function MainApplication() {
         });
       }
     } catch (error) {
+      const authorizationErrorPresentation = resolveGoogleCalendarAuthorizationErrorPresentation(
+        error,
+        statusCodes.SIGN_IN_CANCELLED,
+      );
       if (
         error instanceof StaleAccountRequestError
         || (error instanceof Error && error.name === "AbortError")
         || !accountGuardRef.current.isCurrent(ownerSnapshot)
       ) {
         return;
-      } else if (error instanceof Error && error.message === "GOOGLE_CALENDAR_CANCELLED") {
-        setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
-      } else if (isErrorWithCode(error) && error.code === statusCodes.SIGN_IN_CANCELLED) {
-        setGoogleCalendarError("Google hesabı veya Takvim izni seçimi tamamlanmadı.");
+      } else if (authorizationErrorPresentation.kind === "cancelled") {
+        setGoogleCalendarState(authorizationInterruptionState);
+        setGoogleCalendarError(authorizationErrorPresentation.persistentError);
       } else if (isErrorWithCode(error) && error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setGoogleCalendarState(authorizationInterruptionState);
         setGoogleCalendarError("Google Play Hizmetleri bu cihazda hazır değil veya güncellenmeli.");
       } else if (isErrorWithCode(error) && error.code === statusCodes.IN_PROGRESS) {
+        setGoogleCalendarState(authorizationInterruptionState);
         setGoogleCalendarError("Google hesabı seçimi zaten devam ediyor.");
       } else if (error instanceof Error && error.message === "GOOGLE_CALENDAR_ACCOUNT_MISMATCH") {
         setGoogleCalendarState("expired");
@@ -6037,32 +6475,37 @@ function MainApplication() {
   }
 
   function updateCategory(category: string, enabled: boolean): void {
-    setCategoryDraft((previous) => ({
-      ...previous,
-      [category]: enabled
-    }));
+    const next = { ...categoryDraftRef.current, [category]: enabled };
+    categoryDraftRef.current = next;
+    setCategoryDraft(next);
     setNotificationPreferenceOutcome("idle");
     setNotificationPreferenceError(undefined);
   }
 
   function updateAlarmMode(mode: AlarmMode): void {
+    alarmModeRef.current = mode;
     setAlarmMode(mode);
     setNotificationPreferenceOutcome("idle");
     setNotificationPreferenceError(undefined);
     if (mode === "all_calendar") {
       const everythingOn: Record<string, boolean> = {};
       for (const category of availableCategories) everythingOn[category] = true;
+      categoryDraftRef.current = everythingOn;
       setCategoryDraft(everythingOn);
     }
   }
 
   function updateAlarmEnabled(enabled: boolean): void {
+    alarmEnabledRef.current = enabled;
     setAlarmEnabled(enabled);
     setNotificationPreferenceOutcome("idle");
     setNotificationPreferenceError(undefined);
   }
 
   function discardNotificationPreferenceChanges(): void {
+    alarmEnabledRef.current = initialNotificationPreference.enabled;
+    alarmModeRef.current = initialNotificationPreference.mode;
+    categoryDraftRef.current = { ...initialNotificationPreference.categories };
     setAlarmEnabled(initialNotificationPreference.enabled);
     setAlarmMode(initialNotificationPreference.mode);
     setCategoryDraft({ ...initialNotificationPreference.categories });
@@ -6080,21 +6523,24 @@ function MainApplication() {
     }
     if (accountCleanupInProgressRef.current) return;
 
+    const desiredEnabled = alarmEnabledRef.current;
+    const desiredMode = alarmModeRef.current;
+    const desiredCategories = { ...categoryDraftRef.current };
     const categoryPayload: Record<string, boolean> = {};
     for (const category of availableCategories) {
-      categoryPayload[category] = alarmMode === "all_calendar" ? true : Boolean(categoryDraft[category]);
+      categoryPayload[category] = desiredMode === "all_calendar" ? true : Boolean(desiredCategories[category]);
     }
 
     const existing = preferences.data;
     const reminderOffsets = existing?.reminderOffsets.length ? existing.reminderOffsets : DEFAULT_REMINDER_OFFSETS;
-    const reminderRules = existing?.reminderRules?.length ? existing.reminderRules : DEFAULT_REMINDER_RULES;
+    const reminderRules = notificationReminderRulesForMutation(existing?.reminderRules, DEFAULT_REMINDER_RULES);
 
     try {
       setBusy(true);
       setNotificationPreferenceOutcome("saving");
       setNotificationPreferenceError(undefined);
       const coordinator = notificationCoordinatorRef.current;
-      if (alarmEnabled) {
+      if (desiredEnabled) {
         if (!coordinator) {
           setAlarmEnabled(false);
           setNotificationPreferenceOutcome("error");
@@ -6135,8 +6581,8 @@ function MainApplication() {
         {
           method: "PATCH",
           body: JSON.stringify({
-            enabled: alarmEnabled && Boolean(coordinator?.getState().active),
-            ...(alarmEnabled && coordinator?.getState().active
+            enabled: desiredEnabled && Boolean(coordinator?.getState().active),
+            ...(desiredEnabled && coordinator?.getState().active
               ? { deliveryConsentVersion: "phase3-v1" }
               : {}),
             categories: categoryPayload,
@@ -6154,7 +6600,7 @@ function MainApplication() {
         { ownerSnapshot }
       ));
 
-      if (!alarmEnabled && coordinator) {
+      if (!desiredEnabled && coordinator) {
         const detachedState = await coordinator.setPreferenceEnabled(false);
         if (detachedState.registration === "error") {
           setCleanupIssue({
@@ -6182,7 +6628,7 @@ function MainApplication() {
         tone: "success"
       });
     } catch (error) {
-      if (alarmEnabled) await notificationCoordinatorRef.current?.setPreferenceEnabled(false).catch(() => undefined);
+      if (desiredEnabled) await notificationCoordinatorRef.current?.setPreferenceEnabled(false).catch(() => undefined);
       if (error instanceof StaleAccountRequestError) return;
       const controlledNotificationError = userMessageFromError(error, "Alarm ayarları kaydedilemedi");
       setNotificationPreferenceOutcome("error");
@@ -6283,10 +6729,12 @@ function MainApplication() {
 
   function createPersonalExam(input: PersonalExamMutationInput): PersonalExamMutationResult {
     const ownerSnapshot = personalExamMutationSnapshot();
-    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait kişisel takvim henüz hazır değil." };
     const result = personalExamRuntime.create(input, ownerSnapshot);
     if (!result.ok) return result;
-    setMessage({ text: "Kişisel sınav hesabının cihaz planına eklendi.", tone: "success" });
+    const created = personalExamRuntime.getSnapshot().exams.at(-1);
+    if (created) syncPersonalCalendarReminder(ownerSnapshot, created);
+    setMessage({ text: "Kişisel etkinlik takvimine eklendi.", tone: "success" });
     return result;
   }
 
@@ -6295,31 +6743,51 @@ function MainApplication() {
     input: PersonalExamMutationInput
   ): PersonalExamMutationResult {
     const ownerSnapshot = personalExamMutationSnapshot();
-    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait kişisel takvim henüz hazır değil." };
     const result = personalExamRuntime.update(id, input, ownerSnapshot);
     if (!result.ok) return result;
     const updatedExam = personalExamRuntime.getSnapshot().exams.find((exam) => exam.id === id);
+    if (updatedExam) syncPersonalCalendarReminder(ownerSnapshot, updatedExam);
+    const updatedCalendarItem = updatedExam ? buildCalendarItems({
+      academicEvents: [],
+      personalExams: [updatedExam],
+      academicSourceLabel: "Kişisel takvim"
+    })[0] : undefined;
     setActiveCalendarDetail((current) => current?.source === "personal" && current.id === id
-      && updatedExam ? {
-        ...current,
-        title: updatedExam.title,
-        startDate: updatedExam.examDate,
-        temporalKind: "timestamp"
-      }
+      && updatedCalendarItem ? updatedCalendarItem
       : current);
-    setMessage({ text: "Kişisel sınav güncellendi.", tone: "success" });
+    setMessage({ text: "Kişisel etkinlik güncellendi.", tone: "success" });
     return result;
   }
 
   function deletePersonalExam(id: string): PersonalExamMutationResult {
     const ownerSnapshot = personalExamMutationSnapshot();
-    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+    if (!ownerSnapshot) return { ok: false, error: "Hesaba ait kişisel takvim henüz hazır değil." };
     const result = personalExamRuntime.delete(id, ownerSnapshot);
     if (!result.ok) return result;
+    void personalCalendarReminderCoordinator.cancel(ownerSnapshot.ownerId, id);
     setActiveCalendarDetail(null);
-    setMessage({ text: "Kişisel sınav silindi.", tone: "success" });
+    setMessage({ text: "Kişisel etkinlik silindi.", tone: "success" });
     requestAppRoute("Calendar");
     return result;
+  }
+
+  function syncPersonalCalendarReminder(
+    ownerSnapshot: AccountGenerationSnapshot,
+    item: Parameters<PersonalCalendarReminderCoordinator["sync"]>[1]
+  ): void {
+    void personalCalendarReminderCoordinator.sync(ownerSnapshot.ownerId, item).then((status) => {
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
+      if (status === "permission_denied") {
+        setMessage({ text: "Etkinlik kaydedildi; bildirim izni kapalı olduğu için hatırlatma kurulmadı.", tone: "info" });
+      } else if (status === "past") {
+        setMessage({ text: "Etkinlik kaydedildi; seçilen hatırlatma zamanı geçmişte kaldı.", tone: "info" });
+      }
+    }).catch(() => {
+      if (accountGuardRef.current.isCurrent(ownerSnapshot)) {
+        setMessage({ text: "Etkinlik kaydedildi; hatırlatma kurulamadı.", tone: "error" });
+      }
+    });
   }
 
   function openCalendarItem(item: CalendarItem): void {
@@ -6413,10 +6881,15 @@ function MainApplication() {
         return;
       case "Profile":
       case "AcademicProfileSettings":
+      case "FollowedUniversitiesSettings":
       case "NotificationSettings":
       case "GoogleCalendarSettings":
       case "AccountDataSettings":
         setActiveTab("profile");
+        if (route === "FollowedUniversitiesSettings") {
+          if (!universities.attempted && !universities.loading) void loadUniversities();
+          if (!followedUniversities.attempted && !followedUniversities.loading) void loadFollowedUniversities();
+        }
         return;
       case "BootstrapLoading":
       case "BootstrapError":
@@ -6495,8 +6968,8 @@ function MainApplication() {
       setMessage({ text: "Akademik profil kaydedildi.", tone: "success" });
       void Promise.allSettled([
         loadMyCalendar(currentSession.accessToken, ownerSnapshot),
+        loadCourseSchedule(currentSession.accessToken, ownerSnapshot),
         loadUpcoming(currentSession.accessToken, ownerSnapshot),
-        loadAnnouncements(currentSession.accessToken, authoritativeDraft.universityId, ownerSnapshot),
         loadPreferences(currentSession.accessToken, ownerSnapshot)
       ]);
     } catch (error) {
@@ -6583,7 +7056,7 @@ function MainApplication() {
             feedback={sharedFeedback}
             onChangeEmail={returnToLoginForm}
             onCodeChange={(value) => {
-              setVerificationToken(normalizeNumericCode(value, 4));
+              setVerificationToken(normalizeNumericCode(value, 6));
               setMessage(null);
             }}
             onDismissFeedback={() => setMessage(null)}
@@ -6716,9 +7189,11 @@ function MainApplication() {
     return (
       <Banner
         actionLabel={hasRetryableTarget && !busy && !googleBusy ? "Temizliği tekrar dene" : undefined}
-        message={cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
+        message={cleanupIssue.action === "logout"
+          ? `${cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")} temizliği doğrulanamadı. Yeniden girişte tekrar uzlaştırılacak.`
+          : cleanupIssue.failedTargets.map(cleanupTargetLabel).join(", ")}
         onAction={hasRetryableTarget && !busy && !googleBusy ? () => void retryFailedCleanup() : undefined}
-        title="Tamamlanamayan güvenli temizlik"
+        title={cleanupIssue.action === "logout" ? "Çıkış tamamlandı" : "Tamamlanamayan güvenli temizlik"}
         tone="warning"
       />
     );
@@ -6728,7 +7203,7 @@ function MainApplication() {
     if (AUTH_ROUTE_NAMES.has(route) || route === "AcademicOnboarding") {
       return (
         <>
-          {renderCleanupIssue()}
+          {cleanupIssue?.action === "logout" ? null : renderCleanupIssue()}
           {renderAuthOnboardingScreen(route)}
         </>
       );
@@ -7320,13 +7795,13 @@ function MainApplication() {
                 )}
 
                 <TextInput
-                  accessibilityLabel="Dört haneli doğrulama kodu"
+                  accessibilityLabel="Altı haneli doğrulama kodu"
                   value={verificationToken}
                   onChangeText={setVerificationToken}
                   placeholder="Doğrulama kodu"
                   placeholderTextColor={AUTH_INPUT_PLACEHOLDER_COLOR}
                   keyboardType="number-pad"
-                  maxLength={4}
+                  maxLength={6}
                   autoCapitalize="none"
                   autoCorrect={false}
                   style={styles.input}
@@ -7334,9 +7809,9 @@ function MainApplication() {
 
                 <Pressable
                   accessibilityRole="button"
-                  style={[styles.button, styles.primaryButton, (busy || verificationToken.trim().length !== 4) && styles.buttonDisabled]}
+                  style={[styles.button, styles.primaryButton, (busy || verificationToken.trim().length !== 6) && styles.buttonDisabled]}
                   onPress={() => void handleVerifyEmail()}
-                  disabled={busy || verificationToken.trim().length !== 4}
+                  disabled={busy || verificationToken.trim().length !== 6}
                 >
                   <Text style={styles.primaryButtonText}>Doğrulamayı Tamamla</Text>
                 </Pressable>
@@ -8136,12 +8611,14 @@ function MainApplication() {
     );
   }
 
-  const homeEvents = [
-    ...(calendar.data?.events ?? []),
-    ...(upcoming.data ?? []).filter(
-      (event) => !(calendar.data?.events ?? []).some((calendarEvent) => calendarEvent.id === event.id)
-    )
-  ];
+  const homeEvents = useMemo(() => {
+    const calendarEvents = calendar.data?.events ?? [];
+    const calendarEventIds = new Set(calendarEvents.map((event) => event.id));
+    return [
+      ...calendarEvents,
+      ...(upcoming.data ?? []).filter((event) => !calendarEventIds.has(event.id)),
+    ];
+  }, [calendar.data?.events, upcoming.data]);
   const homeManualExams = session?.user.id === manualExamOwnerId && manualExamsHydrated
     ? manualExams
     : [];
@@ -8168,6 +8645,7 @@ function MainApplication() {
       notificationPermission={notificationLifecycle.permission}
       notificationPreferenceEnabled={notificationLifecycle.preferenceEnabled}
       notificationActive={notificationLifecycle.active}
+      onOpenAccountMenu={() => setAccountDrawerVisible(true)}
       onCompleteProfile={() => requestAppRoute("AcademicProfileSettings")}
       onOpenAnnouncement={(item) => {
         const detailItem = contentFeedDetailItem(item, "academic");
@@ -8179,7 +8657,7 @@ function MainApplication() {
       onOpenGoogleCalendarSettings={() => requestAppRoute("GoogleCalendarSettings")}
       onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
       onRefresh={() => {
-        void Promise.allSettled([loadMyCalendar(), loadUpcoming(), refreshContentFeed()]);
+        void Promise.allSettled([loadMyCalendar(), loadCourseSchedule(), loadUpcoming(), refreshContentFeed()]);
       }}
     />
   ) : null;
@@ -8207,6 +8685,7 @@ function MainApplication() {
       onLoadMore={() => void loadMoreContentFeed()}
       onRetryPagination={() => void loadMoreContentFeed()}
       onOpenItem={openContentFeedItem}
+      onOpenAccountMenu={() => setAccountDrawerVisible(true)}
       onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
       onOpenYok={() => requestAppRoute("YokAnnouncements")}
       onOpenSummerSchool={() => requestAppRoute("SummerSchool")}
@@ -8325,17 +8804,17 @@ function MainApplication() {
 
   const calendarExperience = session ? (
     <CalendarExperience
-      academicEvents={selectUniversityAcademicCalendarEvents(calendar.data?.events ?? [])}
+      academicEvents={universityAcademicCalendarEvents}
       personalExams={homeManualExams}
       personalExamsReady={manualExamsHydrated && manualExamOwnerId === session.user.id}
       calendarTitle={calendar.data?.calendar.title}
       academicYear={calendar.data?.calendar.academicYear}
       universityName={selectedUniversity?.name}
-      loading={calendar.loading}
+      loading={calendar.loading || courseSchedule.loading}
       attempted={Boolean(calendar.attempted)}
       error={calendar.error}
-      stale={calendar.stale}
-      partial={calendar.data?.sourceStatus === "source_only"}
+      stale={Boolean(calendar.stale || courseSchedule.stale)}
+      partial={calendar.data?.sourceStatus === "source_only" || courseSchedule.data?.sourceStatus === "source_only"}
       google={{
         state: googleCalendarState,
         stateLabel: googleCalendarLifecycleLabel(googleCalendarState),
@@ -8352,7 +8831,8 @@ function MainApplication() {
         connected: googleCalendarLive
       }}
       feedback={calendarRouteFeedback}
-      onRefresh={() => void loadMyCalendar()}
+      onOpenAccountMenu={() => setAccountDrawerVisible(true)}
+      onRefresh={() => void Promise.allSettled([loadMyCalendar(), loadCourseSchedule()])}
       onOpenItem={openCalendarItem}
       onCreatePersonalExam={createPersonalExam}
       onUpdatePersonalExam={updatePersonalExam}
@@ -8447,20 +8927,28 @@ function MainApplication() {
     ? "dirty" as const
     : academicProfileSaveState;
   const recentAuthenticationPanel = recentAuthAction ? (
-    <RecentAuthenticationPanel
-      action={recentAuthAction}
-      busy={recentAuthBusy}
-      error={recentAuthError}
-      methods={availableRecentAuthMethods}
-      onCancel={dismissRecentAuthentication}
-      onPasswordChange={(value) => {
-        setRecentAuthPassword(value);
-        setRecentAuthError(undefined);
-      }}
-      onSubmitGoogle={() => void submitRecentAuthentication("google")}
-      onSubmitPassword={() => void submitRecentAuthentication("password")}
-      password={recentAuthPassword}
-    />
+    <BottomSheet
+      dismissible={!recentAuthBusy}
+      onDismiss={dismissRecentAuthentication}
+      scrollable
+      title="Kimliğini yeniden doğrula"
+      visible
+    >
+      <RecentAuthenticationPanel
+        action={recentAuthAction}
+        busy={recentAuthBusy}
+        error={recentAuthError}
+        methods={availableRecentAuthMethods}
+        onCancel={dismissRecentAuthentication}
+        onPasswordChange={(value) => {
+          setRecentAuthPassword(value);
+          setRecentAuthError(undefined);
+        }}
+        onSubmitGoogle={() => void submitRecentAuthentication("google")}
+        onSubmitPassword={() => void submitRecentAuthentication("password")}
+        password={recentAuthPassword}
+      />
+    </BottomSheet>
   ) : undefined;
   const profileOverviewScreen = session ? (
     <>
@@ -8468,19 +8956,19 @@ function MainApplication() {
       <ProfileOverviewScreen
         academicSummary={academicProfileSummary}
         appVersion={NATIVE_APP_VERSION}
-        buildNumber={Platform.OS === "android"
-          ? NATIVE_ANDROID_BUILD_NUMBER
-          : Platform.OS === "ios"
-            ? "Belirtilmedi"
-            : `${NATIVE_ANDROID_BUILD_NUMBER} (Android)`}
         email={email}
         error={academicProfileSummary.nameResolutionPending ? universities.error : undefined}
         fullName={fullName}
+        followedUniversityCount={(followedUniversities.data ?? []).filter(
+          (scope) => !scope.facultyId && !scope.departmentId
+        ).length}
         googleAccountEmail={googleCalendarIntegration?.accountEmail}
         googleCalendar={googleCalendarPresentation}
         loading={false}
         notificationTruth={notificationTruth}
+        onOpenAccountMenu={() => setAccountDrawerVisible(true)}
         onOpenAcademicProfile={() => requestAppRoute("AcademicProfileSettings")}
+        onOpenFollowedUniversities={() => requestAppRoute("FollowedUniversitiesSettings")}
         onOpenAccountManagement={() => {
           setMessage(null);
           requestAppRoute("AccountDataSettings");
@@ -8488,6 +8976,7 @@ function MainApplication() {
         onOpenGoogleCalendar={() => requestAppRoute("GoogleCalendarSettings")}
         onOpenNotifications={() => requestAppRoute("NotificationSettings")}
         onRetry={() => void loadUniversities()}
+        onLogout={() => handleLogout()}
       />
     </>
   ) : null;
@@ -8535,6 +9024,23 @@ function MainApplication() {
           : undefined}
       />
     </>
+  ) : null;
+  const followedUniversitiesSettingsScreen = session ? (
+    <FollowedUniversitiesSettingsScreen
+      busyUniversityId={followedUniversityBusyId}
+      error={followedUniversities.error ?? universities.error}
+      followed={(followedUniversities.data ?? []).filter(
+        (scope) => !scope.facultyId && !scope.departmentId
+      )}
+      loading={followedUniversities.loading || universities.loading}
+      onRetry={() => {
+        void loadUniversities();
+        void loadFollowedUniversities();
+      }}
+      onToggle={toggleFollowedUniversity}
+      primaryUniversityId={selectedUniversityId || registerUniversityId}
+      universities={universities.data ?? []}
+    />
   ) : null;
   const notificationSettingsScreen = session ? (
     <>
@@ -8611,7 +9117,6 @@ function MainApplication() {
         feedback={controlledActiveRoute === "AccountDataSettings" ? message ?? undefined : undefined}
         onDeleteAccount={() => beginRecentAuthentication("account")}
         onDeleteData={() => beginRecentAuthentication("data")}
-        onLogout={() => handleLogout()}
         recentAuthentication={recentAuthenticationPanel}
         recentAuthenticationReturnFocus={recentAuthReturnFocus}
       />
@@ -8685,6 +9190,7 @@ function MainApplication() {
     CalendarEventDetail: calendarTrustedDetail,
     Profile: profileOverviewScreen,
     AcademicProfileSettings: academicProfileSettingsScreen,
+    FollowedUniversitiesSettings: followedUniversitiesSettingsScreen,
     NotificationSettings: notificationSettingsScreen,
     GoogleCalendarSettings: googleCalendarSettingsScreen,
     AccountDataSettings: accountDataSettingsScreen,
@@ -8703,6 +9209,7 @@ function MainApplication() {
             busy
             || googleBusy
             || googleCalendarBusy
+            || Boolean(followedUniversityBusyId)
             || academicProfileSaveState === "saving"
           }
           routeLeaveGuard={routeLeaveGuard}
@@ -8710,6 +9217,20 @@ function MainApplication() {
           onRequestHandled={handleNavigationRequestHandled}
           onVisibleRouteChange={handleVisibleRouteChange}
         />
+        {session ? (
+          <AccountDrawer
+            email={session.user.email}
+            fullName={session.user.fullName}
+            onClose={() => setAccountDrawerVisible(false)}
+            onLogout={() => handleLogout()}
+            onOpenAccount={() => {
+              setMessage(null);
+              requestAppRoute("AccountDataSettings");
+            }}
+            universityName={selectedUniversity?.name}
+            visible={accountDrawerVisible}
+          />
+        ) : null}
       </ThemeProvider>
     </SafeAreaProvider>
   );
@@ -8718,19 +9239,14 @@ function MainApplication() {
 function RoutedStatusBar() {
   return (
     <StatusBar
+      backgroundColor="#FFFFFF"
       style="dark"
-      translucent
+      translucent={false}
     />
   );
 }
 
 export default function App() {
-  const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-  });
   const showPhase10ProfilePreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW === "1";
   const showPhase9CalendarPreview = __DEV__
@@ -8745,10 +9261,6 @@ export default function App() {
     && process.env.EXPO_PUBLIC_PHASE5_APP_SHELL_PREVIEW === "1";
   const showPhase4DesignPreview = __DEV__
     && process.env.EXPO_PUBLIC_PHASE4_DESIGN_PREVIEW === "1";
-
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
 
   if (showPhase10ProfilePreview) {
     const previewTheme = process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW_THEME === "dark"

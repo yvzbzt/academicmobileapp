@@ -131,6 +131,10 @@ describe("Phase 11 shared cross-platform semantics", () => {
   it("renders startup, error, and unknown-route states semantically in dark mode", async () => {
     const loading = await renderWithTheme(<BootstrapLoadingState />, { preference: "dark", windowWidth: 320 });
     expect(screen.getByRole("progressbar", { name: /Uygulama hazırlanıyor/u })).toBeBusy();
+    expect(screen.getByTestId(
+      "bootstrap-spinner-static-logo",
+      { includeHiddenElements: true },
+    )).toBeTruthy();
     await loading.unmountAsync();
 
     const retry = jest.fn();

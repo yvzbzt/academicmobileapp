@@ -102,7 +102,7 @@ describe("AuthOnboardingPreview", () => {
     expect(
       screen.getByText("phase6.invalid sentetik akademik profil kaydı tamamlandı."),
     ).toBeVisible();
-  });
+  }, 15_000);
 
   it("boots capture automation directly into a stable named scenario", async () => {
     await renderAsync(

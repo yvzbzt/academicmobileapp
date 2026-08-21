@@ -12,10 +12,14 @@ describe("mongoose schemas", () => {
     }
   });
 
-  it("defines users collection and email unique index", () => {
+  it("defines users collection and private email lookup index", () => {
     expect(userSchema.get("collection")).toBe("users");
+    expect(userSchema.path("emailLookupHash").options).toEqual(expect.objectContaining({ select: false }));
     const indexes = userSchema.indexes();
-    expect(indexes).toEqual(expect.arrayContaining([[{ email: 1 }, expect.objectContaining({ unique: true })]]));
+    expect(indexes).toEqual(expect.arrayContaining([[
+      { emailLookupHash: 1 },
+      expect.objectContaining({ unique: true, sparse: true, name: "users_email_lookup_unique" })
+    ]]));
   });
 
   it("defines refresh token TTL cleanup index", () => {
@@ -176,7 +180,11 @@ describe("mongoose schemas", () => {
     expect(deviceTokenSchema.get("collection")).toBe("device_tokens");
     expect(notificationPreferenceSchema.get("collection")).toBe("notification_preferences");
     expect(notificationJobSchema.get("collection")).toBe("notification_jobs");
-    expect(deviceTokenSchema.indexes()).toEqual(expect.arrayContaining([[{ token: 1 }, expect.objectContaining({ unique: true })]]));
+    expect(deviceTokenSchema.path("tokenLookupHash").options).toEqual(expect.objectContaining({ select: false }));
+    expect(deviceTokenSchema.indexes()).toEqual(expect.arrayContaining([[
+      { tokenLookupHash: 1 },
+      expect.objectContaining({ unique: true, sparse: true, name: "device_tokens_token_lookup_unique" })
+    ]]));
     expect(deviceTokenSchema.indexes()).toEqual(expect.arrayContaining([
       [{ installationHash: 1 }, expect.objectContaining({ unique: true, sparse: true, name: "device_tokens_installation_unique" })]
     ]));

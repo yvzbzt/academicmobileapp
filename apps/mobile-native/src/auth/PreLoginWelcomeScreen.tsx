@@ -1,48 +1,68 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useRef, useState } from "react";
 import {
+  FlatList,
   Image,
+  Pressable,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
   type ImageSourcePropType,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
-import { Button, referencePalette, useTheme } from "../design-system";
+import {
+  Button,
+  preLoginWelcomeColors,
+  referencePalette,
+  useReducedMotion,
+} from "../design-system";
 
-const welcomeHero = require("../../assets/prelogin-welcome-hero.png") as ImageSourcePropType;
-const appMark = require("../../assets/icon-reference.png") as ImageSourcePropType;
+const appMark = require("../../assets/design-package/academic-calendar-logo.png") as ImageSourcePropType;
+const announcementsArtwork = require("../../assets/design-package/onboarding-announcements.png") as ImageSourcePropType;
+const planningArtwork = require("../../assets/design-package/onboarding-planning.png") as ImageSourcePropType;
+const remindersArtwork = require("../../assets/design-package/onboarding-reminders.png") as ImageSourcePropType;
 
-type WelcomeIconName = "calendar-clear-outline" | "megaphone-outline" | "notifications-outline";
+const BRAND_NAVY = preLoginWelcomeColors.brandNavy;
+const BRAND_BLUE = referencePalette.academicBlue;
+const BRAND_BLUE_PRESSED = referencePalette.academicBlueDeep;
+const BRAND_BODY = preLoginWelcomeColors.body;
+const TRUST_BLUE = preLoginWelcomeColors.trust;
 
-interface WelcomeFeature {
-  accent: string;
+interface WelcomeSlide {
+  artwork: ImageSourcePropType;
+  artworkLabel: string;
   background: string;
-  icon: WelcomeIconName;
-  title: string;
   detail: string;
+  id: "announcements" | "planning" | "reminders";
+  title: string;
 }
 
-const FEATURES: readonly WelcomeFeature[] = [
+const WELCOME_SLIDES: readonly WelcomeSlide[] = [
   {
-    accent: referencePalette.blue,
-    background: referencePalette.academicBlueSoft,
-    icon: "calendar-clear-outline",
-    title: "Tüm tarihler tek yerde",
-    detail: "Sınav, kayıt ve etkinliklerini birlikte planla.",
+    artwork: announcementsArtwork,
+    artworkLabel: "Üniversite, fakülte ve bölüm duyurularını tek akışta gösteren illüstrasyon",
+    background: preLoginWelcomeColors.canvasCool,
+    detail: "Üniversite, fakülte ve bölüm kaynaklarından gelen içerikleri tek yerde takip et.",
+    id: "announcements",
+    title: "Duyuruları tek yerden takip et",
   },
   {
-    accent: referencePalette.academicRed,
-    background: referencePalette.academicRedSoft,
-    icon: "megaphone-outline",
-    title: "Resmî duyuruları kaçırma",
-    detail: "Üniversite, fakülte ve bölüm haberlerini izle.",
+    artwork: planningArtwork,
+    artworkLabel: "Haftalık dersleri ve kişisel planları birlikte gösteren illüstrasyon",
+    background: preLoginWelcomeColors.canvasWarm,
+    detail: "Akademik tarihlerini, derslerini ve kişisel planlarını aynı akışta düzenle.",
+    id: "planning",
+    title: "Dönemini rahatça planla",
   },
   {
-    accent: referencePalette.academicGreen,
-    background: referencePalette.academicGreenSoft,
-    icon: "notifications-outline",
-    title: "Zamanında hatırlan",
-    detail: "Önemli akademik günlerden önce haber al.",
+    artwork: remindersArtwork,
+    artworkLabel: "Sınav, ödev, başvuru ve kişisel etkinlik hatırlatmalarını gösteren illüstrasyon",
+    background: preLoginWelcomeColors.canvasCool,
+    detail: "Kendi etkinliğini ekle, hatırlatma kur ve önemli günlere hazırlıklı gir.",
+    id: "reminders",
+    title: "Kendi düzenini oluştur",
   },
 ] as const;
 
@@ -51,19 +71,39 @@ export interface PreLoginWelcomeScreenProps {
   onContinue: () => void;
 }
 
-/**
- * Installation-level introduction shown before Login. It intentionally owns a
- * fixed viewport with one visible composition and one primary action.
- */
 export function PreLoginWelcomeScreen({
   busy = false,
   onContinue,
 }: PreLoginWelcomeScreenProps) {
-  const theme = useTheme();
+  const reducedMotion = useReducedMotion();
   const { fontScale, height, width } = useWindowDimensions();
-  const compact = height < 700 || width < 360 || fontScale > 1.2;
+  const compact = height < 720 || width < 360 || fontScale > 1.2;
   const veryCompact = height < 610 || width < 330 || fontScale > 1.45;
-  const heroHeight = veryCompact ? 86 : compact ? 118 : Math.min(230, height * 0.27);
+  const gutter = veryCompact ? 12 : compact ? 16 : 24;
+  const contentWidth = Math.min(560, Math.max(240, width - gutter * 2));
+  const illustrationHeight = veryCompact
+    ? Math.max(210, Math.min(270, height * 0.42))
+    : compact
+      ? Math.min(390, height * 0.5)
+      : Math.min(510, height * 0.57);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const listRef = useRef<FlatList<WelcomeSlide> | null>(null);
+  const activeSlide = WELCOME_SLIDES[activeIndex];
+  const finalSlide = activeIndex === WELCOME_SLIDES.length - 1;
+
+  const selectSlide = (index: number) => {
+    const boundedIndex = Math.max(0, Math.min(WELCOME_SLIDES.length - 1, index));
+    setActiveIndex(boundedIndex);
+    listRef.current?.scrollToIndex({
+      animated: !reducedMotion,
+      index: boundedIndex,
+    });
+  };
+
+  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const index = Math.round(event.nativeEvent.contentOffset.x / contentWidth);
+    setActiveIndex(Math.max(0, Math.min(WELCOME_SLIDES.length - 1, index)));
+  };
 
   return (
     <View
@@ -71,186 +111,194 @@ export function PreLoginWelcomeScreen({
       style={[
         styles.root,
         {
-          backgroundColor: theme.colors.background.canvas,
-          paddingHorizontal: compact ? 16 : 24,
-          paddingBottom: compact ? 10 : 16,
-          paddingTop: compact ? 6 : 12,
+          backgroundColor: activeSlide.background,
+          paddingBottom: veryCompact ? 4 : 8,
+          paddingHorizontal: gutter,
+          paddingTop: compact ? 4 : 8,
         },
       ]}
       testID="prelogin-welcome-screen"
     >
-      <View accessibilityRole="header" style={[styles.brandRow, compact && styles.brandRowCompact]}>
+      <View style={[styles.brandRow, compact && styles.brandRowCompact, { width: contentWidth }]}>
         <Image
           accessibilityIgnoresInvertColors
-          accessibilityLabel="Akademik Takvim simgesi"
+          accessibilityLabel="Akademik Takvim logosu"
+          resizeMode="contain"
           source={appMark}
           style={[styles.appMark, compact && styles.appMarkCompact]}
         />
-        <View style={styles.brandCopy}>
-          <Text
-            allowFontScaling
-            maxFontSizeMultiplier={1.25}
-            numberOfLines={1}
-            style={[
-              theme.typography.cardTitle,
-              styles.brandTitle,
-              { color: theme.colors.text.primary },
-              compact && styles.brandTitleCompact,
-            ]}
-          >
-            Akademik Takvim
-          </Text>
-          {!veryCompact ? (
-            <Text
-              allowFontScaling
-              maxFontSizeMultiplier={1.2}
-              numberOfLines={1}
-              style={[
-                theme.typography.meta,
-                styles.brandTagline,
-                { color: theme.colors.text.secondary },
-              ]}
-            >
-              Akademik yolculuğunda bir adım önde
-            </Text>
-          ) : null}
-        </View>
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.trustBadge}
-        >
-          <Ionicons color={referencePalette.academicGreen} name="shield-checkmark" size={compact ? 18 : 20} />
-        </View>
-      </View>
-
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[styles.heroFrame, { height: heroHeight }]}
-      >
-        <View style={styles.heroBlueGlow} />
-        <View style={styles.heroTealGlow} />
-        <Image
-          accessibilityIgnoresInvertColors
-          resizeMode="contain"
-          source={welcomeHero}
-          style={styles.heroImage}
-        />
-      </View>
-
-      <View style={[styles.introCopy, compact && styles.introCopyCompact]}>
         <Text
           accessibilityRole="header"
-          allowFontScaling
           maxFontSizeMultiplier={1.2}
           numberOfLines={2}
-          style={[
-            theme.typography.display,
-            styles.headline,
-            { color: theme.colors.text.primary },
-            compact && styles.headlineCompact,
+          style={[styles.brandTitle, compact && styles.brandTitleCompact]}
+        >
+          Akademik Takvim
+        </Text>
+        <Pressable
+          accessibilityLabel="Tanıtımı atla"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy }}
+          disabled={busy}
+          hitSlop={8}
+          onPress={onContinue}
+          style={({ pressed }) => [
+            styles.skipButton,
+            pressed && styles.skipButtonPressed,
           ]}
         >
-          Akademik hayatın, tek bir yerde.
-        </Text>
-        <Text
-          allowFontScaling
-          maxFontSizeMultiplier={1.2}
-          numberOfLines={veryCompact ? 2 : 3}
-          style={[
-            theme.typography.body,
-            styles.subtitle,
-            { color: theme.colors.text.secondary },
-            compact && styles.subtitleCompact,
-          ]}
-        >
-          Takvimini planla, resmî duyuruları takip et ve önemli tarihleri kaçırma.
-        </Text>
+          <Text maxFontSizeMultiplier={1.2} style={styles.skipText}>Atla</Text>
+        </Pressable>
       </View>
 
-      <View
-        accessibilityLabel="Uygulama özellikleri"
-        style={[styles.features, compact && styles.featuresCompact]}
-      >
-        {FEATURES.map((feature) => (
+      <FlatList
+        ref={listRef}
+        accessibilityLabel="Uygulama tanıtım sayfaları"
+        data={WELCOME_SLIDES}
+        decelerationRate="fast"
+        getItemLayout={(_data, index) => ({
+          index,
+          length: contentWidth,
+          offset: contentWidth * index,
+        })}
+        horizontal
+        initialNumToRender={WELCOME_SLIDES.length}
+        keyExtractor={(item) => item.id}
+        onMomentumScrollEnd={handleScrollEnd}
+        pagingEnabled
+        removeClippedSubviews={false}
+        renderItem={({ item, index }) => (
           <View
-            accessibilityLabel={`${feature.title}. ${feature.detail}`}
-            key={feature.title}
-            style={[
-              styles.featureCard,
-              {
-                backgroundColor: theme.colors.background.surfaceRaised,
-                borderColor: theme.colors.border.subtle,
-              },
-              compact && styles.featureCardCompact,
-            ]}
-            testID={`prelogin-feature-${feature.icon}`}
+            accessible
+            accessibilityLabel={`${index + 1} / ${WELCOME_SLIDES.length}. ${item.title}. ${item.detail}`}
+            style={[styles.slide, { width: contentWidth }]}
+            testID={`prelogin-slide-${index}`}
           >
-            <View style={[styles.featureIcon, { backgroundColor: feature.background }]}>
-              <Ionicons color={feature.accent} name={feature.icon} size={compact ? 19 : 22} />
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={[
+                styles.illustrationFrame,
+                { backgroundColor: item.background, height: illustrationHeight },
+              ]}
+            >
+              <Image
+                accessibilityIgnoresInvertColors
+                accessibilityLabel={item.artworkLabel}
+                fadeDuration={0}
+                resizeMode="contain"
+                source={item.artwork}
+                style={styles.illustrationImage}
+              />
             </View>
-            <View style={styles.featureCopy}>
+            <View
+              style={[
+                styles.slideCopy,
+                compact && styles.slideCopyCompact,
+                veryCompact && styles.slideCopyVeryCompact,
+              ]}
+            >
               <Text
-                allowFontScaling
+                accessibilityRole="header"
                 maxFontSizeMultiplier={1.2}
-                numberOfLines={1}
+                numberOfLines={2}
                 style={[
-                  theme.typography.bodyStrong,
-                  styles.featureTitle,
-                  { color: theme.colors.text.primary },
-                  compact && styles.featureTitleCompact,
+                  styles.slideTitle,
+                  compact && styles.slideTitleCompact,
+                  veryCompact && styles.slideTitleVeryCompact,
                 ]}
               >
-                {feature.title}
+                {item.title}
               </Text>
-              {!veryCompact ? (
-                <Text
-                  allowFontScaling
-                  maxFontSizeMultiplier={1.15}
-                  numberOfLines={1}
-                  style={[
-                    theme.typography.meta,
-                    styles.featureDetail,
-                    { color: theme.colors.text.secondary },
-                    compact && styles.featureDetailCompact,
-                  ]}
-                >
-                  {feature.detail}
-                </Text>
-              ) : null}
+              <Text
+                maxFontSizeMultiplier={1.18}
+                numberOfLines={veryCompact ? 2 : 3}
+                style={[styles.slideDetail, compact && styles.slideDetailCompact]}
+              >
+                {item.detail}
+              </Text>
             </View>
-            <Ionicons color={feature.accent} name="checkmark-circle" size={compact ? 18 : 20} />
           </View>
+        )}
+        scrollEnabled={!busy}
+        showsHorizontalScrollIndicator={false}
+        style={[styles.slider, { width: contentWidth }]}
+      />
+
+      <View
+        accessibilityActions={[
+          { name: "decrement", label: "Önceki tanıtım sayfası" },
+          { name: "increment", label: "Sonraki tanıtım sayfası" },
+        ]}
+        accessibilityLabel={`${activeIndex + 1}. tanıtım sayfası seçili`}
+        accessibilityRole="adjustable"
+        accessibilityValue={{
+          max: WELCOME_SLIDES.length,
+          min: 1,
+          now: activeIndex + 1,
+          text: `${activeIndex + 1} / ${WELCOME_SLIDES.length}`,
+        }}
+        onAccessibilityAction={(event) => {
+          if (busy) return;
+          if (event.nativeEvent.actionName === "increment") {
+            selectSlide(activeIndex + 1);
+          } else if (event.nativeEvent.actionName === "decrement") {
+            selectSlide(activeIndex - 1);
+          }
+        }}
+        style={[styles.pagination, veryCompact && styles.paginationVeryCompact]}
+      >
+        {WELCOME_SLIDES.map((slide, index) => (
+          <Pressable
+            accessibilityLabel={`${index + 1}. tanıtım sayfasına git`}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: busy, selected: index === activeIndex }}
+            disabled={busy}
+            key={slide.id}
+            onPress={() => selectSlide(index)}
+            style={styles.paginationTarget}
+          >
+            <View
+              style={[
+                styles.paginationDot,
+                index === activeIndex ? styles.paginationDotActive : styles.paginationDotIdle,
+              ]}
+            />
+          </Pressable>
         ))}
       </View>
 
-      <View style={[styles.actionArea, compact && styles.actionAreaCompact]}>
+      <View style={[styles.actionArea, { width: contentWidth }]}>
         <Button
-          accessibilityHint="Giriş ekranını açar ve bu tanıtımı tamamlar."
+          accessibilityHint={finalSlide
+            ? "Giriş ekranını açar ve tanıtımı tamamlar."
+            : "Sonraki tanıtım sayfasını gösterir."}
           fullWidth
-          label="Başlayalım"
+          label={finalSlide ? "Başlayalım" : "Devam et"}
+          labelStyle={[styles.actionLabel, compact && styles.actionLabelCompact]}
           loading={busy}
-          onPress={onContinue}
+          maxFontSizeMultiplier={1.2}
+          onPress={finalSlide ? onContinue : () => selectSlide(activeIndex + 1)}
+          style={[
+            styles.actionButton,
+            compact && styles.actionButtonCompact,
+            { backgroundColor: busy ? BRAND_BLUE_PRESSED : BRAND_BLUE, borderColor: BRAND_BLUE },
+          ]}
           testID="prelogin-continue-button"
-          trailingIcon={<Ionicons color={referencePalette.white} name="arrow-forward" size={21} />}
+          trailingIcon={finalSlide
+            ? <Ionicons color={preLoginWelcomeColors.success} name="checkmark" size={24} />
+            : <Ionicons color={referencePalette.white} name="chevron-forward" size={23} />}
         />
-        {!veryCompact ? (
-          <View
-            accessibilityLabel="Güvenilir kaynaklar ve gizliliğine saygılı tasarım"
-            style={styles.footerTrust}
+        <View style={styles.footerTrust}>
+          <Ionicons color={TRUST_BLUE} name="shield-checkmark-outline" size={17} />
+          <Text
+            maxFontSizeMultiplier={1.12}
+            numberOfLines={1}
+            style={[styles.footerText, veryCompact && styles.footerTextVeryCompact]}
           >
-            <Ionicons color={referencePalette.academicGreen} name="shield-checkmark-outline" size={15} />
-            <Text
-              allowFontScaling
-              maxFontSizeMultiplier={1.15}
-              numberOfLines={1}
-              style={[theme.typography.meta, styles.footerText, { color: theme.colors.text.secondary }]}
-            >
-              Güvenilir kaynaklar  •  Gizliliğine saygılı
-            </Text>
-          </View>
-        ) : null}
+            Güvenilir akademik kaynaklar · Kontrol sende
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -258,176 +306,168 @@ export function PreLoginWelcomeScreen({
 
 const styles = StyleSheet.create({
   root: {
+    alignItems: "center",
     flex: 1,
-    gap: 10,
     overflow: "hidden",
   },
   brandRow: {
     alignItems: "center",
+    alignSelf: "center",
     flexDirection: "row",
-    gap: 11,
-    minHeight: 52,
+    gap: 10,
+    minHeight: 58,
   },
   brandRowCompact: {
-    gap: 9,
-    minHeight: 40,
+    gap: 8,
+    minHeight: 48,
   },
   appMark: {
-    borderRadius: 13,
-    height: 48,
-    width: 48,
+    height: 54,
+    width: 54,
   },
   appMarkCompact: {
-    borderRadius: 10,
-    height: 38,
-    width: 38,
-  },
-  brandCopy: {
-    flex: 1,
-    minWidth: 0,
+    height: 44,
+    width: 44,
   },
   brandTitle: {
-    fontSize: 18,
-    lineHeight: 23,
+    color: BRAND_NAVY,
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 24,
   },
   brandTitleCompact: {
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 18,
+    lineHeight: 22,
   },
-  brandTagline: {
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 1,
-  },
-  trustBadge: {
+  skipButton: {
     alignItems: "center",
-    backgroundColor: referencePalette.academicGreenSoft,
-    borderRadius: 999,
-    height: 34,
+    borderRadius: 8,
     justifyContent: "center",
-    width: 34,
+    minHeight: 44,
+    minWidth: 48,
+    paddingHorizontal: 6,
   },
-  heroFrame: {
+  skipButtonPressed: {
+    backgroundColor: referencePalette.academicBlueSoft,
+  },
+  skipText: {
+    color: BRAND_BLUE,
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 22,
+  },
+  slider: {
+    alignSelf: "center",
+    flex: 1,
+  },
+  slide: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+  },
+  illustrationFrame: {
+    alignItems: "center",
     alignSelf: "stretch",
-    borderRadius: 22,
+    flexShrink: 1,
+    justifyContent: "center",
+    minHeight: 200,
     overflow: "hidden",
-    position: "relative",
   },
-  heroBlueGlow: {
-    backgroundColor: referencePalette.academicBlueTint,
-    borderRadius: 999,
-    height: "94%",
-    left: "6%",
-    position: "absolute",
-    top: "3%",
-    width: "64%",
-  },
-  heroTealGlow: {
-    backgroundColor: referencePalette.academicTealSurface,
-    borderRadius: 999,
-    bottom: "4%",
-    height: "62%",
-    position: "absolute",
-    right: "4%",
-    width: "48%",
-  },
-  heroImage: {
+  illustrationImage: {
     height: "100%",
     width: "100%",
   },
-  introCopy: {
+  slideCopy: {
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 8,
-  },
-  introCopyCompact: {
-    gap: 3,
-    paddingHorizontal: 2,
-  },
-  headline: {
-    fontSize: 29,
-    lineHeight: 35,
-    textAlign: "center",
-  },
-  headlineCompact: {
-    fontSize: 23,
-    lineHeight: 28,
-  },
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 21,
-    maxWidth: 520,
-    textAlign: "center",
-  },
-  subtitleCompact: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  features: {
-    flex: 1,
     gap: 8,
-    justifyContent: "center",
-    minHeight: 196,
+    paddingHorizontal: 10,
+    paddingTop: 12,
   },
-  featuresCompact: {
+  slideCopyCompact: {
     gap: 5,
-    minHeight: 129,
+    paddingTop: 8,
   },
-  featureCard: {
-    alignItems: "center",
-    borderRadius: 15,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 58,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    shadowColor: referencePalette.navy,
-    shadowOffset: { height: 2, width: 0 },
-    shadowOpacity: 0.05,
-    shadowRadius: 7,
-    elevation: 1,
+  slideCopyVeryCompact: {
+    paddingHorizontal: 4,
+    paddingTop: 5,
   },
-  featureCardCompact: {
-    borderRadius: 12,
-    gap: 9,
-    minHeight: 41,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+  slideTitle: {
+    color: BRAND_NAVY,
+    fontSize: 30,
+    fontWeight: "800",
+    letterSpacing: 0,
+    lineHeight: 36,
+    textAlign: "center",
   },
-  featureIcon: {
-    alignItems: "center",
-    borderRadius: 11,
-    height: 38,
-    justifyContent: "center",
-    width: 38,
+  slideTitleCompact: {
+    fontSize: 24,
+    lineHeight: 29,
   },
-  featureCopy: {
-    flex: 1,
-    minWidth: 0,
+  slideTitleVeryCompact: {
+    fontSize: 21,
+    lineHeight: 25,
   },
-  featureTitle: {
+  slideDetail: {
+    color: BRAND_BODY,
+    fontSize: 16,
+    fontWeight: "400",
+    letterSpacing: 0,
+    lineHeight: 23,
+    maxWidth: 500,
+    textAlign: "center",
+  },
+  slideDetailCompact: {
     fontSize: 14,
-    lineHeight: 18,
+    lineHeight: 20,
   },
-  featureTitleCompact: {
-    fontSize: 12,
-    lineHeight: 15,
+  pagination: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 30,
   },
-  featureDetail: {
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 1,
+  paginationVeryCompact: {
+    minHeight: 25,
   },
-  featureDetailCompact: {
-    fontSize: 10,
-    lineHeight: 13,
+  paginationTarget: {
+    alignItems: "center",
+    height: 30,
+    justifyContent: "center",
+    width: 36,
+  },
+  paginationDot: {
+    borderRadius: 5,
+    height: 8,
+  },
+  paginationDotActive: {
+    backgroundColor: BRAND_BLUE,
+    width: 30,
+  },
+  paginationDotIdle: {
+    backgroundColor: preLoginWelcomeColors.paginationIdle,
+    width: 8,
   },
   actionArea: {
-    gap: 8,
+    gap: 3,
   },
-  actionAreaCompact: {
-    gap: 4,
+  actionButton: {
+    minHeight: 58,
+  },
+  actionButtonCompact: {
+    minHeight: 52,
+  },
+  actionLabel: {
+    fontSize: 19,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 24,
+  },
+  actionLabelCompact: {
+    fontSize: 17,
+    lineHeight: 22,
   },
   footerTrust: {
     alignItems: "center",
@@ -437,8 +477,15 @@ const styles = StyleSheet.create({
     minHeight: 20,
   },
   footerText: {
+    color: BRAND_BODY,
     fontSize: 11,
+    fontWeight: "500",
+    letterSpacing: 0,
     lineHeight: 15,
     textAlign: "center",
+  },
+  footerTextVeryCompact: {
+    fontSize: 10,
+    lineHeight: 13,
   },
 });

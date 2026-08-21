@@ -87,7 +87,7 @@ export class AccountDeletionService {
   }
 
   private hashDeletionCode(userId: string, code: string): string {
-    return this.tokenService.hashOpaqueToken(`${TOKEN_PURPOSE}:${userId}:${code.trim()}`);
+    return this.tokenService.hashPurposeBoundCode(TOKEN_PURPOSE, userId, code);
   }
 }
 

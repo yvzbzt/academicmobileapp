@@ -20,7 +20,7 @@ describe("EmailVerificationSenderService", () => {
       new EmailVerificationSenderService().sendVerificationEmail({
         email: "student@example.com",
         fullName: "Student Example",
-        code: "1234",
+        code: "123456",
         expiresAt: new Date("2026-07-21T12:00:00.000Z")
       })
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
@@ -37,12 +37,12 @@ describe("EmailVerificationSenderService", () => {
     const verificationInput = {
       email: "private.student@example.com",
       fullName: "Private Student",
-      code: "4821",
+      code: "482104",
       expiresAt: new Date("2026-07-21T12:00:00.000Z")
     };
     const deletionInput = {
       ...verificationInput,
-      code: "7395"
+      code: "739512"
     };
     const recoveryInput = {
       ...verificationInput,

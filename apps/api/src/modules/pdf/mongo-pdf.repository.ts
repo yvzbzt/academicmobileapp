@@ -33,8 +33,8 @@ export class MongoPdfRepository implements PdfRepository {
     return documents.map((document) => toDomainRecord<ExtractedEventRecord>(document));
   }
 
-  async listExtractedEvents(input: { pdfSourceId?: string; status?: ExtractedEventStatus; limit: number; offset: number }): Promise<ExtractedEventRecord[]> {
-    const documents = await (await this.model("ExtractedEvent", extractedEventSchema)).find(omitUndefined({ pdfSourceId: input.pdfSourceId, status: input.status })).sort({ createdAt: -1 }).skip(input.offset).limit(input.limit);
+  async listExtractedEvents(input: { universityId?: string; pdfSourceId?: string; status?: ExtractedEventStatus; limit: number; offset: number }): Promise<ExtractedEventRecord[]> {
+    const documents = await (await this.model("ExtractedEvent", extractedEventSchema)).find(omitUndefined({ universityId: input.universityId, pdfSourceId: input.pdfSourceId, status: input.status })).sort({ createdAt: -1 }).skip(input.offset).limit(input.limit);
     return documents.map((document) => toDomainRecord<ExtractedEventRecord>(document));
   }
 

@@ -421,6 +421,17 @@ class FakeCalendarRepository implements CalendarRepository {
     return updated;
   }
 
+  async archiveEventsByScheduleSeries(scheduleSeriesId: string): Promise<number> {
+    let updated = 0;
+    for (const event of this.events) {
+      if (event.scheduleSeriesId === scheduleSeriesId && event.status !== "archived") {
+        Object.assign(event, { status: "archived", updatedAt: new Date() });
+        updated += 1;
+      }
+    }
+    return updated;
+  }
+
   async listEventsByCalendar(calendarId: string): Promise<AcademicEventRecord[]> {
     return this.events.filter((event) => event.calendarId === calendarId);
   }

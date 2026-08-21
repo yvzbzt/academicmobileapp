@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useScrollToTop } from "@react-navigation/native";
 import { useNetworkState } from "expo-network";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -27,6 +28,7 @@ import {
   usePlatformAdaptation,
   useTheme,
 } from "../design-system";
+import { runtimeDiagnostic } from "../performance/runtime-diagnostics";
 import { isDateOnlyValue } from "../temporal/academic-temporal";
 import {
   formatCalendarClock,
@@ -89,6 +91,7 @@ export interface CalendarExperienceProps {
   initialView?: CalendarViewMode;
   initialAnchorDate?: string;
   now?: Date;
+  onOpenAccountMenu?: () => void;
   onRefresh: () => void;
   onOpenItem: (item: CalendarItem) => void;
   onCreatePersonalExam: (input: PersonalExamMutationInput) => PersonalExamMutationResult;
@@ -102,7 +105,7 @@ export interface CalendarExperienceProps {
 
 type CalendarListEntry = {
   item: CalendarItem;
-  heading?: string;
+  headingDate?: string;
   today?: boolean;
 };
 
@@ -110,6 +113,21 @@ const compactWeekdayFormatter = new Intl.DateTimeFormat("tr-TR", {
   weekday: "short",
   timeZone: "UTC",
 });
+const agendaDayHeadingFormatter = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "long",
+  weekday: "long",
+  timeZone: "UTC",
+});
+const selectedDayHeadingFormatter = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  weekday: "long",
+  timeZone: "UTC",
+});
+const agendaDayHeadingCache = new Map<string, string>();
+const AGENDA_PAGE_SIZE = 12;
 
 export function CalendarExperience({
   academicEvents,
@@ -129,6 +147,7 @@ export function CalendarExperience({
   initialView = "agenda",
   initialAnchorDate,
   now,
+  onOpenAccountMenu,
   onRefresh,
   onOpenItem,
   onCreatePersonalExam,
@@ -150,17 +169,28 @@ export function CalendarExperience({
   const [editorVisible, setEditorVisible] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [agendaLimit, setAgendaLimit] = useState(AGENDA_PAGE_SIZE);
   const isOffline = offline ?? (
     networkState.isConnected === false || networkState.isInternetReachable === false
   );
   const gutter = width < 375 ? 16 : 20;
   const today = todayDateOnly(now);
 
-  const allItems = useMemo(() => buildCalendarItems({
-    academicEvents,
-    personalExams: personalExamsReady ? personalExams : [],
-    academicSourceLabel: calendarTitle ?? universityName ?? "Resmî akademik takvim",
-  }), [academicEvents, calendarTitle, personalExams, personalExamsReady, universityName]);
+  const allItems = useMemo(() => {
+    const startedAt = Date.now();
+    const result = buildCalendarItems({
+      academicEvents,
+      personalExams: personalExamsReady ? personalExams : [],
+      academicSourceLabel: calendarTitle ?? universityName ?? "Resmî akademik takvim",
+    });
+    runtimeDiagnostic("calendar.model", {
+      phase: "build_items",
+      inputCount: academicEvents.length + (personalExamsReady ? personalExams.length : 0),
+      outputCount: result.length,
+      elapsedMs: Date.now() - startedAt,
+    });
+    return result;
+  }, [academicEvents, calendarTitle, personalExams, personalExamsReady, universityName]);
   const filteredItems = useMemo(
     () => filterCalendarItems(allItems, searchQuery),
     [allItems, searchQuery],
@@ -177,10 +207,22 @@ export function CalendarExperience({
       : periodItems,
     [anchorDate, filteredItems, now, periodItems, view],
   );
-  const entries = useMemo(
-    () => listEntries(visibleItems, view === "agenda" || view === "week", today),
-    [today, view, visibleItems],
+  const entries = useMemo(() => {
+    const startedAt = Date.now();
+    const result = listEntries(visibleItems, view === "agenda" || view === "week", today);
+    runtimeDiagnostic("calendar.model", {
+      phase: "build_entries",
+      inputCount: visibleItems.length,
+      outputCount: result.length,
+      elapsedMs: Date.now() - startedAt,
+    });
+    return result;
+  }, [today, view, visibleItems]);
+  const displayedEntries = useMemo(
+    () => view === "agenda" ? entries.slice(0, agendaLimit) : entries,
+    [agendaLimit, entries, view],
   );
+  const hasMoreAgendaItems = view === "agenda" && displayedEntries.length < entries.length;
   const state = resolveCalendarPresentationState({
     loading,
     attempted,
@@ -211,6 +253,10 @@ export function CalendarExperience({
     }
   }, [adaptation.platform, anchorDate, calendarAnnouncement, view]);
 
+  useEffect(() => {
+    setAgendaLimit(AGENDA_PAGE_SIZE);
+  }, [searchQuery, view]);
+
   const changeView = (nextView: CalendarViewMode) => {
     if (nextView === view) return;
     calendarAnnouncementRequestedRef.current = true;
@@ -223,22 +269,31 @@ export function CalendarExperience({
     setAnchorDate(nextDate);
   };
 
+  const toggleSearch = () => {
+    if (searchVisible) {
+      setSearchQuery("");
+      setSearchVisible(false);
+      return;
+    }
+    setSearchVisible(true);
+  };
+
   const renderItem: ListRenderItem<CalendarListEntry> = ({ item: entry }) => (
     <View style={[styles.entry, { gap: theme.spacing.xs }]}>
-      {entry.heading ? (
+      {entry.headingDate ? (
         <View style={[styles.dayHeading, { gap: theme.spacing.xs }]}>
           <Ionicons
             accessibilityElementsHidden
-            color={theme.colors.action.primary}
+            color={referencePalette.academicTealTitle}
             importantForAccessibility="no-hide-descendants"
             name="calendar-outline"
             size={21}
           />
           <Text
             accessibilityRole="header"
-            style={[theme.typography.bodyStrong, styles.flexOne, { color: theme.colors.text.link }]}
+            style={[theme.typography.bodyStrong, styles.flexOne, { color: referencePalette.academicTealTitle }]}
           >
-            {entry.heading}
+            {formatAgendaDayHeading(entry.headingDate)}
           </Text>
           {entry.today ? (
             <View style={[styles.todayPill, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.pill }]}>
@@ -256,9 +311,16 @@ export function CalendarExperience({
       {feedback}
 
       <CalendarScreenHeader
+        createButtonRef={createExamRef}
+        createDisabled={!personalExamsReady}
+        onAccountMenuPress={onOpenAccountMenu}
         onCalendarPress={() => changeAnchorDate(today)}
+        onCreatePress={() => {
+          setEditorExam(null);
+          setEditorVisible(true);
+        }}
         onMenuPress={() => changeView("agenda")}
-        onSearchPress={() => setSearchVisible((current) => !current)}
+        onSearchPress={toggleSearch}
         searchVisible={searchVisible}
         view={view}
       />
@@ -377,8 +439,8 @@ export function CalendarExperience({
             paddingHorizontal: gutter,
           },
         ]}
-        data={entries}
-        initialNumToRender={12}
+        data={displayedEntries}
+        initialNumToRender={5}
         keyExtractor={(entry) => entry.item.key}
         ListEmptyComponent={(
           <View>
@@ -404,7 +466,19 @@ export function CalendarExperience({
           </View>
         )}
         ListFooterComponent={(
-          <View style={{ marginTop: theme.spacing.sm }}>
+          <View style={[styles.listFooter, { gap: theme.spacing.md, marginTop: theme.spacing.sm }]}>
+            {hasMoreAgendaItems ? (
+              <View style={[styles.loadMorePanel, { borderColor: theme.colors.border.subtle }]}>
+                <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
+                  {displayedEntries.length} / {entries.length} etkinlik gösteriliyor
+                </Text>
+                <Button
+                  label="Daha fazla etkinlik göster"
+                  onPress={() => setAgendaLimit((current) => current + AGENDA_PAGE_SIZE)}
+                  variant="secondary"
+                />
+              </View>
+            ) : null}
             <GoogleSyncBanner
               google={google}
               onManage={onManageGoogle}
@@ -413,51 +487,16 @@ export function CalendarExperience({
           </View>
         )}
         ListHeaderComponent={listHeader}
+        maxToRenderPerBatch={4}
         onRefresh={onRefresh}
+        removeClippedSubviews={Platform.OS === "android"}
         refreshing={loading && allItems.length > 0}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
         style={{ backgroundColor: theme.colors.background.canvas }}
-        windowSize={7}
+        updateCellsBatchingPeriod={50}
+        windowSize={5}
       />
-
-      <Pressable
-        ref={createExamRef}
-        aria-expanded={editorVisible}
-        accessibilityLabel={personalExamsReady ? "Kişisel sınav ekle" : "Kişisel sınavlar hazırlanıyor"}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !personalExamsReady, expanded: editorVisible }}
-        android_ripple={adaptation.pressFeedback === "ripple"
-          ? { color: theme.colors.action.primaryRipple, borderless: false }
-          : undefined}
-        disabled={!personalExamsReady}
-        onPress={() => {
-          setEditorExam(null);
-          setEditorVisible(true);
-        }}
-        style={({ pressed }) => [
-          styles.floatingCreateButton,
-          {
-            backgroundColor: personalExamsReady
-              ? theme.colors.action.primary
-              : theme.colors.action.disabled,
-            borderRadius: theme.radii.pill,
-            right: gutter,
-            shadowColor: theme.colors.action.primary,
-          },
-          pressed && adaptation.pressFeedback !== "ripple" ? styles.floatingCreateButtonPressed : null,
-        ]}
-      >
-        <Ionicons
-          color={personalExamsReady ? theme.colors.action.onPrimary : theme.colors.action.onDisabled}
-          name="add"
-          size={25}
-        />
-        <Text maxFontSizeMultiplier={1.35} style={[
-          theme.typography.bodyStrong,
-          { color: personalExamsReady ? theme.colors.action.onPrimary : theme.colors.action.onDisabled },
-        ]}>Kişisel sınav ekle</Text>
-      </Pressable>
 
       <PersonalExamEditor
         exam={editorExam}
@@ -473,13 +512,21 @@ export function CalendarExperience({
 }
 
 function CalendarScreenHeader({
+  createButtonRef,
+  createDisabled,
+  onAccountMenuPress,
   onCalendarPress,
+  onCreatePress,
   onMenuPress,
   onSearchPress,
   searchVisible,
   view,
 }: {
+  createButtonRef: RefObject<NativeView | null>;
+  createDisabled: boolean;
+  onAccountMenuPress?: () => void;
   onCalendarPress: () => void;
+  onCreatePress: () => void;
   onMenuPress: () => void;
   onSearchPress: () => void;
   searchVisible: boolean;
@@ -489,8 +536,15 @@ function CalendarScreenHeader({
   const agenda = view === "agenda";
   return (
     <View style={styles.screenHeader}>
-      <Text accessibilityRole="header" style={[theme.typography.display, styles.flexOne, { color: theme.colors.text.primary }]}>
-        {agenda ? "Takvim" : "Akademik Takvim"}
+      <Text
+        accessibilityRole="header"
+        adjustsFontSizeToFit
+        maxFontSizeMultiplier={1.3}
+        minimumFontScale={0.75}
+        numberOfLines={1}
+        style={[theme.typography.display, styles.flexOne, { color: theme.colors.text.primary }]}
+      >
+        Takvim
       </Text>
       <View style={styles.headerActions}>
         {agenda ? (
@@ -501,8 +555,15 @@ function CalendarScreenHeader({
           />
         ) : null}
         <CalendarIconButton label="Bugüne git" name="calendar-outline" onPress={onCalendarPress} />
+        <CalendarIconButton
+          buttonRef={createButtonRef}
+          disabled={createDisabled}
+          label={createDisabled ? "Kişisel takvim hazırlanıyor" : "Kişisel etkinlik ekle"}
+          name="add"
+          onPress={onCreatePress}
+        />
         {!agenda ? (
-          <CalendarIconButton label="Ajanda görünümünü aç" name="menu-outline" onPress={onMenuPress} />
+          <CalendarIconButton label="Ajanda görünümünü aç" name="list-outline" onPress={onMenuPress} />
         ) : null}
       </View>
     </View>
@@ -510,23 +571,30 @@ function CalendarScreenHeader({
 }
 
 function CalendarIconButton({
+  buttonRef,
+  disabled = false,
   label,
   name,
   onPress,
 }: {
+  buttonRef?: RefObject<NativeView | null>;
+  disabled?: boolean;
   label: string;
-  name: "calendar-outline" | "close-outline" | "menu-outline" | "search-outline";
+  name: "add" | "calendar-outline" | "close-outline" | "list-outline" | "search-outline";
   onPress: () => void;
 }) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
   return (
     <Pressable
+      ref={buttonRef}
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
       android_ripple={adaptation.pressFeedback === "ripple"
         ? { color: theme.colors.state.pressed, borderless: true }
         : undefined}
+      disabled={disabled}
       hitSlop={4}
       onPress={onPress}
       style={({ pressed }) => [
@@ -539,7 +607,7 @@ function CalendarIconButton({
         pressed && adaptation.pressFeedback !== "ripple" ? { backgroundColor: theme.colors.action.ghostPressed } : null,
       ]}
     >
-      <Ionicons color={theme.colors.action.primary} name={name} size={25} />
+      <Ionicons color={disabled ? theme.colors.text.disabled : theme.colors.action.primary} name={name} size={25} />
     </Pressable>
   );
 }
@@ -666,7 +734,6 @@ function MonthNavigator({
       </Pressable>
       <View style={styles.monthTitle}>
         <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>{label}</Text>
-        <Ionicons color={theme.colors.text.primary} name="chevron-down" size={18} />
       </View>
       <Pressable accessibilityLabel="Sonraki ay" accessibilityRole="button" hitSlop={10} onPress={onNext} style={styles.arrowButton}>
         <Ionicons color={theme.colors.text.primary} name="chevron-forward" size={27} />
@@ -772,25 +839,31 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
           padding: 0,
         },
       ]}
-      variant="elevated"
+      variant="outlined"
     >
       <View style={styles.eventCardLayout}>
         <View style={[styles.eventAccent, { backgroundColor: palette.accent }]} />
         <View style={[styles.timeColumn, { paddingVertical: theme.spacing.md }]}>
-          <Text maxFontSizeMultiplier={1.25} style={[theme.typography.metaStrong, { color: theme.colors.text.primary }]}>{startTime}</Text>
+          <Text
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.25}
+            minimumFontScale={0.82}
+            numberOfLines={1}
+            style={[theme.typography.metaStrong, styles.timeLabel, { color: theme.colors.text.primary }]}
+          >
+            {startTime}
+          </Text>
           {endTime ? (
-            <Text maxFontSizeMultiplier={1.25} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{endTime}</Text>
+            <Text
+              adjustsFontSizeToFit
+              maxFontSizeMultiplier={1.25}
+              minimumFontScale={0.82}
+              numberOfLines={1}
+              style={[theme.typography.meta, styles.timeLabel, { color: theme.colors.text.secondary }]}
+            >
+              {endTime}
+            </Text>
           ) : null}
-        </View>
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={[
-            styles.eventIcon,
-            { backgroundColor: palette.container, borderRadius: theme.radii.pill },
-          ]}
-        >
-          <Ionicons color={palette.accent} name={item.icon} size={24} />
         </View>
         <View style={[styles.eventContent, { gap: 3, paddingVertical: theme.spacing.sm }]}>
           <View style={[
@@ -799,7 +872,7 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
           ]}>
             <Text maxFontSizeMultiplier={1.25} style={[theme.typography.metaStrong, { color: palette.foreground }]}>{item.classificationLabel}</Text>
           </View>
-          <Text maxFontSizeMultiplier={1.4} numberOfLines={2} style={[theme.typography.label, { color: theme.colors.text.primary }]}>{item.title}</Text>
+          <Text maxFontSizeMultiplier={1.4} numberOfLines={3} style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{item.title}</Text>
           <View style={styles.locationRow}>
             <Ionicons color={theme.colors.text.secondary} name="location-outline" size={14} />
             <Text maxFontSizeMultiplier={1.35} numberOfLines={1} style={[theme.typography.meta, styles.flexOne, { color: theme.colors.text.secondary }]}>{location}</Text>
@@ -1017,9 +1090,9 @@ function listEntries(
   let previousDate = "";
   return items.map((item) => {
     const date = calendarItemStartDateOnly(item);
-    const heading = showHeadings && date !== previousDate ? formatAgendaDayHeading(date) : undefined;
+    const headingDate = showHeadings && date !== previousDate ? date : undefined;
     previousDate = date;
-    return { item, ...(heading ? { heading, today: date === today } : {}) };
+    return { item, ...(headingDate ? { headingDate, today: date === today } : {}) };
   });
 }
 
@@ -1035,22 +1108,16 @@ function filterCalendarItems(items: readonly CalendarItem[], query: string): Cal
 }
 
 function formatAgendaDayHeading(date: string): string {
-  return new Intl.DateTimeFormat("tr-TR", {
-    day: "numeric",
-    month: "long",
-    weekday: "long",
-    timeZone: "UTC",
-  }).format(new Date(`${date}T12:00:00.000Z`));
+  const cached = agendaDayHeadingCache.get(date);
+  if (cached) return cached;
+  const heading = agendaDayHeadingFormatter.format(new Date(`${date}T12:00:00.000Z`));
+  if (agendaDayHeadingCache.size >= 512) agendaDayHeadingCache.clear();
+  agendaDayHeadingCache.set(date, heading);
+  return heading;
 }
 
 function formatSelectedDayHeading(date: string): string {
-  return new Intl.DateTimeFormat("tr-TR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    weekday: "long",
-    timeZone: "UTC",
-  }).format(new Date(`${date}T12:00:00.000Z`));
+  return selectedDayHeadingFormatter.format(new Date(`${date}T12:00:00.000Z`));
 }
 
 function formatEndClock(item: CalendarItem, dateOnly: boolean): string | undefined {
@@ -1069,6 +1136,8 @@ function classificationPalette(
   switch (classification) {
     case "personal_exam":
       return { accent: referencePalette.violet, container: referencePalette.violetSoft, foreground: referencePalette.violetText };
+    case "personal":
+      return { accent: colors.accent.teal, container: colors.status.successContainer, foreground: colors.accent.tealText };
     case "exam":
       return { accent: colors.action.primary, container: colors.action.secondary, foreground: colors.text.link };
     case "registration":
@@ -1097,7 +1166,7 @@ const styles = StyleSheet.create({
   headerActions: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10,
+    gap: 5,
   },
   headerIconButton: {
     alignItems: "center",
@@ -1105,6 +1174,15 @@ const styles = StyleSheet.create({
     height: 48,
     justifyContent: "center",
     width: 48,
+  },
+  listFooter: {
+    alignSelf: "stretch",
+  },
+  loadMorePanel: {
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+    paddingTop: 14,
   },
   searchFrame: {
     alignItems: "center",
@@ -1199,7 +1277,7 @@ const styles = StyleSheet.create({
   eventCardLayout: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 104,
+    minHeight: 96,
   },
   eventAccent: {
     alignSelf: "stretch",
@@ -1209,14 +1287,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     alignSelf: "stretch",
     justifyContent: "center",
-    paddingHorizontal: 12,
-    width: 70,
+    paddingHorizontal: 10,
+    width: 62,
   },
-  eventIcon: {
-    alignItems: "center",
-    height: 50,
-    justifyContent: "center",
-    width: 50,
+  timeLabel: {
+    width: "100%",
   },
   eventContent: {
     flex: 1,
@@ -1313,22 +1388,5 @@ const styles = StyleSheet.create({
   },
   centerText: {
     textAlign: "center",
-  },
-  floatingCreateButton: {
-    alignItems: "center",
-    bottom: 18,
-    elevation: 8,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 56,
-    paddingHorizontal: 22,
-    position: "absolute",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 16,
-  },
-  floatingCreateButtonPressed: {
-    transform: [{ scale: 0.98 }],
   },
 });

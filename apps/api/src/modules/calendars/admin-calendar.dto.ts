@@ -64,6 +64,14 @@ class ManualCalendarEventDto {
   endDate?: string;
 
   @IsOptional()
+  @IsBoolean()
+  repeatWeekly?: boolean;
+
+  @ValidateIf((object: ManualCalendarEventDto) => object.repeatWeekly === true)
+  @IsAcademicTemporalValue()
+  repeatUntil?: string;
+
+  @IsOptional()
   @IsString()
   facultyId?: string;
 
@@ -109,6 +117,65 @@ export class UpdateCalendarDto {
   @IsString()
   @MinLength(3)
   title?: string;
+}
+
+export class CreateCourseScheduleDto {
+  @IsString()
+  universityId!: string;
+
+  @IsString()
+  facultyId!: string;
+
+  @IsString()
+  departmentId!: string;
+
+  @IsString()
+  academicYear!: string;
+
+  @IsEnum(terms)
+  term!: AcademicTerm;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(240)
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  courseName?: string;
+
+  @IsAcademicTemporalValue()
+  startDate!: string;
+
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsAcademicTemporalValue()
+  endDate?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  repeatWeekly?: boolean;
+
+  @ValidateIf((object: CreateCourseScheduleDto) => object.repeatWeekly === true)
+  @IsAcademicTemporalValue()
+  repeatUntil?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  location?: string;
+}
+
+export class CourseScheduleQueryDto {
+  @IsString()
+  universityId!: string;
+
+  @IsString()
+  departmentId!: string;
+
+  @IsOptional()
+  @IsString()
+  academicYear?: string;
 }
 
 export class CalendarIngestionRequestDto {

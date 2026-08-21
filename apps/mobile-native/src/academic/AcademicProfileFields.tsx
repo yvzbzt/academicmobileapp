@@ -230,7 +230,7 @@ export function AcademicProfileReview(props: {
             >
               {value === "Seçilmedi" ? `${label} seçilmedi` : value}
             </Text>
-            <Ionicons color={theme.colors.text.secondary} name="close" size={14} />
+            {value !== "Seçilmedi" ? <Ionicons color={theme.colors.status.success} name="checkmark-circle" size={14} /> : null}
           </View>
         ))}
       </View>
@@ -341,9 +341,24 @@ export function filterAcademicOptions(
   options: readonly AcademicOption[],
   query: string,
 ): AcademicOption[] {
-  const normalized = query.trim().toLocaleLowerCase("tr-TR");
+  const normalized = normalizeAcademicSearch(query);
   if (!normalized) return [...options];
-  return options.filter((option) => `${option.label} ${option.supportingText ?? ""}`.toLocaleLowerCase("tr-TR").includes(normalized));
+  const searchTerms = normalized.split(/\s+/).filter(Boolean);
+  return options.filter((option) => {
+    const searchableText = normalizeAcademicSearch(
+      `${option.label} ${option.supportingText ?? ""}`,
+    );
+    return searchTerms.every((term) => searchableText.includes(term));
+  });
+}
+
+export function normalizeAcademicSearch(value: string): string {
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i");
 }
 
 function optionLabel(options: readonly AcademicOption[], value: string): string {

@@ -5,12 +5,22 @@ import {
   isDateOnlyValue,
   type AcademicTemporalKind,
 } from "../temporal/academic-temporal";
+import { DEFAULT_ACADEMIC_EVENT_TIMEZONE } from "./calendar-time";
+import type { PersonalCalendarKind } from "../session-integrity/manual-exam-storage";
 
 export type CalendarViewMode = "day" | "agenda" | "week" | "month";
 
 export type CalendarClassification =
   | "personal_exam"
+  | "personal"
   | "exam"
+  | "registration"
+  | "holiday"
+  | "academic";
+
+export type AcademicEventPresentationKind =
+  | "exam"
+  | "application"
   | "registration"
   | "holiday"
   | "academic";
@@ -29,6 +39,8 @@ export interface CalendarAcademicEvent {
   departmentId?: string;
   description?: string;
   location?: string;
+  personalKind?: PersonalCalendarKind;
+  reminderMinutesBefore?: number;
 }
 
 export interface CalendarPersonalExam {
@@ -36,6 +48,8 @@ export interface CalendarPersonalExam {
   title: string;
   examDate: string;
   locationNote?: string;
+  kind?: PersonalCalendarKind;
+  reminderMinutesBefore?: number;
 }
 
 export interface CalendarItem {
@@ -64,6 +78,8 @@ export interface CalendarItem {
   departmentId?: string;
   description?: string;
   location?: string;
+  personalKind?: PersonalCalendarKind;
+  reminderMinutesBefore?: number;
 }
 
 export type CalendarPresentationState =
@@ -95,6 +111,8 @@ export interface PersonalExamDraft {
   date: string | null;
   time: string | null;
   locationNote?: string;
+  kind: PersonalCalendarKind;
+  reminderMinutesBefore: number | null;
 }
 
 export interface PersonalExamDraftErrors {
@@ -115,11 +133,33 @@ const REGISTRATION_CATEGORIES = new Set([
   "course_registration",
   "course_renewal",
   "course_add_drop",
-  "graduation_application",
   "tuition_payment",
-  "horizontal_transfer",
   "summer_school_registration",
 ]);
+
+const APPLICATION_CATEGORIES = new Set([
+  "graduation_application",
+  "horizontal_transfer",
+]);
+
+const NON_EVENT_TITLE_CONTEXT = /\b(?:sonuc|sonuclar|sonuclari|sonuclarin|sonuclarinin|not|notlar|notlari|notlarin|notlarinin|duyuru|duyurusu|duyurular|duyurulari|kilavuz|kilavuzu|rehber|rehberi|degerlendirme|itiraz|istatistik|istatistikleri)\b/u;
+const EXAM_TITLE_TOKEN = /\bsinav(?:i|lar|lari|larin|larinin)?\b/u;
+const APPLICATION_TITLE_TOKEN = /\b(?:basvuru|basvurusu|basvurular|basvurulari|basvurularin|basvurularinin)\b/u;
+const REGISTRATION_TITLE_TOKEN = /\b(?:kayit|kaydi|kayitlar|kayitlari|kayitlarin|kayitlarinin|kayitlanma|kayit yenileme)\b/u;
+
+const MILLISECONDS_PER_HOUR = 60 * 60 * 1000;
+const TIMEZONE_TRANSITION_SEARCH_HOURS = 48;
+const personalExamDateTimeFormatter = new Intl.DateTimeFormat("en-GB-u-ca-gregory", {
+  timeZone: DEFAULT_ACADEMIC_EVENT_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+const calendarDatePartsFormatterCache = new Map<string, Intl.DateTimeFormat>();
 
 export const CALENDAR_VIEW_OPTIONS = [
   { value: "agenda", label: "Ajanda" },
@@ -133,6 +173,24 @@ export const ACADEMIC_CALENDAR_VIEW_OPTIONS = [
   { value: "month", label: "Ay" },
   { value: "agenda", label: "Ajanda" },
 ] as const;
+
+export const PERSONAL_CALENDAR_KIND_OPTIONS: ReadonlyArray<{ value: PersonalCalendarKind; label: string }> = [
+  { value: "event", label: "Etkinlik" },
+  { value: "exam", label: "Sınav" },
+  { value: "class", label: "Ders" },
+  { value: "study", label: "Çalışma" },
+  { value: "task", label: "Görev" },
+  { value: "other", label: "Diğer" },
+];
+
+export const PERSONAL_CALENDAR_REMINDER_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "none", label: "Hatırlatma yok" },
+  { value: "0", label: "Başlangıç saatinde" },
+  { value: "10", label: "10 dakika önce" },
+  { value: "30", label: "30 dakika önce" },
+  { value: "60", label: "1 saat önce" },
+  { value: "1440", label: "1 gün önce" },
+];
 
 export function selectUniversityAcademicCalendarEvents(
   events: readonly CalendarAcademicEvent[],
@@ -156,7 +214,7 @@ export function buildCalendarItems(input: {
     const category = cleanText(event.category);
     if (!id || !title || !category || academicCalendarDayNumber(event.startDate) === null) return [];
     if (event.endDate && academicCalendarDayNumber(event.endDate) === null) return [];
-    const classification = classifyCalendarCategory(category);
+    const classification = classifyCalendarCategory(category, title);
     const temporalKind = event.temporalKind
       ?? (isDateOnlyValue(event.startDate) ? "date" : "timestamp");
     const endTemporalKind = event.endDate
@@ -193,20 +251,25 @@ export function buildCalendarItems(input: {
     const title = cleanText(exam.title);
     const location = exam.locationNote ? cleanText(exam.locationNote) : null;
     if (!id || !title || !Number.isFinite(Date.parse(exam.examDate))) return [];
+    const kind = exam.kind ?? "exam";
+    const classification: CalendarClassification = kind === "exam" ? "personal_exam" : "personal";
     return [{
       key: `personal:${id}`,
       routeId: `personal:${id}`,
       id,
       title,
-      category: "personal_exam",
-      classification: "personal_exam",
-      classificationLabel: classificationLabel("personal_exam"),
-      icon: classificationIcon("personal_exam"),
+      category: `personal_${kind}`,
+      classification,
+      classificationLabel: personalCalendarKindLabel(kind),
+      icon: classificationIcon(classification),
       source: "personal",
       sourceLabel: "Kişisel planın",
       startDate: exam.examDate,
       temporalKind: "timestamp",
+      timezone: DEFAULT_ACADEMIC_EVENT_TIMEZONE,
       ...(location ? { location } : {}),
+      personalKind: kind,
+      ...(exam.reminderMinutesBefore !== undefined ? { reminderMinutesBefore: exam.reminderMinutesBefore } : {}),
     }];
   });
 
@@ -216,21 +279,44 @@ export function buildCalendarItems(input: {
   });
 }
 
-export function classifyCalendarCategory(category: string): CalendarClassification {
+export function classifyAcademicEventPresentation(
+  category: string,
+  title = "",
+): AcademicEventPresentationKind {
+  const normalizedCategory = category.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+  if (EXAM_CATEGORIES.has(normalizedCategory) || normalizedCategory.includes("exam")) return "exam";
+  if (APPLICATION_CATEGORIES.has(normalizedCategory) || normalizedCategory.includes("application")) {
+    return "application";
+  }
+  if (REGISTRATION_CATEGORIES.has(normalizedCategory)
+    || normalizedCategory.includes("registration")
+    || normalizedCategory.includes("renewal")
+    || normalizedCategory.includes("add_drop")) {
+    const titleKind = inferAcademicTitlePresentation(title);
+    if (titleKind === "exam" || titleKind === "application") return titleKind;
+    return "registration";
+  }
+  if (normalizedCategory === "holiday") return "holiday";
+  if (normalizedCategory !== "custom_event" && normalizedCategory !== "custom" && normalizedCategory !== "") {
+    return "academic";
+  }
+  return inferAcademicTitlePresentation(title);
+}
+
+export function classifyCalendarCategory(category: string, title = ""): CalendarClassification {
   if (category === "personal_exam") return "personal_exam";
-  if (EXAM_CATEGORIES.has(category) || category.includes("exam")) return "exam";
-  if (REGISTRATION_CATEGORIES.has(category)
-    || category.includes("registration")
-    || category.includes("application")) return "registration";
-  if (category === "holiday") return "holiday";
-  return "academic";
+  if (category.startsWith("personal_")) return "personal";
+  const presentation = classifyAcademicEventPresentation(category, title);
+  if (presentation === "application" || presentation === "registration") return "registration";
+  return presentation;
 }
 
 export function classificationLabel(classification: CalendarClassification): string {
   switch (classification) {
     case "personal_exam": return "Kişisel sınav";
+    case "personal": return "Kişisel etkinlik";
     case "exam": return "Sınav";
-    case "registration": return "Son Başvuru";
+    case "registration": return "Kayıt ve başvuru";
     case "holiday": return "Tatil";
     case "academic": return "Etkinlik";
   }
@@ -239,6 +325,7 @@ export function classificationLabel(classification: CalendarClassification): str
 export function classificationIcon(classification: CalendarClassification): CalendarItem["icon"] {
   switch (classification) {
     case "personal_exam": return "school-outline";
+    case "personal": return "calendar-outline";
     case "exam": return "document-text-outline";
     case "registration": return "flag-outline";
     case "holiday": return "sunny-outline";
@@ -270,7 +357,7 @@ export function resolveCalendarPresentationState(input: {
 }
 
 export function todayDateOnly(now = new Date()): string {
-  return formatDateParts(now, "Europe/Istanbul");
+  return formatDateParts(now, DEFAULT_ACADEMIC_EVENT_TIMEZONE);
 }
 
 export function calendarPeriod(view: Exclude<CalendarViewMode, "agenda">, anchorDate: string): CalendarPeriod {
@@ -362,7 +449,9 @@ export function calendarItemStartDateOnly(item: CalendarItem): string {
     return validDateOnly(item.startDate) ?? todayDateOnly();
   }
   const parsed = new Date(item.startDate);
-  return Number.isNaN(parsed.getTime()) ? todayDateOnly() : formatDateParts(parsed, "Europe/Istanbul");
+  return Number.isNaN(parsed.getTime())
+    ? todayDateOnly()
+    : formatDateParts(parsed, DEFAULT_ACADEMIC_EVENT_TIMEZONE);
 }
 
 export function formatCalendarDayHeading(date: string): string {
@@ -385,25 +474,35 @@ export function formatCalendarCompactDay(date: string): string {
 }
 
 export function emptyPersonalExamDraft(): PersonalExamDraft {
-  return { title: "", date: null, time: null, locationNote: "" };
+  return { title: "", date: null, time: null, locationNote: "", kind: "event", reminderMinutesBefore: null };
 }
 
 export function personalExamDraftFromRecord(exam: CalendarPersonalExam): PersonalExamDraft {
   const date = new Date(exam.examDate);
   if (Number.isNaN(date.getTime())) {
-    return { title: exam.title, date: null, time: null, locationNote: exam.locationNote ?? "" };
+    return {
+      title: exam.title,
+      date: null,
+      time: null,
+      locationNote: exam.locationNote ?? "",
+      kind: exam.kind ?? "exam",
+      reminderMinutesBefore: exam.reminderMinutesBefore ?? null,
+    };
   }
+  const parts = personalExamDateTimeParts(date);
   return {
     title: exam.title,
-    date: localDateOnly(date),
-    time: `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`,
+    date: `${padDateTimePart(parts.year, 4)}-${padDateTimePart(parts.month)}-${padDateTimePart(parts.day)}`,
+    time: `${padDateTimePart(parts.hour)}:${padDateTimePart(parts.minute)}`,
     locationNote: exam.locationNote ?? "",
+    kind: exam.kind ?? "exam",
+    reminderMinutesBefore: exam.reminderMinutesBefore ?? null,
   };
 }
 
 export function validatePersonalExamDraft(draft: PersonalExamDraft): PersonalExamDraftErrors {
   const errors: PersonalExamDraftErrors = {};
-  if (!cleanText(draft.title)) errors.title = "Sınav adı zorunludur.";
+  if (!cleanText(draft.title)) errors.title = "Etkinlik adı zorunludur.";
   if (!draft.date || !validDateOnly(draft.date)) errors.date = "Tarihi sistem seçicisinden seç.";
   if (!draft.time || !/^([01]\d|2[0-3]):[0-5]\d$/u.test(draft.time)) {
     errors.time = "Saati sistem seçicisinden seç.";
@@ -416,13 +515,31 @@ export function composePersonalExamTimestamp(draft: PersonalExamDraft): string |
   const parts = dateOnlyParts(draft.date!);
   const [hours, minutes] = draft.time!.split(":").map(Number);
   if (!parts) return null;
-  const value = new Date(parts.year, parts.month - 1, parts.day, hours, minutes, 0, 0);
-  if (value.getFullYear() !== parts.year
-    || value.getMonth() !== parts.month - 1
-    || value.getDate() !== parts.day
-    || value.getHours() !== hours
-    || value.getMinutes() !== minutes) return null;
-  return value.toISOString();
+  const desired = { ...parts, hour: hours, minute: minutes, second: 0 };
+  const localAsUtc = utcMilliseconds(desired);
+
+  try {
+    const possibleOffsets = new Set<number>();
+    for (
+      let offsetHours = -TIMEZONE_TRANSITION_SEARCH_HOURS;
+      offsetHours <= TIMEZONE_TRANSITION_SEARCH_HOURS;
+      offsetHours += 6
+    ) {
+      possibleOffsets.add(personalExamTimezoneOffset(
+        new Date(localAsUtc + offsetHours * MILLISECONDS_PER_HOUR),
+      ));
+    }
+    const matchingInstants = [...possibleOffsets]
+      .map((offset) => new Date(localAsUtc - offset))
+      .filter((instant) => matchesPersonalExamDateTime(instant, desired));
+    return matchingInstants.length === 1 ? matchingInstants[0].toISOString() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function personalCalendarKindLabel(kind: PersonalCalendarKind): string {
+  return PERSONAL_CALENDAR_KIND_OPTIONS.find((option) => option.value === kind)?.label ?? "Kişisel etkinlik";
 }
 
 export function selectionDateFromDraft(draft: PersonalExamDraft, fallback = new Date()): Date {
@@ -536,14 +653,82 @@ function dateOnlyAtNoonUtc(value: string): Date {
 }
 
 function formatDateParts(value: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(value);
+  let formatter = calendarDatePartsFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    if (calendarDatePartsFormatterCache.size >= 8) calendarDatePartsFormatterCache.clear();
+    calendarDatePartsFormatterCache.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(value);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+interface PersonalExamDateTimeParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+function personalExamDateTimeParts(value: Date): PersonalExamDateTimeParts {
+  const parts = personalExamDateTimeFormatter.formatToParts(value);
+  const numberPart = (type: Intl.DateTimeFormatPartTypes): number => {
+    const part = parts.find((entry) => entry.type === type)?.value;
+    if (part === undefined) throw new Error(`Missing ${type} date-time part`);
+    return Number(part);
+  };
+  return {
+    year: numberPart("year"),
+    month: numberPart("month"),
+    day: numberPart("day"),
+    hour: numberPart("hour"),
+    minute: numberPart("minute"),
+    second: numberPart("second"),
+  };
+}
+
+function personalExamTimezoneOffset(value: Date): number {
+  const representedAsUtc = utcMilliseconds(personalExamDateTimeParts(value));
+  const instantAtWholeSecond = Math.floor(value.getTime() / 1000) * 1000;
+  return representedAsUtc - instantAtWholeSecond;
+}
+
+function matchesPersonalExamDateTime(
+  value: Date,
+  desired: PersonalExamDateTimeParts,
+): boolean {
+  const actual = personalExamDateTimeParts(value);
+  return actual.year === desired.year
+    && actual.month === desired.month
+    && actual.day === desired.day
+    && actual.hour === desired.hour
+    && actual.minute === desired.minute
+    && actual.second === desired.second
+    && value.getUTCMilliseconds() === 0;
+}
+
+function utcMilliseconds(parts: PersonalExamDateTimeParts): number {
+  return Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    0,
+  );
+}
+
+function padDateTimePart(value: number, length = 2): string {
+  return value.toString().padStart(length, "0");
 }
 
 function localDateOnly(value: Date): string {
@@ -553,4 +738,41 @@ function localDateOnly(value: Date): string {
 function cleanText(value: string): string | null {
   const normalized = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
   return normalized || null;
+}
+
+function inferAcademicTitlePresentation(title: string): AcademicEventPresentationKind {
+  const normalized = foldAcademicTitle(title);
+  if (!normalized || NON_EVENT_TITLE_CONTEXT.test(normalized)) return "academic";
+  if (EXAM_TITLE_TOKEN.test(normalized) && APPLICATION_TITLE_TOKEN.test(normalized)) {
+    return EXAM_TITLE_TOKEN.exec(normalized)!.index < APPLICATION_TITLE_TOKEN.exec(normalized)!.index
+      ? "application"
+      : "exam";
+  }
+  if (EXAM_TITLE_TOKEN.test(normalized)) return "exam";
+  if (APPLICATION_TITLE_TOKEN.test(normalized)) return "application";
+  if (REGISTRATION_TITLE_TOKEN.test(normalized)) return "registration";
+  if (/\b(?:resmi tatil|bayram|tatil)\b/u.test(normalized)) return "holiday";
+  return "academic";
+}
+
+function foldAcademicTitle(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0131/g, "i")
+    .replace(/\u0130/g, "I")
+    .replace(/ğ/g, "g")
+    .replace(/Ğ/g, "G")
+    .replace(/ü/g, "u")
+    .replace(/Ü/g, "U")
+    .replace(/ş/g, "s")
+    .replace(/Ş/g, "S")
+    .replace(/ö/g, "o")
+    .replace(/Ö/g, "O")
+    .replace(/ç/g, "c")
+    .replace(/Ç/g, "C")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
 }

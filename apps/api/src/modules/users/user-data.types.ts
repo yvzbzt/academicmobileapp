@@ -37,6 +37,7 @@ export interface UserDataRepository {
     input: Omit<FollowedAcademicScopeRecord, "id" | "createdAt">
   ): Promise<FollowedAcademicScopeRecord>;
   listFollowedAcademicScopesByUserId(userId: string): Promise<FollowedAcademicScopeRecord[]>;
+  deleteFollowedAcademicScopeById(userId: string, id: string): Promise<boolean>;
   deleteUserData(userId: string): Promise<void>;
 }
 

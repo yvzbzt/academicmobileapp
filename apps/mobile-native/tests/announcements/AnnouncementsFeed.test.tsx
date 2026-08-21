@@ -5,6 +5,7 @@ import {
   fireEvent,
   renderAsync,
   screen,
+  within,
 } from "@testing-library/react-native";
 import { AccessibilityInfo, FlatList } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -267,7 +268,11 @@ describe("Phase 8 Announcements feed", () => {
 
     expect(screen.getByTestId("announcements-top-bar")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Duyurular" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Duyurular" })).toHaveProp("maxFontSizeMultiplier", 1.3);
+    expect(screen.getByRole("header", { name: "Duyurular" })).toHaveProp("numberOfLines", 1);
+    expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
     expect(screen.getByTestId("announcements-search-frame")).toBeOnTheScreen();
+    expect(screen.getByRole("search", { name: "Duyurularda ara" })).toHaveProp("maxFontSizeMultiplier", 1.3);
     expect(screen.getByTestId("announcements-reminder-banner")).toBeOnTheScreen();
 
     fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));
@@ -300,11 +305,11 @@ describe("Phase 8 Announcements feed", () => {
     expect(renderedTitles()).toHaveLength(5);
   });
 
-  it("uses separate wrapped content and academic-source filters with selected semantics", async () => {
+  it("uses one content rail and one compact source menu with selected semantics", async () => {
     await renderFeed(feedProps());
 
     expect(screen.getByRole("header", { name: "İçerik türü" })).toBeOnTheScreen();
-    expect(screen.getByRole("header", { name: "Akademik kapsam ve kaynak" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Kaynak" })).toBeOnTheScreen();
     const newsFilter = screen.getByRole("button", {
       name: "Haberler içerik türü filtresi",
     });
@@ -314,11 +319,16 @@ describe("Phase 8 Announcements feed", () => {
     );
     expect(renderedTitles()).toEqual(["Burs başvurusu belge listesi"]);
 
-    const facultyFilter = screen.getByRole("button", {
+    fireEvent.press(screen.getByTestId("announcements-source-filter"));
+    const facultyFilter = within(screen.getByTestId("bottom-sheet")).getByRole("radio", {
       name: "Fakültem kaynak filtresi",
     });
     fireEvent.press(facultyFilter);
-    expect(facultyFilter.props.accessibilityState).toEqual(
+    fireEvent.press(screen.getByTestId("announcements-source-filter"));
+    const selectedFacultyFilter = within(screen.getByTestId("bottom-sheet")).getByRole("radio", {
+      name: "Fakültem kaynak filtresi",
+    });
+    expect(selectedFacultyFilter.props.accessibilityState).toEqual(
       expect.objectContaining({ selected: true }),
     );
     expect(screen.getByTestId("announcements-filter-summary").props.accessibilityLabel)
@@ -365,8 +375,10 @@ describe("Phase 8 Announcements feed", () => {
   it("keeps YÖK and Summer School reachable and uses full-row in-app navigation", async () => {
     await renderFeed(feedProps());
 
-    fireEvent.press(screen.getByRole("button", { name: "YÖK sayfasını aç" }));
-    fireEvent.press(screen.getByRole("button", { name: "Yaz Okulu sayfasını aç" }));
+    fireEvent.press(screen.getByTestId("announcements-source-filter"));
+    fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("button", { name: "YÖK sayfasını aç" }));
+    fireEvent.press(screen.getByTestId("announcements-source-filter"));
+    fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("button", { name: "Yaz Okulu sayfasını aç" }));
     expect(callbacks.onOpenYok).toHaveBeenCalledTimes(1);
     expect(callbacks.onOpenSummerSchool).toHaveBeenCalledTimes(1);
 
@@ -380,7 +392,8 @@ describe("Phase 8 Announcements feed", () => {
       }),
     );
 
-    fireEvent.press(screen.getByRole("button", { name: "YÖK kaynak filtresi" }));
+    fireEvent.press(screen.getByTestId("announcements-source-filter"));
+    fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("radio", { name: "YÖK kaynak filtresi" }));
     expect(renderedTitles()).toEqual(["YÖK öğrenci bilgilendirmesi"]);
   });
 

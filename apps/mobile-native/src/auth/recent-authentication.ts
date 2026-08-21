@@ -11,6 +11,23 @@ export interface RecentAuthenticationResponse {
   expiresInSeconds: number;
 }
 
+export function shouldRefreshSessionAfterRecentAuthenticationFailure(
+  status: number,
+  errorCode: string | undefined,
+): boolean {
+  return status === 401 && errorCode !== "AUTH_INVALID_CREDENTIALS";
+}
+
+export function recentAuthenticationFailureMessage(
+  method: RecentAuthenticationMethod,
+  errorCode: string | undefined,
+): string | undefined {
+  if (errorCode !== "AUTH_INVALID_CREDENTIALS") return undefined;
+  return method === "password"
+    ? "Hesap şifren yanlış. Kontrol edip tekrar dene."
+    : "Google hesabın doğrulanamadı. Hesabı yeniden seçip tekrar dene.";
+}
+
 export function normalizeAccountAuthProvider(value: unknown): AccountAuthProvider | undefined {
   return value === "password" || value === "google" || value === "password_google"
     ? value

@@ -4,7 +4,7 @@ import {
   fireEvent,
   screen,
 } from "@testing-library/react-native";
-import { FlatList, SectionList, StyleSheet, Text } from "react-native";
+import { FlatList, Platform, SectionList, StyleSheet, Text } from "react-native";
 import {
   SummerSchoolScreen,
   YokAnnouncementsScreen,
@@ -381,6 +381,35 @@ describe("semantic Summer School and YÖK destinations", () => {
     expect(screen.getByText("Üniversite seçildiğinde hazır")).toBeVisible();
     expect(screen.getByRole("button", { name: "Yaz okulunu yenile" })).toBeDisabled();
     expect(screen.UNSAFE_getByType(SectionList).props.sections).toEqual([]);
+  });
+
+  it("uses explicit refresh buttons instead of Android pull-to-refresh wrappers", async () => {
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+
+    try {
+      let view = await renderWithTheme(
+        <YokAnnouncementsScreen {...yokProps()} />,
+      );
+      const yokList = screen.UNSAFE_getByType(FlatList);
+      expect(yokList.props.onRefresh).toBeUndefined();
+      expect(yokList.props.refreshing).toBe(false);
+      fireEvent.press(screen.getByRole("button", { name: /yenile/u }));
+      expect(yokCallbacks.onRefresh).toHaveBeenCalledTimes(1);
+
+      await view.unmountAsync();
+      view = await renderWithTheme(
+        <SummerSchoolScreen {...summerProps()} />,
+      );
+      const summerList = screen.UNSAFE_getByType(SectionList);
+      expect(summerList.props.onRefresh).toBeUndefined();
+      expect(summerList.props.refreshing).toBe(false);
+      fireEvent.press(screen.getByRole("button", { name: "Yaz okulunu yenile" }));
+      expect(summerCallbacks.onRefresh).toHaveBeenCalledTimes(1);
+      await view.unmountAsync();
+    } finally {
+      Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+    }
   });
 
   it("contains no route-local raw color system or nested ScrollView fallback", () => {

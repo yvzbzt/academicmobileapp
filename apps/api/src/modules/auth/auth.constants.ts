@@ -1,5 +1,13 @@
 export const AUTH_PASSWORD_MIN_LENGTH = 8;
 export const AUTH_PASSWORD_MIN_CHARACTER_GROUPS = 3;
+export const AUTH_EMAIL_MAX_LENGTH = 254;
+export const AUTH_FULL_NAME_MAX_LENGTH = 120;
+export const AUTH_PASSWORD_MAX_LENGTH = 128;
+export const AUTH_DEVICE_ID_MAX_LENGTH = 256;
+export const AUTH_AFFILIATION_ID_MAX_LENGTH = 128;
+export const AUTH_REFRESH_TOKEN_MAX_LENGTH = 512;
+export const AUTH_ID_TOKEN_MAX_LENGTH = 8_192;
+export const EMAIL_VERIFICATION_CODE_LENGTH = 6;
 
 export function authPasswordCharacterGroupCount(password: string): number {
   return [

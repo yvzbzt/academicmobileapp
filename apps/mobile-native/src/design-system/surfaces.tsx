@@ -1,7 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import {
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   View,
@@ -59,6 +58,7 @@ export function Screen({
   const maxWidth = resolveReadableWidth(readableWidth, theme.readableWidths);
   const adaptiveContentStyle: StyleProp<ViewStyle> = [
     styles.content,
+    scroll ? styles.scrollBody : styles.fill,
     {
       maxWidth,
       paddingHorizontal: fullBleed ? 0 : adaptation.screenGutter,
@@ -91,7 +91,7 @@ export function Screen({
     >
       {keyboardSafe ? (
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior="padding"
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.keyboardSafe}
         >
@@ -199,8 +199,13 @@ const styles = StyleSheet.create({
   },
   content: {
     alignSelf: "center",
-    flex: 1,
     width: "100%",
+  },
+  fill: {
+    flex: 1,
+  },
+  scrollBody: {
+    flexGrow: 1,
   },
   centered: {
     alignItems: "center",

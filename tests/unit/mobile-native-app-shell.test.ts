@@ -15,7 +15,7 @@ describe("Phase 5 app-shell contract", () => {
       expect.objectContaining({ route: "HomeTab", rootRoute: "Home", label: "Ana Sayfa" }),
       expect.objectContaining({ route: "AnnouncementsTab", rootRoute: "Announcements", label: "Duyurular" }),
       expect.objectContaining({ route: "CalendarTab", rootRoute: "Calendar", label: "Takvim" }),
-      expect.objectContaining({ route: "ProfileTab", rootRoute: "Profile", label: "Profil" }),
+      expect.objectContaining({ route: "ProfileTab", rootRoute: "Profile", label: "Ayarlar" }),
     ]);
     expect(PRIMARY_TABS).toHaveLength(4);
     expect(PRIMARY_TABS.map((tab) => tab.rootRoute)).not.toContain("SummerSchool");

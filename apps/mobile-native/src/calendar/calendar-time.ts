@@ -4,6 +4,13 @@ import {
 } from "../temporal/academic-temporal";
 
 export const DEFAULT_ACADEMIC_EVENT_TIMEZONE = "Europe/Istanbul";
+const timestampFormatterCache = new Map<string, Intl.DateTimeFormat>();
+const dateOnlyFormatter = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 export interface CalendarTemporalDisplayValue {
   startDate: string;
@@ -47,12 +54,7 @@ function formatCalendarTemporalEndpoint(
   if (temporalKind === "date") {
     const dateOnly = dateOnlyAtNoonUtc(value);
     if (!dateOnly) return "Tarih belirtilmemiş";
-    return new Intl.DateTimeFormat("tr-TR", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-      timeZone: "UTC",
-    }).format(dateOnly);
+    return dateOnlyFormatter.format(dateOnly);
   }
 
   const date = new Date(value);
@@ -71,17 +73,25 @@ function timestampFormatter(
   options: Intl.DateTimeFormatOptions,
 ): Intl.DateTimeFormat {
   const resolvedTimezone = timezone?.trim() || DEFAULT_ACADEMIC_EVENT_TIMEZONE;
+  const cacheKey = `${resolvedTimezone}:${JSON.stringify(options)}`;
+  const cached = timestampFormatterCache.get(cacheKey);
+  if (cached) return cached;
+
+  let formatter: Intl.DateTimeFormat;
   try {
-    return new Intl.DateTimeFormat("tr-TR", {
+    formatter = new Intl.DateTimeFormat("tr-TR", {
       ...options,
       timeZone: resolvedTimezone,
     });
   } catch {
-    return new Intl.DateTimeFormat("tr-TR", {
+    formatter = new Intl.DateTimeFormat("tr-TR", {
       ...options,
       timeZone: DEFAULT_ACADEMIC_EVENT_TIMEZONE,
     });
   }
+  if (timestampFormatterCache.size >= 32) timestampFormatterCache.clear();
+  timestampFormatterCache.set(cacheKey, formatter);
+  return formatter;
 }
 
 function dateOnlyAtNoonUtc(value: string): Date | null {

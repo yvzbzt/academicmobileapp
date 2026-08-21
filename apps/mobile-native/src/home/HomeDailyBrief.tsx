@@ -17,6 +17,7 @@ import {
   Button,
   Card,
   Skeleton,
+  homeDailyBriefColors,
   referencePalette,
   usePlatformAdaptation,
   useTheme,
@@ -34,12 +35,16 @@ import {
   resolveHomeLayout,
   resolveHomePrimaryState,
   selectImportantAnnouncement,
+  selectHomeDayMarkerKind,
   selectNearestImportantItem,
   selectRecentAnnouncements,
   selectTodayItems,
+  summarizeHomeWeek,
   type HomeAcademicEvent,
+  type HomeImportantKind,
   type HomeImportantItem,
   type HomeManualExam,
+  type HomeWeeklySummary,
 } from "./home-model";
 import {
   formatCalendarClock,
@@ -69,6 +74,7 @@ export interface HomeDailyBriefProps {
   notificationPermission: string;
   notificationPreferenceEnabled: boolean;
   notificationActive: boolean;
+  onOpenAccountMenu?: () => void;
   onCompleteProfile: () => void;
   onOpenAnnouncement: (item: TrustedMobileContentRecord) => void;
   onOpenAnnouncements: () => void;
@@ -80,6 +86,9 @@ export interface HomeDailyBriefProps {
 }
 
 type BriefModule = "agenda" | "announcements" | "profile" | "integration";
+type AgendaFilter = "all" | "academic" | "personal";
+
+const academicCalendarLogo = require("../../assets/design-package/academic-calendar-logo.png");
 
 const REFERENCE_COLORS = {
   background: referencePalette.white,
@@ -100,6 +109,11 @@ const REFERENCE_COLORS = {
   white: referencePalette.white,
 } as const;
 
+function boundedTextLineHeight(baseLineHeight: number, fontScale: number, maximumMultiplier: number): number {
+  if (!Number.isFinite(fontScale) || fontScale <= maximumMultiplier) return baseLineHeight;
+  return (baseLineHeight * maximumMultiplier) / fontScale;
+}
+
 export function HomeDailyBrief(props: HomeDailyBriefProps) {
   const adaptation = usePlatformAdaptation();
   const theme = useTheme();
@@ -111,6 +125,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
   useScrollToTop(listRef);
   const [clock, setClock] = useState(props.now ?? new Date());
   const [profilePromptDismissed, setProfilePromptDismissed] = useState(false);
+  const [agendaFilter, setAgendaFilter] = useState<AgendaFilter>("all");
 
   useEffect(() => {
     if (props.now) {
@@ -132,6 +147,18 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
   const agendaItems = useMemo(
     () => selectAgendaItems(props.events, props.manualExams, todayItems, clock),
     [clock, props.events, props.manualExams, todayItems],
+  );
+  const filteredAgendaItems = useMemo(
+    () => agendaItems.filter((item) => {
+      if (agendaFilter === "all") return true;
+      const personal = item.category.startsWith("personal_");
+      return agendaFilter === "personal" ? personal : !personal;
+    }),
+    [agendaFilter, agendaItems],
+  );
+  const weeklySummary = useMemo(
+    () => summarizeHomeWeek(props.events, props.manualExams, clock),
+    [clock, props.events, props.manualExams],
   );
   const trustedAnnouncements = useMemo(
     () => props.announcements.flatMap((item) => {
@@ -214,7 +241,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
       && (!props.facultyName || !props.departmentName)
       ? ["profile"] as const
       : []),
-    ...(integration && primaryState !== "incomplete_profile" && primaryState !== "initial_loading"
+    ...(integration === "notifications" && primaryState !== "incomplete_profile" && primaryState !== "initial_loading"
       ? ["integration" as const]
       : []),
   ];
@@ -224,23 +251,41 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
       case "agenda":
         return (
           <BriefSection
-            actionLabel="Tümünü Gör"
-            onAction={props.onOpenCalendar}
-            title="Bugün"
+            title="Senin için"
           >
-            {agendaItems.length ? (
+            <AgendaFilterControl selected={agendaFilter} onChange={setAgendaFilter} />
+            {filteredAgendaItems.length ? (
               <View style={styles.agendaList}>
                 <Text accessibilityRole="header" style={styles.visuallyHidden}>Sıradaki önemli tarih</Text>
-                {agendaItems.map((event) => (
-                  <CompactAgendaRow event={event} key={`${event.kind}:${event.id}`} />
+                {filteredAgendaItems.map((event) => (
+                  <CompactAgendaRow
+                    event={event}
+                    key={`${event.kind}:${event.id}`}
+                    onPress={props.onOpenCalendar}
+                  />
                 ))}
               </View>
             ) : (
               <View style={{ gap: theme.spacing.sm }}>
-                <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Yaklaşan akademik etkinlik veya kişisel sınav bulunamadı.</Text>
+                <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Bu filtrede yaklaşan bir tarih bulunamadı.</Text>
                 <Button compact label="Takvimde aç" onPress={props.onOpenCalendar} variant="ghost" />
               </View>
             )}
+            <Pressable
+              accessibilityLabel="Kişisel etkinlik ekle"
+              accessibilityRole="button"
+              onPress={props.onOpenCalendar}
+              style={({ pressed }) => [
+                styles.personalEventButton,
+                pressed && styles.planHeroPressed,
+              ]}
+            >
+              <View style={styles.personalEventIcon}>
+                <Ionicons color={REFERENCE_COLORS.blueDeep} name="add" size={21} />
+              </View>
+              <Text style={[theme.typography.bodyStrong, styles.personalEventLabel]}>Kişisel etkinlik ekle</Text>
+              <Ionicons color={REFERENCE_COLORS.white} name="chevron-forward" size={20} />
+            </Pressable>
           </BriefSection>
         );
       case "announcements": {
@@ -278,17 +323,11 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
       case "integration":
         return (
           <View style={{ gap: theme.spacing.sm }}>
-            {integration === "notifications" ? (
-              <Banner
-                actionLabel="Ayarları aç"
-                message="Akademik hatırlatmaların ulaşması için bildirim durumunu kontrol et."
-                onAction={props.onOpenNotificationSettings}
-                title="Bildirimlerini tamamla"
-              />
-            ) : null}
-            <GoogleCalendarCard
-              onPress={props.onOpenGoogleCalendarSettings}
-              state={props.googleCalendarState}
+            <Banner
+              actionLabel="Ayarları aç"
+              message="Akademik hatırlatmaların ulaşması için bildirim durumunu kontrol et."
+              onAction={props.onOpenNotificationSettings}
+              title="Bildirimlerini tamamla"
             />
           </View>
         );
@@ -318,8 +357,21 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
       ]}
       ListHeaderComponent={(
         <View style={styles.homeHeader}>
-          <HomeTopBar onOpenNotifications={props.onOpenNotificationSettings} />
-          <View style={[styles.identityRow, { gap: theme.spacing.md }]}>
+          <View
+            style={[
+              styles.brandHero,
+              {
+                marginHorizontal: -layout.gutter,
+                paddingHorizontal: layout.gutter,
+              },
+            ]}
+          >
+            <HomeTopBar
+              fontScale={fontScale}
+              fullName={props.fullName}
+              onOpenAccount={props.onOpenAccountMenu}
+              onOpenNotifications={props.onOpenNotificationSettings}
+            />
             <View
               accessible
               accessibilityLabel={`${firstName(props.fullName)}, günlük akademik özetin.`}
@@ -327,35 +379,19 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
             >
               <Text
                 accessibilityRole="header"
-                style={[theme.typography.screenTitle, styles.greetingTitle, { color: REFERENCE_COLORS.navy }]}
+                maxFontSizeMultiplier={1.35}
+                numberOfLines={1}
+                style={[
+                  theme.typography.screenTitle,
+                  styles.greetingTitle,
+                  {
+                    color: REFERENCE_COLORS.white,
+                    lineHeight: boundedTextLineHeight(styles.greetingTitle.lineHeight, fontScale, 1.35),
+                  },
+                ]}
               >
-                Merhaba {firstName(props.fullName)} 👋
+                Merhaba, {firstName(props.fullName)}
               </Text>
-              <Text
-                numberOfLines={layout.supportsLargeText ? undefined : 1}
-                style={[theme.typography.body, styles.greetingSubtitle, { color: REFERENCE_COLORS.secondary }]}
-              >
-                Bugün harika bir gün, planına sadık kal!
-              </Text>
-            </View>
-            <View
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              style={[
-                styles.avatar,
-                {
-                  backgroundColor: REFERENCE_COLORS.blueSoft,
-                  borderColor: REFERENCE_COLORS.white,
-                },
-              ]}
-            >
-              <Image
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                resizeMode="cover"
-                source={require("../../assets/home-default-avatar.png")}
-                style={styles.avatarImage}
-              />
             </View>
           </View>
           {primaryState === "populated" ? (
@@ -370,70 +406,146 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
               style={({ pressed }) => [
                 styles.planHero,
                 {
-                  backgroundColor: REFERENCE_COLORS.blue,
+                  backgroundColor: theme.colors.background.surface,
+                  borderColor: theme.colors.border.subtle,
                 },
                 pressed && adaptation.pressFeedback !== "ripple" ? styles.planHeroPressed : null,
               ]}
             >
-              <Image
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                resizeMode="cover"
-                source={require("../../assets/home-exam-calendar-art.png")}
-                style={styles.heroBackgroundImage}
-                testID="home-focus-artwork"
-              />
-              {compactHero ? <View style={styles.heroReadabilityPanel} /> : null}
-              <View style={styles.heroMainRow}>
-                <View style={styles.planHeroCopy}>
-                  <View style={styles.focusPill}>
-                    <Ionicons color={REFERENCE_COLORS.white} name={heroStatusIcon} size={16} />
-                    <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.white }]}>Bugünkü Odak</Text>
-                  </View>
-                  <Text
-                    numberOfLines={2}
-                    style={[theme.typography.screenTitle, styles.heroTitle, { color: REFERENCE_COLORS.white }]}
-                  >
-                    {nextItem ? heroTitle(nextItem) : "Akademik takvimin"}
-                  </Text>
-                  <View style={styles.heroCourseRow}>
-                    <Ionicons color={REFERENCE_COLORS.white} name="book-outline" size={18} />
-                    <Text
-                      numberOfLines={1}
-                      style={[theme.typography.body, styles.heroCourse, { color: REFERENCE_COLORS.white }]}
-                    >
-                      {nextItem?.courseName ?? nextItem?.title ?? props.universityName ?? "Akademik planın"}
-                    </Text>
-                  </View>
+              <View style={styles.heroCountdownColumn}>
+                <Text
+                  adjustsFontSizeToFit={!layout.supportsLargeText}
+                  maxFontSizeMultiplier={1.25}
+                  minimumFontScale={0.78}
+                  numberOfLines={layout.supportsLargeText ? 2 : 1}
+                  style={[
+                    theme.typography.metaStrong,
+                    styles.heroCountdownLabel,
+                    {
+                      color: REFERENCE_COLORS.teal,
+                      lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.25),
+                    },
+                  ]}
+                >
+                  Gün kaldı
+                </Text>
+                <Text
+                  maxFontSizeMultiplier={1.2}
+                  numberOfLines={1}
+                  style={[
+                    theme.typography.display,
+                    styles.heroCountdownValue,
+                    {
+                      color: REFERENCE_COLORS.navy,
+                      lineHeight: boundedTextLineHeight(styles.heroCountdownValue.lineHeight, fontScale, 1.2),
+                    },
+                  ]}
+                >
+                  {countdownParts(nextItem, clock).value}
+                </Text>
+                <View style={styles.heroCountdownTrack}>
+                  <View style={styles.heroCountdownProgress} />
                 </View>
               </View>
-              <View style={styles.heroDivider} />
-              <View style={styles.heroScheduleRow}>
-                <View style={styles.countdownTile}>
-                  <Text
-                    style={[theme.typography.screenTitle, styles.countdownValue, { color: REFERENCE_COLORS.blue }]}
-                  >
-                    {countdownParts(nextItem, clock).value}
-                  </Text>
-                  <Text
-                    style={[theme.typography.navLabel, { color: REFERENCE_COLORS.secondary }]}
-                  >
-                    {countdownParts(nextItem, clock).unit}
-                  </Text>
-                </View>
-                <View style={styles.heroScheduleCopy}>
-                  <View style={styles.heroScheduleLine}>
-                    <Ionicons color={REFERENCE_COLORS.white} name="calendar-outline" size={17} />
+              <View style={[styles.heroCopy, layout.supportsLargeText && styles.heroCopyLargeText]}>
+                <View style={styles.focusHeader}>
+                  <View style={styles.focusPill}>
+                    <Ionicons color={REFERENCE_COLORS.green} name={heroStatusIcon} size={15} />
                     <Text
-                      style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.white }]}
+                      maxFontSizeMultiplier={1.3}
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.metaStrong,
+                        {
+                          color: REFERENCE_COLORS.green,
+                          lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.3),
+                        },
+                      ]}
                     >
-                      {nextItem ? compactTemporalDate(nextItem.date) : "Takvimi görüntüle"}
+                      Sıradaki
                     </Text>
                   </View>
-                  <View style={styles.heroScheduleLine}>
-                    <Ionicons color={REFERENCE_COLORS.white} name="time-outline" size={17} />
+                  <Text
+                    maxFontSizeMultiplier={1.3}
+                    numberOfLines={1}
+                    style={[
+                      theme.typography.meta,
+                      styles.focusStatus,
+                      {
+                        color: REFERENCE_COLORS.secondary,
+                        lineHeight: boundedTextLineHeight(theme.typography.meta.lineHeight, fontScale, 1.3),
+                      },
+                    ]}
+                  >
+                    {heroBadgeLabel}
+                  </Text>
+                </View>
+                <Text
+                  maxFontSizeMultiplier={1.35}
+                  numberOfLines={layout.supportsLargeText ? 2 : compactHero ? 3 : 2}
+                  style={[
+                    theme.typography.sectionTitle,
+                    styles.heroTitle,
+                    {
+                      color: REFERENCE_COLORS.navy,
+                      lineHeight: boundedTextLineHeight(styles.heroTitle.lineHeight, fontScale, 1.35),
+                    },
+                  ]}
+                >
+                  {nextItem?.title ?? "Akademik takvimin"}
+                </Text>
+                {nextItem?.courseName ? (
+                  <View style={styles.heroCourseRow}>
+                    <Ionicons color={REFERENCE_COLORS.secondary} name="book-outline" size={14} />
                     <Text
-                      style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.white }]}
+                      maxFontSizeMultiplier={1.3}
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.meta,
+                        styles.heroCourse,
+                        {
+                          color: REFERENCE_COLORS.secondary,
+                          lineHeight: boundedTextLineHeight(theme.typography.meta.lineHeight, fontScale, 1.3),
+                        },
+                      ]}
+                    >
+                      {nextItem.courseName}
+                    </Text>
+                  </View>
+                ) : null}
+                <View style={styles.heroMetaRow}>
+                  <View style={styles.heroMetaChip}>
+                    <Ionicons color={REFERENCE_COLORS.blueDeep} name="calendar-outline" size={15} />
+                    <Text
+                      ellipsizeMode="tail"
+                      maxFontSizeMultiplier={1.3}
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.metaStrong,
+                        styles.heroScheduleText,
+                        {
+                          color: REFERENCE_COLORS.navy,
+                          lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.3),
+                        },
+                      ]}
+                    >
+                      {nextItem ? compactTemporalDate(nextItem.date, compactHero) : "Takvimi görüntüle"}
+                    </Text>
+                  </View>
+                  <View style={styles.heroMetaChip}>
+                    <Ionicons color={REFERENCE_COLORS.blueDeep} name="time-outline" size={15} />
+                    <Text
+                      ellipsizeMode="tail"
+                      maxFontSizeMultiplier={1.3}
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.metaStrong,
+                        styles.heroScheduleText,
+                        {
+                          color: REFERENCE_COLORS.navy,
+                          lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.3),
+                        },
+                      ]}
                     >
                       {nextItem
                         ? compactTemporalTime(nextItem.date, nextItem.temporalKind, nextItem.timezone)
@@ -442,7 +554,29 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                   </View>
                 </View>
               </View>
+              <Ionicons color={REFERENCE_COLORS.blueDeep} name="chevron-forward" size={21} />
             </Pressable>
+          ) : null}
+          {primaryState === "populated" ? (
+            <>
+              <WeeklyCalendarStrip
+                events={props.events}
+                fontScale={fontScale}
+                manualExams={props.manualExams}
+                now={clock}
+                onOpenCalendar={props.onOpenCalendar}
+              />
+              <View style={styles.summaryGrid}>
+                <WeeklySummaryCard
+                  summary={weeklySummary}
+                  onPress={props.onOpenCalendar}
+                />
+                <AnnouncementSummaryCard
+                  count={trustedAnnouncements.length}
+                  onPress={props.onOpenAnnouncements}
+                />
+              </View>
+            </>
           ) : null}
           {availability !== "ready" && primaryState === "populated" ? (
             <AvailabilityBanner availability={availability} error={error} onRefresh={props.onRefresh} />
@@ -503,27 +637,286 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
   );
 }
 
-function HomeTopBar({ onOpenNotifications }: { onOpenNotifications: () => void }) {
-  const theme = useTheme();
+function HomeTopBar({
+  fontScale,
+  fullName,
+  onOpenAccount,
+  onOpenNotifications,
+}: {
+  fontScale: number;
+  fullName: string;
+  onOpenAccount?: () => void;
+  onOpenNotifications: () => void;
+}) {
   return (
     <View style={styles.topBar} testID="home-top-bar">
-      <View style={styles.topBarSpacer} />
-      <Text
-        accessibilityRole="header"
-        style={[theme.typography.cardTitle, styles.topBarTitle, { color: REFERENCE_COLORS.navy }]}
-      >
-        Ana Sayfa
-      </Text>
-      <Pressable
-        accessibilityLabel="Bildirim tercihlerini aç"
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={onOpenNotifications}
-        style={({ pressed }) => [styles.notificationButton, pressed && styles.planHeroPressed]}
-      >
-        <Ionicons color={REFERENCE_COLORS.navy} name="notifications-outline" size={25} />
-        <View style={styles.notificationDot} />
-      </Pressable>
+      <View accessibilityLabel="Akademik Takvim" style={styles.homeBrand}>
+        <Image
+          accessibilityIgnoresInvertColors
+          resizeMode="contain"
+          source={academicCalendarLogo}
+          style={styles.homeBrandLogo}
+        />
+        <Text
+          adjustsFontSizeToFit
+          maxFontSizeMultiplier={1.35}
+          minimumFontScale={0.8}
+          numberOfLines={1}
+          style={[
+            styles.homeBrandTitle,
+            { lineHeight: boundedTextLineHeight(styles.homeBrandTitle.lineHeight, fontScale, 1.35) },
+          ]}
+        >
+          Akademik Takvim
+        </Text>
+      </View>
+      <View style={styles.topBarActions}>
+        <Pressable
+          accessibilityLabel="Bildirim tercihlerini aç"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onOpenNotifications}
+          style={({ pressed }) => [styles.notificationButton, pressed && styles.planHeroPressed]}
+        >
+          <Ionicons color={REFERENCE_COLORS.white} name="notifications-outline" size={24} />
+          <View style={styles.notificationDot} />
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Hesap menüsünü aç"
+          accessibilityRole="button"
+          disabled={!onOpenAccount}
+          hitSlop={8}
+          onPress={onOpenAccount}
+          style={({ pressed }) => [styles.avatar, pressed && styles.planHeroPressed]}
+        >
+          <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={styles.avatarLabel}>{initialsForName(fullName)}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function WeeklyCalendarStrip({
+  events,
+  fontScale,
+  manualExams,
+  now,
+  onOpenCalendar,
+}: {
+  events: readonly HomeAcademicEvent[];
+  fontScale: number;
+  manualExams: readonly HomeManualExam[];
+  now: Date;
+  onOpenCalendar: () => void;
+}) {
+  const theme = useTheme();
+  const weekStart = startOfLocalWeek(now);
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + index);
+    return date;
+  });
+
+  return (
+    <View style={styles.weeklyCalendar}>
+      <View style={[
+        styles.weeklyCalendarHeader,
+        fontScale > 1.45 && styles.weeklyCalendarHeaderLargeText,
+      ]}>
+        <Text
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.3}
+          numberOfLines={1}
+          style={[
+            theme.typography.sectionTitle,
+            styles.weeklyCalendarTitle,
+            fontScale > 1.45 && styles.weeklyCalendarTitleLargeText,
+            { lineHeight: boundedTextLineHeight(theme.typography.sectionTitle.lineHeight, fontScale, 1.3) },
+          ]}
+        >
+          Haftalık Takvim
+        </Text>
+        <Pressable
+          accessibilityLabel="Takvimi gör"
+          accessibilityRole="button"
+          onPress={onOpenCalendar}
+          style={({ pressed }) => [
+            styles.calendarLink,
+            fontScale > 1.45 && styles.calendarLinkLargeText,
+            pressed && styles.planHeroPressed,
+          ]}
+        >
+          <Ionicons color={REFERENCE_COLORS.blueDeep} name="calendar-outline" size={16} />
+          <Text
+            maxFontSizeMultiplier={1.2}
+            numberOfLines={1}
+            style={[
+              theme.typography.metaStrong,
+              {
+                color: REFERENCE_COLORS.blueDeep,
+                lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.2),
+              },
+            ]}
+          >
+            Takvimi Gör
+          </Text>
+        </Pressable>
+      </View>
+      <View style={styles.weekDays}>
+        {days.map((day) => {
+          const selected = sameLocalDay(day, now);
+          const marker = markerColorForDay(day, events, manualExams);
+          const dayName = day.toLocaleDateString("tr-TR", { weekday: "short" })
+            .replace(".", "")
+            .toLocaleUpperCase("tr-TR");
+          return (
+            <Pressable
+              accessibilityLabel={`${dayName}, ${day.getDate()} ${day.toLocaleDateString("tr-TR", { month: "long" })}. Takvimi aç.`}
+              accessibilityRole="button"
+              key={day.toISOString()}
+              onPress={onOpenCalendar}
+              style={({ pressed }) => [styles.weekDayTarget, pressed && styles.planHeroPressed]}
+            >
+              <Text
+                maxFontSizeMultiplier={1.15}
+                numberOfLines={1}
+                style={[
+                  theme.typography.navLabel,
+                  styles.weekDayName,
+                  { lineHeight: boundedTextLineHeight(theme.typography.navLabel.lineHeight, fontScale, 1.15) },
+                ]}
+              >
+                {dayName}
+              </Text>
+              <View style={[styles.weekDayCard, selected && styles.weekDayCardSelected]}>
+                <Text style={[
+                  theme.typography.bodyStrong,
+                  styles.weekDayNumber,
+                  selected && styles.weekDayNumberSelected,
+                  { lineHeight: boundedTextLineHeight(theme.typography.bodyStrong.lineHeight, fontScale, 1.2) },
+                ]} maxFontSizeMultiplier={1.2} numberOfLines={1}>
+                  {day.getDate()}
+                </Text>
+                <View
+                  style={[
+                    styles.weekDayMarker,
+                    { backgroundColor: selected ? REFERENCE_COLORS.white : marker ?? "transparent" },
+                  ]}
+                />
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function WeeklySummaryCard({
+  summary,
+  onPress,
+}: {
+  summary: HomeWeeklySummary;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const breakdown = [
+    summary.applications ? `${summary.applications} başvuru` : null,
+    summary.registrations ? `${summary.registrations} kayıt` : null,
+    summary.exams ? `${summary.exams} sınav` : null,
+  ].filter(Boolean).join(" · ") || "Planlanan önemli tarih yok";
+  return (
+    <Pressable
+      accessibilityLabel={`Bu hafta ${summary.total} önemli tarih. ${breakdown}. Haftayı görüntüle.`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.weekSummaryCard, pressed && styles.planHeroPressed]}
+    >
+      <View style={styles.summaryCardHeader}>
+        <Text style={[theme.typography.bodyStrong, styles.summaryCardEyebrow]}>Bu hafta</Text>
+        <Ionicons color={REFERENCE_COLORS.white} name="calendar-clear-outline" size={24} />
+      </View>
+      <Text style={[theme.typography.display, styles.summaryCardValue]}>{summary.total}</Text>
+      <Text numberOfLines={1} style={[theme.typography.meta, styles.summaryCardDetail]}>{breakdown}</Text>
+      <View style={styles.summaryCardAction}>
+        <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.white }]}>Haftayı görüntüle</Text>
+        <Ionicons color={REFERENCE_COLORS.white} name="chevron-forward" size={18} />
+      </View>
+    </Pressable>
+  );
+}
+
+function AnnouncementSummaryCard({
+  count,
+  onPress,
+}: {
+  count: number;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessible
+      accessibilityHint={`${count} güncel içerik bulunuyor.`}
+      accessibilityLabel="Duyuru özeti"
+      accessibilityRole="link"
+      onPress={onPress}
+      style={({ pressed }) => [styles.announcementSummaryCard, pressed && styles.planHeroPressed]}
+    >
+      <View style={styles.summaryCardHeader}>
+        <Text style={[theme.typography.bodyStrong, styles.announcementSummaryEyebrow]}>Duyurular</Text>
+        <Ionicons color={REFERENCE_COLORS.navy} name="megaphone-outline" size={25} />
+      </View>
+      <Text style={[theme.typography.display, styles.announcementSummaryValue]}>{count}</Text>
+      <Text numberOfLines={1} style={[theme.typography.meta, styles.announcementSummaryDetail]}>güncel içerik</Text>
+      <View style={styles.announcementSummaryAction}>
+        <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}>Tüm duyurular</Text>
+        <Ionicons color={REFERENCE_COLORS.navy} name="chevron-forward" size={18} />
+      </View>
+    </Pressable>
+  );
+}
+
+function AgendaFilterControl({
+  selected,
+  onChange,
+}: {
+  selected: AgendaFilter;
+  onChange: (filter: AgendaFilter) => void;
+}) {
+  const theme = useTheme();
+  const options: readonly { label: string; value: AgendaFilter }[] = [
+    { label: "Tümü", value: "all" },
+    { label: "Akademik", value: "academic" },
+    { label: "Kişisel", value: "personal" },
+  ];
+  return (
+    <View accessibilityLabel="Etkinlik filtresi" accessibilityRole="tablist" style={styles.agendaFilters}>
+      {options.map((option) => {
+        const active = selected === option.value;
+        return (
+          <Pressable
+            accessibilityLabel={option.label}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            style={({ pressed }) => [
+              styles.agendaFilter,
+              active && styles.agendaFilterActive,
+              pressed && styles.planHeroPressed,
+            ]}
+          >
+            <Text style={[
+              theme.typography.metaStrong,
+              styles.agendaFilterLabel,
+              active && styles.agendaFilterLabelActive,
+            ]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -613,15 +1006,12 @@ function countdownParts(
     : { value: String(days), unit: "GÜN KALDI" };
 }
 
-function compactTemporalDate(value: string): string {
+function compactTemporalDate(value: string, short = false): string {
   const date = parseHomeDate(value);
   if (!date) return "Tarih belirtilmedi";
-  const formatted = date.toLocaleDateString("tr-TR", {
-    day: "numeric",
-    month: "long",
-    weekday: "long",
-    year: "numeric",
-  });
+  const formatted = date.toLocaleDateString("tr-TR", short
+    ? { day: "numeric", month: "short" }
+    : { day: "numeric", month: "long", weekday: "long", year: "numeric" });
   return formatted.charAt(0).toLocaleUpperCase("tr-TR") + formatted.slice(1);
 }
 
@@ -648,10 +1038,16 @@ function agendaIconName(item: HomeImportantItem): keyof typeof Ionicons.glyphMap
   return "people-outline";
 }
 
-function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
+function CompactAgendaRow({
+  event,
+  onPress,
+}: {
+  event: HomeImportantItem;
+  onPress: () => void;
+}) {
   const theme = useTheme();
   const palette = agendaPalette(event);
-  const dateParts = academicDateParts(event.date);
+  const allDay = event.temporalKind === "date" || /^\d{4}-\d{2}-\d{2}$/u.test(event.date);
   const temporalLabel = formatCalendarTemporal({
     startDate: event.date,
     ...(event.endDate ? { endDate: event.endDate } : {}),
@@ -661,26 +1057,30 @@ function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
   });
 
   return (
-    <View
-      accessible
+    <Pressable
       accessibilityLabel={`${event.title}. ${agendaTypeLabel(event)}. ${temporalLabel}.${event.location ? ` ${event.location}.` : ""}`}
-      style={[
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
         styles.agendaCard,
-        {
-          borderColor: theme.colors.border.subtle,
-        },
+        { borderColor: theme.colors.border.subtle },
+        pressed && styles.planHeroPressed,
       ]}
     >
       <View style={[styles.agendaAccent, { backgroundColor: palette.text }]} />
       <View style={styles.agendaTimeColumn}>
         <Text
-          style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
+          numberOfLines={1}
+          style={[theme.typography.metaStrong, styles.agendaTimeLabel, { color: REFERENCE_COLORS.navy }]}
         >
           {compactTemporalTime(event.date, event.temporalKind, event.timezone)}
         </Text>
-        {event.endDate ? (
+        {event.endDate && !allDay ? (
           <Text
-            style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
+            numberOfLines={1}
+            style={[theme.typography.meta, styles.agendaTimeLabel, { color: REFERENCE_COLORS.secondary }]}
           >
             {compactTemporalTime(
               event.endDate,
@@ -690,20 +1090,15 @@ function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
           </Text>
         ) : null}
       </View>
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[
-          styles.agendaIcon,
-          {
-            backgroundColor: palette.container,
-          },
-        ]}
-      >
-        <Ionicons color={palette.text} name={agendaIconName(event)} size={24} />
-      </View>
       <View style={styles.agendaCopy}>
+        <View style={styles.agendaMetaRow}>
+          <Ionicons color={palette.text} name={agendaIconName(event)} size={15} />
+          <Text style={[theme.typography.metaStrong, { color: palette.text }]}>
+            {agendaTypeLabel(event)}
+          </Text>
+        </View>
         <Text
+          numberOfLines={3}
           style={[theme.typography.bodyStrong, styles.agendaTitle, { color: REFERENCE_COLORS.navy }]}
         >
           {event.title}
@@ -712,25 +1107,11 @@ function CompactAgendaRow({ event }: { event: HomeImportantItem }) {
           numberOfLines={1}
           style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
         >
-          {event.location || `${dateParts.day} ${dateParts.month} · ${temporalLabel}`}
-        </Text>
-      </View>
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[
-          styles.agendaType,
-          {
-            backgroundColor: palette.container,
-          },
-        ]}
-      >
-        <Text style={[theme.typography.navLabel, { color: palette.text }]}>
-          {agendaTypeLabel(event)}
+          {event.location || temporalLabel}
         </Text>
       </View>
       <Ionicons color={referencePalette.academicMutedIcon} name="chevron-forward" size={18} />
-    </View>
+    </Pressable>
   );
 }
 
@@ -794,7 +1175,7 @@ function AnnouncementCard({
         styles.announcementCard,
         {
           borderColor: REFERENCE_COLORS.border,
-          borderRadius: 18,
+          borderRadius: 10,
           padding: 14,
         },
       ]}
@@ -809,14 +1190,14 @@ function AnnouncementCard({
           <Ionicons
             color={palette.accent}
             name="shield-checkmark"
-            size={30}
+            size={22}
           />
         </View>
         <View style={styles.announcementCopy}>
           <Text
             style={[theme.typography.navLabel, styles.trustedLabel, { color: REFERENCE_COLORS.blue }]}
           >
-            GÜVENİLİR DUYURU
+            Güvenilir kaynak
           </Text>
           <Text
             style={[theme.typography.bodyStrong, styles.announcementTitle, { color: REFERENCE_COLORS.navy }]}
@@ -936,6 +1317,35 @@ function firstName(fullName: string): string {
   return fullName.trim().split(/\s+/u)[0] || "öğrenci";
 }
 
+function initialsForName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/u).filter(Boolean);
+  if (parts.length === 0) return "Ö";
+  return `${parts[0]?.[0] ?? ""}${parts.length > 1 ? parts.at(-1)?.[0] ?? "" : ""}`
+    .toLocaleUpperCase("tr-TR");
+}
+
+function startOfLocalWeek(value: Date): Date {
+  const start = new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  const mondayOffset = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - mondayOffset);
+  return start;
+}
+
+function sameLocalDay(left: Date, right: Date): boolean {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+function markerColorForDay(
+  day: Date,
+  events: readonly HomeAcademicEvent[],
+  manualExams: readonly HomeManualExam[],
+): string | null {
+  const kind = selectHomeDayMarkerKind(day, events, manualExams);
+  return kind ? homeEventPalette(kind).text : null;
+}
+
 function selectAgendaItems(
   events: readonly HomeAcademicEvent[],
   manualExams: readonly HomeManualExam[],
@@ -961,60 +1371,26 @@ function selectAgendaItems(
   return agenda.slice(0, 3);
 }
 
-function heroTitle(item: HomeImportantItem): string {
-  if (item.category === "final_exam") return "Final Sınavı";
-  if (item.category === "midterm_exam") return "Ara Sınav";
-  if (item.category === "makeup_exam") return "Bütünleme Sınavı";
-  if (item.category === "single_course_exam") return "Tek ders sınavı";
-  if (item.kind === "registration") return "Kayıt Dönemi";
-  return item.title;
-}
-
 function agendaTypeLabel(item: HomeImportantItem): string {
   if (item.kind === "exam") return "Sınav";
   if (item.kind === "registration") return "Kayıt";
-  if (item.kind === "deadline") return "Son tarih";
+  if (item.kind === "deadline") return "Başvuru";
   return "Etkinlik";
 }
 
 function agendaPalette(item: HomeImportantItem): { container: string; text: string } {
-  if (item.kind === "registration") {
-    return {
-      container: REFERENCE_COLORS.redSoft,
-      text: REFERENCE_COLORS.red,
-    };
-  }
-  if (item.kind === "deadline") {
-    return {
-      container: REFERENCE_COLORS.orangeSoft,
-      text: REFERENCE_COLORS.orange,
-    };
-  }
-  if (item.kind === "event") {
-    return {
-      container: REFERENCE_COLORS.greenSoft,
-      text: REFERENCE_COLORS.green,
-    };
-  }
-  return {
-    container: REFERENCE_COLORS.blueSoft,
-    text: REFERENCE_COLORS.blue,
-  };
+  return homeEventPalette(item.kind);
 }
 
-function academicDateParts(value: string): { day: string; month: string } {
-  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
-  const date = dateOnly
-    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
-    : new Date(value);
-  if (Number.isNaN(date.getTime())) return { day: "--", month: "" };
-  return {
-    day: String(date.getDate()),
-    month: date
-      .toLocaleDateString("tr-TR", { month: "short" })
-      .replace(".", "")
-      .toLocaleUpperCase("tr-TR"),
-  };
+function homeEventPalette(kind: HomeImportantKind): { container: string; text: string } {
+  if (kind === "exam") return { container: REFERENCE_COLORS.redSoft, text: REFERENCE_COLORS.red };
+  if (kind === "registration") {
+    return { container: referencePalette.academicPurpleSoft, text: referencePalette.academicPurple };
+  }
+  if (kind === "deadline") {
+    return { container: REFERENCE_COLORS.orangeSoft, text: REFERENCE_COLORS.orange };
+  }
+  return { container: REFERENCE_COLORS.blueSoft, text: REFERENCE_COLORS.blue };
 }
 
 function homeScopeLabel(scopeType: TrustedMobileContentRecord["scopeType"]): string {
@@ -1058,11 +1434,11 @@ const styles = StyleSheet.create({
   agendaCard: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.background,
-    borderRadius: 16,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 10,
-    minHeight: 76,
+    minHeight: 88,
     minWidth: 0,
     overflow: "hidden",
     paddingHorizontal: 12,
@@ -1073,32 +1449,51 @@ const styles = StyleSheet.create({
     gap: 2,
     minWidth: 0,
   },
-  agendaIcon: {
+  agendaMetaRow: {
     alignItems: "center",
-    borderRadius: 24,
-    height: 48,
-    justifyContent: "center",
-    width: 48,
+    flexDirection: "row",
+    gap: 5,
   },
   agendaList: {
     gap: 6,
   },
+  agendaFilters: {
+    alignItems: "center",
+    alignSelf: "flex-end",
+    flexDirection: "row",
+    gap: 7,
+  },
+  agendaFilter: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.white,
+    borderColor: referencePalette.academicBlueBorder,
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: 14,
+  },
+  agendaFilterActive: {
+    backgroundColor: REFERENCE_COLORS.blueDeep,
+    borderColor: REFERENCE_COLORS.blueDeep,
+  },
+  agendaFilterLabel: {
+    color: REFERENCE_COLORS.teal,
+  },
+  agendaFilterLabelActive: {
+    color: REFERENCE_COLORS.white,
+  },
   agendaTimeColumn: {
     alignItems: "flex-start",
     flexShrink: 0,
-    width: 45,
+    width: 52,
+  },
+  agendaTimeLabel: {
+    width: "100%",
   },
   agendaTitle: {
     fontSize: 15,
     lineHeight: 20,
-  },
-  agendaType: {
-    alignItems: "center",
-    borderRadius: 9,
-    flexShrink: 0,
-    justifyContent: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 5,
   },
   announcementCard: {
     marginHorizontal: 1,
@@ -1130,10 +1525,10 @@ const styles = StyleSheet.create({
   },
   announcementSourceIcon: {
     alignItems: "center",
-    borderRadius: 14,
-    height: 72,
+    borderRadius: 8,
+    height: 44,
     justifyContent: "center",
-    width: 66,
+    width: 44,
   },
   announcementTimestamp: {
     flex: 1,
@@ -1146,17 +1541,27 @@ const styles = StyleSheet.create({
   },
   avatar: {
     alignItems: "center",
-    borderRadius: 30,
-    borderWidth: 2,
-    height: 56,
+    backgroundColor: REFERENCE_COLORS.blue,
+    borderColor: homeDailyBriefColors.avatarBorder,
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
     justifyContent: "center",
     overflow: "hidden",
     position: "relative",
-    width: 56,
+    width: 44,
   },
-  avatarImage: {
-    height: "100%",
-    width: "100%",
+  avatarLabel: {
+    color: REFERENCE_COLORS.white,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  brandHero: {
+    backgroundColor: REFERENCE_COLORS.blueDeep,
+    gap: 18,
+    minHeight: 150,
+    paddingBottom: 38,
+    paddingTop: 8,
   },
   briefSection: {
     gap: 10,
@@ -1164,24 +1569,38 @@ const styles = StyleSheet.create({
   countdownTile: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.white,
-    borderRadius: 12,
+    borderRadius: 8,
+    flexShrink: 0,
+    height: 40,
     justifyContent: "center",
-    minHeight: 56,
-    width: 72,
+    paddingHorizontal: 6,
+    width: 70,
   },
   countdownValue: {
-    fontSize: 23,
-    lineHeight: 27,
+    fontSize: 17,
+    lineHeight: 19,
+  },
+  countdownUnit: {
+    fontSize: 8,
+    lineHeight: 10,
+    textAlign: "center",
   },
   focusPill: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: referencePalette.whiteAlpha14,
-    borderRadius: 16,
     flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    gap: 5,
+  },
+  focusHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    minWidth: 0,
+  },
+  focusStatus: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "right",
   },
   googleCalendarCard: {
     marginHorizontal: 1,
@@ -1201,32 +1620,51 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     minWidth: 0,
   },
-  greetingSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
   greetingTitle: {
-    fontSize: 25,
-    lineHeight: 31,
+    fontSize: 23,
+    fontWeight: "800",
+    lineHeight: 29,
   },
-  heroBackgroundImage: {
-    bottom: 0,
+  heroCopy: {
+    flex: 1,
+    gap: 6,
+    minWidth: 0,
+  },
+  heroCopyLargeText: {
+    gap: 3,
+  },
+  heroCountdownColumn: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    backgroundColor: referencePalette.academicGreenSurface,
+    borderColor: referencePalette.academicGreenBorder,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    width: 70,
+  },
+  heroCountdownLabel: {
+    maxWidth: "100%",
+    textAlign: "center",
+  },
+  heroCountdownValue: {
+    fontSize: 35,
+    lineHeight: 39,
+  },
+  heroCountdownTrack: {
+    backgroundColor: referencePalette.academicNeutralLineSoft,
+    borderRadius: 3,
+    height: 5,
+    marginTop: 5,
+    overflow: "hidden",
+    width: "86%",
+  },
+  heroCountdownProgress: {
+    backgroundColor: REFERENCE_COLORS.teal,
+    borderRadius: 3,
     height: "100%",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: "100%",
-  },
-  heroReadabilityPanel: {
-    backgroundColor: referencePalette.academicBlueDeepAlpha18,
-    borderBottomRightRadius: 96,
-    borderTopRightRadius: 96,
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    top: 0,
-    width: "64%",
+    width: "52%",
   },
   heroCourse: {
     flex: 1,
@@ -1237,43 +1675,49 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 7,
-    maxWidth: 205,
+    maxWidth: "100%",
   },
-  heroDivider: {
-    backgroundColor: referencePalette.whiteAlpha24,
-    height: StyleSheet.hairlineWidth,
-    marginTop: 9,
-    width: "58%",
-  },
-  heroMainRow: {
-    alignItems: "flex-start",
+  heroMetaChip: {
+    alignItems: "center",
     flexDirection: "row",
-    minHeight: 102,
+    flexShrink: 0,
+    gap: 6,
+    minWidth: 0,
     width: "100%",
   },
-  heroScheduleCopy: {
-    gap: 6,
+  heroMetaRow: {
+    gap: 3,
+    width: "100%",
   },
-  heroScheduleLine: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 7,
+  heroScheduleText: {
+    flexShrink: 1,
     minWidth: 0,
   },
-  heroScheduleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 10,
-    width: "58%",
-  },
   heroTitle: {
-    fontSize: 25,
-    lineHeight: 30,
-    maxWidth: 205,
+    fontSize: 16,
+    lineHeight: 21,
+    maxWidth: "100%",
   },
   homeHeader: {
-    gap: 17,
+    gap: 16,
+  },
+  homeBrand: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 9,
+    minWidth: 0,
+  },
+  homeBrandLogo: {
+    height: 46,
+    width: 46,
+  },
+  homeBrandTitle: {
+    color: REFERENCE_COLORS.white,
+    flexShrink: 1,
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 23,
   },
   identityCopy: {
     flex: 1,
@@ -1287,7 +1731,7 @@ const styles = StyleSheet.create({
   },
   list: {
     flexGrow: 1,
-    paddingTop: 10,
+    paddingTop: 0,
   },
   notificationButton: {
     alignItems: "center",
@@ -1308,25 +1752,57 @@ const styles = StyleSheet.create({
     width: 10,
   },
   planHero: {
-    borderRadius: 19,
-    minHeight: 196,
+    alignItems: "center",
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 4,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: -38,
+    minHeight: 132,
     overflow: "hidden",
-    padding: 16,
+    padding: 12,
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 5, width: 0 },
+    shadowOpacity: 0.13,
+    shadowRadius: 12,
   },
   planHeroCopy: {
     gap: 7,
-    maxWidth: "58%",
+    maxWidth: "100%",
     minWidth: 0,
     zIndex: 2,
   },
   planHeroPressed: {
     opacity: 0.9,
   },
+  personalEventButton: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.blueDeep,
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 54,
+    paddingHorizontal: 14,
+  },
+  personalEventIcon: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.white,
+    borderRadius: 6,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  personalEventLabel: {
+    color: REFERENCE_COLORS.white,
+    flex: 1,
+    minWidth: 0,
+  },
   profilePrompt: {
     alignItems: "stretch",
     backgroundColor: referencePalette.academicTealSurface,
     borderColor: referencePalette.academicTealBorder,
-    borderRadius: 18,
+    borderRadius: 8,
     borderWidth: 1,
     gap: 8,
     minHeight: 138,
@@ -1460,21 +1936,180 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 26,
   },
+  summaryGrid: {
+    flexDirection: "row",
+    gap: 10,
+    minWidth: 0,
+  },
+  weekSummaryCard: {
+    backgroundColor: REFERENCE_COLORS.teal,
+    borderRadius: 8,
+    flex: 1,
+    gap: 4,
+    justifyContent: "space-between",
+    minHeight: 154,
+    minWidth: 0,
+    overflow: "hidden",
+    padding: 13,
+  },
+  announcementSummaryCard: {
+    backgroundColor: homeDailyBriefColors.announcementSurface,
+    borderRadius: 8,
+    flex: 1,
+    gap: 4,
+    justifyContent: "space-between",
+    minHeight: 154,
+    minWidth: 0,
+    overflow: "hidden",
+    padding: 13,
+  },
+  summaryCardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+  },
+  summaryCardEyebrow: {
+    color: REFERENCE_COLORS.white,
+    flexShrink: 1,
+  },
+  summaryCardValue: {
+    color: REFERENCE_COLORS.white,
+    fontSize: 30,
+    lineHeight: 34,
+  },
+  summaryCardDetail: {
+    color: REFERENCE_COLORS.white,
+    opacity: 0.95,
+  },
+  summaryCardAction: {
+    alignItems: "center",
+    borderTopColor: homeDailyBriefColors.summaryDivider,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginHorizontal: -13,
+    marginTop: 5,
+    minHeight: 36,
+    paddingHorizontal: 13,
+    paddingTop: 7,
+  },
+  announcementSummaryEyebrow: {
+    color: REFERENCE_COLORS.navy,
+    flexShrink: 1,
+  },
+  announcementSummaryValue: {
+    color: REFERENCE_COLORS.navy,
+    fontSize: 30,
+    lineHeight: 34,
+  },
+  announcementSummaryDetail: {
+    color: REFERENCE_COLORS.navy,
+    opacity: 0.85,
+  },
+  announcementSummaryAction: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.white,
+    borderRadius: 6,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 5,
+    minHeight: 36,
+    paddingHorizontal: 10,
+  },
+  weeklyCalendar: {
+    gap: 8,
+  },
+  weeklyCalendarHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+  },
+  weeklyCalendarHeaderLargeText: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+    gap: 6,
+  },
+  weeklyCalendarTitle: {
+    color: REFERENCE_COLORS.navy,
+    flex: 1,
+    fontSize: 18,
+    lineHeight: 24,
+  },
+  weeklyCalendarTitleLargeText: {
+    flex: 0,
+    width: "100%",
+  },
+  calendarLink: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.blueSoft,
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 5,
+    minHeight: 38,
+    paddingHorizontal: 11,
+  },
+  calendarLinkLargeText: {
+    alignSelf: "flex-end",
+  },
+  weekDays: {
+    flexDirection: "row",
+    gap: 4,
+    justifyContent: "space-between",
+  },
+  weekDayTarget: {
+    alignItems: "center",
+    flex: 1,
+    gap: 5,
+    minWidth: 0,
+  },
+  weekDayName: {
+    color: REFERENCE_COLORS.navy,
+    fontSize: 9,
+    lineHeight: 12,
+    textAlign: "center",
+  },
+  weekDayCard: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.white,
+    borderColor: referencePalette.academicBorderCool,
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 56,
+    justifyContent: "center",
+    width: "100%",
+  },
+  weekDayCardSelected: {
+    backgroundColor: REFERENCE_COLORS.blueDeep,
+    borderColor: REFERENCE_COLORS.blueDeep,
+  },
+  weekDayNumber: {
+    color: REFERENCE_COLORS.navy,
+    fontSize: 16,
+    lineHeight: 21,
+  },
+  weekDayNumberSelected: {
+    color: REFERENCE_COLORS.white,
+  },
+  weekDayMarker: {
+    borderRadius: 4,
+    height: 7,
+    marginTop: 3,
+    width: 7,
+  },
   stateCard: {
   },
   topBar: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    minHeight: 48,
+    minHeight: 50,
   },
-  topBarSpacer: {
-    height: 44,
-    width: 44,
-  },
-  topBarTitle: {
-    flex: 1,
-    textAlign: "center",
+  topBarActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
   },
   trustedLabel: {
     letterSpacing: 0.3,

@@ -9,6 +9,37 @@ import {
 } from "./google-calendar-sync";
 
 export const GOOGLE_CALENDAR_CONNECTION_SCHEMA_VERSION = 3 as const;
+export const GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED = "GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED";
+
+export type GoogleCalendarAuthorizationErrorPresentation =
+  | { kind: "cancelled"; persistentError: null }
+  | { kind: "error" };
+
+export function resolveGoogleCalendarAuthorizationErrorPresentation(
+  error: unknown,
+  providerCancellationCode: unknown,
+): GoogleCalendarAuthorizationErrorPresentation {
+  if (
+    error instanceof Error
+    && error.message === GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED
+  ) {
+    return { kind: "cancelled", persistentError: null };
+  }
+
+  const hasComparableProviderCode = typeof providerCancellationCode === "string"
+    || typeof providerCancellationCode === "number";
+  if (
+    hasComparableProviderCode
+    && typeof error === "object"
+    && error !== null
+    && "code" in error
+    && error.code === providerCancellationCode
+  ) {
+    return { kind: "cancelled", persistentError: null };
+  }
+
+  return { kind: "error" };
+}
 
 export type GoogleCalendarLifecycleState =
   | "disconnected"
@@ -29,6 +60,14 @@ export type GoogleCalendarConnectionRecordV3 = {
   lastSyncedAt?: string;
   mappings: GoogleCalendarEventMapping[];
 };
+
+export function settledGoogleCalendarLifecycleState(
+  previousState?: GoogleCalendarLifecycleState,
+): GoogleCalendarLifecycleState {
+  return previousState === "checking" || previousState === "syncing" || !previousState
+    ? "disconnected"
+    : previousState;
+}
 
 export type GoogleCalendarMappingDuplicates = {
   sourceKeys: string[];

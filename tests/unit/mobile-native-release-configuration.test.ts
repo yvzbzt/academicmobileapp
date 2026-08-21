@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+
+const require = createRequire(import.meta.url);
 
 describe("mobile-native release configuration", () => {
   it("applies the installed SecureStore plugin with Android backup exclusions enabled", () => {
@@ -23,5 +26,49 @@ describe("mobile-native release configuration", () => {
     expect(appConfig.expo?.android?.googleServicesFile).toBe("./google-services.json");
     expect(readFileSync(resolve(".gitignore"), "utf8"))
       .toContain("apps/mobile-native/google-services.json");
+  });
+
+  it("seeds Firebase notification metadata with manifest merger overrides", () => {
+    const plugin = require(
+      resolve("apps/mobile-native/plugins/with-notification-manifest-overrides.cjs")
+    ) as {
+      applyNotificationManifestOverrides: (manifest: unknown) => unknown;
+    };
+    const manifest: {
+      manifest: {
+        $: Record<string, string>;
+        application: Array<{
+          $: Record<string, string>;
+          "meta-data"?: Array<{ $: Record<string, string> }>;
+        }>;
+      };
+    } = {
+      manifest: {
+        $: { "xmlns:android": "http://schemas.android.com/apk/res/android" },
+        application: [{ $: {} }]
+      }
+    };
+
+    plugin.applyNotificationManifestOverrides(manifest);
+
+    const root = manifest.manifest;
+    const metadata = root.application[0]["meta-data"] as Array<{ $: Record<string, string> }>;
+    expect(root.$["xmlns:tools"]).toBe("http://schemas.android.com/tools");
+    expect(metadata).toEqual(expect.arrayContaining([
+      {
+        $: {
+          "android:name": "com.google.firebase.messaging.default_notification_channel_id",
+          "android:value": "academic-updates",
+          "tools:replace": "android:value"
+        }
+      },
+      {
+        $: {
+          "android:name": "com.google.firebase.messaging.default_notification_color",
+          "android:resource": "@color/notification_icon_color",
+          "tools:replace": "android:resource"
+        }
+      }
+    ]));
   });
 });

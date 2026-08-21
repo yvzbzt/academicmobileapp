@@ -7,6 +7,7 @@ import {
   buildWeekSummary,
   calendarItemStartDateOnly,
   calendarPeriod,
+  classifyAcademicEventPresentation,
   composePersonalExamTimestamp,
   moveCalendarAnchor,
   personalExamDraftFromRecord,
@@ -62,17 +63,79 @@ describe("Phase 9 calendar and personal-exam model", () => {
       academicSourceLabel: "Örnek Üniversitesi Akademik Takvimi",
     });
     expect(items.map((item) => ({ id: item.id, label: item.classificationLabel, icon: item.icon }))).toEqual([
-      { id: "registration-range", label: "Son Başvuru", icon: "flag-outline" },
+      { id: "registration-range", label: "Kayıt ve başvuru", icon: "flag-outline" },
       { id: "final-exam", label: "Sınav", icon: "document-text-outline" },
-      { id: "personal-1", label: "Kişisel sınav", icon: "school-outline" },
+      { id: "personal-1", label: "Sınav", icon: "school-outline" },
       { id: "timestamped-orientation", label: "Etkinlik", icon: "calendar-outline" },
     ]);
+    expect(items.find((item) => item.id === "personal-1")?.timezone).toBe("Europe/Istanbul");
     expect(items[0]).toMatchObject({
       startDate: "2026-08-03",
       endDate: "2026-08-07",
       temporalKind: "date",
       endTemporalKind: "date",
     });
+  });
+
+  it("recovers production custom_event records from their Turkish titles", () => {
+    const items = buildCalendarItems({
+      academicEvents: [
+        {
+          id: "transfer-application",
+          title: "Lisansüstü Programlara Yatay Geçiş Başvuruları",
+          category: "custom_event",
+          startDate: "2026-08-27",
+        },
+        {
+          id: "double-major-registration",
+          title: "Lisans Programlarına Çift Anadal ve Yan Dal Kayıtları",
+          category: "custom_event",
+          startDate: "2026-08-28",
+        },
+        {
+          id: "additional-exams",
+          title: "Azami Süreyi Dolduran Öğrenciler için Ek Sınavlar",
+          category: "custom_event",
+          startDate: "2026-08-29",
+        },
+        {
+          id: "placement-exam",
+          title: "Yeni Kayıt Uluslararası Öğrenciler için İngilizce Hazırlık Sınıfı Yeterlik ve Seviye Tespit Sınavı (İMS)",
+          category: "custom_event",
+          startDate: "2026-08-30",
+        },
+      ],
+      personalExams: [],
+      academicSourceLabel: "VPS akademik takvimi",
+    });
+
+    expect(items.map((item) => ({
+      id: item.id,
+      classification: item.classification,
+      label: item.classificationLabel,
+      icon: item.icon,
+    }))).toEqual([
+      { id: "transfer-application", classification: "registration", label: "Kayıt ve başvuru", icon: "flag-outline" },
+      { id: "double-major-registration", classification: "registration", label: "Kayıt ve başvuru", icon: "flag-outline" },
+      { id: "additional-exams", classification: "exam", label: "Sınav", icon: "document-text-outline" },
+      { id: "placement-exam", classification: "exam", label: "Sınav", icon: "document-text-outline" },
+    ]);
+    expect(buildWeekSummary(items, "2026-08-27").slice(3).map((day) => day.classifications)).toEqual([
+      ["registration"],
+      ["registration"],
+      ["exam"],
+      ["exam"],
+    ]);
+  });
+
+  it("keeps title fallback conservative and distinguishes applications from registrations", () => {
+    expect(classifyAcademicEventPresentation("custom_event", "Yatay geçiş başvuruları")).toBe("application");
+    expect(classifyAcademicEventPresentation("custom_event", "Çift anadal kayıtları")).toBe("registration");
+    expect(classifyAcademicEventPresentation("custom_event", "Final sınavı sonuçları")).toBe("academic");
+    expect(classifyAcademicEventPresentation("custom_event", "Final sınavı başvuruları")).toBe("application");
+    expect(classifyAcademicEventPresentation("custom_event", "Başvuru sınavı")).toBe("exam");
+    expect(classifyAcademicEventPresentation("custom_event", "Kayıtlı öğrenciler için bilgilendirme")).toBe("academic");
+    expect(classifyAcademicEventPresentation("course_registration", "Staj başvuruları")).toBe("application");
   });
 
   it("keeps the university Calendar surface free of faculty and department schedules", () => {
@@ -211,9 +274,7 @@ describe("Phase 9 calendar and personal-exam model", () => {
     expect(draft.date).toBe("2024-02-29");
     expect(validatePersonalExamDraft(draft)).toEqual({});
     const timestamp = composePersonalExamTimestamp(draft);
-    expect(timestamp).not.toBeNull();
-    const selected = new Date(timestamp!);
-    expect([selected.getFullYear(), selected.getMonth() + 1, selected.getDate()]).toEqual([2024, 2, 29]);
+    expect(timestamp).toBe("2024-02-29T11:20:00.000Z");
   });
 
   it("keeps date-only February 29 stable and an inclusive Feb 28–Mar 1 range on every day", () => {
@@ -301,21 +362,22 @@ describe("Phase 9 calendar and personal-exam model", () => {
     expect(composePersonalExamTimestamp(dated)).toBeNull();
     const complete = applyTimeSelection(dated, new Date(2026, 7, 1, 13, 45));
     expect(validatePersonalExamDraft(complete)).toEqual({});
-    expect(new Date(composePersonalExamTimestamp(complete)!).getHours()).toBe(13);
-    expect(new Date(composePersonalExamTimestamp(complete)!).getMinutes()).toBe(45);
+    expect(composePersonalExamTimestamp(complete)).toBe("2026-08-14T10:45:00.000Z");
   });
 
-  it("round-trips an existing exam into an editable local date/time draft", () => {
+  it("round-trips an existing exam in Europe/Istanbul independently of the device timezone", () => {
     const draft = personalExamDraftFromRecord({
       id: "exam",
       title: "Fizik",
-      examDate: new Date(2026, 8, 1, 9, 20).toISOString(),
+      examDate: "2026-09-01T06:20:00.000Z",
     });
     expect(draft).toEqual({
       title: "Fizik",
+      kind: "exam",
       date: "2026-09-01",
       time: "09:20",
       locationNote: "",
+      reminderMinutesBefore: null,
     });
   });
 

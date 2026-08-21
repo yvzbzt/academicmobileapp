@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED,
   GoogleCalendarLifecycleGuard,
   authorizeAfterGoogleCalendarPreflight,
   executeGoogleCalendarLifecycle,
@@ -10,6 +11,8 @@ import {
   planGoogleCalendarExactMappingLookups,
   planGoogleCalendarLifecycle,
   readGoogleCalendarConnectionRecordV3,
+  resolveGoogleCalendarAuthorizationErrorPresentation,
+  settledGoogleCalendarLifecycleState,
   type GoogleCalendarLifecycleIntent,
   type GoogleCalendarLifecycleStep,
   type GoogleCalendarPreflightInput
@@ -17,6 +20,14 @@ import {
 import type { GoogleCalendarEventMapping } from "../../apps/mobile-native/src/google-calendar/google-calendar-sync";
 
 describe("Google Calendar lifecycle persistence", () => {
+  it("settles interrupted authorization without retaining a transient busy state", () => {
+    expect(settledGoogleCalendarLifecycleState()).toBe("disconnected");
+    expect(settledGoogleCalendarLifecycleState("checking")).toBe("disconnected");
+    expect(settledGoogleCalendarLifecycleState("syncing")).toBe("disconnected");
+    expect(settledGoogleCalendarLifecycleState("connected")).toBe("connected");
+    expect(settledGoogleCalendarLifecycleState("partial")).toBe("partial");
+  });
+
   it("accepts a current owner-scoped v3 record while discarding unknown credential fields", () => {
     const record = readGoogleCalendarConnectionRecordV3(JSON.stringify({
       schemaVersion: 3,
@@ -82,6 +93,44 @@ describe("Google Calendar lifecycle persistence", () => {
       googleEventIds: ["google-event-1"],
       hasDuplicates: true
     });
+  });
+});
+
+describe("Google Calendar authorization cancellation UX", () => {
+  const providerCancellationCode = "SIGN_IN_CANCELLED";
+
+  it("treats an explicit account chooser cancellation as neutral", () => {
+    expect(resolveGoogleCalendarAuthorizationErrorPresentation(
+      new Error(GOOGLE_CALENDAR_AUTHORIZATION_CANCELLED),
+      providerCancellationCode,
+    )).toEqual({ kind: "cancelled", persistentError: null });
+  });
+
+  it("treats the Google provider cancellation code as neutral", () => {
+    expect(resolveGoogleCalendarAuthorizationErrorPresentation(
+      { code: providerCancellationCode },
+      providerCancellationCode,
+    )).toEqual({ kind: "cancelled", persistentError: null });
+  });
+
+  it.each([
+    new Error("Network request failed"),
+    { code: "PLAY_SERVICES_NOT_AVAILABLE" },
+    { code: "IN_PROGRESS" },
+    { code: "SIGN_IN_CANCELLED" },
+    null,
+  ])("keeps non-cancellation failures visible for their existing handlers", (error) => {
+    expect(resolveGoogleCalendarAuthorizationErrorPresentation(
+      error,
+      "provider-cancel-code",
+    )).toEqual({ kind: "error" });
+  });
+
+  it("does not classify missing provider codes as cancellation", () => {
+    expect(resolveGoogleCalendarAuthorizationErrorPresentation(
+      { code: undefined },
+      undefined,
+    )).toEqual({ kind: "error" });
   });
 });
 

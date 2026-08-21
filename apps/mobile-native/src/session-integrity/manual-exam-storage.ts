@@ -10,7 +10,11 @@ export type ManualExamRecord = {
   title: string;
   examDate: string;
   locationNote?: string;
+  kind?: PersonalCalendarKind;
+  reminderMinutesBefore?: number;
 };
+
+export type PersonalCalendarKind = "exam" | "class" | "study" | "event" | "task" | "other";
 
 export type ManualExamEnvelope = {
   schemaVersion: typeof MANUAL_EXAM_ENVELOPE_VERSION;
@@ -148,13 +152,38 @@ function normalizeManualExamList(value: unknown): ManualExamRecord[] | null {
     if (!id || !title || !examDate) return null;
     const locationNote = readOptionalString(candidate.locationNote, 240);
     if (locationNote === false) return null;
+    const kind = readOptionalCalendarKind(candidate.kind);
+    if (kind === false) return null;
+    const reminderMinutesBefore = readOptionalReminderMinutes(candidate.reminderMinutesBefore);
+    if (reminderMinutesBefore === false) return null;
 
     // Pick only the persistence contract fields. Runtime-added credentials or
     // other properties must never hitchhike into the stored envelope.
-    normalized.push({ id, title, examDate, ...(locationNote ? { locationNote } : {}) });
+    normalized.push({
+      id,
+      title,
+      examDate,
+      ...(locationNote ? { locationNote } : {}),
+      ...(kind ? { kind } : {}),
+      ...(reminderMinutesBefore !== null ? { reminderMinutesBefore } : {})
+    });
   }
 
   return normalized;
+}
+
+function readOptionalCalendarKind(value: unknown): PersonalCalendarKind | null | false {
+  if (value === undefined || value === null || value === "") return null;
+  return value === "exam" || value === "class" || value === "study" || value === "event" || value === "task" || value === "other"
+    ? value
+    : false;
+}
+
+function readOptionalReminderMinutes(value: unknown): number | null | false {
+  if (value === undefined || value === null || value === "") return null;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 10_080
+    ? value
+    : false;
 }
 
 function requireOwnerId(value: string): string {

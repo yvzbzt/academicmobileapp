@@ -1,14 +1,20 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  Animated,
   Alert,
   BackHandler,
   Image,
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
   type TextInput,
 } from "react-native";
+import { useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Banner,
   Button,
@@ -16,8 +22,10 @@ import {
   IconButton,
   PasswordField,
   TextField,
+  authScreenColors,
   referencePalette,
   usePlatformAdaptation,
+  useReducedMotion,
   useTheme,
   type FeedbackTone,
 } from "../design-system";
@@ -68,6 +76,160 @@ interface AuthScaffoldProps {
   children: ReactNode;
 }
 
+interface AuthViewportMetrics {
+  safeHeight: number;
+  safeWidth: number;
+  short: boolean;
+}
+
+const SHORT_AUTH_VIEWPORT_HEIGHT = 620;
+const SHORT_LOGIN_CONTENT_MIN_HEIGHT = 620;
+
+function useAuthViewportMetrics(): AuthViewportMetrics {
+  const window = useWindowDimensions();
+  const safeAreaFrame = useSafeAreaFrame();
+  const safeAreaInsets = useSafeAreaInsets();
+  const frameHeight = safeAreaFrame.height > 0 ? safeAreaFrame.height : window.height;
+  const frameWidth = safeAreaFrame.width > 0 ? safeAreaFrame.width : window.width;
+  const viewportHeight = Math.min(frameHeight, window.height);
+  const viewportWidth = Math.min(frameWidth, window.width);
+  const safeHeight = Math.max(
+    0,
+    viewportHeight - safeAreaInsets.top - safeAreaInsets.bottom,
+  );
+  const safeWidth = Math.max(
+    0,
+    viewportWidth - safeAreaInsets.left - safeAreaInsets.right,
+  );
+
+  return {
+    safeHeight,
+    safeWidth,
+    short: safeHeight < SHORT_AUTH_VIEWPORT_HEIGHT,
+  };
+}
+
+function ShortAuthViewportScroll({
+  children,
+  minContentHeight,
+  testID,
+}: {
+  children: ReactNode;
+  minContentHeight: number;
+  testID: string;
+}) {
+  return (
+    <ScrollView
+      automaticallyAdjustKeyboardInsets
+      contentContainerStyle={[
+        styles.shortViewportScrollContent,
+        { minHeight: minContentHeight },
+      ]}
+      contentInsetAdjustmentBehavior="never"
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
+      showsVerticalScrollIndicator={false}
+      style={styles.shortViewportScroll}
+      testID={testID}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+export interface LoginViewportLayout {
+  compact: boolean;
+  descriptionReserve: number;
+  heroHeight: number;
+  iconSize: number;
+  sheetGap: number;
+  sheetPadding: number;
+  socialGap: number;
+  titleFontSize: number;
+  titleLineHeight: number;
+}
+
+export function resolveLoginViewportLayout(safeViewportHeight: number): LoginViewportLayout {
+  const height = Number.isFinite(safeViewportHeight) ? Math.max(0, safeViewportHeight) : 0;
+  const short = height < 620;
+  const compact = height < 760;
+
+  if (short) {
+    return {
+      compact: true,
+      descriptionReserve: 23,
+      heroHeight: Math.max(132, Math.min(152, height * 0.27)),
+      iconSize: 17,
+      sheetGap: 4,
+      sheetPadding: 8,
+      socialGap: 8,
+      titleFontSize: 24,
+      titleLineHeight: 29,
+    };
+  }
+
+  if (compact) {
+    return {
+      compact: true,
+      descriptionReserve: 23,
+      heroHeight: Math.min(188, height * 0.3),
+      iconSize: 18,
+      sheetGap: 8,
+      sheetPadding: 12,
+      socialGap: 10,
+      titleFontSize: 26,
+      titleLineHeight: 31,
+    };
+  }
+
+  return {
+    compact: false,
+    descriptionReserve: 31,
+    heroHeight: Math.min(350, height * 0.395),
+    iconSize: 20,
+    sheetGap: 12,
+    sheetPadding: 20,
+    socialGap: 12,
+    titleFontSize: 28,
+    titleLineHeight: 34,
+  };
+}
+
+const LOGIN_FORM_COLORS = {
+  fieldIcon: authScreenColors.fieldIcon,
+  fieldIconSurface: authScreenColors.fieldIconSurface,
+  fieldSurface: referencePalette.white,
+  googleBorder: authScreenColors.googleBorder,
+  googleSurface: referencePalette.white,
+  link: authScreenColors.fieldIcon,
+  primary: referencePalette.academicBlue,
+  primaryBorder: referencePalette.academicBlueDeep,
+  sheetSurface: referencePalette.white,
+} as const;
+
+const academicCalendarLogo = require("../../assets/design-package/academic-calendar-logo.png");
+
+const LOGIN_SOCIAL_ICONS = [
+  { name: "globe-outline", color: authScreenColors.socialIcon, surface: authScreenColors.socialSurface, border: authScreenColors.socialBorder },
+  { name: "logo-instagram", color: authScreenColors.socialIcon, surface: authScreenColors.socialSurface, border: authScreenColors.socialBorder },
+  { name: "logo-linkedin", color: authScreenColors.socialIcon, surface: authScreenColors.socialSurface, border: authScreenColors.socialBorder },
+  { name: "logo-youtube", color: authScreenColors.socialIcon, surface: authScreenColors.socialSurface, border: authScreenColors.socialBorder },
+] as const satisfies readonly {
+  name: keyof typeof Ionicons.glyphMap;
+  color: string;
+  surface: string;
+  border: string;
+}[];
+
+function LoginFieldIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
+  return (
+    <View style={styles.loginFieldIconBadge}>
+      <Ionicons color={LOGIN_FORM_COLORS.fieldIcon} name={name} size={18} />
+    </View>
+  );
+}
+
 function AuthScaffold({
   title,
   description,
@@ -78,19 +240,24 @@ function AuthScaffold({
   children,
 }: AuthScaffoldProps) {
   const theme = useTheme();
-  const adaptation = usePlatformAdaptation();
+  const viewport = useAuthViewportMetrics();
+  const loginLayout = resolveLoginViewportLayout(viewport.safeHeight);
+  const showHeroDescription = Boolean(description.trim()) && !feedback;
 
   if (hero) {
-    return (
+    const heroContent = (
       <View
         style={[
           styles.screenStack,
           styles.heroScreenStack,
           {
-            marginHorizontal: -adaptation.screenGutter,
-            marginTop: -theme.spacing.md,
+            height: viewport.short ? undefined : viewport.safeHeight,
+            minHeight: viewport.short
+              ? Math.max(viewport.safeHeight, SHORT_LOGIN_CONTENT_MIN_HEIGHT)
+              : undefined,
           },
         ]}
+        testID="login-hero-stack"
       >
         <View
           accessibilityElementsHidden
@@ -101,79 +268,177 @@ function AuthScaffold({
             {
               backgroundColor: theme.colors.background.subtle,
               borderColor: theme.colors.border.subtle,
-              borderRadius: theme.radii.prominent,
+              borderRadius: 0,
+              height: loginLayout.heroHeight,
+              marginTop: loginLayout.compact ? 6 : 10,
             },
           ]}
         >
           <Image
+            accessibilityIgnoresInvertColors
+            accessibilityLabel="Kampüste akademik hayat"
             resizeMode="cover"
             source={require("../../assets/auth-campus-login-v3.png")}
             style={styles.heroImage}
           />
         </View>
 
-        <Card
+        <View
           accessibilityLabel={`${title} formu`}
           style={[
             styles.heroSheet,
             {
-              backgroundColor: theme.colors.background.surface,
-              borderColor: theme.colors.border.subtle,
-              borderRadius: theme.radii.prominent,
-              gap: theme.spacing.md,
-              padding: theme.spacing.lg,
+              backgroundColor: LOGIN_FORM_COLORS.sheetSurface,
+              flex: 1,
+              marginTop: 0,
+              padding: loginLayout.sheetPadding,
             },
+            viewport.short && styles.heroSheetShort,
           ]}
-          variant="elevated"
+          testID="login-form-sheet"
         >
           <View
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
             style={[
-              styles.heroSheetCrest,
+              styles.loginCenteredContent,
               {
-                backgroundColor: theme.colors.action.primary,
-                borderColor: theme.colors.background.surface,
-                borderRadius: theme.radii.card,
+                gap: loginLayout.sheetGap,
+                paddingBottom: loginLayout.compact ? theme.spacing.sm : theme.spacing.xl,
+                transform: [{
+                  translateY: viewport.short
+                    ? 0
+                    : loginLayout.compact
+                      ? -10
+                      : -28,
+                }],
               },
+              viewport.short && styles.loginCenteredContentShort,
             ]}
           >
-            <Ionicons color={theme.colors.action.onPrimary} name="calendar-outline" size={29} />
-          </View>
-          <View style={[styles.heroIdentity, { gap: theme.spacing.xs }]}>
-            {eyebrow ? (
-              <Text style={[theme.typography.label, { color: theme.colors.text.link }]}>
-                {eyebrow}
-              </Text>
-            ) : null}
-            <Text
-              accessibilityRole="header"
-              testID="auth-hero-title"
-              style={[theme.typography.screenTitle, styles.heroTitle, { color: theme.colors.text.primary }]}
+            <View
+              style={[
+                styles.heroIdentity,
+                {
+                  gap: loginLayout.compact ? theme.spacing.xxs : theme.spacing.xs,
+                  marginBottom: 0,
+                },
+              ]}
             >
-              {title}
-            </Text>
-            <Text style={[theme.typography.body, styles.heroDescription, { color: theme.colors.text.secondary }]}>
-              {description}
-            </Text>
+              {eyebrow ? (
+                <Text style={[theme.typography.label, styles.heroEyebrow, { color: theme.colors.text.link }]}>
+                  {eyebrow}
+                </Text>
+              ) : null}
+              <View style={styles.loginBrandRow}>
+                <Image
+                  accessibilityIgnoresInvertColors
+                  accessibilityLabel="Akademik Takvim logosu"
+                  resizeMode="contain"
+                  source={academicCalendarLogo}
+                  style={[
+                    styles.loginBrandLogo,
+                    loginLayout.compact && styles.loginBrandLogoCompact,
+                  ]}
+                />
+                <Text
+                  accessibilityRole="header"
+                  maxFontSizeMultiplier={1.3}
+                  numberOfLines={1}
+                  testID="auth-hero-title"
+                  style={[
+                    theme.typography.screenTitle,
+                    styles.heroTitle,
+                    {
+                      color: theme.colors.text.primary,
+                      fontSize: loginLayout.titleFontSize,
+                      lineHeight: loginLayout.titleLineHeight,
+                    },
+                  ]}
+                >
+                  {title}
+                </Text>
+              </View>
+              {showHeroDescription ? (
+                <Text
+                  maxFontSizeMultiplier={1.2}
+                  style={[
+                    theme.typography.body,
+                    styles.heroDescription,
+                    loginLayout.compact && styles.heroDescriptionCompact,
+                    { color: theme.colors.text.secondary },
+                  ]}
+                >
+                  {description}
+                </Text>
+              ) : null}
+            </View>
+
+            {feedback ? (
+              <Banner
+                message={viewport.short ? undefined : feedback.text}
+                onDismiss={onDismissFeedback}
+                style={viewport.short ? styles.authFeedbackCompact : undefined}
+                title={viewport.short
+                  ? feedback.text
+                  : feedback.tone === "error"
+                    ? "İşlem tamamlanamadı"
+                    : feedback.tone === "success"
+                      ? "Tamamlandı"
+                      : "Bilgi"}
+                tone={feedback.tone}
+              />
+            ) : null}
+
+            {children}
           </View>
 
-          {feedback ? (
-            <Banner
-              message={feedback.text}
-              onDismiss={onDismissFeedback}
-              title={feedback.tone === "error" ? "İşlem tamamlanamadı" : feedback.tone === "success" ? "Tamamlandı" : "Bilgi"}
-              tone={feedback.tone}
-            />
-          ) : null}
-
-          {children}
-        </Card>
+          <View
+            accessible
+            accessibilityLabel="Sosyal medya kanalları"
+            style={[styles.loginFooter, { gap: loginLayout.socialGap }]}
+            testID="login-brand-footer"
+          >
+            <View style={[styles.loginSocialPool, { gap: theme.spacing.sm }]}>
+              {LOGIN_SOCIAL_ICONS.map((icon) => (
+                <View
+                  key={icon.name}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  style={[
+                    styles.loginSocialIcon,
+                    {
+                      backgroundColor: icon.surface,
+                      borderColor: icon.border,
+                      borderRadius: theme.radii.pill,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    color={icon.color}
+                    name={icon.name}
+                    size={loginLayout.iconSize}
+                  />
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
       </View>
     );
+
+    return viewport.short ? (
+      <ShortAuthViewportScroll
+        minContentHeight={Math.max(
+          viewport.safeHeight,
+          SHORT_LOGIN_CONTENT_MIN_HEIGHT,
+        )}
+        testID="auth-short-viewport-scroll-login"
+      >
+        {heroContent}
+      </ShortAuthViewportScroll>
+    ) : heroContent;
   }
 
-  return (
+  const formContent = (
     <View style={[styles.screenStack, { gap: theme.spacing.lg }]}>
       <View style={[styles.identity, { gap: theme.spacing.sm }]}>
         <View
@@ -224,6 +489,15 @@ function AuthScaffold({
       </Card>
     </View>
   );
+
+  return viewport.short ? (
+    <ShortAuthViewportScroll
+      minContentHeight={viewport.safeHeight}
+      testID="auth-short-viewport-scroll-form"
+    >
+      {formContent}
+    </ShortAuthViewportScroll>
+  ) : formContent;
 }
 
 export interface LoginScreenProps {
@@ -267,7 +541,7 @@ export function LoginScreen(props: LoginScreenProps) {
 
   return (
     <AuthScaffold
-      description="Sınavlarını, duyurularını ve akademik takvimini tek yerde takip et."
+      description=""
       feedback={props.feedback}
       hero
       onDismissFeedback={props.onDismissFeedback}
@@ -280,9 +554,12 @@ export function LoginScreen(props: LoginScreenProps) {
         blurOnSubmit={false}
         disabled={interactionBusy}
         error={attempted ? validation.errors.email : undefined}
+        frameStyle={styles.loginInputFrame}
         keyboardType="email-address"
         label="E-posta adresi"
         labelVisuallyHidden
+        leadingAccessory={<LoginFieldIcon name="mail-outline" />}
+        maxFontSizeMultiplier={1.2}
         onChangeText={props.onEmailChange}
         onSubmitEditing={() => passwordRef.current?.focus()}
         placeholder="E-posta adresiniz"
@@ -296,9 +573,12 @@ export function LoginScreen(props: LoginScreenProps) {
         autoComplete="password"
         disabled={interactionBusy}
         error={attempted ? validation.errors.password : undefined}
+        frameStyle={styles.loginInputFrame}
         ref={passwordRef}
         label="Şifre"
         labelVisuallyHidden
+        leadingAccessory={<LoginFieldIcon name="lock-closed-outline" />}
+        maxFontSizeMultiplier={1.2}
         onChangeText={props.onPasswordChange}
         onSubmitEditing={submit}
         placeholder="Şifreniz"
@@ -310,10 +590,14 @@ export function LoginScreen(props: LoginScreenProps) {
         disabled={interactionBusy}
         fullWidth
         label="Giriş yap"
-        leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="arrow-forward-circle" size={22} />}
         loading={props.busy}
+        maxFontSizeMultiplier={1.2}
         onPress={submit}
-        style={styles.loginPillButton}
+        style={[
+          styles.loginPillButton,
+          !interactionBusy && styles.loginPrimaryButton,
+        ]}
+        trailingIcon={!interactionBusy ? <Ionicons color={referencePalette.white} name="arrow-forward" size={18} /> : undefined}
       />
       {props.googleAvailable ? (
         <Button
@@ -322,14 +606,13 @@ export function LoginScreen(props: LoginScreenProps) {
           label="Google ile devam et"
           leadingIcon={<GoogleColorMark />}
           loading={props.googleBusy}
+          maxFontSizeMultiplier={1.2}
           onPress={props.onGoogleSubmit}
           style={[
             styles.loginPillButton,
-            {
-              backgroundColor: theme.colors.background.surface,
-              borderColor: theme.colors.border.subtle,
-            },
+            !(props.busy || props.googleBusy) && styles.loginGoogleButton,
           ]}
+          labelStyle={!(props.busy || props.googleBusy) && styles.loginGoogleLabel}
           variant="secondary"
         />
       ) : (
@@ -340,71 +623,27 @@ export function LoginScreen(props: LoginScreenProps) {
           compact
           disabled={interactionBusy}
           label="Şifremi unuttum"
+          labelStyle={!interactionBusy && styles.loginLinkLabel}
+          maxFontSizeMultiplier={1.2}
           onPress={props.onForgotPassword}
           variant="ghost"
         />
-        <View style={[styles.accountSwitch, { gap: theme.spacing.xxs }]}>
-          <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Hesabın yok mu?</Text>
-          <Button compact disabled={interactionBusy} label="Kayıt ol" onPress={props.onRegister} variant="ghost" />
-        </View>
-      </View>
-      <View
-        accessible
-        accessibilityLabel="Güvenilir akademik içerik. Verileriniz güvende. Resmi kaynaklardan güncellenir."
-        style={[
-          styles.loginTrustStrip,
-          {
-            backgroundColor: theme.colors.background.subtle,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.radii.card,
-          },
-        ]}
-      >
-        <TrustItem icon="shield-checkmark-outline" label={"Güvenilir\nakademik içerik"} tone="success" />
-        <TrustItem icon="lock-closed" label={"Verileriniz\ngüvende"} tone="primary" />
-        <TrustItem icon="ribbon-outline" label={"Resmi kaynaklardan\ngüncellenir"} tone="error" />
-      </View>
-      <View style={[styles.loginFooter, { gap: theme.spacing.xs }]}>
-        <Ionicons color={referencePalette.heart} name="heart" size={19} />
-        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Öğrenciler için tasarlandı, başarıya giden yolda seninle.</Text>
+        <Button
+          compact
+          disabled={interactionBusy}
+          label="Kayıt ol"
+          labelStyle={!interactionBusy && styles.loginLinkLabel}
+          maxFontSizeMultiplier={1.2}
+          onPress={props.onRegister}
+          variant="ghost"
+        />
       </View>
     </AuthScaffold>
   );
 }
 
-function TrustItem({
-  icon,
-  label,
-  tone,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  tone: "primary" | "success" | "error";
-}) {
-  const theme = useTheme();
-  const color = tone === "success"
-    ? theme.colors.status.success
-    : tone === "error"
-      ? theme.colors.status.error
-      : theme.colors.action.primary;
-  const backgroundColor = tone === "success"
-    ? theme.colors.status.successContainer
-    : tone === "error"
-      ? theme.colors.status.errorContainer
-      : theme.colors.action.secondary;
-  return (
-    <View style={[styles.trustItem, { gap: theme.spacing.xxs }]}>
-      <View style={[styles.trustIcon, { backgroundColor, borderRadius: theme.radii.pill }]}>
-        <Ionicons color={color} name={icon} size={20} />
-      </View>
-      <Text style={[theme.typography.meta, styles.trustLabel, { color: theme.colors.text.secondary }]}>{label}</Text>
-    </View>
-  );
-}
-
 /** Code-native rendering of Google's multicolor G for the OAuth action. */
 function GoogleColorMark() {
-  const theme = useTheme();
   return (
     <View
       accessibilityElementsHidden
@@ -413,7 +652,7 @@ function GoogleColorMark() {
       testID="google-color-mark"
     >
       <View style={styles.googleRing} />
-      <View style={[styles.googleRingCutout, { backgroundColor: theme.colors.background.surface }]} />
+      <View style={[styles.googleRingCutout, { backgroundColor: LOGIN_FORM_COLORS.googleSurface }]} />
       <View style={styles.googleCrossbar} />
     </View>
   );
@@ -437,15 +676,20 @@ export interface RegistrationScreenProps {
 
 export function RegistrationScreen(props: RegistrationScreenProps) {
   const theme = useTheme();
+  const viewport = useAuthViewportMetrics();
   const [attempted, setAttempted] = useState(false);
   const nameRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const confirmationRef = useRef<TextInput>(null);
+  const [legalAccepted, setLegalAccepted] = useState(false);
+  const [legalAttempted, setLegalAttempted] = useState(false);
   const validation = validateRegistrationForm(props);
+  const passwordRuleText = `En az ${AUTH_PASSWORD_MIN_LENGTH} karakter; büyük/küçük harf, rakam ve özel karakter gruplarından en az ${AUTH_PASSWORD_REQUIRED_CHARACTER_GROUPS} tanesi.`;
 
   function submit() {
     setAttempted(true);
+    setLegalAttempted(true);
     if (!validation.valid) {
       if (validation.errors.fullName) nameRef.current?.focus();
       else if (validation.errors.email) emailRef.current?.focus();
@@ -453,73 +697,68 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
       else confirmationRef.current?.focus();
       return;
     }
+    if (!legalAccepted) return;
     props.onSubmit();
   }
 
-  return (
+  const registrationContent = (
     <View
       style={[
         styles.registrationScreen,
         {
-          gap: theme.spacing.md,
+          gap: theme.spacing.sm,
         },
       ]}
     >
-      <View style={styles.registrationTopBar}>
-        <IconButton
+      <View style={styles.registrationBrandBar}>
+        <Pressable
           accessibilityLabel="Geri dön"
+          accessibilityRole="button"
           disabled={props.busy}
-          icon={<Ionicons color={theme.colors.text.primary} name="arrow-back" size={25} />}
+          hitSlop={8}
           onPress={props.onLogin}
-          style={{ borderRadius: theme.radii.card }}
-        />
-      </View>
-
-      <View style={[styles.registrationHero, { minHeight: 230 }]}>
-        <View style={[styles.registrationHeroCopy, { gap: theme.spacing.sm }]}>
-          <View
-            style={[
-              styles.registrationBrand,
-              {
-                backgroundColor: theme.colors.action.primary,
-                borderRadius: theme.radii.card,
-              },
-            ]}
+          style={({ pressed }) => [
+            styles.registrationBackButton,
+            pressed && styles.authControlPressed,
+          ]}
+        >
+          <Ionicons color={referencePalette.navy} name="arrow-back" size={27} />
+        </Pressable>
+        <View
+          accessibilityLabel="Akademik Takvim"
+          style={styles.registrationBrandIdentity}
+        >
+          <Image
+            accessibilityIgnoresInvertColors
+            resizeMode="contain"
+            source={academicCalendarLogo}
+            style={styles.registrationBrandLogo}
+          />
+          <Text
+            maxFontSizeMultiplier={1.15}
+            numberOfLines={1}
+            style={[theme.typography.bodyStrong, styles.registrationBrandTitle]}
           >
-            <Ionicons color={theme.colors.action.onPrimary} name="calendar-outline" size={27} />
-          </View>
-          <Text accessibilityRole="header" style={[theme.typography.display, { color: theme.colors.text.primary }]}>Akademik{"\n"}Takvim</Text>
-          <Text style={[theme.typography.body, { color: theme.colors.text.primary }]}>Üniversite hayatını planla, <Text style={{ color: theme.colors.text.link }}>hedeflerine bir adım daha yaklaş.</Text></Text>
+            Akademik Takvim
+          </Text>
         </View>
-        <Image
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          resizeMode="cover"
-          source={require("../../assets/auth-campus-hero-v2.png")}
-          style={styles.registrationHeroImage}
-        />
+        <View accessibilityElementsHidden style={styles.registrationBrandSpacer} />
       </View>
 
-      <View
-        accessible
-        accessibilityLabel="1 / 3. Hesap oluştur"
-        style={[
-          styles.registrationProgress,
-          {
-            backgroundColor: theme.colors.background.surface,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.radii.card,
-            gap: theme.spacing.md,
-            padding: theme.spacing.md,
-          },
-        ]}
-      >
-        <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}><Text style={[theme.typography.sectionTitle, { color: theme.colors.text.link }]}>1 / 3</Text>  ·  Hesap oluştur</Text>
-        <View style={[styles.progressSegments, { gap: theme.spacing.xxs }]}>
-          <View style={[styles.progressSegment, { backgroundColor: theme.colors.action.primary }]} />
-          <View style={[styles.progressSegment, { backgroundColor: theme.colors.background.subtle }]} />
-          <View style={[styles.progressSegment, { backgroundColor: theme.colors.background.subtle }]} />
-        </View>
+      <View style={[styles.registrationHeader, { gap: theme.spacing.xxs }]}>
+        <Text
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.2}
+          style={[theme.typography.screenTitle, styles.registrationTitle]}
+        >
+          Hesabını oluştur
+        </Text>
+        <Text
+          maxFontSizeMultiplier={1.15}
+          style={[theme.typography.body, { color: theme.colors.text.secondary }]}
+        >
+          Öğrenci hesabın için gerekli bilgileri doldur.
+        </Text>
       </View>
 
       {props.feedback ? (
@@ -531,11 +770,15 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
         />
       ) : null}
 
-      <Card
+      <View
         accessibilityLabel="Hesap oluşturma formu"
-        style={styles.registrationForm}
+        style={[
+          styles.registrationForm,
+          {
+            gap: theme.spacing.sm,
+          },
+        ]}
         testID="registration-form-card"
-        variant="elevated"
       >
         <TextField
           autoCapitalize="words"
@@ -543,8 +786,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           blurOnSubmit={false}
           disabled={props.busy}
           error={attempted ? validation.errors.fullName : undefined}
-          frameStyle={styles.registrationFieldFrame}
-          inlineLabel
+          frameStyle={styles.registrationInputFrame}
           leadingAccessory={<AuthFieldIcon name="person-outline" />}
           ref={nameRef}
           label="Ad soyad"
@@ -563,15 +805,14 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           blurOnSubmit={false}
           disabled={props.busy}
           error={attempted ? validation.errors.email : undefined}
-          frameStyle={styles.registrationFieldFrame}
-          inlineLabel
+          frameStyle={styles.registrationInputFrame}
           leadingAccessory={<AuthFieldIcon name="mail-outline" />}
           ref={emailRef}
           keyboardType="email-address"
           label="E-posta adresi"
           onChangeText={props.onEmailChange}
           onSubmitEditing={() => passwordRef.current?.focus()}
-          placeholder="ornek@universite.edu.tr"
+          placeholder="E-posta adresinizi girin"
           returnKeyType="next"
           submitBehavior="submit"
           textContentType="emailAddress"
@@ -582,8 +823,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           blurOnSubmit={false}
           disabled={props.busy}
           error={attempted ? validation.errors.password : undefined}
-          frameStyle={styles.registrationFieldFrame}
-          inlineLabel
+          frameStyle={styles.registrationInputFrame}
           leadingAccessory={<AuthFieldIcon name="lock-closed-outline" />}
           ref={passwordRef}
           label="Şifre"
@@ -595,12 +835,12 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           textContentType="newPassword"
           value={props.password}
         />
+        <PasswordStrengthMeter password={props.password} ruleText={passwordRuleText} />
         <PasswordField
           autoComplete="new-password"
           disabled={props.busy}
           error={attempted ? validation.errors.passwordConfirmation : undefined}
-          frameStyle={[styles.registrationFieldFrame, styles.registrationFieldFrameLast]}
-          inlineLabel
+          frameStyle={styles.registrationInputFrame}
           leadingAccessory={<AuthFieldIcon name="lock-closed-outline" />}
           ref={confirmationRef}
           label="Şifre tekrar"
@@ -611,36 +851,24 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           textContentType="newPassword"
           value={props.passwordConfirmation}
         />
-      </Card>
-
-      <View
-        accessibilityLiveRegion="polite"
-        style={[
-          styles.passwordStrength,
-          {
-            backgroundColor: theme.colors.background.surface,
-            borderColor: theme.colors.border.subtle,
-            borderRadius: theme.radii.card,
-            gap: theme.spacing.sm,
-            padding: theme.spacing.md,
-          },
-        ]}
-      >
-        <View style={[styles.passwordStrengthHeading, { gap: theme.spacing.sm }]}>
-          <View style={[styles.passwordShield, { backgroundColor: theme.colors.status.successContainer, borderRadius: theme.radii.pill }]}>
-            <Ionicons color={theme.colors.status.success} name="shield-checkmark-outline" size={30} />
-          </View>
-          <View style={styles.passwordStrengthCopy}>
-            <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Güçlü bir şifre, güvenli bir başlangıç</Text>
-            <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Şifren en az {AUTH_PASSWORD_MIN_LENGTH} karakter olmalı ve aşağıdaki gruplardan en az {AUTH_PASSWORD_REQUIRED_CHARACTER_GROUPS} tanesini içermelidir.</Text>
-          </View>
-        </View>
-        <View style={[styles.requirementChips, { gap: theme.spacing.xs }]}>
-          <RequirementChip complete={validation.requirements.minimumLength} label={`${AUTH_PASSWORD_MIN_LENGTH}+ karakter`} />
-          <RequirementChip complete={validation.requirements.uppercase} label="Büyük harf (A-Z)" />
-          <RequirementChip complete={validation.requirements.lowercase} label="Küçük harf (a-z)" />
-          <RequirementChip complete={validation.requirements.digit} label="Rakam (0-9)" />
-          <RequirementChip complete={validation.requirements.special} label="Özel karakter (!@#?)" />
+        <View style={styles.registrationDivider} />
+        <View
+          style={[
+            styles.legalConsent,
+            {
+              backgroundColor: theme.colors.background.surface,
+              gap: theme.spacing.xs,
+            },
+          ]}
+        >
+          <CheckRow
+            checked={legalAccepted}
+            disabled={props.busy}
+            error={legalAttempted && !legalAccepted ? "Devam etmek için kayıt onaylarını kabul et." : undefined}
+            label="KVKK Aydınlatma Metni, Gizlilik Politikası ve Kullanım Koşulları'nı okudum ve kabul ediyorum."
+            onChange={setLegalAccepted}
+            testID="registration-legal-consent"
+          />
         </View>
       </View>
 
@@ -649,7 +877,10 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
         label="Devam et"
         loading={props.busy}
         onPress={submit}
-        trailingIcon={<Ionicons color={theme.colors.action.onPrimary} name="arrow-forward" size={23} />}
+        style={[
+          !props.busy && styles.loginPrimaryButton,
+        ]}
+        trailingIcon={<Ionicons color={referencePalette.white} name="arrow-forward" size={23} />}
       />
       <View style={[styles.accountSwitch, { gap: theme.spacing.xs }]}>
         <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Zaten hesabın var mı?</Text>
@@ -657,34 +888,216 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
       </View>
     </View>
   );
+
+  return viewport.short ? (
+    <ShortAuthViewportScroll
+      minContentHeight={viewport.safeHeight}
+      testID="auth-short-viewport-scroll-registration"
+    >
+      {registrationContent}
+    </ShortAuthViewportScroll>
+  ) : registrationContent;
+}
+
+type PasswordStrengthLevel = 1 | 2 | 3 | 4;
+
+const PASSWORD_STRENGTH_LABELS: Record<PasswordStrengthLevel, string> = {
+  1: "Zayıf",
+  2: "Orta",
+  3: "İyi",
+  4: "Güçlü",
+};
+
+function passwordStrengthLevel(password: string): PasswordStrengthLevel {
+  const requirements = evaluateAuthPassword(password);
+  if (requirements.minimumLength && requirements.characterGroupCount === 4 && password.length >= 12) {
+    return 4;
+  }
+  if (requirements.minimumLength && requirements.characterGroupsComplete) {
+    return 3;
+  }
+  if (requirements.characterGroupCount >= 2 || password.length >= AUTH_PASSWORD_MIN_LENGTH) {
+    return 2;
+  }
+  return 1;
+}
+
+function PasswordStrengthMeter({
+  password,
+  ruleText,
+}: {
+  password: string;
+  ruleText: string;
+}) {
+  const theme = useTheme();
+  const reducedMotion = useReducedMotion();
+  const progress = useRef(new Animated.Value(0)).current;
+  const level = password ? passwordStrengthLevel(password) : 0;
+
+  useEffect(() => {
+    if (reducedMotion) {
+      return undefined;
+    }
+    const animation = Animated.timing(progress, {
+      duration: 200,
+      toValue: level,
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [level, progress, reducedMotion]);
+
+  if (!password) return null;
+
+  const fillWidth = progress.interpolate({
+    inputRange: [0, 1, 2, 3, 4],
+    outputRange: ["0%", "25%", "50%", "75%", "100%"],
+  });
+  const fillColor = progress.interpolate({
+    inputRange: [0, 1, 2, 3, 4],
+    outputRange: [
+      authScreenColors.passwordWeak,
+      authScreenColors.passwordWeak,
+      authScreenColors.passwordMedium,
+      authScreenColors.passwordGood,
+      authScreenColors.passwordStrong,
+    ],
+  });
+  const strengthLabel = PASSWORD_STRENGTH_LABELS[level as PasswordStrengthLevel];
+  const staticFillColor = level === 1
+    ? authScreenColors.passwordWeak
+    : level === 2
+      ? authScreenColors.passwordMedium
+      : level === 3
+        ? authScreenColors.passwordGood
+        : authScreenColors.passwordStrong;
+  const staticFillWidth = `${level * 25}%` as `${number}%`;
+
+  return (
+    <View
+      accessibilityLabel={`Şifre gücü: ${strengthLabel}. ${ruleText}`}
+      accessibilityRole="summary"
+      style={styles.passwordStrength}
+      testID="registration-password-strength"
+    >
+      <View style={styles.passwordStrengthTrack}>
+        {reducedMotion ? (
+          <View
+            style={[
+              styles.passwordStrengthFill,
+              { backgroundColor: staticFillColor, width: staticFillWidth },
+            ]}
+          />
+        ) : (
+          <Animated.View
+            style={[
+              styles.passwordStrengthFill,
+              { backgroundColor: fillColor, width: fillWidth },
+            ]}
+          />
+        )}
+        <View style={[styles.passwordStrengthDivider, { left: "25%" }]} />
+        <View style={[styles.passwordStrengthDivider, { left: "50%" }]} />
+        <View style={[styles.passwordStrengthDivider, { left: "75%" }]} />
+      </View>
+      <Text
+        maxFontSizeMultiplier={1.15}
+        style={[theme.typography.meta, styles.passwordRuleText, { color: theme.colors.text.secondary }]}
+      >
+        {ruleText}
+      </Text>
+      <Text
+        maxFontSizeMultiplier={1.15}
+        style={[
+          theme.typography.label,
+          styles.passwordStrengthLabel,
+          {
+            color: level === 1
+              ? authScreenColors.passwordWeakText
+              : level === 2
+                ? authScreenColors.passwordMediumText
+                : level === 3
+                  ? authScreenColors.passwordGoodText
+                  : authScreenColors.passwordStrongText,
+          },
+        ]}
+      >
+        {strengthLabel}
+      </Text>
+    </View>
+  );
+}
+
+function CheckRow({
+  checked,
+  disabled = false,
+  error,
+  label,
+  onChange,
+  testID,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  error?: string;
+  label: string;
+  onChange: (value: boolean) => void;
+  testID?: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.checkRowStack, { gap: theme.spacing.xxs }]}>
+      <Pressable
+        accessibilityHint={error}
+        accessibilityLabel={label}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked, disabled }}
+        disabled={disabled}
+        onPress={() => onChange(!checked)}
+        style={({ pressed }) => [
+          styles.checkRow,
+          {
+            backgroundColor: pressed ? theme.colors.action.ghostPressed : "transparent",
+            borderRadius: theme.radii.control,
+            gap: theme.spacing.sm,
+            opacity: disabled ? 0.65 : 1,
+          },
+        ]}
+        testID={testID}
+      >
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            styles.checkboxBox,
+            {
+              backgroundColor: checked ? LOGIN_FORM_COLORS.primary : theme.colors.background.surface,
+              borderColor: checked ? LOGIN_FORM_COLORS.primaryBorder : theme.colors.border.default,
+              borderRadius: theme.radii.small,
+            },
+          ]}
+        >
+          {checked ? <Ionicons color={referencePalette.white} name="checkmark" size={17} /> : null}
+        </View>
+        <Text style={[theme.typography.metaStrong, styles.checkRowLabel, { color: theme.colors.text.primary }]}>{label}</Text>
+      </Pressable>
+      {error ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+          style={[theme.typography.meta, { color: theme.colors.status.error }]}
+        >
+          {error}
+        </Text>
+      ) : null}
+    </View>
+  );
 }
 
 function AuthFieldIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
   const theme = useTheme();
   return (
-    <View style={[styles.authFieldIcon, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.control }]}>
-      <Ionicons color={theme.colors.action.primary} name={name} size={20} />
-    </View>
-  );
-}
-
-function RequirementChip({ complete, label }: { complete: boolean; label: string }) {
-  const theme = useTheme();
-  return (
-    <View
-      accessible
-      accessibilityLabel={`${label}. ${complete ? "Karşılandı" : "Henüz karşılanmadı"}.`}
-      style={[
-        styles.requirementChip,
-        {
-          backgroundColor: complete ? theme.colors.status.successContainer : theme.colors.status.errorContainer,
-          borderRadius: theme.radii.small,
-          gap: theme.spacing.xxs,
-        },
-      ]}
-    >
-      <Ionicons color={complete ? theme.colors.status.success : theme.colors.status.error} name={complete ? "checkmark-circle" : "ellipse"} size={14} />
-      <Text style={[theme.typography.meta, { color: complete ? theme.colors.status.success : theme.colors.status.error }]}>{label}</Text>
+    <View style={[styles.authFieldIcon, { backgroundColor: LOGIN_FORM_COLORS.fieldIconSurface, borderRadius: theme.radii.control }]}>
+      <Ionicons color={LOGIN_FORM_COLORS.fieldIcon} name={name} size={19} />
     </View>
   );
 }
@@ -1067,17 +1480,25 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         <View style={styles.onboardingTopSpacer} />
       </View>
 
-      <Image
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        resizeMode="contain"
-        source={require("../../assets/academic-profile-campus.png")}
-        style={styles.onboardingCampus}
-      />
-
-      <View style={[styles.onboardingIdentity, { gap: theme.spacing.xs }]}>
-        <Text accessibilityRole="header" style={[theme.typography.display, styles.onboardingTitle, { color: theme.colors.text.primary }]}>Akademik profilini tamamla</Text>
-        <Text style={[theme.typography.body, styles.onboardingDescription, { color: theme.colors.text.secondary }]}>Profil bilgilerin, takvimini sana özel hale getirir ve bölümüne özel duyuruları kaçırmamanı sağlar.</Text>
+      <View
+        style={[
+          styles.onboardingIdentity,
+          {
+            backgroundColor: theme.colors.background.subtle,
+            borderColor: theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+            gap: theme.spacing.md,
+            padding: theme.spacing.md,
+          },
+        ]}
+      >
+        <View style={[styles.onboardingIdentityIcon, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.card }]}>
+          <Ionicons color={theme.colors.action.primary} name="school-outline" size={26} />
+        </View>
+        <View style={[styles.onboardingIdentityCopy, { gap: theme.spacing.xxs }]}>
+          <Text accessibilityRole="header" style={[theme.typography.screenTitle, styles.onboardingTitle, { color: theme.colors.text.primary }]}>Akademik profilini tamamla</Text>
+          <Text style={[theme.typography.body, styles.onboardingDescription, { color: theme.colors.text.secondary }]}>Üniversiteni seç; takvim ve duyuru kapsamını sana göre hazırlayalım.</Text>
+        </View>
       </View>
 
       {props.feedback ? (
@@ -1150,14 +1571,14 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         ]}
       >
         <View style={[styles.onboardingInfoIcon, { backgroundColor: theme.colors.action.primary, borderRadius: theme.radii.pill }]}>
-          <Ionicons color={theme.colors.action.onPrimary} name="sparkles" size={22} />
+          <Ionicons color={theme.colors.action.onPrimary} name="information-outline" size={22} />
         </View>
         <Text style={[theme.typography.bodyStrong, styles.onboardingInfoText, { color: theme.colors.status.onInfoContainer }]}>Doğru bilgilerle sınav tarihleri, kayıt dönemleri ve bölümüne özel duyurular sana özel gelir.</Text>
       </View>
       <Button
         fullWidth
         label="Profili kaydet"
-        leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="briefcase-outline" size={21} />}
+        leadingIcon={<Ionicons color={theme.colors.action.onPrimary} name="checkmark-circle-outline" size={21} />}
         loading={props.busy}
         onPress={save}
       />
@@ -1236,6 +1657,14 @@ const styles = StyleSheet.create({
   authCard: {
     padding: 20,
   },
+  shortViewportScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  shortViewportScrollContent: {
+    flexGrow: 1,
+    width: "100%",
+  },
   screenStack: {
     width: "100%",
   },
@@ -1246,18 +1675,32 @@ const styles = StyleSheet.create({
   heroIdentity: {
     alignItems: "center",
     paddingBottom: 2,
-    paddingTop: 4,
+    paddingHorizontal: 2,
+    width: "100%",
+  },
+  loginBrandRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+    maxWidth: "100%",
+  },
+  loginBrandLogo: {
+    height: 62,
+    width: 62,
+  },
+  loginBrandLogoCompact: {
+    height: 48,
+    width: 48,
   },
   heroScreenStack: {
     alignSelf: "stretch",
+    minHeight: 0,
     width: "auto",
   },
   heroFrame: {
-    aspectRatio: 4 / 3,
     borderWidth: StyleSheet.hairlineWidth,
-    maxHeight: 330,
     overflow: "hidden",
-    position: "relative",
     width: "100%",
   },
   heroImage: {
@@ -1265,35 +1708,97 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   heroSheet: {
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    marginTop: -36,
-    overflow: "visible",
-    paddingTop: 34,
+    justifyContent: "space-between",
+    minHeight: 0,
+    overflow: "hidden",
   },
-  heroSheetCrest: {
-    alignItems: "center",
-    alignSelf: "center",
-    borderWidth: 5,
-    height: 58,
+  heroSheetShort: {
+    flex: 0,
+    overflow: "visible",
+  },
+  loginCenteredContent: {
+    flex: 1,
     justifyContent: "center",
-    position: "absolute",
-    top: -29,
-    width: 58,
+    minHeight: 0,
+    width: "100%",
+  },
+  loginCenteredContentShort: {
+    flex: 0,
+    justifyContent: "flex-start",
+  },
+  heroEyebrow: {
+    textAlign: "center",
+    width: "100%",
   },
   heroTitle: {
-    fontSize: 32,
+    flexShrink: 1,
     fontWeight: "800",
-    letterSpacing: -0.6,
-    lineHeight: 38,
+    letterSpacing: 0,
     textAlign: "center",
+    width: "auto",
   },
   heroDescription: {
     maxWidth: 390,
     textAlign: "center",
   },
+  heroDescriptionCompact: {
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  authFeedbackCompact: {
+    gap: 4,
+    padding: 8,
+  },
   loginPillButton: {
     borderRadius: 999,
+  },
+  loginFieldIconBadge: {
+    alignItems: "center",
+    backgroundColor: LOGIN_FORM_COLORS.fieldIconSurface,
+    borderRadius: 999,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  loginInputFrame: {
+    backgroundColor: LOGIN_FORM_COLORS.fieldSurface,
+  },
+  loginPrimaryButton: {
+    backgroundColor: LOGIN_FORM_COLORS.primary,
+    borderColor: LOGIN_FORM_COLORS.primaryBorder,
+    shadowColor: LOGIN_FORM_COLORS.primaryBorder,
+    shadowOffset: { height: 5, width: 0 },
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  loginGoogleButton: {
+    backgroundColor: LOGIN_FORM_COLORS.googleSurface,
+    borderColor: LOGIN_FORM_COLORS.googleBorder,
+  },
+  loginGoogleLabel: {
+    color: LOGIN_FORM_COLORS.link,
+  },
+  loginLinkLabel: {
+    color: LOGIN_FORM_COLORS.link,
+  },
+  loginFooter: {
+    alignItems: "center",
+    flexShrink: 0,
+    paddingTop: 4,
+    width: "100%",
+  },
+  loginSocialPool: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+  },
+  loginSocialIcon: {
+    alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
   },
   googleMark: {
     height: 24,
@@ -1331,36 +1836,28 @@ const styles = StyleSheet.create({
   loginLinks: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
     justifyContent: "space-between",
   },
-  loginTrustStrip: {
-    alignItems: "stretch",
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    overflow: "hidden",
-    paddingVertical: 12,
+  checkRowStack: {
+    width: "100%",
   },
-  trustItem: {
+  checkRow: {
     alignItems: "center",
+    flexDirection: "row",
+    minHeight: 48,
+    paddingHorizontal: 2,
+    paddingVertical: 4,
+  },
+  checkboxBox: {
+    alignItems: "center",
+    borderWidth: 1,
+    height: 24,
+    justifyContent: "center",
+    width: 24,
+  },
+  checkRowLabel: {
     flex: 1,
-    justifyContent: "flex-start",
-    paddingHorizontal: 4,
-  },
-  trustIcon: {
-    alignItems: "center",
-    height: 38,
-    justifyContent: "center",
-    width: 38,
-  },
-  trustLabel: {
-    textAlign: "center",
-  },
-  loginFooter: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "center",
-    paddingTop: 6,
+    minWidth: 0,
   },
   identityMark: {
     alignItems: "center",
@@ -1387,98 +1884,126 @@ const styles = StyleSheet.create({
   },
   registrationScreen: {
     alignSelf: "stretch",
+    backgroundColor: referencePalette.white,
     width: "auto",
   },
-  registrationTopBar: {
-    alignItems: "flex-start",
-  },
-  registrationHero: {
-    overflow: "hidden",
-    position: "relative",
-  },
-  registrationHeroCopy: {
-    justifyContent: "center",
-    maxWidth: "46%",
-    minHeight: 220,
-    zIndex: 1,
-  },
-  registrationBrand: {
+  registrationBrandBar: {
     alignItems: "center",
-    height: 54,
-    justifyContent: "center",
-    width: 54,
-  },
-  registrationHeroImage: {
-    bottom: -34,
-    height: 300,
-    position: "absolute",
-    right: -48,
-    width: "72%",
-  },
-  registrationProgress: {
-    alignItems: "center",
-    borderWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
+    minHeight: 58,
   },
-  progressSegments: {
-    flex: 1,
+  registrationBackButton: {
+    alignItems: "center",
+    borderRadius: 8,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  registrationBrandIdentity: {
+    alignItems: "center",
     flexDirection: "row",
-    justifyContent: "flex-end",
-    maxWidth: 150,
+    gap: 8,
+    justifyContent: "center",
+    minWidth: 0,
   },
-  progressSegment: {
-    borderRadius: 999,
-    flex: 1,
-    height: 6,
+  registrationBrandLogo: {
+    height: 50,
+    width: 50,
+  },
+  registrationBrandSpacer: {
+    width: 48,
+  },
+  registrationBrandTitle: {
+    color: referencePalette.navy,
+    flexShrink: 1,
+    fontWeight: "800",
+  },
+  registrationHeader: {
+    alignItems: "flex-start",
+    paddingHorizontal: 4,
+    paddingTop: 12,
+  },
+  registrationTitle: {
+    color: referencePalette.navy,
+    fontSize: 30,
+    fontWeight: "800",
+    lineHeight: 36,
+    letterSpacing: 0,
   },
   registrationForm: {
-    overflow: "hidden",
-    padding: 0,
+    alignSelf: "stretch",
+    backgroundColor: referencePalette.white,
+    borderColor: referencePalette.academicBorderCool,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 3,
+    padding: 16,
+    shadowColor: referencePalette.navy,
+    shadowOffset: { height: 3, width: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
   },
-  registrationFieldFrame: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 0,
-    borderRadius: 0,
-    borderRightWidth: 0,
-    borderTopWidth: 0,
-    minHeight: 82,
-  },
-  registrationFieldFrameLast: {
-    borderBottomWidth: 0,
+  registrationInputFrame: {
+    alignSelf: "center",
+    backgroundColor: referencePalette.white,
+    borderColor: referencePalette.academicBlueBorderMuted,
+    borderRadius: 9,
+    borderWidth: 1,
+    minHeight: 56,
+    width: "100%",
   },
   authFieldIcon: {
     alignItems: "center",
-    height: 42,
+    height: 34,
     justifyContent: "center",
-    width: 42,
+    width: 34,
+  },
+  legalConsent: {
+    borderWidth: 0,
+    paddingTop: 2,
+  },
+  registrationDivider: {
+    backgroundColor: referencePalette.academicBorderCool,
+    height: StyleSheet.hairlineWidth,
+    marginTop: 2,
+    width: "100%",
   },
   passwordStrength: {
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  passwordStrengthHeading: {
     alignItems: "center",
-    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 4,
+    width: "100%",
   },
-  passwordShield: {
-    alignItems: "center",
-    height: 58,
-    justifyContent: "center",
-    width: 58,
+  passwordStrengthTrack: {
+    backgroundColor: authScreenColors.disabledSurface,
+    borderRadius: 4,
+    height: 6,
+    overflow: "hidden",
+    position: "relative",
+    width: "100%",
   },
-  passwordStrengthCopy: {
-    flex: 1,
-    minWidth: 0,
+  passwordStrengthFill: {
+    borderRadius: 4,
+    height: "100%",
   },
-  requirementChips: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  passwordStrengthDivider: {
+    backgroundColor: referencePalette.white,
+    height: "100%",
+    position: "absolute",
+    top: 0,
+    width: 6,
   },
-  requirementChip: {
-    alignItems: "center",
-    flexDirection: "row",
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+  passwordRuleText: {
+    textAlign: "center",
+  },
+  passwordStrengthLabel: {
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  authControlPressed: {
+    backgroundColor: referencePalette.academicBlueSoft,
+    opacity: 0.84,
   },
   onboardingScreen: {
     alignSelf: "stretch",
@@ -1516,20 +2041,25 @@ const styles = StyleSheet.create({
     marginTop: 17,
     width: 52,
   },
-  onboardingCampus: {
-    alignSelf: "center",
-    height: 205,
-    width: "100%",
-  },
   onboardingIdentity: {
     alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+  },
+  onboardingIdentityIcon: {
+    alignItems: "center",
+    height: 52,
+    justifyContent: "center",
+    width: 52,
+  },
+  onboardingIdentityCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   onboardingTitle: {
-    textAlign: "center",
   },
   onboardingDescription: {
     maxWidth: 470,
-    textAlign: "center",
   },
   onboardingInfo: {
     alignItems: "center",

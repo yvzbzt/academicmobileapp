@@ -1,10 +1,31 @@
-export const adminRoutes = [
-  { path: "/dashboard", label: "Panel", requiredRoles: ["content_editor", "university_admin", "super_admin"] },
-  { path: "/universities", label: "Üniversiteler", requiredRoles: ["super_admin"] },
-  { path: "/users", label: "Kullanıcılar", requiredRoles: ["super_admin"] },
-  { path: "/pdf-sources", label: "PDF Kaynakları", requiredRoles: ["content_editor", "university_admin", "super_admin"] },
-  { path: "/extracted-events", label: "İnceleme Kuyruğu", requiredRoles: ["content_editor", "university_admin", "super_admin"] },
-  { path: "/calendars", label: "Takvimler", requiredRoles: ["super_admin"] },
-  { path: "/audit-logs", label: "Denetim Kayıtları", requiredRoles: ["super_admin"] },
-  { path: "/notification-jobs", label: "Bildirim İşleri", requiredRoles: ["super_admin"] }
-] as const;
+export const adminRoles = ["content_editor", "university_admin", "super_admin"] as const;
+
+export type AdminRole = (typeof adminRoles)[number];
+
+export const adminRoutePermissions = [
+  { id: "dashboard", path: "/dashboard", requiredRoles: adminRoles },
+  { id: "inputs", path: "/inputs", requiredRoles: adminRoles },
+  { id: "catalog", path: "/catalog", requiredRoles: ["super_admin"] },
+  { id: "sources", path: "/sources", requiredRoles: adminRoles },
+  { id: "pdf", path: "/pdf", requiredRoles: adminRoles },
+  { id: "calendar", path: "/calendar", requiredRoles: ["super_admin"] },
+  { id: "notifications", path: "/notifications", requiredRoles: ["super_admin"] },
+  { id: "audit", path: "/audit", requiredRoles: ["super_admin"] },
+  { id: "users", path: "/users", requiredRoles: ["super_admin"] }
+] as const satisfies ReadonlyArray<{
+  id: string;
+  path: string;
+  requiredRoles: readonly AdminRole[];
+}>;
+
+export type AdminRoute = (typeof adminRoutePermissions)[number]["id"];
+
+export function canAccessAdminRoute(role: AdminRole | undefined, route: AdminRoute): boolean {
+  if (!role) return false;
+  const permission = adminRoutePermissions.find((item) => item.id === route);
+  return Boolean(permission?.requiredRoles.some((requiredRole) => requiredRole === role));
+}
+
+export function canManageGlobalAdminData(role: AdminRole | undefined): boolean {
+  return role === "super_admin";
+}

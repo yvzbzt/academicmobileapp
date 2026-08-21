@@ -249,12 +249,16 @@ export class NotificationLifecycleCoordinator {
         this.patchState({ permission });
         if (permission === "granted" && ownerId && this.state.preferenceEnabled) {
           await this.registerOwner(ownerId, epoch);
-        } else if (ownerId) {
+        } else if (ownerId && this.state.preferenceEnabled) {
           this.patchState({ registration: "detaching" });
           const detached = await this.detachOwner(ownerId, true);
           if (detached && this.isCurrent(ownerId, epoch)) {
             this.patchState({ registration: "unregistered" });
           }
+        } else if (ownerId) {
+          // A disabled preference is detached when the user disables it. Repeating
+          // the idempotent backend cleanup on every launch only delays the shell.
+          this.patchState({ registration: "unregistered" });
         }
       } catch {
         if (!this.isCurrent(ownerId, epoch)) return;

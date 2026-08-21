@@ -9,12 +9,15 @@ import {
   readManualExamEnvelope,
   serializeManualExamEnvelope,
   type ManualExamRecord,
+  type PersonalCalendarKind,
 } from "../session-integrity/manual-exam-storage";
 
 export interface PersonalExamMutationInput {
   title: string;
   examDate: string;
   locationNote?: string;
+  kind?: PersonalCalendarKind;
+  reminderMinutesBefore?: number;
 }
 
 export type PersonalExamMutationResult =
@@ -242,21 +245,33 @@ export class PersonalExamRuntime {
 
 function normalizeMutationInput(
   input: PersonalExamMutationInput,
-): { title: string; examDate: string; locationNote?: string } | null {
+): { title: string; examDate: string; locationNote?: string; kind?: PersonalCalendarKind; reminderMinutesBefore?: number } | null {
   const title = input.title.normalize("NFKC").replace(/\s+/gu, " ").trim();
   const examDate = new Date(input.examDate);
   const locationNote = input.locationNote?.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  const kind = input.kind;
+  const reminderMinutesBefore = input.reminderMinutesBefore;
   if (
     !title
     || title.length > 160
     || Number.isNaN(examDate.getTime())
     || (locationNote?.length ?? 0) > 240
+    || (kind !== undefined && !isPersonalCalendarKind(kind))
+    || (reminderMinutesBefore !== undefined && (
+      !Number.isInteger(reminderMinutesBefore) || reminderMinutesBefore < 0 || reminderMinutesBefore > 10_080
+    ))
   ) return null;
   return {
     title,
     examDate: examDate.toISOString(),
     ...(locationNote ? { locationNote } : {}),
+    ...(kind ? { kind } : {}),
+    ...(reminderMinutesBefore !== undefined ? { reminderMinutesBefore } : {}),
   };
+}
+
+function isPersonalCalendarKind(value: string): value is PersonalCalendarKind {
+  return value === "exam" || value === "class" || value === "study" || value === "event" || value === "task" || value === "other";
 }
 
 function cloneState(state: PersonalExamRuntimeState): PersonalExamRuntimeState {
@@ -274,13 +289,13 @@ function requireOwnerId(ownerId: string): string {
 }
 
 function ownerUnavailableResult(): PersonalExamMutationResult {
-  return { ok: false, error: "Hesaba ait sınav alanı henüz hazır değil." };
+  return { ok: false, error: "Hesaba ait kişisel takvim henüz hazır değil." };
 }
 
 function invalidMutationResult(): PersonalExamMutationResult {
-  return { ok: false, error: "Sınav adı, tarih veya saat doğrulanamadı." };
+  return { ok: false, error: "Etkinlik adı, türü, tarih veya saat doğrulanamadı." };
 }
 
 function missingExamResult(): PersonalExamMutationResult {
-  return { ok: false, error: "Bu kişisel sınav açık hesapta bulunamadı." };
+  return { ok: false, error: "Bu kişisel etkinlik açık hesapta bulunamadı." };
 }

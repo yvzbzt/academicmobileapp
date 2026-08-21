@@ -35,6 +35,7 @@ jest.mock("@react-navigation/native", () => {
 const callbacks = {
   onCreatePersonalExam: jest.fn((_input: PersonalExamMutationInput) => ({ ok: true as const })),
   onManageGoogle: jest.fn(),
+  onOpenAccountMenu: jest.fn(),
   onOpenItem: jest.fn(),
   onRefresh: jest.fn(),
   onSyncGoogle: jest.fn(),
@@ -132,6 +133,7 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByRole("header", { name: "3 Ağustos Pazartesi" })).toBeOnTheScreen();
     expect(screen.getByTestId("calendar-view-announcement").props.accessibilityLiveRegion)
       .toBe("polite");
+    expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
 
     fireEvent.press(screen.getByRole("radio", { name: "Hafta" }));
     expect(screen.getByRole("radio", { name: "Hafta" }).props.accessibilityState).toEqual(
@@ -145,7 +147,7 @@ describe("Phase 9 Calendar experience", () => {
       expect.objectContaining({ selected: true }),
     );
     expect(screen.getByLabelText("Aylık takvim özeti")).toBeOnTheScreen();
-    expect(screen.getByRole("header", { name: "Akademik Takvim" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Takvim" })).toBeOnTheScreen();
     expect(screen.getByText("Ağustos 2026")).toBeOnTheScreen();
   });
 
@@ -159,6 +161,29 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByText("Final sınavı")).toBeOnTheScreen();
     expect(screen.queryByText("Ders kayıt dönemi")).not.toBeOnTheScreen();
     expect(screen.getByText("1 etkinlik")).toBeOnTheScreen();
+  });
+
+  it("clears the active query when calendar search is closed", async () => {
+    await renderCalendar();
+
+    fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
+    fireEvent.changeText(screen.getByLabelText("Takvimde ara"), "Lineer");
+    expect(screen.getByText("Lineer Cebir")).toBeOnTheScreen();
+    expect(screen.queryByText("Final sınavı")).not.toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Takvim aramasını kapat" }));
+    expect(screen.queryByPlaceholderText("Etkinlik, ders veya konum ara")).not.toBeOnTheScreen();
+    expect(screen.getByText("Final sınavı")).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
+    expect(screen.getByPlaceholderText("Etkinlik, ders veya konum ara")).toHaveDisplayValue("");
+  });
+
+  it("keeps the month heading non-interactive without a misleading down chevron", async () => {
+    const view = await renderCalendar(props({ initialView: "month" }));
+
+    expect(screen.getByRole("header", { name: "Ağustos 2026" })).toBeOnTheScreen();
+    expect(view.UNSAFE_queryAllByProps({ name: "chevron-down" })).toHaveLength(0);
   });
 
   it("announces committed iOS view and period changes without an initial announcement", async () => {
@@ -193,11 +218,50 @@ describe("Phase 9 Calendar experience", () => {
 
   it("labels event type with icon-backed text and never invents a clock for date-only data", async () => {
     await renderCalendar();
-    expect(screen.getByText("Son Başvuru")).toBeOnTheScreen();
-    expect(screen.getByText("Sınav")).toBeOnTheScreen();
-    expect(screen.getByText("Kişisel sınav")).toBeOnTheScreen();
+    expect(screen.getByText("Kayıt ve başvuru")).toBeOnTheScreen();
+    expect(screen.getAllByText("Sınav").length).toBeGreaterThan(0);
+    expect(screen.getByText("Kişisel planın")).toBeOnTheScreen();
     expect(screen.getAllByText("Tüm gün").length).toBeGreaterThan(0);
     expect(screen.queryByText(/00:00/u)).not.toBeOnTheScreen();
+  });
+
+  it("presents legacy VPS custom_event titles with defensive title fallback", async () => {
+    await renderCalendar(props({
+      academicEvents: [
+        {
+          id: "application",
+          title: "Lisansüstü Programlara Yatay Geçiş Başvuruları",
+          category: "custom_event",
+          startDate: "2026-08-27",
+        },
+        {
+          id: "registration",
+          title: "Lisans Programlarına Çift Anadal ve Yan Dal Kayıtları",
+          category: "custom_event",
+          startDate: "2026-08-28",
+        },
+        {
+          id: "exam",
+          title: "Azami Süreyi Dolduran Öğrenciler için Ek Sınavlar",
+          category: "custom_event",
+          startDate: "2026-08-29",
+        },
+        {
+          id: "results",
+          title: "Final sınavı sonuçları",
+          category: "custom_event",
+          startDate: "2026-08-30",
+        },
+      ],
+      initialAnchorDate: "2026-08-27",
+      now: new Date("2026-08-27T09:00:00.000+03:00"),
+      personalExams: [],
+    }));
+
+    expect(screen.getByRole("button", { name: /Kayıt ve başvuru.*Yatay Geçiş Başvuruları/u })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /Kayıt ve başvuru.*Yan Dal Kayıtları/u })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /Sınav.*Ek Sınavlar/u })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /Etkinlik.*Final sınavı sonuçları/u })).toBeOnTheScreen();
   });
 
   it("renders timestamp ranges in the academic event timezone", async () => {
@@ -233,18 +297,25 @@ describe("Phase 9 Calendar experience", () => {
     }));
   });
 
+  it("keeps the add action in the header so calendar cells are never covered", async () => {
+    await renderCalendar(props({ initialView: "month" }));
+
+    expect(screen.getByRole("button", { name: "Kişisel etkinlik ekle" })).toHaveStyle({ height: 48, width: 48 });
+    expect(screen.queryByText("Kişisel etkinlik ekle")).not.toBeOnTheScreen();
+  });
+
   it("creates a personal exam only after native date and time selection", async () => {
     await renderCalendar();
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel sınav ekle" }));
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinlik ekle" }));
     expect(screen.getByTestId("bottom-sheet").props.accessibilityLabel).toBe(
-      "Kişisel sınav ekleme alt sayfası",
+      "Kişisel etkinlik ekleme alt sayfası",
     );
 
-    fireEvent.press(screen.getByRole("button", { name: "Sınavı ekle" }));
+    fireEvent.press(screen.getByRole("button", { name: "Etkinliği ekle" }));
     expect(screen.getByText("Tarihi sistem seçicisinden seç.")).toBeOnTheScreen();
     expect(screen.getByText("Saati sistem seçicisinden seç.")).toBeOnTheScreen();
 
-    fireEvent.changeText(screen.getByLabelText("Sınav adı"), "Veri Yapıları finali");
+    fireEvent.changeText(screen.getByLabelText("Etkinlik adı"), "Veri Yapıları finali");
     fireEvent.changeText(screen.getByLabelText("Konum veya not"), "D-101");
     fireEvent.press(screen.getByRole("button", { name: "Tarih seçilmedi" }));
     fireEvent(
@@ -260,11 +331,12 @@ describe("Phase 9 Calendar experience", () => {
       { type: "set" },
       new Date(2026, 7, 21, 14, 30),
     );
-    fireEvent.press(screen.getByRole("button", { name: "Sınavı ekle" }));
+    fireEvent.press(screen.getByRole("button", { name: "Etkinliği ekle" }));
 
     expect(callbacks.onCreatePersonalExam).toHaveBeenCalledWith(expect.objectContaining({
       title: "Veri Yapıları finali",
       locationNote: "D-101",
+      kind: "event",
     }));
     const submitted = callbacks.onCreatePersonalExam.mock.calls[0]?.[0];
     expect(submitted).toBeDefined();
@@ -284,6 +356,23 @@ describe("Phase 9 Calendar experience", () => {
     fireEvent.press(screen.getByRole("button", { name: "Google Takvim'i yönet" }));
     expect(callbacks.onSyncGoogle).toHaveBeenCalledTimes(1);
     expect(callbacks.onManageGoogle).toHaveBeenCalledTimes(1);
+  });
+
+  it("limits a long agenda to twelve items and reveals the next page on demand", async () => {
+    const academicEvents = Array.from({ length: 15 }, (_, index) => ({
+      id: `event-${index + 1}`,
+      title: `Etkinlik ${index + 1}`,
+      category: "event",
+      startDate: `2026-08-${String(index + 6).padStart(2, "0")}`,
+      temporalKind: "date" as const,
+    }));
+    await renderCalendar(props({ academicEvents, personalExams: [] }));
+
+    expect(screen.getByText("12 / 15 etkinlik gösteriliyor")).toBeOnTheScreen();
+    expect(screen.queryByText("Etkinlik 13")).not.toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Daha fazla etkinlik göster" }));
+    expect(screen.UNSAFE_getByType(require("react-native").FlatList).props.data).toHaveLength(15);
+    expect(screen.queryByRole("button", { name: "Daha fazla etkinlik göster" })).not.toBeOnTheScreen();
   });
 
   it("keeps route-scoped personal-exam results reachable in the virtualized header", async () => {

@@ -138,7 +138,7 @@ describe("Phase 9 production personal-exam integration", () => {
       examDate: "2028-03-03T08:00:00.000Z",
     }, returnedOwnerASnapshot)).toEqual({
       ok: false,
-      error: "Hesaba ait sınav alanı henüz hazır değil.",
+      error: "Hesaba ait kişisel takvim henüz hazır değil.",
     });
     await runtime.waitForIdle();
     expect(storage.read(OWNER_B_KEY)).toBe(ownerBEnvelopeBeforeLateSettlement);

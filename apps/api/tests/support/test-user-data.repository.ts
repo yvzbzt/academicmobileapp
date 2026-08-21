@@ -84,6 +84,15 @@ export class TestUserDataRepository implements UserDataRepository {
       .map(cloneFollowedScope);
   }
 
+  async deleteFollowedAcademicScopeById(userId: string, id: string): Promise<boolean> {
+    const scope = this.followedScopes.get(id);
+    if (!scope || scope.userId !== userId) return false;
+    this.followedScopes.delete(id);
+    const key = `${scope.userId}:${followedAcademicScopeKey(scope)}`;
+    this.followedScopeIdsByKey.delete(key);
+    return true;
+  }
+
   async deleteUserData(userId: string): Promise<void> {
     for (const [id, suggestion] of this.suggestions) {
       if (suggestion.userId === userId) this.suggestions.delete(id);

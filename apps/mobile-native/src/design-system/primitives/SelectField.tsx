@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -89,11 +90,14 @@ export function SelectField<Value extends string = string>({
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const triggerRef = useRef<View>(null);
+  const searchInputRef = useRef<TextInput>(null);
+  const optionListRef = useRef<FlatList<SelectFieldOption<Value>>>(null);
   const triggerNativeTagRef = useRef<number | null>(null);
   const restoreFocusAfterDismissRef = useRef(false);
   const generatedId = useId();
   const labelId = `${generatedId}-label`;
   const interactionDisabled = disabled || loading;
+  const searchable = Boolean(onSearchValueChange);
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value),
     [options, value],
@@ -137,6 +141,15 @@ export function SelectField<Value extends string = string>({
     }, 0);
     return () => clearTimeout(focusTimer);
   }, [focusOnError, focusOnErrorKey]);
+
+  useEffect(() => {
+    if (!open || !searchable) return;
+    const focusTimer = setTimeout(() => {
+      searchInputRef.current?.focus();
+      optionListRef.current?.scrollToOffset({ animated: false, offset: 0 });
+    }, Platform.OS === "android" ? 180 : 80);
+    return () => clearTimeout(focusTimer);
+  }, [open, options, searchable]);
 
   function updateOpen(nextOpen: boolean) {
     setOpen(nextOpen);
@@ -300,14 +313,15 @@ export function SelectField<Value extends string = string>({
           {helpText}
         </Text>
       ) : null}
-      <BottomSheet
-        accessibilityLabel={`${label} seçenekleri`}
-        dismissAccessibilityLabel={`${label} seçeneklerini kapat`}
-        onDismiss={dismissOptions}
-        title={sheetTitle ?? label}
-        description={sheetDescription}
-        visible={open}
-      >
+      {open ? (
+        <BottomSheet
+          accessibilityLabel={`${label} seçenekleri`}
+          dismissAccessibilityLabel={`${label} seçeneklerini kapat`}
+          onDismiss={dismissOptions}
+          title={sheetTitle ?? label}
+          description={sheetDescription}
+          visible
+        >
         {onSearchValueChange ? (
           <View
             style={[
@@ -326,10 +340,13 @@ export function SelectField<Value extends string = string>({
               accessibilityRole="search"
               autoCapitalize="none"
               autoCorrect={false}
+              autoFocus
+              blurOnSubmit={false}
               onChangeText={onSearchValueChange}
               placeholder={searchPlaceholder}
               placeholderTextColor={theme.colors.text.disabled}
               returnKeyType="search"
+              ref={searchInputRef}
               selectionColor={theme.colors.action.focus}
               style={[
                 theme.typography.body,
@@ -341,6 +358,7 @@ export function SelectField<Value extends string = string>({
           </View>
         ) : null}
         <FlatList
+          ref={optionListRef}
           accessibilityLabel={`${label} seçenek listesi`}
           accessibilityRole="radiogroup"
           contentContainerStyle={[
@@ -349,7 +367,8 @@ export function SelectField<Value extends string = string>({
           ]}
           data={options}
           initialNumToRender={12}
-          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="always"
           keyExtractor={(option) => option.value}
           ListEmptyComponent={(
             <Text
@@ -438,7 +457,8 @@ export function SelectField<Value extends string = string>({
           style={styles.optionList}
           windowSize={7}
         />
-      </BottomSheet>
+        </BottomSheet>
+      ) : null}
     </View>
   );
 }
@@ -465,6 +485,7 @@ const styles = StyleSheet.create({
   },
   sheetSearchFrame: {
     borderWidth: 1,
+    flexShrink: 0,
   },
   sheetSearchInput: {
     minHeight: 48,
@@ -474,7 +495,9 @@ const styles = StyleSheet.create({
     paddingBottom: 1,
   },
   optionList: {
+    flexShrink: 1,
     maxHeight: 420,
+    minHeight: 0,
   },
   option: {
     alignItems: "center",

@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   act,
@@ -17,6 +17,7 @@ import {
   PasswordRecoveryConfirmScreen,
   PasswordRecoveryRequestScreen,
   RegistrationScreen,
+  resolveLoginViewportLayout,
   VerificationScreen,
   type AcademicOnboardingScreenProps,
   type LoginScreenProps,
@@ -41,12 +42,14 @@ const safeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 function authTestTree(
   child: ReactElement,
   overrides: Omit<ThemeProviderProps, "children"> = {},
+  frame: { width?: number; height?: number } = {},
 ) {
-  const width = overrides.windowWidth ?? 390;
+  const width = frame.width ?? overrides.windowWidth ?? 390;
+  const height = frame.height ?? 844;
   return (
     <SafeAreaProvider
       initialMetrics={{
-        frame: { x: 0, y: 0, width, height: 844 },
+        frame: { x: 0, y: 0, width, height },
         insets: safeAreaInsets,
       }}
     >
@@ -68,8 +71,9 @@ function authTestTree(
 function renderAuth(
   child: ReactElement,
   overrides: Omit<ThemeProviderProps, "children"> = {},
+  frame: { width?: number; height?: number } = {},
 ) {
-  return renderAsync(authTestTree(child, overrides));
+  return renderAsync(authTestTree(child, overrides, frame));
 }
 
 function spyOnInputFocus(label: string) {
@@ -269,13 +273,84 @@ function onboardingProps(
 
 describe("Phase 6 rendered authentication screens", () => {
   describe("LoginScreen", () => {
-    it("matches the audited hero proportions, title scale, and multicolor Google mark", async () => {
+    it("fits the hero to the safe viewport while preserving title scale and the Google mark", async () => {
       await renderAuth(<LoginScreen {...loginProps()} />);
 
-      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ aspectRatio: 4 / 3 });
-      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 32, lineHeight: 38 });
+      expect(screen.queryByTestId("auth-short-viewport-scroll-login")).toBeNull();
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 844 });
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 333.38 });
+      expect(screen.getByTestId("login-form-sheet")).toHaveStyle({ flex: 1 });
+      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 28, lineHeight: 34 });
+      expect(screen.getByLabelText("Kampüste akademik hayat", { includeHiddenElements: true })).toBeOnTheScreen();
+      expect(screen.queryByText("Bugünün planı")).toBeNull();
+      expect(screen.queryByText("Sınavlarını, duyurularını ve akademik takvimini tek yerde takip et.")).toBeNull();
+      expect(screen.queryByText("ANSSOFT YAZILIM BİLİŞİM ELEKTRONİK MAKİNA İNŞAAT SANAYİ TİCARET LİMİTED ŞİRKETİ ürünüdür.")).toBeNull();
+      expect(screen.getByLabelText("Sosyal medya kanalları")).toBeVisible();
       expect(screen.getByTestId("google-color-mark", { includeHiddenElements: true })).toBeOnTheScreen();
+      expect(screen.queryByRole("checkbox", { name: "Beni hatırla" })).toBeNull();
       expect(screen.queryByText("E-postamı doğrula")).toBeNull();
+    });
+
+    it("uses a scroll-safe hero on a short 320 by 568 phone viewport", async () => {
+      await renderAuth(<LoginScreen {...loginProps()} />, {}, { width: 320, height: 568 });
+
+      const scroll = screen.getByTestId("auth-short-viewport-scroll-login");
+      expect(scroll).toHaveProp("automaticallyAdjustKeyboardInsets", true);
+      expect(scroll).toHaveProp(
+        "keyboardDismissMode",
+        Platform.OS === "ios" ? "interactive" : "on-drag",
+      );
+      expect(scroll).toHaveProp("keyboardShouldPersistTaps", "handled");
+      expect(scroll).toHaveProp("nestedScrollEnabled", true);
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ minHeight: 620 });
+      expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 152 });
+      expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 24, lineHeight: 29 });
+      expect(screen.getByTestId("login-form-sheet")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Şifremi unuttum" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
+    });
+
+    it("keeps every login action reachable in a 568 by 320 landscape viewport", async () => {
+      await renderAuth(<LoginScreen {...loginProps()} />, {}, { width: 568, height: 320 });
+
+      expect(screen.getByTestId("auth-short-viewport-scroll-login")).toBeVisible();
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ minHeight: 620 });
+      expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
+      expect(screen.getByLabelText("Şifre")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Giriş yap" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Google ile devam et" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Şifremi unuttum" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
+      expect(screen.getByLabelText("Sosyal medya kanalları")).toBeVisible();
+    });
+
+    it("keeps session-expiry feedback compact in a short landscape viewport", async () => {
+      await renderAuth(
+        <LoginScreen {...loginProps({
+          feedback: { text: "Oturumunun süresi doldu. Lütfen tekrar giriş yap.", tone: "info" },
+        })} />,
+        {},
+        { width: 568, height: 320 },
+      );
+
+      expect(screen.getByRole("alert", {
+        name: "Oturumunun süresi doldu. Lütfen tekrar giriş yap.",
+      })).toBeVisible();
+      expect(screen.queryByText("Bilgi")).toBeNull();
+    });
+
+    it.each([
+      [568, 152, true],
+      [640, 188, true],
+      [932, 350, false],
+      [1280, 350, false],
+    ])("resolves a bounded one-page layout for a %ipx safe height", (height, heroHeight, compact) => {
+      const layout = resolveLoginViewportLayout(height);
+
+      expect(layout.heroHeight).toBe(heroHeight);
+      expect(layout.compact).toBe(compact);
+      expect(layout.heroHeight).toBeLessThan(height);
+      expect(layout.sheetPadding).toBeGreaterThanOrEqual(8);
     });
 
     it("focuses the first invalid field and moves IME focus to password", async () => {
@@ -410,6 +485,29 @@ describe("Phase 6 rendered authentication screens", () => {
   });
 
   describe("RegistrationScreen", () => {
+    it("keeps the complete form scrollable in a 568 by 320 landscape viewport", async () => {
+      await renderAuth(
+        <RegistrationScreen {...registrationProps()} />,
+        {},
+        { width: 568, height: 320 },
+      );
+
+      const scroll = screen.getByTestId("auth-short-viewport-scroll-registration");
+      expect(scroll).toHaveProp("automaticallyAdjustKeyboardInsets", true);
+      expect(scroll).toHaveProp(
+        "keyboardDismissMode",
+        Platform.OS === "ios" ? "interactive" : "on-drag",
+      );
+      expect(scroll).toHaveProp("keyboardShouldPersistTaps", "handled");
+      expect(screen.getByLabelText("Ad soyad")).toBeVisible();
+      expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
+      expect(screen.getByLabelText("Şifre")).toBeVisible();
+      expect(screen.getByLabelText("Şifre tekrar")).toBeVisible();
+      expect(screen.getByRole("checkbox", { name: /Kullanım Koşulları/u })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Devam et" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Giriş yap" })).toBeVisible();
+    });
+
     it("renders four labelled fields and focuses the first invalid field", async () => {
       const onSubmit = jest.fn();
       await renderAuth(
@@ -428,15 +526,28 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
       expect(screen.getByLabelText("Şifre")).toBeVisible();
       expect(screen.getByLabelText("Şifre tekrar")).toBeVisible();
-      expect(screen.getByTestId("registration-form-card")).toHaveStyle({ overflow: "hidden", padding: 0 });
+      expect(screen.getByText("Hesabını oluştur")).toBeVisible();
+      expect(screen.getByText("Öğrenci hesabın için gerekli bilgileri doldur.")).toBeVisible();
+      expect(screen.queryByText("Öğrenci hesabı")).toBeNull();
+      expect(screen.queryByText("Kampüs temposuna hazır ol.")).toBeNull();
+      expect(screen.queryByText("Sınav")).toBeNull();
+      expect(screen.queryByText("Duyuru")).toBeNull();
+      expect(screen.queryByText("Takvim")).toBeNull();
+      expect(screen.getByTestId("registration-form-card")).toHaveStyle({ alignSelf: "stretch" });
       expect(screen.getAllByRole("button", { name: "Şifreyi göster" })).toHaveLength(2);
-      expect(screen.getByLabelText("1 / 3. Hesap oluştur")).toBeVisible();
+      expect(screen.getByLabelText("Geri dön")).toBeVisible();
+      expect(screen.queryByLabelText("1 / 3. Hesap oluştur")).toBeNull();
+      expect(screen.getByText("Akademik Takvim")).toBeVisible();
+      expect(
+        screen.getByRole("checkbox", { name: /KVKK Aydınlatma Metni.*Gizlilik Politikası.*Kullanım Koşulları/u }),
+      ).toBeVisible();
       const nameFocus = spyOnInputFocus("Ad soyad");
       await userEvent.press(screen.getByRole("button", { name: "Devam et" }));
 
       expect(screen.getByRole("alert", { name: "Ad soyad en az 2 karakter olmalıdır." })).toBeVisible();
       expect(screen.getByRole("alert", { name: "Şifren en az 8 karakter olmalıdır." })).toBeVisible();
       expect(screen.getByRole("alert", { name: "Şifre tekrarı zorunludur." })).toBeVisible();
+      expect(screen.getByRole("alert", { name: "Devam etmek için kayıt onaylarını kabul et." })).toBeVisible();
       expect(nameFocus).toHaveBeenCalledTimes(1);
       expect(onSubmit).not.toHaveBeenCalled();
     });
@@ -450,9 +561,10 @@ describe("Phase 6 rendered authentication screens", () => {
           })}
         />,
       );
+      expect(screen.getByText("En az 8 karakter; büyük/küçük harf, rakam ve özel karakter gruplarından en az 3 tanesi.")).toBeVisible();
       await userEvent.press(screen.getByRole("button", { name: "Devam et" }));
       expect(screen.getByRole("alert", { name: "Şifren en az 8 karakter olmalıdır." })).toBeVisible();
-      expect(screen.getByLabelText("8+ karakter. Henüz karşılanmadı.")).toBeVisible();
+      expect(screen.queryByLabelText("8+ karakter. Henüz karşılanmadı.")).toBeNull();
 
       await view.rerenderAsync(authTestTree(
         <RegistrationScreen
@@ -463,7 +575,28 @@ describe("Phase 6 rendered authentication screens", () => {
         />,
       ));
       expect(screen.getByRole("alert", { name: "Şifreler eşleşmiyor." })).toBeVisible();
-      expect(screen.getByLabelText("8+ karakter. Karşılandı.")).toBeVisible();
+      expect(screen.queryByLabelText("8+ karakter. Karşılandı.")).toBeNull();
+    });
+
+    it("keeps password guidance collapsed while empty and opens it after the first character", async () => {
+      const view = await renderAuth(
+        <RegistrationScreen
+          {...registrationProps({ password: "", passwordConfirmation: "" })}
+        />,
+      );
+
+      expect(screen.queryByTestId("registration-password-strength")).toBeNull();
+      expect(screen.queryByText(/En az 8 karakter; büyük\/küçük harf/u)).toBeNull();
+
+      await view.rerenderAsync(authTestTree(
+        <RegistrationScreen
+          {...registrationProps({ password: "A", passwordConfirmation: "" })}
+        />,
+      ));
+
+      expect(screen.getByTestId("registration-password-strength")).toBeVisible();
+      expect(screen.getByText("Zayıf")).toBeVisible();
+      expect(screen.getByText(/En az 8 karakter; büyük\/küçük harf/u)).toBeVisible();
     });
 
     it("calls the ready callback from the confirmation IME exactly once", async () => {
@@ -472,39 +605,51 @@ describe("Phase 6 rendered authentication screens", () => {
         <RegistrationScreen {...registrationProps({ onSubmit })} />,
       );
 
+      await userEvent.press(screen.getByRole("checkbox", { name: /Kullanım Koşulları/u }));
       fireEvent(screen.getByLabelText("Şifre tekrar"), "submitEditing");
       expect(onSubmit).toHaveBeenCalledTimes(1);
-      expect(screen.getByLabelText("8+ karakter. Karşılandı.")).toBeVisible();
-      expect(screen.getByLabelText("Büyük harf (A-Z). Karşılandı.")).toBeVisible();
-      expect(screen.getByLabelText("Küçük harf (a-z). Karşılandı.")).toBeVisible();
-      expect(screen.getByLabelText("Rakam (0-9). Karşılandı.")).toBeVisible();
-      expect(screen.getByLabelText("Özel karakter (!@#?). Karşılandı.")).toBeVisible();
+      expect(screen.queryByLabelText("8+ karakter. Karşılandı.")).toBeNull();
+    });
+
+    it("requires legal consent before submitting otherwise valid registration", async () => {
+      const onSubmit = jest.fn();
+      await renderAuth(
+        <RegistrationScreen {...registrationProps({ onSubmit })} />,
+      );
+
+      await userEvent.press(screen.getByRole("button", { name: "Devam et" }));
+      expect(screen.getByRole("alert", { name: "Devam etmek için kayıt onaylarını kabul et." })).toBeVisible();
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await userEvent.press(screen.getByRole("checkbox", { name: /KVKK Aydınlatma Metni/u }));
+      await userEvent.press(screen.getByRole("button", { name: "Devam et" }));
+      expect(onSubmit).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("VerificationScreen", () => {
-    it("masks the destination and filters the numeric four-digit OTP field", async () => {
+    it("masks the destination and filters the numeric six-digit OTP field", async () => {
       const onCodeChange = jest.fn();
       await renderAuth(
         <VerificationScreen {...verificationProps({ onCodeChange })} />,
       );
 
       expect(
-        screen.getByText("s***e@example.edu adresine gönderilen 4 haneli kodu gir."),
+        screen.getByText("s***e@example.edu adresine gönderilen 6 haneli kodu gir."),
       ).toBeVisible();
       expect(screen.getByText("2 / 3 · E-posta doğrulama")).toBeVisible();
       const code = screen.getByLabelText("Doğrulama kodu");
       expect(code).toHaveProp("keyboardType", "number-pad");
       expect(code).toHaveProp("inputMode", "numeric");
-      expect(code).toHaveProp("maxLength", 4);
+      expect(code).toHaveProp("maxLength", 6);
       expect(code).toHaveProp("textContentType", "oneTimeCode");
       expect(code).toHaveProp("autoComplete", "one-time-code");
 
-      await fireEventAsync.changeText(code, "a1 2-3x45");
-      expect(onCodeChange).toHaveBeenCalledWith("1234");
+      await fireEventAsync.changeText(code, "a1 2-3x4567");
+      expect(onCodeChange).toHaveBeenCalledWith("123456");
     });
 
-    it("requires exactly four digits and enforces resend cooldown", async () => {
+    it("requires exactly six digits and enforces resend cooldown", async () => {
       const onSubmit = jest.fn();
       const onResend = jest.fn();
       const initial = verificationProps({ code: "123", onSubmit, onResend });
@@ -516,7 +661,7 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByText("Kodun kalan süresi: 01:35")).toBeVisible();
 
       const ready = verificationProps({
-        code: "1234",
+        code: "123456",
         timing: { expired: false, expiresInSeconds: 65, resendInSeconds: 0 },
         onSubmit,
         onResend,
@@ -535,7 +680,7 @@ describe("Phase 6 rendered authentication screens", () => {
       await renderAuth(
         <VerificationScreen
           {...verificationProps({
-            code: "1234",
+            code: "123456",
             timing: { expired: true, expiresInSeconds: 0, resendInSeconds: 0 },
             onSubmit,
             onResend,
@@ -555,6 +700,40 @@ describe("Phase 6 rendered authentication screens", () => {
   });
 
   describe("password-recovery surfaces", () => {
+    it.each([
+      [
+        "verification",
+        () => <VerificationScreen {...verificationProps()} />,
+        "E-posta adresini değiştir",
+      ],
+      [
+        "recovery request",
+        () => <PasswordRecoveryRequestScreen {...recoveryRequestProps()} />,
+        "Giriş ekranına dön",
+      ],
+      [
+        "recovery code",
+        () => <PasswordRecoveryCodeScreen {...recoveryCodeProps()} />,
+        "İptal et",
+      ],
+      [
+        "recovery confirmation",
+        () => <PasswordRecoveryConfirmScreen {...recoveryConfirmProps()} />,
+        "İptal et",
+      ],
+    ])("keeps the %s surface scrollable in a 568 by 320 landscape viewport", async (_label, renderSurface, finalAction) => {
+      await renderAuth(renderSurface(), {}, { width: 568, height: 320 });
+
+      const scroll = screen.getByTestId("auth-short-viewport-scroll-form");
+      expect(scroll).toHaveProp("automaticallyAdjustKeyboardInsets", true);
+      expect(scroll).toHaveProp(
+        "keyboardDismissMode",
+        Platform.OS === "ios" ? "interactive" : "on-drag",
+      );
+      expect(scroll).toHaveProp("keyboardShouldPersistTaps", "handled");
+      expect(screen.getByRole("button", { name: finalAction })).toBeVisible();
+    });
+
     it("validates and submits the request surface without exposing account existence", async () => {
       const onSubmit = jest.fn();
       const onCancel = jest.fn();
@@ -889,7 +1068,7 @@ describe("Phase 6 rendered authentication screens", () => {
       </SafeAreaProvider>,
     );
 
-    const title = screen.getByRole("header", { name: "Akademik Takvim" });
+    const title = screen.getByRole("header", { name: "Hesabını oluştur" });
     expect(title).not.toHaveProp("numberOfLines");
     expect(screen.getByLabelText("Ad soyad")).toBeVisible();
     expect(screen.getByLabelText("E-posta adresi")).toBeVisible();

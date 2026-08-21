@@ -69,22 +69,22 @@ describe("Phase 10 profile/settings synthetic preview", () => {
       /apiRequest|SecureStore|AsyncStorage|GoogleSignin|firebase|expo-network|expo-notifications|PRODUCTION_API|accessToken|refreshToken/u,
     );
     expect(source).toContain("example.invalid");
-    expect(source).toContain("Örnek Üniversitesi");
+    expect(source).toContain("Kampüs Üniversitesi");
     expect(source).toContain("syntheticFixturesOnly: true");
   });
 
-  it("pushes the academic editor over Profile and returns through the real Back action", async () => {
+  it("pushes the academic editor over Settings and returns through the real Back action", async () => {
     await renderAsync(<ProfileSettingsPreview scenario="academic-editor" />);
 
-    expect(await screen.findByRole("header", { name: "Akademik profili düzenle" })).toBeVisible();
+    expect(await screen.findByRole("header", { name: "Seçimlerini güncelle" })).toBeVisible();
     const back = await screen.findByRole("button", { name: "Geri dön" });
     expect(back).toBeEnabled();
     fireEvent.press(back);
 
     await waitFor(() => {
-      expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
+      expect(screen.getByRole("header", { name: "Ayarlar" })).toBeVisible();
     });
-    expect(screen.getAllByText("Deniz Örnek").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Akademik bilgiler" })).toBeVisible();
   });
 
   it("updates the routed scenario from an accepted synthetic deep link", async () => {
@@ -95,7 +95,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     });
 
     await renderAsync(<ProfileSettingsPreview scenario="profile-summary" />);
-    expect(await screen.findByRole("header", { name: "Profil" })).toBeVisible();
+    expect(await screen.findByRole("header", { name: "Ayarlar" })).toBeVisible();
     expect(urlHandlers.length).toBeGreaterThan(0);
 
     act(() => {
@@ -121,8 +121,8 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     await notificationView.unmountAsync();
 
     await renderAsync(<ProfileSettingsPreview scenario="data-confirm" />);
-    expect(await screen.findByRole("header", { name: "Hesap ve veri" })).toBeVisible();
-    fireEvent.press(screen.getByRole("button", { name: "Tehlikeli alanı göster" }));
+    expect(await screen.findByRole("header", { name: "Hesap ve Veri" })).toBeVisible();
+    fireEvent.press(screen.getByRole("button", { name: "Silme seçeneklerini göster" }));
     fireEvent.press(screen.getByRole("button", { name: "Uygulama verilerimi sil" }));
     const confirmation = screen.getByTestId("bottom-sheet");
     expect(confirmation).toHaveProp("accessibilityLabel", "Uygulama verileri silinsin mi?");

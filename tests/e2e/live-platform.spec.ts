@@ -64,7 +64,7 @@ test.beforeAll(async () => {
       password: studentPassword,
       passwordConfirmation: studentPassword
     });
-    expect(registration.previewVerificationToken, `preview token for ${email}`).toMatch(/^\d{4}$/);
+    expect(registration.previewVerificationToken, `preview token for ${email}`).toMatch(/^\d{6}$/);
     await apiJson("POST", "/auth/verify-email", {
       email,
       code: registration.previewVerificationToken,
@@ -91,7 +91,7 @@ test("mobile UI registers, verifies, logs in and uses student screens", async ({
   await page.getByRole("button", { name: /Devam Et/i }).click();
 
   await expect(page.getByRole("button", { name: /E-postayı Doğrula/i })).toBeVisible();
-  await expect(page.getByLabel("4 haneli doğrulama kodu")).toHaveValue(/^\d{4}$/);
+  await expect(page.getByLabel("6 haneli doğrulama kodu")).toHaveValue(/^\d{6}$/);
   await page.getByRole("button", { name: /E-postayı Doğrula/i }).click();
   await expect(page.getByText(/E-posta doğrulandı/i)).toBeVisible();
 

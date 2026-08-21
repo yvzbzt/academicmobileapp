@@ -529,7 +529,7 @@ function App() {
         kind: "success",
         text: registerResult.previewVerificationToken
           ? "Hesap oluşturuldu. Doğrulama kodu aşağıya dolduruldu; tamamlamak için E-postayı Doğrula'ya dokunun."
-          : `${registerResult.email} için hesap oluşturuldu. 4 haneli doğrulama kodu için e-postanızı kontrol edin.`
+          : `${registerResult.email} için hesap oluşturuldu. 6 haneli doğrulama kodu için e-postanızı kontrol edin.`
       });
       setMessage(registerResult.previewVerificationToken ? "Doğrulama kodu hazır" : "Doğrulama e-postası gönderildi");
       setRegisteredEmail(registerResult.email);
@@ -598,7 +598,7 @@ function App() {
   async function submitVerifyEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!verificationToken.trim()) {
-      setAuthNotice({ kind: "error", text: "Devam etmeden önce 4 haneli doğrulama kodunu girin." });
+      setAuthNotice({ kind: "error", text: "Devam etmeden önce 6 haneli doğrulama kodunu girin." });
       return;
     }
 
@@ -984,7 +984,7 @@ function App() {
         <section className="panel authPanel">
           <div className="sectionIntro">
             <h2>Kimlik Doğrulama</h2>
-            <p>{authMode === "login" ? "Akademik takviminize devam etmek için giriş yapın." : authMode === "verify" ? "E-postanıza gönderdiğimiz 4 haneli kodu girin." : "E-posta ve şifreyle hesabınızı oluşturun, ardından e-postanızı doğrulayın."}</p>
+            <p>{authMode === "login" ? "Akademik takviminize devam etmek için giriş yapın." : authMode === "verify" ? "E-postanıza gönderdiğimiz 6 haneli kodu girin." : "E-posta ve şifreyle hesabınızı oluşturun, ardından e-postanızı doğrulayın."}</p>
           </div>
           {authMode !== "verify" && (
             <div className="tabs">
@@ -1031,12 +1031,12 @@ function App() {
               <input
                 name="verificationToken"
                 inputMode="numeric"
-                maxLength={4}
-                pattern="[0-9]{4}"
+                maxLength={6}
+                pattern="[0-9]{6}"
                 value={verificationToken}
-                onChange={(event) => setVerificationToken(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                placeholder="4 haneli kod"
-                aria-label="4 haneli doğrulama kodu"
+                onChange={(event) => setVerificationToken(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="6 haneli kod"
+                aria-label="6 haneli doğrulama kodu"
                 required
               />
               <button className="btn btn-primary" type="submit"><Check size={18} /> E-postayı Doğrula</button>

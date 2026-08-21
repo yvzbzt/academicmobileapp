@@ -1,5 +1,5 @@
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AccessibilityInfo, StyleSheet, Switch } from "react-native";
+import { AccessibilityInfo, Switch } from "react-native";
 import {
   act,
   fireEvent,
@@ -70,7 +70,7 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(resolveNotificationHeroLayout(430, 1)).toBe("side-by-side");
   });
 
-  it("renders the required profile hierarchy with truthful identity and app metadata", async () => {
+  it("renders a settings-only hierarchy while identity and logout stay in the account drawer", async () => {
     const academicSummary = resolveAcademicProfileSummary(
       { universityId: "uni", facultyId: "faculty", departmentId: "department", classLevel: 3 },
       { universityName: "Örnek Üniversitesi", facultyName: "Mühendislik Fakültesi", departmentName: "Bilgisayar Mühendisliği" },
@@ -82,34 +82,46 @@ describe("Phase 10 profile and settings presentation", () => {
       saveState: "saved",
     });
 
+    const onOpenAccountMenu = jest.fn();
     await renderAsync(tree(
       <ProfileOverviewScreen
         academicSummary={academicSummary}
         appVersion="0.1.1"
-        buildNumber={12}
         email="ada@example.invalid"
         fullName="Ada Lovelace"
         googleAccountEmail="ada.google@example.invalid"
         googleCalendar={resolveGoogleCalendarPresentation("connected")}
         notificationTruth={notificationTruth}
+        followedUniversityCount={2}
+        onOpenAccountMenu={onOpenAccountMenu}
         onOpenAcademicProfile={jest.fn()}
+        onOpenFollowedUniversities={jest.fn()}
         onOpenAccountManagement={jest.fn()}
         onOpenGoogleCalendar={jest.fn()}
         onOpenNotifications={jest.fn()}
+        onLogout={jest.fn()}
       />,
     ));
 
-    expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
-    expect(screen.getAllByText("Ada Lovelace").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("ada@example.invalid").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText(/Örnek Üniversitesi.*Akademik profil tamamlandı/u)).toBeVisible();
-    expect(screen.getByRole("header", { name: "AKADEMİK BİLGİLER" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "BİLDİRİM TERCİHLERİ" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "BAĞLANTILAR" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "HESAP" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Akademik Bilgiler" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Bildirim Tercihleri" })).toBeVisible();
-    expect(screen.getByText(/Sürüm 0\.1\.1 · Derleme 12/u)).toBeVisible();
+    expect(screen.getByRole("header", { name: "Ayarlar" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Ayarlar" })).toHaveProp("maxFontSizeMultiplier", 1.35);
+    expect(screen.getByRole("header", { name: "Ayarlar" })).toHaveProp("numberOfLines", 1);
+    expect(screen.queryByText("Ada Lovelace")).toBeNull();
+    expect(screen.queryByText("ada@example.invalid")).toBeNull();
+    expect(screen.getByRole("header", { name: "Akademik bilgiler" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Bildirimler" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Bağlantılar" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Akademik bilgiler" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Bildirim tercihleri" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Takip edilen üniversiteler" })).toBeVisible();
+    expect(screen.getByText("Örnek Üniversitesi · Fakülte, bölüm, sınıf ve dönem bilgilerin")).toHaveProp("maxFontSizeMultiplier", 1.35);
+    expect(screen.getByText("Örnek Üniversitesi · Fakülte, bölüm, sınıf ve dönem bilgilerin")).toHaveProp("numberOfLines", 3);
+    expect(screen.getAllByText("Akademik bilgiler").some((node) => node.props.maxFontSizeMultiplier === 1.35)).toBe(true);
+    expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
+    expect(onOpenAccountMenu).not.toHaveBeenCalled();
+    expect(screen.getByText("Sürüm 0.1.1")).toBeVisible();
+    expect(screen.queryByText(/Derleme/u)).toBeNull();
     expect(screen.queryByText(/tema|görünüm|takipçi|öğrenci kimliği/iu)).toBeNull();
   });
 
@@ -175,7 +187,7 @@ describe("Phase 10 profile and settings presentation", () => {
     ));
 
     expect(screen.getByRole("header", { name: "Bildirim tercihleri" })).toBeVisible();
-    expect(screen.getByText("Önemli akademik hatırlatmalar cebinizde")).toBeVisible();
+    expect(screen.getByText("Önemli tarihleri zamanında hatırla")).toBeVisible();
     expect(screen.getByLabelText(/^Bildirim izni gerekiyor\./u)).toBeVisible();
     expect(screen.getByRole("switch", { name: "Duyurular bildirimi" })).toBeVisible();
     expect(screen.getByRole("switch", { name: "Son başvuru tarihleri bildirimi" })).toBeVisible();
@@ -278,6 +290,7 @@ describe("Phase 10 profile and settings presentation", () => {
 
   it("keeps granted permission actionable and the clean save control visually active without resaving", async () => {
     const onOpenSettings = jest.fn();
+    const onPreferenceEnabledChange = jest.fn();
     const onSave = jest.fn();
     const truth = resolveNotificationTruth({
       permission: "granted",
@@ -293,7 +306,7 @@ describe("Phase 10 profile and settings presentation", () => {
         onCategoryChange={jest.fn()}
         onModeChange={jest.fn()}
         onOpenSettings={onOpenSettings}
-        onPreferenceEnabledChange={jest.fn()}
+        onPreferenceEnabledChange={onPreferenceEnabledChange}
         onSave={onSave}
         preferenceEnabled
         saveState="saved"
@@ -305,14 +318,18 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(permission).toBeEnabled();
     fireEvent.press(permission);
     await waitFor(() => expect(onOpenSettings).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(permission).toBeEnabled());
 
-    const art = screen.getByTestId("notification-hero-art", { includeHiddenElements: true });
     expect(screen.getByTestId("notification-settings-hero")).toHaveStyle({ flexDirection: "column" });
-    expect(art).toHaveProp("resizeMode", "contain");
-    const artStyle = StyleSheet.flatten(art.props.style);
-    expect(artStyle).toMatchObject({ height: 144, width: "100%" });
-    expect(typeof artStyle.height).toBe("number");
-    expect(Number.isFinite(artStyle.height as number)).toBe(true);
+    const preview = screen.getByTestId("notification-hero-preview", { includeHiddenElements: true });
+    expect(preview).toHaveStyle({ width: "100%" });
+    expect(preview).toHaveTextContent(/Sınavlar/u);
+    expect(preview).toHaveTextContent(/Duyurular/u);
+
+    const masterPreference = screen.getByRole("switch", { name: "Akademik hatırlatmalar bildirimi" });
+    expect(masterPreference).toBeEnabled();
+    fireEvent.press(masterPreference);
+    expect(onPreferenceEnabledChange).toHaveBeenCalledWith(false);
 
     const save = screen.getByRole("button", { name: "Tercihleri kaydet" });
     expect(save).toBeEnabled();
@@ -514,7 +531,7 @@ describe("Phase 10 profile and settings presentation", () => {
     ));
 
     expect(screen.queryByRole("button", { name: "Uygulama verilerimi sil" })).toBeNull();
-    fireEvent.press(screen.getByRole("button", { name: "Tehlikeli alanı göster" }));
+    fireEvent.press(screen.getByRole("button", { name: "Silme seçeneklerini göster" }));
     expect(screen.getByRole("button", { name: "Uygulama verilerimi sil" })).toBeVisible();
     fireEvent.press(screen.getByRole("button", { name: "Uygulama verilerimi sil" }));
     let accountSheet = screen.getByTestId("bottom-sheet");
@@ -553,7 +570,7 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    fireEvent.press(screen.getByRole("button", { name: "Tehlikeli alanı göster" }));
+    fireEvent.press(screen.getByRole("button", { name: "Silme seçeneklerini göster" }));
     fireEvent.press(screen.getByRole("button", { name: "Hesabımı kalıcı olarak sil" }));
     let sheet = screen.getByTestId("bottom-sheet");
     fireEvent.press(within(sheet).getByRole("button", { name: /Vazge/u }));
@@ -592,7 +609,7 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(screen.queryByText(/RAW_DATA_SECRET/u)).toBeNull();
   });
 
-  it("blocks account controls without falsely announcing logout as loading during recent authentication", async () => {
+  it("blocks deletion controls and keeps logout outside the account-data page", async () => {
     await renderAsync(tree(
       <AccountDataSettingsScreen
         busy
@@ -604,9 +621,10 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    const logout = screen.getByRole("button", { name: /yap$/u });
-    expect(logout).toBeDisabled();
-    expect(logout).not.toBeBusy();
+    const deletionToggle = screen.getByRole("button", { name: "Silme seçeneklerini göster" });
+    expect(deletionToggle).toBeDisabled();
+    expect(deletionToggle).not.toBeBusy();
+    expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
   });
 
   it("returns accessibility focus to the originating destructive action after recent-auth cancellation", async () => {
@@ -658,7 +676,7 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    fireEvent.press(screen.getByRole("button", { name: "Tehlikeli alanı göster" }));
+    fireEvent.press(screen.getByRole("button", { name: "Silme seçeneklerini göster" }));
     fireEvent.press(screen.getByRole("button", { name: "Hesabımı kalıcı olarak sil" }));
     const sheet = screen.getByTestId("bottom-sheet");
     const confirm = within(sheet).getByRole("button", { name: "Hesabı silmeye devam et" });

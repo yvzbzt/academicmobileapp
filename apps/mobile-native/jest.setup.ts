@@ -78,6 +78,17 @@ jest.mock("expo-network", () => ({
   })),
 }));
 
+// react-freeze suspends with a never-resolving thenable, which the React test
+// renderer retains across tab transitions until the Jest process exhausts memory.
+// Native screen freezing remains enabled in production; tests still exercise the
+// complete navigation state while rendering inactive screens normally.
+jest.mock("react-freeze", () => {
+  const React = require("react");
+  return {
+    Freeze: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children),
+  };
+});
+
 jest.mock("@react-native-community/datetimepicker", () => {
   const React = require("react");
   const { View } = require("react-native");

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JwtAuthGuard } from "../src/common/guards/jwt-auth.guard.js";
@@ -202,6 +202,32 @@ describe("UsersService", () => {
     }));
     expect(adminFacultyChanged).not.toEqual(expect.objectContaining({ departmentId: expect.any(String) }));
     expect(adminFacultyChanged).not.toEqual(expect.objectContaining({ classLevel: expect.any(Number) }));
+  });
+
+  it("removes only the authenticated user's followed university", async () => {
+    const catalogRepository = new InMemoryCatalogRepository();
+    const university = await catalogRepository.createUniversity({
+      name: "Followed University",
+      slug: "followed-university",
+      city: "Ankara",
+      type: "state",
+      status: "active"
+    });
+    const usersService = new UsersService(
+      new InMemoryAuthRepository(),
+      catalogRepository,
+      new TestUserDataRepository()
+    );
+    const followed = await usersService.addFollowedScope("student-1", { universityId: university.id });
+
+    await expect(usersService.removeFollowedScope("student-2", followed.id)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(usersService.listFollowedScopes("student-1")).resolves.toEqual([followed]);
+
+    await expect(usersService.removeFollowedScope("student-1", followed.id)).resolves.toEqual({
+      id: followed.id,
+      removed: true
+    });
+    await expect(usersService.listFollowedScopes("student-1")).resolves.toEqual([]);
   });
 
   it("lists, updates and deletes users for admin management", async () => {

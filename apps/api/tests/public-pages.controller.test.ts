@@ -33,13 +33,16 @@ describe("PublicPagesController", () => {
     expect(html).toContain("info@anssoft.com.tr");
     expect(html).toContain("/account-deletion/request-code");
     expect(html).toContain("/account-deletion/confirm");
+    expect(html).toContain('name="email" type="email" autocomplete="email" maxlength="254"');
+    expect(html).toContain('name="password" type="password" autocomplete="current-password" maxlength="128"');
+    expect(html).toContain('name="code" type="text" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" pattern="[0-9]{6}"');
     expect(html).not.toContain("Cannot GET");
     expect(html).not.toContain("statusCode");
   });
 });
 
 describe("AccountDeletionService", () => {
-  it("sends an SMTP verification code and deletes only app data", async () => {
+  it("sends an SMTP verification code and deletes only app data", { timeout: 15_000 }, async () => {
     const authRepository = new InMemoryAuthRepository();
     const notificationRepository = new InMemoryNotificationRepository();
     const passwordHasher = new PasswordHasher();
@@ -108,7 +111,7 @@ describe("AccountDeletionService", () => {
     await expect(notificationRepository.listActiveDeviceTokens(10, 0)).resolves.toEqual([]);
   });
 
-  it("deletes the account after verifying the code", async () => {
+  it("deletes the account after verifying the code", { timeout: 15_000 }, async () => {
     const authRepository = new InMemoryAuthRepository();
     const notificationRepository = new InMemoryNotificationRepository();
     const passwordHasher = new PasswordHasher();

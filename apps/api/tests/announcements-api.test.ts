@@ -306,7 +306,7 @@ describe("trusted announcement API contract", () => {
     expect(JSON.stringify(body)).not.toContain("Sonraki");
   });
 
-  it("reports a failed source even when it has no trusted cached item", async () => {
+  it("returns immediately without probing an uncached source", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("unavailable", { status: 503 }));
     const controller = new AnnouncementsController(new AnnouncementsService(
       createAuthRepository(),
@@ -319,10 +319,11 @@ describe("trusted announcement API contract", () => {
 
     expect(body).toEqual({
       items: [],
-      state: "partial",
+      state: "fresh",
       sourceCount: 1,
-      failedSourceCount: 1
+      failedSourceCount: 0
     });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("reports persisted unhealthy source state even while trusted cache entries remain fresh", async () => {
@@ -448,7 +449,8 @@ describe("trusted announcement API contract", () => {
     const body = await new AnnouncementsService(createAuthRepository(), repository)
       .getMyAnnouncementsCollection("student-1", 10);
 
-    expect(body).toEqual(expect.objectContaining({ state: "partial", sourceCount: 2, failedSourceCount: 1 }));
+    expect(body).toEqual(expect.objectContaining({ state: "partial", sourceCount: 2, failedSourceCount: 0 }));
+    expect(body.items.some((item) => item.id === "fresh-item" && item.freshness !== "stale")).toBe(true);
     expect(body.items.some((item) => item.id === "stale-item" && item.freshness === "stale")).toBe(true);
   });
 });

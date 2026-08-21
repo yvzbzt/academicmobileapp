@@ -86,8 +86,9 @@ describe("mobile authentication recovery contract", () => {
       appSource.indexOf("async function restoreManualExams")
     );
 
-    expect(hydrationHandler.indexOf("await restoreDeviceId()"))
-      .toBeLessThan(hydrationHandler.indexOf("let restoredSession = await restoreSession()"));
+    expect(hydrationHandler).toContain("const [, storedWelcomeCompletion, storedSessionValue] = await Promise.all([");
+    expect(hydrationHandler.indexOf("restoreDeviceId()"))
+      .toBeLessThan(hydrationHandler.indexOf("let restoredSession = await restoreSession(storedSessionValue)"));
     expect(hydrationHandler).toContain("await restorePendingVerification()");
     expect(verificationRestore).toContain("PENDING_VERIFICATION_STORAGE_KEY");
     expect(verificationRestore).toContain('setPassword("")');
@@ -128,7 +129,7 @@ describe("mobile authentication recovery contract", () => {
     expect(authHandler).not.toContain("passwordConfirmation: password");
   });
 
-  it("keeps verification separate from session creation and admits onboarding only for the current owner", () => {
+  it("auto logs in after verification when the registration password is still in memory", () => {
     const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
     const verificationHandler = appSource.slice(
       appSource.indexOf("async function handleVerifyEmail"),
@@ -152,7 +153,9 @@ describe("mobile authentication recovery contract", () => {
     );
 
     expect(verificationHandler).toContain("AUTH_ENDPOINTS.verifyEmail");
-    expect(verificationHandler).not.toContain("AUTH_ENDPOINTS.login");
+    expect(verificationHandler).toContain("AUTH_ENDPOINTS.login");
+    expect(verificationHandler).toContain("activateSession(nextSession)");
+    expect(verificationHandler).toContain("bootstrapAuthenticatedContext(nextSession.accessToken, snapshot)");
     expect(verificationHandler).not.toContain('"/me/university"');
     expect(verificationHandler).toContain('setAuthMode("login")');
     expect(verificationHandler).toContain('setAuthStage("auth")');
@@ -163,9 +166,11 @@ describe("mobile authentication recovery contract", () => {
     const ownerGenerationCheck = onboardingHandler.indexOf("draftOwner.generation !== snapshot.generation");
     const payloadBuild = onboardingHandler.indexOf("buildAcademicSelectionPayload(academicOnboardingDraft)");
     const universityPatch = onboardingHandler.indexOf('"/me/university"');
-    const contextBootstrap = onboardingHandler.indexOf("await bootstrapAuthenticatedContext(activeSession.accessToken, snapshot)");
+    const authoritativeProfile = onboardingHandler.indexOf("profileDraftFromServer(savedProfile)");
+    const onboardingOwnerRelease = onboardingHandler.indexOf("onboardingOwnerRef.current = null");
     const contextGateRelease = onboardingHandler.indexOf("setAuthenticatedContextPending(false)");
     const returnToAuth = onboardingHandler.indexOf('setAuthStage("auth")');
+    const contextWarmup = onboardingHandler.indexOf("warmAuthenticatedContext(activeSession.accessToken");
     expect(sessionCheck).toBeGreaterThan(-1);
     expect(draftOwnerCheck).toBeGreaterThan(sessionCheck);
     expect(ownerGenerationCheck).toBeGreaterThan(draftOwnerCheck);
@@ -173,9 +178,12 @@ describe("mobile authentication recovery contract", () => {
     expect(onboardingHandler).not.toContain("AUTH_ENDPOINTS.login");
     expect(onboardingHandler).not.toContain("activateSession(activeSession)");
     expect(universityPatch).toBeGreaterThan(payloadBuild);
-    expect(contextBootstrap).toBeGreaterThan(universityPatch);
-    expect(contextGateRelease).toBeGreaterThan(contextBootstrap);
+    expect(authoritativeProfile).toBeGreaterThan(universityPatch);
+    expect(onboardingOwnerRelease).toBeGreaterThan(authoritativeProfile);
+    expect(contextGateRelease).toBeGreaterThan(onboardingOwnerRelease);
     expect(returnToAuth).toBeGreaterThan(contextGateRelease);
+    expect(contextWarmup).toBeGreaterThan(returnToAuth);
+    expect(onboardingHandler).not.toContain("await bootstrapAuthenticatedContext");
     expect(onboardingHandler.match(/"\/me\/university"/gu)).toHaveLength(1);
     expect(onboardingHandler).toContain('method: "PATCH"');
     expect(onboardingHandler).toContain("body: JSON.stringify(payload)");
@@ -190,6 +198,33 @@ describe("mobile authentication recovery contract", () => {
     expect(appSource).toContain("sessionOwner: session ? sessionOwner : null");
     expect(appSource).toContain("currentOwner: currentRouteOwner");
     expect(rootSurfaceRouting).toContain('rootRouteResolution.surface === "onboarding"');
+  });
+
+  it("releases authenticated routing after the mandatory profile and warms data recoverably", () => {
+    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const warmup = appSource.slice(
+      appSource.indexOf("function warmAuthenticatedContext"),
+      appSource.indexOf("async function bootstrapAuthenticatedContext")
+    );
+    const bootstrap = appSource.slice(
+      appSource.indexOf("async function bootstrapAuthenticatedContext"),
+      appSource.indexOf("async function handleAuth")
+    );
+
+    expect(warmup).toContain("void Promise.allSettled");
+    expect(warmup).toContain("loadPreferences(token, ownerSnapshot)");
+    expect(warmup).toContain("loadMyCalendar(token, ownerSnapshot)");
+    expect(warmup).toContain("loadCourseSchedule(token, ownerSnapshot)");
+    expect(warmup).toContain("loadUpcoming(token, ownerSnapshot)");
+    expect(warmup).toContain("loadFollowedUniversities(token, ownerSnapshot)");
+    expect(warmup).not.toContain("loadAnnouncements(token, profileUniversityId, ownerSnapshot)");
+    expect(bootstrap).toContain('apiRequest<UserProfile>("/me"');
+    expect(bootstrap).toContain('setAuthStage(profileUniversityId ? "auth" : "academic_onboarding")');
+    expect(bootstrap).toContain("warmAuthenticatedContext(activeToken, profileUniversityId, ownerSnapshot)");
+    expect(bootstrap).toContain("sessionRef.current.accessToken");
+    expect(bootstrap).not.toContain("await loadMyCalendar");
+    expect(bootstrap).not.toContain("await loadUpcoming");
+    expect(bootstrap).not.toContain("await loadAnnouncements");
   });
 
   it("gates protected continuation until the activated owner context is ready", () => {
@@ -264,17 +299,22 @@ describe("mobile authentication recovery contract", () => {
 
     expect(cleanupRenderer).toContain("if (!cleanupIssue) return null;");
     expect(cleanupRenderer).toContain("<Banner");
-    expect(cleanupRenderer).toContain('title="Tamamlanamayan güvenli temizlik"');
+    expect(cleanupRenderer).toContain(
+      'title={cleanupIssue.action === "logout" ? "Çıkış tamamlandı" : "Tamamlanamayan güvenli temizlik"}',
+    );
     expect(cleanupRenderer).toContain('tone="warning"');
     expect(cleanupRenderer).toContain('actionLabel={hasRetryableTarget && !busy && !googleBusy ? "Temizliği tekrar dene" : undefined}');
     expect(cleanupRenderer).toContain("onAction={hasRetryableTarget && !busy && !googleBusy ? () => void retryFailedCleanup() : undefined}");
     expect(feedbackSource).toContain('accessibilityLiveRegion={tone === "error" ? "assertive" : "polite"}');
     expect(feedbackSource).toContain('accessibilityRole="alert"');
-    expect(feedbackSource).toContain("<Button compact label={actionLabel} onPress={onAction}");
+    expect(feedbackSource).toMatch(
+      /<Button compact label=\{actionLabel\}[^>]*onPress=\{onAction\}[^>]*variant="secondary" \/>/u,
+    );
     expect(authAndOnboardingBoundary).toContain('AUTH_ROUTE_NAMES.has(route) || route === "AcademicOnboarding"');
     expect(authAndOnboardingBoundary.indexOf("{renderCleanupIssue()}"))
       .toBeLessThan(authAndOnboardingBoundary.indexOf("{renderAuthOnboardingScreen(route)}"));
-    expect(routedScreens.match(/\{renderCleanupIssue\(\)\}/gu)).toHaveLength(2);
+    expect(routedScreens.match(/renderCleanupIssue\(\)/gu)).toHaveLength(2);
+    expect(authAndOnboardingBoundary).toContain('cleanupIssue?.action === "logout" ? null : renderCleanupIssue()');
     expect(cleanupRenderer.match(/retryFailedCleanup\(\)/gu)).toHaveLength(1);
   });
 
@@ -384,10 +424,10 @@ describe("mobile authentication recovery contract", () => {
   });
 
   it("normalizes numeric OTP input and masks auth destination email addresses", () => {
-    expect(EMAIL_VERIFICATION_CODE_LENGTH).toBe(4);
-    expect(normalizeNumericCode("1a2 34x5", EMAIL_VERIFICATION_CODE_LENGTH)).toBe("1234");
+    expect(EMAIL_VERIFICATION_CODE_LENGTH).toBe(6);
+    expect(normalizeNumericCode("1a2 34x56", EMAIL_VERIFICATION_CODE_LENGTH)).toBe("123456");
     expect(normalizeNumericCode("12-34 56 78", PASSWORD_RECOVERY_CODE_LENGTH)).toBe("123456");
-    expect(isVerificationCodeComplete("1234")).toBe(true);
+    expect(isVerificationCodeComplete("123456")).toBe(true);
     expect(isVerificationCodeComplete("12345")).toBe(false);
     expect(isPasswordRecoveryCodeComplete("123456")).toBe(true);
     expect(isPasswordRecoveryCodeComplete("12345a")).toBe(false);
@@ -439,7 +479,7 @@ describe("mobile authentication recovery contract", () => {
     );
     const registrationScreen = authScreensSource.slice(
       authScreensSource.indexOf("export function RegistrationScreen"),
-      authScreensSource.indexOf("function RequirementChip")
+      authScreensSource.indexOf("export interface VerificationScreenProps")
     );
     const verificationScreen = authScreensSource.slice(
       authScreensSource.indexOf("export function VerificationScreen"),
@@ -465,7 +505,11 @@ describe("mobile authentication recovery contract", () => {
     expect(loginScreen).toContain("onPress={props.onForgotPassword}");
     expect(loginScreen).toContain('autoComplete="email"');
     expect(loginScreen).toContain('autoComplete="password"');
+    expect(loginScreen).not.toContain('label="Beni hatırla"');
     expect(registrationScreen.match(/autoComplete="new-password"/gu)).toHaveLength(2);
+    expect(registrationScreen).toContain("KVKK Aydınlatma Metni");
+    expect(registrationScreen).toContain("Gizlilik Politikası");
+    expect(registrationScreen).toContain("Kullanım Koşulları");
     expect(registrationScreen).toContain("onPasswordConfirmationChange");
     expect(authRouteMap).toContain('case "password_recovery_request": return "PasswordRecoveryRequest";');
     expect(authRouteMap).toContain('case "password_recovery_code": return "PasswordRecoveryCode";');

@@ -71,12 +71,12 @@ export function CalendarEventDetail({
 
   const confirmDelete = () => {
     Alert.alert(
-      "Kişisel sınavı sil",
+      "Kişisel etkinliği sil",
       `“${item.title}” yalnızca bu hesaba ait cihaz planından kaldırılacak. Bu işlem Google Takvim'deki kişisel etkinliklere dokunmaz.`,
       [
         { text: "Vazgeç", style: "cancel" },
         {
-          text: "Sınavı sil",
+          text: "Etkinliği sil",
           style: "destructive",
           onPress: () => {
             const result = onDeletePersonalExam(item.id);
@@ -244,13 +244,13 @@ export function CalendarEventDetail({
             <Button
               aria-expanded={editing}
               fullWidth
-              label="Kişisel sınavı düzenle"
+              label="Kişisel etkinliği düzenle"
               onPress={() => setEditing(true)}
               ref={editExamRef}
             />
             <Button
               fullWidth
-              label="Kişisel sınavı sil"
+              label="Kişisel etkinliği sil"
               onPress={confirmDelete}
               variant="danger"
             />
@@ -265,6 +265,8 @@ export function CalendarEventDetail({
             title: item.title,
             examDate: item.startDate,
             ...(item.location ? { locationNote: item.location } : {}),
+            ...(item.personalKind ? { kind: item.personalKind } : {}),
+            ...(item.reminderMinutesBefore !== undefined ? { reminderMinutesBefore: item.reminderMinutesBefore } : {}),
           }}
           onDismiss={() => setEditing(false)}
           onSubmit={(input) => onUpdatePersonalExam(item.id, input)}
@@ -282,6 +284,7 @@ function classificationColor(
 ): string {
   switch (classification) {
     case "personal_exam": return colors.action.primary;
+    case "personal": return colors.accent.teal;
     case "exam": return colors.status.error;
     case "registration": return colors.status.warning;
     case "holiday": return colors.status.success;
