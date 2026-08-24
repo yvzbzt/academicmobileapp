@@ -24,6 +24,7 @@ storage/
 *.keystore
 release-signing.properties
 apps/mobile-native/google-services.json
+apps/mobile-native/GoogleService-Info.plist
 
 # Local validation reports, screenshots, and logs
 ANDROID_*_BUILD_REPORT.md
