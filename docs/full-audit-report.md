@@ -4,7 +4,7 @@ Tarih: 2026-08-24 (ilk denetim: 2026-08-21)
 
 ## Sonuc
 
-Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport matrisinde ana kullanici akislari icin calisiyor. Native bagimlilik aciklari, lock tutarsizligi ve tekrarlanabilir release hatti giderildi. Denetim production icin tamamen kapatilmadi: API duzeltmeleri yetkili VPS SSH anahtari olmadigi icin canliya alinamadi; gercek admin/Google/FCM/SMTP/iOS kanit bosluklari da hesap veya fiziksel cihaz gerektiriyor.
+Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport matrisinde ana kullanici akislari icin calisiyor. Native bagimlilik aciklari, lock tutarsizligi ve tekrarlanabilir release hatti giderildi. API duzeltmeleri yalniz Academic API projesini hedefleyen kontrollu betikle VPS'ye alindi; public health, ICS, HSTS ve admin smoke kontrolleri gecti. Denetim production icin tamamen kapatilmadi: korumali logout/alarm, gercek admin/Google/FCM/SMTP ve fiziksel cihaz kanitlari ilgili hesap veya cihazlari gerektiriyor.
 
 ## 2026-08-24 giderim ozeti
 
@@ -15,8 +15,8 @@ Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport
 - APK SHA-256: `4B0EFDC722732B1410C622B9DFA2707649C96436D02A0F1F9F2098F38F4F022F`.
 - Mongo'ya bagimli uc destructive suite production URI almayan izole ve gecici bir Mongo ortami icin ayrildi; otomatik workflow kullanilmiyor.
 - VPS release paketi immutable Git commit'inden uretiliyor; checksum/path/symlink kontrolu, canary, rollback ve yalnizca `api` servisini yeniden olusturma siniri eklendi.
-- Public HSTS 2026-08-24 kontrolunde canlida mevcut. `/health/ready` ayrinti sizintisi ve bozuk ICS 500 davranisi ise deploy bekliyor.
-- Docker Desktop yerel test/deploy icin kullanilmadi ve kapali birakildi. VPS'de dosya, container, volume, network veya veri degisikligi yapilmadi.
+- Public HSTS 2026-08-24 kontrolunde canlida mevcut. `/health/ready` yalniz `{"status":"ok"}` donduruyor ve bozuk ICS token kontrollu `401` veriyor.
+- Docker Desktop yerel test/deploy icin kullanilmadi ve kapali birakildi. VPS'de yalniz Academic API release dizini, API container'i ve Academic API Caddy route'u guncellendi; Mongo container kimligi ve diger projeler korunarak veri degisikligi yapilmadi.
 
 ## Test ortamlari
 
@@ -75,15 +75,15 @@ Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport
 - Native `npm audit --omit=dev`: 0 acik. Expo 54 korunarak Metro `0.83.8`, PostCSS `8.5.26` ve UUID `11.1.1` guvenli override'lari lock'a islendi.
 - Temiz native `npm ci`, `npm ls postcss metro metro-config metro-transform-worker uuid image-size` ve `npx expo install --check` gecti; lock/node_modules farki kapandi.
 
-## Canliya alinmamis VPS farklari
+## VPS deploy ve canli durum
 
-- Canli `/health/ready` 2026-08-24 tarihinde dependency ve notification queue ayrintisi sizdirmaya devam ediyor; yerel kod yalniz `{"status":"ok"}` donduruyor.
-- Canli bozuk `%` ICS token 2026-08-24 tarihinde halen 500 veriyor; yerel kod ve regresyon testi 401 davranisini dogruluyor.
-- Malformed logout body son canli kontrolde 500 veriyordu; yerel kod 400 veriyor. Yeni korumali canli test icin deploy ve test hesabi gerekiyor.
+- Canli `/health/ready` 2026-08-24 deploy sonrasi yalniz `{"status":"ok"}` donduruyor; dependency ve notification queue ayrinti sizintisi kapanmistir.
+- Canli bozuk `%` ICS token deploy sonrasi `401` veriyor; eski `500` davranisi kapanmistir.
+- Malformed logout body duzeltmesi canli image'a alindi. Korumali `400` testi icin production test hesabi gerekiyor; container'da bootstrap admin secret'i bulunmadigi dogrulandi.
 - Nested notification category canlida artik 400 veriyor; bu madde kapanmistir.
-- Calendar-event alarm eslemesi yerel kod ve regresyon testinde duzeltildi; canli korumali yeniden test deploy bekliyor.
-- Public HSTS canlida `max-age=31536000; includeSubDomains` ile mevcut; uc edge konfigurasyonunda da sozlesme testi eklendi.
-- Yetkili VPS SSH hesabi/anahtari bulunmadigi icin deploy yapilmadi. Hazir betik yalnizca `/opt/anssoft-academicmobilapp-backend`, `anssoft-backend` ve Academic API Caddy route'unu hedefliyor; Mongo ve diger projeleri yeniden olusturmuyor.
+- Calendar-event alarm eslemesi canli image'a alindi; korumali yeniden test production ogrenci hesabi gerektiriyor.
+- Public HSTS canlida `max-age=31536000; includeSubDomains` ile mevcut. API basligi birincil kaynaktir; uc edge konfigurasyonu basligi yalniz upstream'de yoksa ekleyerek cift HSTS uretimini onler.
+- Deploy betigi yalnizca `/opt/anssoft-academicmobilapp-backend`, `anssoft-backend` ve Academic API Caddy route'unu hedefledi. Mongo container kimligi degismedi; canary silindi, API/Caddy healthy ve kritik API log sayisi sifirlandi.
 
 ## Performans
 
@@ -140,8 +140,7 @@ Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport
 
 ## Kapanis onceligi
 
-1. Yetkili VPS SSH anahtariyla hazir release paketini yalnizca Academic API projesine deploy et; health, logout, ICS ve alarm matrisini yeniden calistir.
+1. Production test hesabi ile korumali logout ve alarm regresyonlarini, admin credential ile gercek CRUD -> mobil gorunurluk zincirini calistir.
 2. Izole Mongo integration testlerini ve Android release dogrulamasini manuel calistirip kanit/artefakt bilgilerini rapora ekle.
-3. Production admin credential ile gercek CRUD -> mobil gorunurluk testini calistir.
-4. Gercek Google/FCM/SMTP hesaplari, fiziksel Android ve iOS cihaz matrisi ekle.
-5. Denetim icin olusturulan gecici canli hesabi deploy sonrasi korumali regresyonlar bittiginde kalici sil.
+3. Gercek Google/FCM/SMTP hesaplari, fiziksel Android ve iOS cihaz matrisi ekle.
+4. Denetim icin olusturulan gecici canli hesabi korumali regresyonlar bittiginde kalici sil.

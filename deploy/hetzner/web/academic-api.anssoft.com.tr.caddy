@@ -1,6 +1,6 @@
 academic-api.anssoft.com.tr {
 	encode zstd gzip
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header ?Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
 	redir /admin /admin/ 308
 	redir /app /app/ 308

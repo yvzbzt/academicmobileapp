@@ -22,7 +22,7 @@ describe("admin deployment security headers", () => {
   ])("keeps HSTS at the public academic API edge in %s", (relativePath) => {
     const route = readFileSync(new URL(relativePath, import.meta.url), "utf8");
 
-    expect(route).toContain('header Strict-Transport-Security "max-age=31536000; includeSubDomains"');
+    expect(route).toContain('header ?Strict-Transport-Security "max-age=31536000; includeSubDomains"');
   });
 
   it("keeps audit remediation deployment scoped to the academic project", () => {
