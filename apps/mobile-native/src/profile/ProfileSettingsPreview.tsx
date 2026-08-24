@@ -278,7 +278,7 @@ function ProfileSettingsPreviewExperience({
       Profile: (
         <ProfileOverviewScreen
           academicSummary={academicSummary}
-          appVersion="0.1.0"
+          appVersion="0.1.2"
           email="deniz.yilmaz@kampus.example.invalid"
           fullName={incomplete ? "Örnek Öğrenci" : "Deniz Örnek"}
           googleAccountEmail={incomplete ? undefined : "deniz.yilmaz@kampus.example.invalid"}

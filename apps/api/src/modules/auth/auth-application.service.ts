@@ -2,9 +2,11 @@ import { BadRequestException, ConflictException, HttpException, HttpStatus, Inje
 import { randomUUID } from "node:crypto";
 import { AUTH_ERROR_CODES, AUTH_PASSWORD_REQUIREMENT_MESSAGE, PASSWORD_RECOVERY_CODE_LENGTH, PASSWORD_RECOVERY_RESEND_SECONDS, PASSWORD_RECOVERY_TTL_SECONDS, isAuthPasswordStrong, type AuthErrorCode } from "./auth.constants.js";
 import { EmailVerificationSenderService } from "./email-verification-sender.service.js";
-import type { AuthRepository, AuthSessionResult, GoogleLoginInput, LoginInput, PasswordRecoveryConfirmInput, PasswordRecoveryRequestResult, RecentAuthenticationInput, RecentAuthenticationResult, RefreshInput, RefreshTokenRecord, RegisterInput, RegisterResult, VerifyEmailByLinkInput, VerifyEmailInput } from "./auth.types.js";
+import type { AppleLoginInput, AuthRepository, AuthSessionResult, GoogleLoginInput, LoginInput, PasswordRecoveryConfirmInput, PasswordRecoveryRequestResult, RecentAuthenticationInput, RecentAuthenticationResult, RefreshInput, RefreshTokenRecord, RegisterInput, RegisterResult, VerifyEmailByLinkInput, VerifyEmailInput } from "./auth.types.js";
 import { FirebaseAdminService } from "../../database/firebase-admin.service.js";
 import { FirebaseGoogleIdentityVerifier, type GoogleIdentityVerifier, type VerifiedGoogleIdentity } from "./firebase-google-identity.verifier.js";
+import { AppleIdentityVerifier, type AppleIdentityTokenVerifier, type VerifiedAppleIdentity } from "./apple-identity.verifier.js";
+import { authProviderSupports, linkedAuthProvider, type AuthProvider } from "./auth-provider.js";
 import { PasswordHasher } from "./password-hasher.js";
 import { TokenService } from "./token.service.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
@@ -27,12 +29,13 @@ export class AuthApplicationService {
     @Inject(EmailVerificationSenderService) private readonly emailVerificationSender: EmailVerificationSenderService,
     @Optional() @Inject("GoogleIdentityVerifier") private readonly googleIdentityVerifier?: GoogleIdentityVerifier,
     @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
-    @Optional() @Inject("NotificationRepository") private readonly notificationRepository?: NotificationRepository
+    @Optional() @Inject("NotificationRepository") private readonly notificationRepository?: NotificationRepository,
+    @Optional() @Inject("AppleIdentityVerifier") private readonly appleIdentityVerifier?: AppleIdentityTokenVerifier
   ) {}
 
   async register(input: RegisterInput): Promise<RegisterResult> {
     const normalizedEmail = input.email.trim().toLowerCase();
-    const fullName = cleanGoogleDisplayName(input.fullName) ?? normalizedEmail.split("@")[0] ?? normalizedEmail;
+    const fullName = cleanDisplayName(input.fullName) ?? normalizedEmail.split("@")[0] ?? normalizedEmail;
     if (input.password !== input.passwordConfirmation) throw new BadRequestException("Password confirmation does not match.");
     if (!isAuthPasswordStrong(input.password)) {
       throw badRequestAuthError(AUTH_ERROR_CODES.PASSWORD_INVALID, AUTH_PASSWORD_REQUIREMENT_MESSAGE);
@@ -81,7 +84,7 @@ export class AuthApplicationService {
     if (identity.signInProvider !== "google.com") throw new UnauthorizedException("Google sign-in token must come from Google.");
 
     const normalizedEmail = identity.email.trim().toLowerCase();
-    const fullName = cleanGoogleDisplayName(identity.fullName) ?? normalizedEmail.split("@")[0] ?? normalizedEmail;
+    const fullName = cleanDisplayName(identity.fullName) ?? normalizedEmail.split("@")[0] ?? normalizedEmail;
     const now = new Date();
     let user = await this.authRepository.findUserByEmail(normalizedEmail);
 
@@ -103,14 +106,68 @@ export class AuthApplicationService {
       }
       const shouldBackfillName = user.fullName === user.email.split("@")[0] && fullName !== user.fullName;
       const linkedUser = await this.authRepository.updateUserGoogleIdentity(user.id, {
-        ...(shouldBackfillName ? { fullName } : {}),
+        ...(shouldBackfillName && fullName ? { fullName } : {}),
         emailVerifiedAt: user.emailVerifiedAt ?? now,
         status: "active",
-        authProvider: linkedGoogleProvider(user.authProvider),
+        authProvider: linkedAuthProvider(user.authProvider, "google"),
         firebaseAuthUid: identity.uid,
         lastLoginAt: now
       });
       if (!linkedUser) throw new UnauthorizedException("Google sign-in could not be linked.");
+      user = linkedUser;
+    }
+
+    return this.createSession(user, input.deviceId, input.ipAddress, input.userAgent);
+  }
+
+  async loginWithApple(input: AppleLoginInput): Promise<AuthSessionResult> {
+    const identity = await this.verifyAppleIdentity(input.identityToken, input.nonce);
+    const normalizedEmail = identity.email?.trim().toLowerCase();
+    const now = new Date();
+    let user = await this.authRepository.findUserByAppleSubject(identity.subject);
+
+    if (!user) {
+      if (!normalizedEmail || !identity.emailVerified) {
+        throw new UnauthorizedException("Apple account must expose a verified email address on first sign-in.");
+      }
+      user = await this.authRepository.findUserByEmail(normalizedEmail);
+    }
+
+    const fullName = cleanDisplayName(input.fullName)
+      ?? normalizedEmail?.split("@")[0]
+      ?? user?.fullName;
+
+    if (!user) {
+      user = await this.authRepository.createUser({
+        fullName: fullName ?? "Apple User",
+        email: normalizedEmail!,
+        emailVerifiedAt: now,
+        passwordHash: await this.passwordHasher.hash(randomUUID()),
+        authProvider: "apple",
+        appleSubject: identity.subject,
+        role: "student",
+        status: "active",
+        lastLoginAt: now
+      });
+    } else {
+      if (user.status === "locked" || (user.status === "inactive" && Boolean(user.emailVerifiedAt))) {
+        throw unauthorizedAuthError(AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
+      }
+      if (user.appleSubject && user.appleSubject !== identity.subject) {
+        throw new UnauthorizedException("Apple sign-in is already linked to another Apple account.");
+      }
+      const shouldBackfillName = Boolean(fullName)
+        && user.fullName === user.email.split("@")[0]
+        && fullName !== user.fullName;
+      const linkedUser = await this.authRepository.updateUserAppleIdentity(user.id, {
+        ...(shouldBackfillName && fullName ? { fullName } : {}),
+        emailVerifiedAt: user.emailVerifiedAt ?? now,
+        status: "active",
+        authProvider: linkedAuthProvider(user.authProvider, "apple"),
+        appleSubject: identity.subject,
+        lastLoginAt: now
+      });
+      if (!linkedUser) throw new UnauthorizedException("Apple sign-in could not be linked.");
       user = linkedUser;
     }
 
@@ -258,7 +315,7 @@ export class AuthApplicationService {
       operationKey,
       passwordHash,
       completedAt,
-      authProvider: user.authProvider === "google" ? "password_google" : user.authProvider ?? "password"
+      authProvider: linkedAuthProvider(user.authProvider, "password")
     });
     if (completion === "conflict") {
       throw unauthorizedAuthError(AUTH_ERROR_CODES.PASSWORD_RECOVERY_CODE_INVALID, "Invalid password recovery code.");
@@ -333,17 +390,27 @@ export class AuthApplicationService {
     }
 
     if (input.method === "password") {
-      if (user.authProvider === "google" || !(await this.passwordHasher.verify(input.password, user.passwordHash))) {
+      if (!authProviderSupports(user.authProvider, "password") || !(await this.passwordHasher.verify(input.password, user.passwordHash))) {
         throw unauthorizedAuthError(AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Recent authentication failed.");
       }
-    } else {
+    } else if (input.method === "google") {
       const identity = await this.verifyGoogleIdentity(input.idToken);
       const identityEmail = identity.email?.trim().toLowerCase();
       const uidMatches = Boolean(user.firebaseAuthUid) && identity.uid === user.firebaseAuthUid;
       if (
-        identity.signInProvider !== "google.com"
+        !authProviderSupports(user.authProvider, "google")
+        || identity.signInProvider !== "google.com"
         || !identity.emailVerified
         || (!uidMatches && identityEmail !== user.email)
+      ) {
+        throw unauthorizedAuthError(AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Recent authentication failed.");
+      }
+    } else {
+      const identity = await this.verifyAppleIdentity(input.identityToken, input.nonce);
+      if (
+        !authProviderSupports(user.authProvider, "apple")
+        || !user.appleSubject
+        || identity.subject !== user.appleSubject
       ) {
         throw unauthorizedAuthError(AUTH_ERROR_CODES.INVALID_CREDENTIALS, "Recent authentication failed.");
       }
@@ -420,6 +487,18 @@ export class AuthApplicationService {
     }
   }
 
+  private async verifyAppleIdentity(identityToken: string, nonce: string): Promise<VerifiedAppleIdentity> {
+    const verifier = this.appleIdentityVerifier ?? new AppleIdentityVerifier();
+    try {
+      return await verifier.verifyIdentityToken(identityToken, nonce);
+    } catch (error) {
+      if (error instanceof Error && error.message === "APPLE_SIGN_IN_NOT_CONFIGURED") {
+        throw new ServiceUnavailableException("Apple sign-in is not configured.");
+      }
+      throw new UnauthorizedException("Apple sign-in token is invalid.");
+    }
+  }
+
   private async validateAcademicSelection(input: { universityId?: string; facultyId?: string; departmentId?: string; classLevel?: number }): Promise<void> {
     if (!input.universityId && !input.facultyId && !input.departmentId) {
       assertClassLevelAllowed(input.classLevel, null);
@@ -480,7 +559,7 @@ export class AuthApplicationService {
       fullName: string;
       email: string;
       role: "student" | "content_editor" | "university_admin" | "super_admin";
-      authProvider?: "password" | "google" | "password_google";
+      authProvider?: AuthProvider;
     },
     deviceId: string,
     ipAddress?: string,
@@ -532,13 +611,9 @@ function shouldExposePreviewVerificationToken(): boolean {
   return process.env.NODE_ENV !== "production" || process.env.AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN === "true";
 }
 
-function cleanGoogleDisplayName(value: string | undefined): string | undefined {
+function cleanDisplayName(value: string | undefined): string | undefined {
   const clean = value?.trim().replace(/\s+/g, " ");
   return clean || undefined;
-}
-
-function linkedGoogleProvider(current: "password" | "google" | "password_google" | undefined): "google" | "password_google" {
-  return current === "google" ? "google" : "password_google";
 }
 
 function passwordRecoveryRequestResult(rawToken: string): PasswordRecoveryRequestResult {

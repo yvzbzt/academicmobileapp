@@ -4,7 +4,7 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "./auth.types.js";
 import { AuthApplicationService } from "./auth-application.service.js";
-import { GoogleLoginDto, LoginDto, LogoutDto, PasswordRecoveryConfirmDto, PasswordRecoveryRequestDto, RecentAuthenticationDto, RefreshTokenDto, RegisterDto, ResendVerificationCodeDto, VerifyEmailDto, VerifyEmailQueryDto } from "./auth.dto.js";
+import { AppleLoginDto, GoogleLoginDto, LoginDto, LogoutDto, PasswordRecoveryConfirmDto, PasswordRecoveryRequestDto, RecentAuthenticationDto, RefreshTokenDto, RegisterDto, ResendVerificationCodeDto, VerifyEmailDto, VerifyEmailQueryDto } from "./auth.dto.js";
 
 const logoutBodyValidationPipe = new ValidationPipe({
   expectedType: LogoutDto,
@@ -62,6 +62,11 @@ export class AuthController {
     return this.authService.loginWithGoogle({ ...body, ipAddress, ...(userAgent ? { userAgent } : {}) });
   }
 
+  @Post("apple")
+  appleLogin(@Body() body: AppleLoginDto, @Ip() ipAddress: string, @Headers("user-agent") userAgent?: string) {
+    return this.authService.loginWithApple({ ...body, ipAddress, ...(userAgent ? { userAgent } : {}) });
+  }
+
   @Post("refresh-token")
   refresh(@Body() body: RefreshTokenDto, @Ip() ipAddress: string, @Headers("user-agent") userAgent?: string) {
     return this.authService.refresh({ ...body, ipAddress, ...(userAgent ? { userAgent } : {}) });
@@ -73,17 +78,26 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: RecentAuthenticationDto
   ) {
-    return body.method === "password"
-      ? this.authService.createRecentAuthenticationProof(user.id, {
+    if (body.method === "password") {
+      return this.authService.createRecentAuthenticationProof(user.id, {
           method: "password",
           password: body.password!,
           purpose: body.purpose
-        })
-      : this.authService.createRecentAuthenticationProof(user.id, {
-          method: "google",
-          idToken: body.idToken!,
-          purpose: body.purpose
-        });
+      });
+    }
+    if (body.method === "google") {
+      return this.authService.createRecentAuthenticationProof(user.id, {
+        method: "google",
+        idToken: body.idToken!,
+        purpose: body.purpose
+      });
+    }
+    return this.authService.createRecentAuthenticationProof(user.id, {
+      method: "apple",
+      identityToken: body.identityToken!,
+      nonce: body.nonce!,
+      purpose: body.purpose
+    });
   }
 
   @Post("logout")

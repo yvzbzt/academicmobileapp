@@ -66,6 +66,7 @@ export type AuthOperation =
   | "confirm_password_recovery"
   | "refresh_session"
   | "google_sign_in"
+  | "apple_sign_in"
   | "logout"
   | "delete_account";
 
@@ -86,6 +87,8 @@ export type ControlledAuthErrorCode =
   | "google_sign_in_cancelled"
   | "google_sign_in_failed"
   | "google_configuration_error"
+  | "apple_sign_in_cancelled"
+  | "apple_sign_in_failed"
   | "rate_limited"
   | "not_allowed"
   | "validation_failed"
@@ -123,6 +126,8 @@ const AUTH_ERROR_MESSAGES: Record<ControlledAuthErrorCode, string> = {
   google_sign_in_cancelled: "Google ile giriş iptal edildi.",
   google_sign_in_failed: "Google ile giriş tamamlanamadı. Lütfen tekrar dene.",
   google_configuration_error: "Bu sürümde Google ile giriş yapılandırması tamamlanmamış.",
+  apple_sign_in_cancelled: "Apple ile giriş iptal edildi.",
+  apple_sign_in_failed: "Apple ile giriş tamamlanamadı. Lütfen tekrar dene.",
   rate_limited: "Çok sık denedin. Biraz bekleyip tekrar dene.",
   not_allowed: "Bu işlemi yapma yetkin yok.",
   validation_failed: "Bilgileri kontrol edip tekrar dene.",
@@ -177,6 +182,11 @@ export function classifyAuthError(input: AuthErrorClassificationInput): Controll
     && includesAny(signal, ["developer_error", "api_exception: 10", "status code: 10", "configuration"])
   ) {
     code = "google_configuration_error";
+  } else if (
+    input.operation === "apple_sign_in"
+    && includesAny(signal, ["cancelled", "canceled", "err_request_canceled"])
+  ) {
+    code = "apple_sign_in_cancelled";
   } else if (input.operation === "refresh_session" && (status === 401 || status === 403)) {
     code = "session_expired";
   } else if (
@@ -216,6 +226,8 @@ export function classifyAuthError(input: AuthErrorClassificationInput): Controll
     code = "invalid_credentials";
   } else if (input.operation === "google_sign_in") {
     code = "google_sign_in_failed";
+  } else if (input.operation === "apple_sign_in") {
+    code = "apple_sign_in_failed";
   } else if (status === 401) {
     code = "session_expired";
   } else if (status === 403) {
@@ -388,6 +400,8 @@ function isRetryableAuthError(code: ControlledAuthErrorCode): boolean {
     || code === "server_unavailable"
     || code === "google_sign_in_cancelled"
     || code === "google_sign_in_failed"
+    || code === "apple_sign_in_cancelled"
+    || code === "apple_sign_in_failed"
     || code === "unknown";
 }
 

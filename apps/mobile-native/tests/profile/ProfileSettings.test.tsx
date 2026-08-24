@@ -86,7 +86,7 @@ describe("Phase 10 profile and settings presentation", () => {
     await renderAsync(tree(
       <ProfileOverviewScreen
         academicSummary={academicSummary}
-        appVersion="0.1.1"
+        appVersion="0.1.2"
         email="ada@example.invalid"
         fullName="Ada Lovelace"
         googleAccountEmail="ada.google@example.invalid"
@@ -120,7 +120,7 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
     expect(onOpenAccountMenu).not.toHaveBeenCalled();
-    expect(screen.getByText("Sürüm 0.1.1")).toBeVisible();
+    expect(screen.getByText("Sürüm 0.1.2")).toBeVisible();
     expect(screen.queryByText(/Derleme/u)).toBeNull();
     expect(screen.queryByText(/tema|görünüm|takipçi|öğrenci kimliği/iu)).toBeNull();
   });

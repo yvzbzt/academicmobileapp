@@ -21,6 +21,7 @@ describe("RecentAuthenticationPanel", () => {
       methods: ["password"],
       onCancel: jest.fn(),
       onPasswordChange,
+      onSubmitApple: jest.fn(),
       onSubmitGoogle: jest.fn(),
       onSubmitPassword,
       password: "owner-password"
@@ -43,6 +44,7 @@ describe("RecentAuthenticationPanel", () => {
       methods: ["google"],
       onCancel: jest.fn(),
       onPasswordChange: jest.fn(),
+      onSubmitApple: jest.fn(),
       onSubmitGoogle,
       onSubmitPassword: jest.fn(),
       password: ""
@@ -61,6 +63,7 @@ describe("RecentAuthenticationPanel", () => {
       methods: ["password", "google"],
       onCancel: jest.fn(),
       onPasswordChange: jest.fn(),
+      onSubmitApple: jest.fn(),
       onSubmitGoogle: jest.fn(),
       onSubmitPassword: jest.fn(),
       password: "owner-password"
@@ -72,5 +75,24 @@ describe("RecentAuthenticationPanel", () => {
     expect(screen.getByRole("button", { name: "Google ile Doğrula" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Vazgeç" })).toBeDisabled();
     expect(screen.getByText("Kimliğin doğrulanamadı.")).toBeOnTheScreen();
+  });
+
+  it("offers the native Apple proof action for an Apple-only account", async () => {
+    const onSubmitApple = jest.fn();
+    await renderPanel({
+      action: "account",
+      busy: false,
+      methods: ["apple"],
+      onCancel: jest.fn(),
+      onPasswordChange: jest.fn(),
+      onSubmitApple,
+      onSubmitGoogle: jest.fn(),
+      onSubmitPassword: jest.fn(),
+      password: "",
+    });
+
+    fireEvent.press(screen.getByRole("button", { name: "Apple ile doğrula" }));
+    expect(onSubmitApple).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Hesap şifresi")).toBeNull();
   });
 });

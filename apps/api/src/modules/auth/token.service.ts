@@ -15,7 +15,7 @@ export interface AccessTokenPayload {
 export interface RecentAuthenticationPayload {
   sub: string;
   credentialGeneration: number;
-  method: "password" | "google";
+  method: "password" | "google" | "apple";
   purpose: RecentAuthenticationPurpose;
   jti: string;
 }
@@ -119,7 +119,7 @@ export class TokenService {
     if (
       candidate.kind !== "recent_authentication"
       || typeof candidate.sub !== "string"
-      || (candidate.method !== "password" && candidate.method !== "google")
+      || (candidate.method !== "password" && candidate.method !== "google" && candidate.method !== "apple")
       || (candidate.purpose !== "delete_personal_data" && candidate.purpose !== "delete_account")
       || typeof candidate.jti !== "string"
       || !/^[A-Za-z0-9_-]{43}$/u.test(candidate.jti)

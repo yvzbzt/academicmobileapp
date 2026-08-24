@@ -3,7 +3,7 @@
     "name": "Akademik Takvim",
     "slug": "academic-pulse-native",
     "scheme": "academicpulse",
-    "version": "0.1.0",
+    "version": "0.1.2",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -19,7 +19,22 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anssoft.akademiktakvim",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "buildNumber": "3",
+      "appleTeamId": "VMGJVLFX95",
+      "usesAppleSignIn": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true
+      },
+      "entitlements": {
+        "com.apple.developer.applesignin": [
+          "Default"
+        ],
+        "aps-environment": "production"
+      }
     },
     "android": {
       "package": "com.anssoft.akademiktakvim",
@@ -38,6 +53,7 @@
     "plugins": [
       "expo-font",
       "expo-system-ui",
+      "expo-apple-authentication",
       [
         "expo-secure-store",
         {

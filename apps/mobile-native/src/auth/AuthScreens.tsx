@@ -52,6 +52,7 @@ import {
   type AcademicClassLevel,
   type AcademicOnboardingDraft,
 } from "./auth-ui";
+import { AppleSignInButton } from "./AppleSignInButton";
 
 export interface AuthFeedback {
   text: string;
@@ -507,11 +508,14 @@ export interface LoginScreenProps {
   googleBusy: boolean;
   googleAvailable: boolean;
   googleUnavailableMessage: string;
+  appleBusy: boolean;
+  appleAvailable: boolean;
   feedback?: AuthFeedback | null;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: () => void;
   onGoogleSubmit: () => void;
+  onAppleSubmit: () => void;
   onForgotPassword: () => void;
   onVerificationRecovery: () => void;
   onRegister: () => void;
@@ -524,7 +528,7 @@ export function LoginScreen(props: LoginScreenProps) {
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const validation = validateLoginForm({ email: props.email, password: props.password });
-  const interactionBusy = props.busy || props.googleBusy;
+  const interactionBusy = props.busy || props.googleBusy || props.appleBusy;
 
   function submit() {
     setAttempted(true);
@@ -599,9 +603,16 @@ export function LoginScreen(props: LoginScreenProps) {
         ]}
         trailingIcon={!interactionBusy ? <Ionicons color={referencePalette.white} name="arrow-forward" size={18} /> : undefined}
       />
+      {props.appleAvailable ? (
+        <AppleSignInButton
+          busy={props.busy || props.googleBusy || props.appleBusy}
+          onPress={props.onAppleSubmit}
+          testID="apple-sign-in-button"
+        />
+      ) : null}
       {props.googleAvailable ? (
         <Button
-          disabled={props.busy}
+          disabled={props.busy || props.appleBusy}
           fullWidth
           label="Google ile devam et"
           leadingIcon={<GoogleColorMark />}
@@ -610,9 +621,9 @@ export function LoginScreen(props: LoginScreenProps) {
           onPress={props.onGoogleSubmit}
           style={[
             styles.loginPillButton,
-            !(props.busy || props.googleBusy) && styles.loginGoogleButton,
+            !(props.busy || props.googleBusy || props.appleBusy) && styles.loginGoogleButton,
           ]}
-          labelStyle={!(props.busy || props.googleBusy) && styles.loginGoogleLabel}
+          labelStyle={!(props.busy || props.googleBusy || props.appleBusy) && styles.loginGoogleLabel}
           variant="secondary"
         />
       ) : (

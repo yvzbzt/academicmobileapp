@@ -18,6 +18,7 @@ import {
   normalizePasswordRecoveryTokenRecord,
   normalizeRefreshTokenRecord
 } from "./credential-generation.js";
+import { linkedAuthProvider } from "./auth-provider.js";
 
 @Injectable()
 export class InMemoryAuthRepository implements AuthRepository {
@@ -62,6 +63,11 @@ export class InMemoryAuthRepository implements AuthRepository {
     return user ? normalizeAuthUserRecord(user) : null;
   }
 
+  async findUserByAppleSubject(subject: string): Promise<AuthUserRecord | null> {
+    const user = [...this.users.values()].find((candidate) => candidate.appleSubject === subject && !candidate.deletedAt);
+    return user ? normalizeAuthUserRecord(user) : null;
+  }
+
   async findUserById(id: string): Promise<AuthUserRecord | null> {
     return this.getActiveUser(id);
   }
@@ -80,6 +86,20 @@ export class InMemoryAuthRepository implements AuthRepository {
   async updateUserGoogleIdentity(
     id: string,
     input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "firebaseAuthUid" | "lastLoginAt">>
+  ): Promise<AuthUserRecord | null> {
+    const user = this.getActiveUser(id);
+    if (!user) return null;
+    return this.storeUser({
+      ...user,
+      ...input,
+      credentialGeneration: user.credentialGeneration,
+      updatedAt: new Date()
+    });
+  }
+
+  async updateUserAppleIdentity(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "appleSubject" | "lastLoginAt">>
   ): Promise<AuthUserRecord | null> {
     const user = this.getActiveUser(id);
     if (!user) return null;
@@ -134,6 +154,7 @@ export class InMemoryAuthRepository implements AuthRepository {
     const {
       emailVerifiedAt: _emailVerifiedAt,
       firebaseAuthUid: _firebaseAuthUid,
+      appleSubject: _appleSubject,
       universityId: _universityId,
       facultyId: _facultyId,
       departmentId: _departmentId,
@@ -169,7 +190,7 @@ export class InMemoryAuthRepository implements AuthRepository {
     return this.storeUser({
       ...user,
       passwordHash,
-      authProvider: user.authProvider === "google" ? "password_google" : user.authProvider ?? "password",
+      authProvider: linkedAuthProvider(user.authProvider, "password"),
       updatedAt: new Date()
     });
   }

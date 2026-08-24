@@ -58,14 +58,14 @@ Controlled rate-limit failures use the same base shape with status `429`, `error
 | `AUTH_VERIFICATION_REQUEST_INVALID` | 401 | `POST /auth/resend-verification-code` when no resumable unverified account exists for the supplied email. This unauthenticated recovery outcome is not a session-expired error. |
 | `AUTH_SESSION_INVALID` | 401 | `POST /auth/refresh-token` when the refresh token is unknown, revoked/reused, or no longer belongs to an existing user. Reuse details are not exposed. |
 | `AUTH_SESSION_EXPIRED` | 401 | `POST /auth/refresh-token` when the refresh token has expired. |
-| `AUTH_ACCOUNT_DISABLED` | 401 | `POST /auth/login`, `POST /auth/google`, or `POST /auth/refresh-token` when the resolved account is disabled or locked. |
+| `AUTH_ACCOUNT_DISABLED` | 401 | `POST /auth/login`, `POST /auth/google`, `POST /auth/apple`, or `POST /auth/refresh-token` when the resolved account is disabled or locked. |
 | `AUTH_RATE_LIMITED` | 429 | A catalogued `/auth/*` endpoint exceeds its request budget, or verification resend is attempted before its cooldown ends. |
 | `AUTH_VERIFICATION_TOKEN_INVALID` | 401 service result | Invalid email-verification link token. The current `GET /auth/verify-email` browser route converts this to generic `400` HTML and does not expose the JSON code. |
 | `AUTH_VERIFICATION_TOKEN_EXPIRED` | 401 service result | Expired email-verification link token. The current `GET /auth/verify-email` browser route converts this to generic `400` HTML and does not expose the JSON code. |
 
 Not every validation or provider error has an `errorCode`. Clients must use safe endpoint-specific fallback copy for unknown codes and for standard Nest validation responses.
 
-The endpoint catalog applies a strict rate policy of 10 requests per 60 seconds per client/route key to `POST /auth/register`, both `GET` and `POST /auth/verify-email`, `POST /auth/login`, `POST /auth/google`, `POST /auth/resend-verification-code`, both password-recovery routes, and `POST /auth/refresh-token`. `POST /auth/logout` uses the standard authenticated policy of 120 requests per 60 seconds.
+The endpoint catalog applies a strict rate policy of 10 requests per 60 seconds per client/route key to `POST /auth/register`, both `GET` and `POST /auth/verify-email`, `POST /auth/login`, `POST /auth/google`, `POST /auth/apple`, `POST /auth/resend-verification-code`, both password-recovery routes, and `POST /auth/refresh-token`. `POST /auth/logout` uses the standard authenticated policy of 120 requests per 60 seconds.
 
 `POST /auth/resend-verification-code` accepts an email address and returns the same result contract as registration. A newly issued verification code expires after 10 minutes, and another resend becomes available after 60 seconds. Successful registration and resend responses include those ISO-8601 timing fields:
 

@@ -92,7 +92,7 @@ Copy the relevant example environment file before development:
 - Root services: [`.env.example`](./.env.example)
 - Native app: [`apps/mobile-native/.env.example`](./apps/mobile-native/.env.example)
 
-The native app resolves its API URL from `EXPO_PUBLIC_API_URL`, the Expo development host, or its platform fallback. Google login, Google Calendar, Firebase Cloud Messaging, email delivery, and production authentication require their corresponding provider credentials. Never commit local environment files, signing keys, service-account files, or production secrets.
+The native app resolves its API URL from `EXPO_PUBLIC_API_URL`, the Expo development host, or its platform fallback. Google login, Sign in with Apple, Google Calendar, Firebase Cloud Messaging, email delivery, and production authentication require their corresponding provider configuration. Never commit local environment files, signing keys, service-account files, or production secrets.
 
 ## Validation
 

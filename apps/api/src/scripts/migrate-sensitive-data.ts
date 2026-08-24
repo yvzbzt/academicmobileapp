@@ -35,6 +35,10 @@ async function main(): Promise<void> {
       { firebaseAuthUidLookupHash: 1 },
       { unique: true, sparse: true, name: "users_firebase_auth_uid_lookup" }
     );
+    await connection.collection("users").createIndex(
+      { appleSubjectLookupHash: 1 },
+      { unique: true, sparse: true, name: "users_apple_subject_lookup" }
+    );
     await connection.collection("device_tokens").createIndex(
       { tokenLookupHash: 1 },
       { unique: true, sparse: true, name: "device_tokens_token_lookup_unique" }
@@ -63,6 +67,12 @@ async function migrateUsers(collection: Collection<Document>): Promise<Migration
       const uid = revealSensitiveValue(firebaseAuthUid, "user.firebaseAuthUid");
       update.firebaseAuthUid = ensureProtected(firebaseAuthUid, "user.firebaseAuthUid", uid);
       update.firebaseAuthUidLookupHash = sensitiveLookupHash(uid, "user.firebaseAuthUid");
+    }
+    const appleSubject = stringField(document, "appleSubject");
+    if (appleSubject) {
+      const subject = revealSensitiveValue(appleSubject, "user.appleSubject");
+      update.appleSubject = ensureProtected(appleSubject, "user.appleSubject", subject);
+      update.appleSubjectLookupHash = sensitiveLookupHash(subject, "user.appleSubject");
     }
     return update;
   });

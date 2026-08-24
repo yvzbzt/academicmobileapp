@@ -1,4 +1,5 @@
 import type { UserRole } from "../../../../../packages/shared/src/contracts.js";
+import type { AuthProvider } from "./auth-provider.js";
 
 export interface AuthUserRecord {
   id: string;
@@ -17,8 +18,9 @@ export interface AuthUserRecord {
   email: string;
   emailVerifiedAt?: Date;
   passwordHash: string;
-  authProvider?: "password" | "google" | "password_google";
+  authProvider?: AuthProvider;
   firebaseAuthUid?: string;
+  appleSubject?: string;
   role: UserRole;
   universityId?: string;
   facultyId?: string;
@@ -124,7 +126,8 @@ export interface PasswordRecoveryConfirmInput {
 
 export type RecentAuthenticationInput =
   | { method: "password"; password: string; purpose: RecentAuthenticationPurpose }
-  | { method: "google"; idToken: string; purpose: RecentAuthenticationPurpose };
+  | { method: "google"; idToken: string; purpose: RecentAuthenticationPurpose }
+  | { method: "apple"; identityToken: string; nonce: string; purpose: RecentAuthenticationPurpose };
 
 export interface RecentAuthenticationResult {
   proof: string;
@@ -179,6 +182,15 @@ export interface GoogleLoginInput {
   userAgent?: string;
 }
 
+export interface AppleLoginInput {
+  identityToken: string;
+  nonce: string;
+  fullName?: string;
+  deviceId: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
 export interface RefreshInput {
   refreshToken: string;
   deviceId: string;
@@ -208,11 +220,16 @@ export interface AuthRepository {
   createUser(input: CreateAuthUserInput): Promise<AuthUserRecord>;
   listUsers(input: { search?: string; status?: AuthUserRecord["status"]; limit: number; offset: number }): Promise<AuthUserRecord[]>;
   findUserByEmail(email: string): Promise<AuthUserRecord | null>;
+  findUserByAppleSubject(subject: string): Promise<AuthUserRecord | null>;
   findUserById(id: string): Promise<AuthUserRecord | null>;
   markUserEmailVerified(id: string, verifiedAt: Date): Promise<AuthUserRecord | null>;
   updateUserGoogleIdentity(
     id: string,
     input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "firebaseAuthUid" | "lastLoginAt">>
+  ): Promise<AuthUserRecord | null>;
+  updateUserAppleIdentity(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "appleSubject" | "lastLoginAt">>
   ): Promise<AuthUserRecord | null>;
   updateUserByAdmin(
     id: string,

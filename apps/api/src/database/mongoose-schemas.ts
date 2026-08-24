@@ -20,9 +20,16 @@ export const userSchema = new Schema(
     },
     emailVerifiedAt: { type: Date, required: false },
     passwordHash: { type: String, required: true, select: true },
-    authProvider: { type: String, required: false, enum: ["password", "google", "password_google"], default: "password" },
+    authProvider: {
+      type: String,
+      required: false,
+      enum: ["password", "google", "apple", "password_google", "password_apple", "google_apple", "password_google_apple"],
+      default: "password"
+    },
     firebaseAuthUid: { type: String, required: false },
     firebaseAuthUidLookupHash: { type: String, required: false, select: false },
+    appleSubject: { type: String, required: false },
+    appleSubjectLookupHash: { type: String, required: false, select: false },
     role: {
       type: String,
       required: true,
@@ -42,6 +49,7 @@ export const userSchema = new Schema(
 
 userSchema.index({ emailLookupHash: 1 }, { unique: true, sparse: true, name: "users_email_lookup_unique" });
 userSchema.index({ firebaseAuthUidLookupHash: 1 }, { unique: true, sparse: true, name: "users_firebase_auth_uid_lookup" });
+userSchema.index({ appleSubjectLookupHash: 1 }, { unique: true, sparse: true, name: "users_apple_subject_lookup" });
 userSchema.index({ universityId: 1, status: 1 }, { name: "users_university_status" });
 
 export const refreshTokenSchema = new Schema(

@@ -372,7 +372,7 @@ describe("Phase 10 Profile and Settings contracts", () => {
       };
     };
     expect(appConfig.expo.name).toBe("Akademik Takvim");
-    expect(appConfig.expo.version).toBe("0.1.0");
+    expect(appConfig.expo.version).toBe("0.1.2");
     expect(appConfig.expo.android.versionCode).toBe(17);
     expect(appConfig.expo.userInterfaceStyle).toBe("light");
     expect(appConfig.expo.splash.backgroundColor).toBe("#ffffff");
@@ -383,7 +383,7 @@ describe("Phase 10 Profile and Settings contracts", () => {
       "utf8",
     );
     expect(androidBuild).toContain("versionCode 17");
-    expect(androidBuild).toContain('versionName "0.1.0"');
+    expect(androidBuild).toContain('versionName "0.1.2"');
 
     const androidStrings = readFileSync(
       new URL("../../apps/mobile-native/android/app/src/main/res/values/strings.xml", import.meta.url),

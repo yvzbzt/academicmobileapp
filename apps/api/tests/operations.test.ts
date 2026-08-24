@@ -188,6 +188,7 @@ describe("operation services", () => {
     expect(endpointCatalog).toEqual(
       expect.arrayContaining([
         { method: "POST", path: "/auth/google", authRequired: false, roles: "public", rateLimit: "strict" },
+        { method: "POST", path: "/auth/apple", authRequired: false, roles: "public", rateLimit: "strict" },
         { method: "POST", path: "/auth/resend-verification-code", authRequired: false, roles: "public", rateLimit: "strict" }
       ])
     );

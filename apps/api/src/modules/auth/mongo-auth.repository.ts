@@ -21,6 +21,7 @@ import {
   normalizePasswordRecoveryTokenRecord,
   normalizeRefreshTokenRecord
 } from "./credential-generation.js";
+import { linkedAuthProvider } from "./auth-provider.js";
 
 @Injectable()
 export class MongoAuthRepository implements AuthRepository {
@@ -38,6 +39,10 @@ export class MongoAuthRepository implements AuthRepository {
       ...(input.firebaseAuthUid ? {
         firebaseAuthUid: protectSensitiveValue(input.firebaseAuthUid, "user.firebaseAuthUid"),
         firebaseAuthUidLookupHash: sensitiveLookupHash(input.firebaseAuthUid, "user.firebaseAuthUid")
+      } : {}),
+      ...(input.appleSubject ? {
+        appleSubject: protectSensitiveValue(input.appleSubject, "user.appleSubject"),
+        appleSubjectLookupHash: sensitiveLookupHash(input.appleSubject, "user.appleSubject")
       } : {})
     });
     return toAuthUserRecord(document);
@@ -73,6 +78,15 @@ export class MongoAuthRepository implements AuthRepository {
     return document ? toAuthUserRecord(document) : null;
   }
 
+  async findUserByAppleSubject(subject: string): Promise<AuthUserRecord | null> {
+    const model = await this.model("User", userSchema);
+    const document = await model.findOne({
+      appleSubjectLookupHash: sensitiveLookupHash(subject, "user.appleSubject"),
+      deletedAt: { $exists: false }
+    });
+    return document ? toAuthUserRecord(document) : null;
+  }
+
   async findUserById(id: string): Promise<AuthUserRecord | null> {
     const model = await this.model("User", userSchema);
     const document = await model.findOne({ _id: id, deletedAt: { $exists: false } });
@@ -86,6 +100,13 @@ export class MongoAuthRepository implements AuthRepository {
   updateUserGoogleIdentity(
     id: string,
     input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "firebaseAuthUid" | "lastLoginAt">>
+  ): Promise<AuthUserRecord | null> {
+    return this.updateUser(id, input);
+  }
+
+  updateUserAppleIdentity(
+    id: string,
+    input: Partial<Pick<AuthUserRecord, "fullName" | "emailVerifiedAt" | "status" | "authProvider" | "appleSubject" | "lastLoginAt">>
   ): Promise<AuthUserRecord | null> {
     return this.updateUser(id, input);
   }
@@ -144,6 +165,8 @@ export class MongoAuthRepository implements AuthRepository {
           emailVerifiedAt: "",
           firebaseAuthUid: "",
           firebaseAuthUidLookupHash: "",
+          appleSubject: "",
+          appleSubjectLookupHash: "",
           universityId: "",
           facultyId: "",
           departmentId: "",
@@ -163,7 +186,7 @@ export class MongoAuthRepository implements AuthRepository {
     if (!user) return null;
     return this.updateUser(id, {
       passwordHash,
-      authProvider: user.authProvider === "google" ? "password_google" : user.authProvider ?? "password"
+      authProvider: linkedAuthProvider(user.authProvider, "password")
     });
   }
 
@@ -413,6 +436,10 @@ export class MongoAuthRepository implements AuthRepository {
       protectedInput.firebaseAuthUidLookupHash = sensitiveLookupHash(protectedInput.firebaseAuthUid, "user.firebaseAuthUid");
       protectedInput.firebaseAuthUid = protectSensitiveValue(protectedInput.firebaseAuthUid, "user.firebaseAuthUid");
     }
+    if (typeof protectedInput.appleSubject === "string") {
+      protectedInput.appleSubjectLookupHash = sensitiveLookupHash(protectedInput.appleSubject, "user.appleSubject");
+      protectedInput.appleSubject = protectSensitiveValue(protectedInput.appleSubject, "user.appleSubject");
+    }
     const document = await model.findByIdAndUpdate(id, { $set: omitUndefined(protectedInput) }, { new: true });
     return document ? toAuthUserRecord(document) : null;
   }
@@ -427,18 +454,23 @@ export class MongoAuthRepository implements AuthRepository {
 type PersistedAuthUserRecord = AuthUserRecord & {
   emailLookupHash?: string;
   firebaseAuthUidLookupHash?: string;
+  appleSubjectLookupHash?: string;
 };
 
 function toAuthUserRecord(document: { id: string; toObject: () => Record<string, unknown> }): AuthUserRecord {
-  const { emailLookupHash, firebaseAuthUidLookupHash, ...record } = toDomainRecord<PersistedAuthUserRecord>(document);
+  const { emailLookupHash, firebaseAuthUidLookupHash, appleSubjectLookupHash, ...record } = toDomainRecord<PersistedAuthUserRecord>(document);
   void emailLookupHash;
   void firebaseAuthUidLookupHash;
+  void appleSubjectLookupHash;
   return normalizeAuthUserRecord({
     ...record,
     fullName: revealSensitiveValue(record.fullName, "user.fullName"),
     email: revealSensitiveValue(record.email, "user.email"),
     ...(record.firebaseAuthUid ? {
       firebaseAuthUid: revealSensitiveValue(record.firebaseAuthUid, "user.firebaseAuthUid")
+    } : {}),
+    ...(record.appleSubject ? {
+      appleSubject: revealSensitiveValue(record.appleSubject, "user.appleSubject")
     } : {})
   });
 }

@@ -369,10 +369,13 @@ function renderScenario(input: ScenarioRenderInput): ReactNode {
         googleAvailable
         googleBusy={false}
         googleUnavailableMessage="Google girişi şu anda kullanılamıyor."
+        appleAvailable={false}
+        appleBusy={false}
         onDismissFeedback={() => input.setScenario("login")}
         onEmailChange={input.setEmail}
         onForgotPassword={() => input.setScenario("recovery-request")}
         onGoogleSubmit={() => input.setScenario("login-loading")}
+        onAppleSubmit={() => input.setScenario("login-loading")}
         onPasswordChange={input.setPassword}
         onRegister={() => input.setScenario("register")}
         onSubmit={() => input.setScenario("login-loading")}

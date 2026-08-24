@@ -7,12 +7,14 @@ import {
   AUTH_EMAIL_MAX_LENGTH,
   AUTH_FULL_NAME_MAX_LENGTH,
   AUTH_ID_TOKEN_MAX_LENGTH,
+  AUTH_NONCE_MAX_LENGTH,
   AUTH_PASSWORD_MAX_LENGTH,
   AUTH_REFRESH_TOKEN_MAX_LENGTH,
   EMAIL_VERIFICATION_CODE_LENGTH,
   PASSWORD_RECOVERY_CODE_LENGTH
 } from "../src/modules/auth/auth.constants.js";
 import {
+  AppleLoginDto,
   GoogleLoginDto,
   LoginDto,
   LogoutDto,
@@ -85,6 +87,10 @@ describe("auth DTO input length limits", () => {
     ["login deviceId", LoginDto, { email: "student@example.com", password: "password", deviceId: "a".repeat(AUTH_DEVICE_ID_MAX_LENGTH + 1) }, "deviceId"],
     ["Google idToken", GoogleLoginDto, { idToken: "a".repeat(AUTH_ID_TOKEN_MAX_LENGTH + 1), deviceId: "device-1" }, "idToken"],
     ["Google deviceId", GoogleLoginDto, { idToken: "id-token", deviceId: "a".repeat(AUTH_DEVICE_ID_MAX_LENGTH + 1) }, "deviceId"],
+    ["Apple identityToken", AppleLoginDto, { identityToken: "a".repeat(AUTH_ID_TOKEN_MAX_LENGTH + 1), nonce: "nonce", deviceId: "device-1" }, "identityToken"],
+    ["Apple nonce", AppleLoginDto, { identityToken: "identity-token", nonce: "a".repeat(AUTH_NONCE_MAX_LENGTH + 1), deviceId: "device-1" }, "nonce"],
+    ["Apple fullName", AppleLoginDto, { identityToken: "identity-token", nonce: "nonce", fullName: "a".repeat(AUTH_FULL_NAME_MAX_LENGTH + 1), deviceId: "device-1" }, "fullName"],
+    ["Apple deviceId", AppleLoginDto, { identityToken: "identity-token", nonce: "nonce", deviceId: "a".repeat(AUTH_DEVICE_ID_MAX_LENGTH + 1) }, "deviceId"],
     ["refresh token", RefreshTokenDto, { refreshToken: "a".repeat(AUTH_REFRESH_TOKEN_MAX_LENGTH + 1), deviceId: "device-1" }, "refreshToken"],
     ["refresh deviceId", RefreshTokenDto, { refreshToken: "refresh-token", deviceId: "a".repeat(AUTH_DEVICE_ID_MAX_LENGTH + 1) }, "deviceId"],
     ["logout refresh token", LogoutDto, { refreshToken: "a".repeat(AUTH_REFRESH_TOKEN_MAX_LENGTH + 1) }, "refreshToken"],
@@ -96,7 +102,9 @@ describe("auth DTO input length limits", () => {
     ["new password", PasswordRecoveryConfirmDto, { email: "student@example.com", code: "123456", newPassword: "a".repeat(AUTH_PASSWORD_MAX_LENGTH + 1), passwordConfirmation: "password" }, "newPassword"],
     ["new password confirmation", PasswordRecoveryConfirmDto, { email: "student@example.com", code: "123456", newPassword: "password", passwordConfirmation: "a".repeat(AUTH_PASSWORD_MAX_LENGTH + 1) }, "passwordConfirmation"],
     ["recent password", RecentAuthenticationDto, { purpose: "delete_account", method: "password", password: "a".repeat(AUTH_PASSWORD_MAX_LENGTH + 1) }, "password"],
-    ["recent Google idToken", RecentAuthenticationDto, { purpose: "delete_account", method: "google", idToken: "a".repeat(AUTH_ID_TOKEN_MAX_LENGTH + 1) }, "idToken"]
+    ["recent Google idToken", RecentAuthenticationDto, { purpose: "delete_account", method: "google", idToken: "a".repeat(AUTH_ID_TOKEN_MAX_LENGTH + 1) }, "idToken"],
+    ["recent Apple identityToken", RecentAuthenticationDto, { purpose: "delete_account", method: "apple", identityToken: "a".repeat(AUTH_ID_TOKEN_MAX_LENGTH + 1), nonce: "nonce" }, "identityToken"],
+    ["recent Apple nonce", RecentAuthenticationDto, { purpose: "delete_account", method: "apple", identityToken: "identity-token", nonce: "a".repeat(AUTH_NONCE_MAX_LENGTH + 1) }, "nonce"]
   ] as const)("rejects an overlong %s", async (_name, constructor, input, property) => {
     const errors = await errorsFor(constructor, input);
     expectConstraint(errors, property, "maxLength");

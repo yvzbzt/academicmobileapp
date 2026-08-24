@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  APPLE_JWKS_URL,
   assertPinnedRemoteAddress,
   GOOGLE_METADATA_TOKEN_URL,
   isForbiddenIpAddress,
@@ -218,6 +219,15 @@ describe("safe outbound requests", () => {
   });
 
   it("rejects provider policies used for arbitrary authorities", async () => {
+    await expect(safeOutboundRequest("https://attacker.example/auth/keys", {
+      timeoutMs: 1_000,
+      maximumRedirects: 0,
+      maximumResponseBytes: 1024,
+      providerPolicy: "apple-jwks"
+    })).rejects.toThrow("OUTBOUND_APPLE_AUTHORITY_FORBIDDEN");
+
+    expect(APPLE_JWKS_URL).toBe("https://appleid.apple.com/auth/keys");
+
     await expect(safeOutboundRequest("https://attacker.example/tokeninfo?id_token=fixture", {
       timeoutMs: 1_000,
       maximumRedirects: 0,

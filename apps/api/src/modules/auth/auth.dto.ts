@@ -5,6 +5,7 @@ import {
   AUTH_EMAIL_MAX_LENGTH,
   AUTH_FULL_NAME_MAX_LENGTH,
   AUTH_ID_TOKEN_MAX_LENGTH,
+  AUTH_NONCE_MAX_LENGTH,
   AUTH_PASSWORD_MAX_LENGTH,
   AUTH_PASSWORD_MIN_LENGTH,
   AUTH_REFRESH_TOKEN_MAX_LENGTH,
@@ -76,6 +77,28 @@ export class GoogleLoginDto {
   @IsNotEmpty()
   @MaxLength(AUTH_ID_TOKEN_MAX_LENGTH)
   idToken!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(AUTH_DEVICE_ID_MAX_LENGTH)
+  deviceId!: string;
+}
+
+export class AppleLoginDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(AUTH_ID_TOKEN_MAX_LENGTH)
+  identityToken!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(AUTH_NONCE_MAX_LENGTH)
+  nonce!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(AUTH_FULL_NAME_MAX_LENGTH)
+  fullName?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -155,8 +178,8 @@ export class RecentAuthenticationDto {
   @IsIn(["delete_personal_data", "delete_account"])
   purpose!: "delete_personal_data" | "delete_account";
 
-  @IsIn(["password", "google"])
-  method!: "password" | "google";
+  @IsIn(["password", "google", "apple"])
+  method!: "password" | "google" | "apple";
 
   @ValidateIf((input: RecentAuthenticationDto) => input.method === "password")
   @IsString()
@@ -169,6 +192,18 @@ export class RecentAuthenticationDto {
   @IsNotEmpty()
   @MaxLength(AUTH_ID_TOKEN_MAX_LENGTH)
   idToken?: string;
+
+  @ValidateIf((input: RecentAuthenticationDto) => input.method === "apple")
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(AUTH_ID_TOKEN_MAX_LENGTH)
+  identityToken?: string;
+
+  @ValidateIf((input: RecentAuthenticationDto) => input.method === "apple")
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(AUTH_NONCE_MAX_LENGTH)
+  nonce?: string;
 }
 
 export class VerifyEmailQueryDto {

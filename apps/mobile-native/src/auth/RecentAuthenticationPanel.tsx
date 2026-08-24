@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useEffect, useRef } from "react";
 import { Banner, Button, PasswordField, useTheme } from "../design-system";
+import { AppleSignInButton } from "./AppleSignInButton";
 import type {
   DestructiveAccountAction,
   RecentAuthenticationMethod
@@ -24,6 +25,7 @@ export interface RecentAuthenticationPanelProps {
   onPasswordChange: (password: string) => void;
   onSubmitPassword: () => void;
   onSubmitGoogle: () => void;
+  onSubmitApple: () => void;
   onCancel: () => void;
 }
 
@@ -33,6 +35,7 @@ export function RecentAuthenticationPanel(props: RecentAuthenticationPanelProps)
   const actionLabel = props.action === "account" ? "hesabını silmek" : "verilerini silmek";
   const passwordAvailable = props.methods.includes("password");
   const googleAvailable = props.methods.includes("google");
+  const appleAvailable = props.methods.includes("apple");
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -191,7 +194,30 @@ export function RecentAuthenticationPanel(props: RecentAuthenticationPanelProps)
         </View>
       )}
 
-      {!passwordAvailable && !googleAvailable && (
+      {appleAvailable && (
+        <View
+          style={[
+            styles.methodCard,
+            {
+              backgroundColor: theme.colors.background.subtle,
+              borderColor: theme.colors.background.subtle,
+              borderRadius: theme.radii.card,
+              gap: theme.spacing.sm,
+              padding: theme.spacing.sm,
+            },
+          ]}
+        >
+          <MethodHeading icon="logo-apple" title="Apple hesabı" />
+          <AppleSignInButton
+            busy={props.busy}
+            onPress={props.onSubmitApple}
+            testID="recent-auth-apple-button"
+            type="sign-in"
+          />
+        </View>
+      )}
+
+      {!passwordAvailable && !googleAvailable && !appleAvailable && (
         <Banner
           title="Bu hesap için kullanılabilir doğrulama yöntemi bulunamadı."
           tone="error"

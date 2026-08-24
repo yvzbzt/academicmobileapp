@@ -97,11 +97,14 @@ function loginProps(overrides: Partial<LoginScreenProps> = {}): LoginScreenProps
     googleBusy: false,
     googleAvailable: true,
     googleUnavailableMessage: "Google yapılandırması eksik.",
+    appleAvailable: true,
+    appleBusy: false,
     feedback: null,
     onEmailChange: jest.fn(),
     onPasswordChange: jest.fn(),
     onSubmit: jest.fn(),
     onGoogleSubmit: jest.fn(),
+    onAppleSubmit: jest.fn(),
     onForgotPassword: jest.fn(),
     onVerificationRecovery: jest.fn(),
     onRegister: jest.fn(),
@@ -319,6 +322,7 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByLabelText("Şifre")).toBeVisible();
       expect(screen.getByRole("button", { name: "Giriş yap" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Google ile devam et" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Apple ile devam et" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Şifremi unuttum" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
       expect(screen.getByLabelText("Sosyal medya kanalları")).toBeVisible();
@@ -398,17 +402,20 @@ describe("Phase 6 rendered authentication screens", () => {
     it("blocks duplicate actions and exposes busy semantics while submitting", async () => {
       const onSubmit = jest.fn();
       const onGoogleSubmit = jest.fn();
+      const onAppleSubmit = jest.fn();
       await renderAuth(
         <LoginScreen
-          {...loginProps({ busy: true, onSubmit, onGoogleSubmit })}
+          {...loginProps({ busy: true, onSubmit, onGoogleSubmit, onAppleSubmit })}
         />,
       );
 
       const submit = screen.getByRole("button", { name: "Giriş yap" });
       const google = screen.getByRole("button", { name: "Google ile devam et" });
+      const apple = screen.getByRole("button", { name: "Apple ile devam et" });
       expect(submit).toBeBusy();
       expect(submit).toBeDisabled();
       expect(google).toBeDisabled();
+      expect(apple).toHaveProp("accessibilityState", { disabled: true, busy: true });
       expect(screen.getByLabelText("E-posta adresi")).toHaveProp("editable", false);
 
       await fireEventAsync.press(submit);
@@ -416,6 +423,7 @@ describe("Phase 6 rendered authentication screens", () => {
       await fireEventAsync.press(google);
       expect(onSubmit).not.toHaveBeenCalled();
       expect(onGoogleSubmit).not.toHaveBeenCalled();
+      expect(onAppleSubmit).not.toHaveBeenCalled();
     });
 
     it("renders Google cancellation as polite feedback with a dismiss action", async () => {

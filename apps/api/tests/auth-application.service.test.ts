@@ -4,6 +4,7 @@ import { AuthApplicationService } from "../src/modules/auth/auth-application.ser
 import { AUTH_ERROR_CODES, type AuthErrorCode } from "../src/modules/auth/auth.constants.js";
 import { EmailVerificationSenderService, type SendVerificationEmailInput } from "../src/modules/auth/email-verification-sender.service.js";
 import type { GoogleIdentityVerifier, VerifiedGoogleIdentity } from "../src/modules/auth/firebase-google-identity.verifier.js";
+import type { AppleIdentityTokenVerifier, VerifiedAppleIdentity } from "../src/modules/auth/apple-identity.verifier.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import { PasswordHasher } from "../src/modules/auth/password-hasher.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
@@ -28,7 +29,20 @@ class FakeGoogleIdentityVerifier implements GoogleIdentityVerifier {
   }
 }
 
-function createAuthService(googleIdentity?: VerifiedGoogleIdentity, catalogRepository?: InMemoryCatalogRepository) {
+class FakeAppleIdentityVerifier implements AppleIdentityTokenVerifier {
+  constructor(private readonly identity: VerifiedAppleIdentity) {}
+
+  async verifyIdentityToken(identityToken: string, nonce: string): Promise<VerifiedAppleIdentity> {
+    if (identityToken === "invalid-apple-token" || nonce !== "valid-apple-nonce") throw new Error("INVALID_TOKEN");
+    return this.identity;
+  }
+}
+
+function createAuthService(
+  googleIdentity?: VerifiedGoogleIdentity,
+  catalogRepository?: InMemoryCatalogRepository,
+  appleIdentity?: VerifiedAppleIdentity
+) {
   const sender = new FakeEmailVerificationSenderService();
   const authRepository = new InMemoryAuthRepository();
   const notificationRepository = new InMemoryNotificationRepository();
@@ -39,7 +53,8 @@ function createAuthService(googleIdentity?: VerifiedGoogleIdentity, catalogRepos
     sender,
     googleIdentity ? new FakeGoogleIdentityVerifier(googleIdentity) : undefined,
     catalogRepository,
-    notificationRepository
+    notificationRepository,
+    appleIdentity ? new FakeAppleIdentityVerifier(appleIdentity) : undefined
   );
   return { service, sender, authRepository, notificationRepository };
 }
@@ -413,6 +428,40 @@ describe("AuthApplicationService", () => {
         deviceId: "device-google"
       })
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("creates and reauthenticates an Apple-only account using its stable Apple subject", async () => {
+    const { service: authService, authRepository } = createAuthService(undefined, undefined, {
+      subject: "000123.apple-owner",
+      email: "apple.owner@privaterelay.appleid.com",
+      emailVerified: true,
+      isPrivateEmail: true
+    });
+
+    const session = await authService.loginWithApple({
+      identityToken: "valid-apple-token",
+      nonce: "valid-apple-nonce",
+      fullName: "Apple Owner",
+      deviceId: "device-apple"
+    });
+    expect(session.user).toEqual(expect.objectContaining({
+      email: "apple.owner@privaterelay.appleid.com",
+      fullName: "Apple Owner",
+      authProvider: "apple"
+    }));
+    await expect(authRepository.findUserByAppleSubject("000123.apple-owner")).resolves.toEqual(
+      expect.objectContaining({ appleSubject: "000123.apple-owner" })
+    );
+
+    const proof = await authService.createRecentAuthenticationProof(session.user.id, {
+      method: "apple",
+      identityToken: "valid-apple-token",
+      nonce: "valid-apple-nonce",
+      purpose: "delete_account"
+    });
+    expect(new TokenService().verifyRecentAuthenticationProof(proof.proof)).toEqual(
+      expect.objectContaining({ method: "apple", purpose: "delete_account", sub: session.user.id })
+    );
   });
 
   it("rotates refresh tokens and rejects reuse", async () => {

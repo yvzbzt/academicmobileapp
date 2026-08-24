@@ -48,11 +48,15 @@ Provider integrations require environment-specific configuration:
 
 - Android Google Sign-In requires an Android OAuth client for package `com.anssoft.akademiktakvim` and the signing certificate SHA-1.
 - Backend Google authentication requires a Web OAuth client ID in `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`; the API must allow the corresponding client IDs.
+- Sign in with Apple is enabled for iOS bundle ID `com.anssoft.akademiktakvim` and team `VMGJVLFX95`. Enable the **Sign in with Apple** capability on the matching App ID in Apple Developer, then let Xcode refresh its automatically managed provisioning profile.
+- The API must set `APPLE_SIGN_IN_CLIENT_IDS=com.anssoft.akademiktakvim`. Apple identity tokens are verified against Apple's public JWKS; this native flow does not require a committed `.p8` key or client secret.
 - Google Calendar synchronization requires the Google Calendar API and the `calendar.events` scope.
 - iOS requires its own OAuth client, Firebase application, signing identity, and APNs configuration.
 - Push delivery requires matching Firebase native configuration and authorized Firebase Admin credentials on the API.
 
 Do not commit `.env`, `google-services.json`, `GoogleService-Info.plist`, keystores, signing properties, service-account files, or provider secrets.
+
+For App Store archives, open `ios/AkademikTakvim.xcworkspace`, select the `AkademikTakvim` target, and keep **Automatically manage signing** enabled for team `VMGJVLFX95`. The source Expo config owns the team ID, build number, Apple Sign In entitlement, mixed-localization flag, and export-compliance declaration so a future iOS prebuild reproduces them. A matching untracked `GoogleService-Info.plist` is still required by Firebase Messaging before runtime validation.
 
 ## Development
 

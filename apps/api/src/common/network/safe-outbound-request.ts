@@ -22,6 +22,7 @@ export interface SafeOutboundResponse extends SafeOutboundHopResponse {
 export type SafeOutboundHttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 export type SafeOutboundProviderPolicy =
   | "public"
+  | "apple-jwks"
   | "google-oauth-tokeninfo"
   | "google-document-ai"
   | "google-metadata-token"
@@ -60,6 +61,7 @@ const DEFAULT_MAXIMUM_REQUEST_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAXIMUM_RESPONSE_BYTES = 5 * 1024 * 1024;
 const GOOGLE_METADATA_ADDRESS = "169.254.169.254";
 export const GOOGLE_METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
+export const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
 export const YOK_ATLAS_SEARCH_URL = "https://yokatlas.yok.gov.tr/api/tercih-kilavuz/search";
 
 let testDependencies: SafeOutboundRequestDependencies | undefined;
@@ -310,6 +312,15 @@ function validateRequestPolicy(input: {
   switch (input.providerPolicy) {
     case "public":
       return;
+    case "apple-jwks":
+      requireProviderRequest(input, {
+        method: "GET",
+        maximumRedirects: 0,
+        maximumResponseBytes: 512 * 1024,
+        timeoutMs: 10_000
+      });
+      if (input.body) throw new Error("OUTBOUND_PROVIDER_BODY_FORBIDDEN");
+      return;
     case "google-oauth-tokeninfo":
       requireProviderRequest(input, {
         method: "GET",
@@ -425,6 +436,9 @@ function requireProviderPolicyUrl(
   switch (providerPolicy) {
     case "public":
       return absolute;
+    case "apple-jwks":
+      if (url.toString() !== APPLE_JWKS_URL) throw new Error("OUTBOUND_APPLE_AUTHORITY_FORBIDDEN");
+      return url.toString();
     case "google-oauth-tokeninfo": {
       const parameterNames = [...url.searchParams.keys()];
       if (

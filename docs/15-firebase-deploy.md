@@ -63,6 +63,7 @@ QUEUE_MODE: "memory"
 RATE_LIMIT_STORE: "memory"
 BOOTSTRAP_SEED_ENABLED: "false"
 AUTH_EXPOSE_PREVIEW_VERIFICATION_TOKEN: "false"
+APPLE_SIGN_IN_CLIENT_IDS: "com.anssoft.akademiktakvim"
 CORS_ORIGIN: "https://YOUR_ADMIN_SITE_ID.web.app,https://YOUR_MOBILE_SITE_ID.web.app"
 ```
 

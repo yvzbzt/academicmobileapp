@@ -13,11 +13,13 @@ import {
 
 describe("mobile native recent authentication", () => {
   it("offers only authentication methods supported by the account and build", () => {
-    expect(recentAuthenticationMethods("password", true)).toEqual(["password"]);
-    expect(recentAuthenticationMethods("google", true)).toEqual(["google"]);
-    expect(recentAuthenticationMethods("google", false)).toEqual([]);
-    expect(recentAuthenticationMethods("password_google", true)).toEqual(["password", "google"]);
-    expect(recentAuthenticationMethods("password_google", false)).toEqual(["password"]);
+    expect(recentAuthenticationMethods("password", true, true)).toEqual(["password"]);
+    expect(recentAuthenticationMethods("google", true, true)).toEqual(["google"]);
+    expect(recentAuthenticationMethods("google", false, true)).toEqual([]);
+    expect(recentAuthenticationMethods("apple", true, true)).toEqual(["apple"]);
+    expect(recentAuthenticationMethods("apple", true, false)).toEqual([]);
+    expect(recentAuthenticationMethods("password_google_apple", true, true)).toEqual(["password", "google", "apple"]);
+    expect(recentAuthenticationMethods("password_google", true, false)).toEqual(["password", "google"]);
     expect(normalizeAccountAuthProvider("unsupported")).toBeUndefined();
   });
 
@@ -49,6 +51,8 @@ describe("mobile native recent authentication", () => {
       .toBe("Hesap şifren yanlış. Kontrol edip tekrar dene.");
     expect(recentAuthenticationFailureMessage("google", "AUTH_INVALID_CREDENTIALS"))
       .toBe("Google hesabın doğrulanamadı. Hesabı yeniden seçip tekrar dene.");
+    expect(recentAuthenticationFailureMessage("apple", "AUTH_INVALID_CREDENTIALS"))
+      .toBe("Apple hesabın doğrulanamadı. Tekrar deneyebilirsin.");
     expect(recentAuthenticationFailureMessage("password", "AUTH_SESSION_INVALID")).toBeUndefined();
   });
 

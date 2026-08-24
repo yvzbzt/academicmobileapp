@@ -78,6 +78,27 @@ jest.mock("expo-network", () => ({
   })),
 }));
 
+jest.mock("expo-apple-authentication", () => {
+  const React = require("react");
+  const { Pressable } = require("react-native");
+  return {
+    AppleAuthenticationButton: ({ onPress, ...props }: { onPress: () => void }) => React.createElement(
+      Pressable,
+      { ...props, accessibilityRole: "button", onPress },
+    ),
+    AppleAuthenticationButtonStyle: { BLACK: 2, WHITE: 0, WHITE_OUTLINE: 1 },
+    AppleAuthenticationButtonType: { CONTINUE: 1, SIGN_IN: 0, SIGN_UP: 2 },
+    AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
+    formatFullName: jest.fn(() => "Test Student"),
+    isAvailableAsync: jest.fn(async () => false),
+    signInAsync: jest.fn(),
+  };
+});
+
+jest.mock("expo-crypto", () => ({
+  getRandomBytesAsync: jest.fn(async (length: number) => new Uint8Array(length).fill(7)),
+}));
+
 // react-freeze suspends with a never-resolving thenable, which the React test
 // renderer retains across tab transitions until the Jest process exhausts memory.
 // Native screen freezing remains enabled in production; tests still exercise the

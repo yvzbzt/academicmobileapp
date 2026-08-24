@@ -1,6 +1,13 @@
-export type AccountAuthProvider = "password" | "google" | "password_google";
+export type AccountAuthProvider =
+  | "password"
+  | "google"
+  | "apple"
+  | "password_google"
+  | "password_apple"
+  | "google_apple"
+  | "password_google_apple";
 
-export type RecentAuthenticationMethod = "password" | "google";
+export type RecentAuthenticationMethod = "password" | "google" | "apple";
 
 export type DestructiveAccountAction = "data" | "account";
 
@@ -23,13 +30,20 @@ export function recentAuthenticationFailureMessage(
   errorCode: string | undefined,
 ): string | undefined {
   if (errorCode !== "AUTH_INVALID_CREDENTIALS") return undefined;
-  return method === "password"
-    ? "Hesap şifren yanlış. Kontrol edip tekrar dene."
-    : "Google hesabın doğrulanamadı. Hesabı yeniden seçip tekrar dene.";
+  if (method === "password") return "Hesap şifren yanlış. Kontrol edip tekrar dene.";
+  return method === "google"
+    ? "Google hesabın doğrulanamadı. Hesabı yeniden seçip tekrar dene."
+    : "Apple hesabın doğrulanamadı. Tekrar deneyebilirsin.";
 }
 
 export function normalizeAccountAuthProvider(value: unknown): AccountAuthProvider | undefined {
-  return value === "password" || value === "google" || value === "password_google"
+  return value === "password"
+    || value === "google"
+    || value === "apple"
+    || value === "password_google"
+    || value === "password_apple"
+    || value === "google_apple"
+    || value === "password_google_apple"
     ? value
     : undefined;
 }
@@ -42,18 +56,20 @@ export function recentAuthenticationPurpose(
 
 export function recentAuthenticationMethods(
   provider: AccountAuthProvider | undefined,
-  googleAvailable: boolean
+  googleAvailable: boolean,
+  appleAvailable: boolean
 ): RecentAuthenticationMethod[] {
-  if (provider === "password") return ["password"];
-  if (provider === "google") return googleAvailable ? ["google"] : [];
-  if (provider === "password_google") {
-    return googleAvailable ? ["password", "google"] : ["password"];
-  }
+  const available = new Set<RecentAuthenticationMethod>(["password"]);
+  if (googleAvailable) available.add("google");
+  if (appleAvailable) available.add("apple");
+  if (provider) return provider.split("_").filter((method): method is RecentAuthenticationMethod => (
+    available.has(method as RecentAuthenticationMethod)
+  ));
 
   // Older persisted sessions do not carry the additive auth-provider field.
   // Offer every locally available method and let the owner-bound server proof
   // endpoint reject a method the account does not support.
-  return googleAvailable ? ["password", "google"] : ["password"];
+  return [...available];
 }
 
 export function readRecentAuthenticationResponse(value: unknown): RecentAuthenticationResponse {

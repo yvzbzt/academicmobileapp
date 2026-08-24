@@ -9,6 +9,7 @@ import { AuthController } from "./modules/auth/auth.controller.js";
 import { AuthApplicationService } from "./modules/auth/auth-application.service.js";
 import { EmailVerificationSenderService } from "./modules/auth/email-verification-sender.service.js";
 import { FirebaseGoogleIdentityVerifier } from "./modules/auth/firebase-google-identity.verifier.js";
+import { AppleIdentityVerifier } from "./modules/auth/apple-identity.verifier.js";
 import { MongoAuthRepository } from "./modules/auth/mongo-auth.repository.js";
 import { PasswordHasher } from "./modules/auth/password-hasher.js";
 import { TokenService } from "./modules/auth/token.service.js";
@@ -72,6 +73,7 @@ const MONGO_REPOSITORY_PROVIDERS = [
     AccountDeletionService,
     EmailVerificationSenderService,
     FirebaseGoogleIdentityVerifier,
+    AppleIdentityVerifier,
     UsersService,
     AnnouncementsService,
     AnnouncementIngestionService,
@@ -108,6 +110,10 @@ const MONGO_REPOSITORY_PROVIDERS = [
     {
       provide: "GoogleIdentityVerifier",
       useExisting: FirebaseGoogleIdentityVerifier
+    },
+    {
+      provide: "AppleIdentityVerifier",
+      useExisting: AppleIdentityVerifier
     },
     {
       provide: "QueueService",

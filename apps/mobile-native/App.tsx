@@ -1,5 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
+import * as AppleAuthentication from "expo-apple-authentication";
+import * as Crypto from "expo-crypto";
 import { Ionicons } from "@expo/vector-icons";
 import {
   GoogleSignin,
@@ -146,6 +148,7 @@ import {
   type PreloginWelcomeGate,
 } from "./src/auth/prelogin-welcome";
 import { RecentAuthenticationPanel } from "./src/auth/RecentAuthenticationPanel";
+import { AppleSignInButton } from "./src/auth/AppleSignInButton";
 import {
   normalizeAccountAuthProvider,
   readRecentAuthenticationResponse,
@@ -608,7 +611,7 @@ const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
 const GOOGLE_CALENDAR_V2_STORAGE_PREFIX = "native_google_calendar_connection_v2";
 const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v3";
 // Sourced from app.json; kept visible here so Profile never reports a package-only placeholder.
-const NATIVE_APP_VERSION = "0.1.0";
+const NATIVE_APP_VERSION = "0.1.2";
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -722,12 +725,19 @@ const GOOGLE_AUTH_CONFIGURATION_MESSAGE = Platform.select({
 }) ?? "Bu derleme Google Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.";
 const GOOGLE_ID_TOKEN_CONFIGURATION_MESSAGE =
   "Google oturumu tamamlanamadı. Lütfen tekrar dene veya e-posta ile giriş yap.";
+const APPLE_AUTH_UNAVAILABLE_MESSAGE = "Apple ile giriş bu cihazda kullanılamıyor.";
+const APPLE_ID_TOKEN_ERROR_MESSAGE = "Apple oturumu doğrulama bilgisi alınamadı. Lütfen tekrar dene.";
 const AUTH_INPUT_PLACEHOLDER_COLOR = "#64748b";
 const API_REQUEST_TIMEOUT_MS = 15_000;
 
 function cleanEnvValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+async function createAppleAuthenticationNonce(): Promise<string> {
+  const bytes = await Crypto.getRandomBytesAsync(32);
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
 class ApiRequestError extends Error {
@@ -1342,6 +1352,8 @@ function MainApplication() {
   const [busy, setBusy] = useState(false);
   const [academicSelectionPending, setAcademicSelectionPending] = useState<AcademicSelectionLevel | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [appleBusy, setAppleBusy] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const [accountAuthProvider, setAccountAuthProvider] = useState<AccountAuthProvider | undefined>();
   const [recentAuthAction, setRecentAuthAction] = useState<DestructiveAccountAction | null>(null);
   const [recentAuthReturnFocus, setRecentAuthReturnFocus] = useState<{
@@ -1482,7 +1494,8 @@ function MainApplication() {
   const accessToken = session?.accessToken;
   const availableRecentAuthMethods = recentAuthenticationMethods(
     accountAuthProvider ?? normalizeAccountAuthProvider(session?.user.authProvider),
-    GOOGLE_AUTH_CONFIGURED
+    GOOGLE_AUTH_CONFIGURED,
+    appleAvailable
   );
   const googleCalendarService = useMemo(() => new GoogleCalendarService(), []);
   const availableCategories = useMemo(() => {
@@ -2585,6 +2598,24 @@ function MainApplication() {
       ...(GOOGLE_WEB_CLIENT_ID ? { webClientId: GOOGLE_WEB_CLIENT_ID } : {}),
       ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {})
     });
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") {
+      setAppleAvailable(false);
+      return;
+    }
+    let active = true;
+    void AppleAuthentication.isAvailableAsync()
+      .then((available) => {
+        if (active) setAppleAvailable(available);
+      })
+      .catch(() => {
+        if (active) setAppleAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -3942,6 +3973,97 @@ function MainApplication() {
     }
   }
 
+  async function requestAppleCredential(requestProfile: boolean): Promise<{
+    identityToken: string;
+    nonce: string;
+    fullName?: string;
+  }> {
+    const nonce = await createAppleAuthenticationNonce();
+    const credential = await AppleAuthentication.signInAsync({
+      nonce,
+      state: nonce,
+      requestedScopes: requestProfile
+        ? [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ]
+        : [],
+    });
+    if (credential.state !== nonce) throw new Error("APPLE_AUTH_STATE_MISMATCH");
+    if (!credential.identityToken) throw new Error(APPLE_ID_TOKEN_ERROR_MESSAGE);
+    const fullName = credential.fullName
+      ? AppleAuthentication.formatFullName(credential.fullName).trim()
+      : "";
+    return {
+      identityToken: credential.identityToken,
+      nonce,
+      ...(fullName ? { fullName } : {}),
+    };
+  }
+
+  async function handleAppleAuth(): Promise<void> {
+    if (accountCleanupInProgressRef.current || authOperationInProgressRef.current) {
+      setMessage({ text: "Başka bir hesap işlemi tamamlanıyor. Lütfen kısa bir süre bekle.", tone: "info" });
+      return;
+    }
+    if (!appleAvailable) {
+      setMessage({ text: APPLE_AUTH_UNAVAILABLE_MESSAGE, tone: "error" });
+      return;
+    }
+    if (!deviceId) {
+      setMessage({ text: "Cihaz kimliği henüz hazır değil.", tone: "error" });
+      return;
+    }
+
+    authOperationInProgressRef.current = true;
+    try {
+      setAppleBusy(true);
+      const credential = await requestAppleCredential(true);
+      const nextSession = await apiRequest<SessionPayload>(
+        "/auth/apple",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            identityToken: credential.identityToken,
+            nonce: credential.nonce,
+            deviceId: deviceIdRef.current,
+            ...(credential.fullName ? { fullName: credential.fullName } : {}),
+          }),
+        },
+        undefined,
+        { authOperation: "apple_sign_in" },
+      );
+
+      setAuthStage("auth");
+      const snapshot = await activateSession(nextSession);
+      setPassword("");
+      setMessage(null);
+      const contextReady = await bootstrapAuthenticatedContext(nextSession.accessToken, snapshot);
+      if (!contextReady) {
+        if (sessionRef.current?.user.id === nextSession.user.id) {
+          setHydrationError("Hesap bağlamı hazırlanamadı. Bağlantını kontrol edip tekrar dene.");
+          setHydrationStatus("error");
+        }
+        return;
+      }
+      setAuthenticatedContextPending(false);
+    } catch (error) {
+      if (error instanceof StaleAccountRequestError) return;
+      if (isErrorWithCode(error) && error.code === "ERR_REQUEST_CANCELED") {
+        setMessage({ text: "Apple girişi tamamlanmadan kapatıldı.", tone: "info" });
+        return;
+      }
+      setMessage({
+        text: userMessageFromError(error, "Apple girişi tamamlanamadı"),
+        tone: "error",
+      });
+    } finally {
+      authOperationInProgressRef.current = false;
+      setAuthenticatedContextPending(false);
+      setAppleBusy(false);
+    }
+  }
+
   async function resendVerificationEmail(): Promise<void> {
     if (authOperationInProgressRef.current || accountCleanupInProgressRef.current) return;
     const normalizedEmail = email.trim().toLowerCase();
@@ -4665,6 +4787,7 @@ function MainApplication() {
     setGoogleCalendarError(null);
     setGoogleCalendarBusy(false);
     setGoogleBusy(false);
+    setAppleBusy(false);
     academicSelectionPendingRef.current = null;
     setAcademicSelectionPending(null);
     setNotificationDestinationNotice(null);
@@ -4878,6 +5001,14 @@ function MainApplication() {
     });
   }
 
+  async function freshAppleCredentialForRecentAuthentication(): Promise<{
+    identityToken: string;
+    nonce: string;
+  }> {
+    if (!appleAvailable) throw new Error(APPLE_AUTH_UNAVAILABLE_MESSAGE);
+    return requestAppleCredential(false);
+  }
+
   async function requestRecentAuthenticationProof(
     action: DestructiveAccountAction,
     method: RecentAuthenticationMethod,
@@ -4888,7 +5019,9 @@ function MainApplication() {
     const purpose = recentAuthenticationPurpose(action);
     const body = method === "password"
       ? { method, purpose, password: passwordCredential ?? "" }
-      : { method, purpose, idToken: await freshGoogleIdTokenForRecentAuthentication() };
+      : method === "google"
+        ? { method, purpose, idToken: await freshGoogleIdTokenForRecentAuthentication() }
+        : { method, purpose, ...await freshAppleCredentialForRecentAuthentication() };
     if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
     const response = await apiRequest<unknown>(
       "/auth/recent-authentication",
@@ -6996,6 +7129,8 @@ function MainApplication() {
             googleAvailable={GOOGLE_AUTH_CONFIGURED}
             googleBusy={googleBusy}
             googleUnavailableMessage={GOOGLE_AUTH_CONFIGURATION_MESSAGE}
+            appleAvailable={appleAvailable}
+            appleBusy={appleBusy}
             onDismissFeedback={() => setMessage(null)}
             onEmailChange={(value) => {
               setEmail(value);
@@ -7003,6 +7138,7 @@ function MainApplication() {
             }}
             onForgotPassword={() => openPasswordRecovery()}
             onGoogleSubmit={() => void handleGoogleAuth()}
+            onAppleSubmit={() => void handleAppleAuth()}
             onPasswordChange={(value) => {
               setPassword(value);
               setMessage(null);
@@ -7260,13 +7396,13 @@ function MainApplication() {
                   style={[
                     styles.modeButton,
                     authMode === "login" && styles.modeButtonActive,
-                    (busy || googleBusy) && styles.buttonDisabled
+                    (busy || googleBusy || appleBusy) && styles.buttonDisabled
                   ]}
                   onPress={() => {
                     setAuthMode("login");
                     setAuthStage("auth");
                   }}
-                  disabled={busy || googleBusy}
+                  disabled={busy || googleBusy || appleBusy}
                 >
                   <Text style={[styles.modeButtonText, authMode === "login" && styles.modeButtonTextActive]}>Giriş Yap</Text>
                 </Pressable>
@@ -7274,23 +7410,31 @@ function MainApplication() {
                   style={[
                     styles.modeButton,
                     authMode === "register" && styles.modeButtonActive,
-                    (busy || googleBusy) && styles.buttonDisabled
+                    (busy || googleBusy || appleBusy) && styles.buttonDisabled
                   ]}
                   onPress={() => {
                     setAuthMode("register");
                     setAuthStage("auth");
                   }}
-                  disabled={busy || googleBusy}
+                  disabled={busy || googleBusy || appleBusy}
                 >
                   <Text style={[styles.modeButtonText, authMode === "register" && styles.modeButtonTextActive]}>Kayıt Ol</Text>
                 </Pressable>
               </View>
 
+              {appleAvailable ? (
+                <AppleSignInButton
+                  busy={busy || googleBusy || appleBusy}
+                  onPress={() => void handleAppleAuth()}
+                  testID="legacy-apple-sign-in-button"
+                />
+              ) : null}
+
               {GOOGLE_AUTH_CONFIGURED ? (
                 <Pressable
-                  style={[styles.button, styles.googleButton, (busy || googleBusy) && styles.buttonDisabled]}
+                  style={[styles.button, styles.googleButton, (busy || googleBusy || appleBusy) && styles.buttonDisabled]}
                   onPress={() => void handleGoogleAuth()}
-                  disabled={busy || googleBusy}
+                  disabled={busy || googleBusy || appleBusy}
                 >
                   <Ionicons name="logo-google" size={19} color="#1f2937" />
                   <Text style={styles.googleButtonText}>{googleBusy ? "Google açılıyor..." : "Google ile Devam Et"}</Text>
@@ -8333,6 +8477,7 @@ function MainApplication() {
                       setRecentAuthError(undefined);
                     }}
                     onSubmitGoogle={() => void submitRecentAuthentication("google")}
+                    onSubmitApple={() => void submitRecentAuthentication("apple")}
                     onSubmitPassword={() => void submitRecentAuthentication("password")}
                     password={recentAuthPassword}
                   />
@@ -8945,6 +9090,7 @@ function MainApplication() {
           setRecentAuthError(undefined);
         }}
         onSubmitGoogle={() => void submitRecentAuthentication("google")}
+        onSubmitApple={() => void submitRecentAuthentication("apple")}
         onSubmitPassword={() => void submitRecentAuthentication("password")}
         password={recentAuthPassword}
       />

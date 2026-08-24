@@ -91,6 +91,7 @@ The production compose file builds three application containers: API, admin stat
 - `REDIS_URL` is required only when an optional `bullmq` or `redis` adapter is deliberately selected; checked-in deployments may retain both `memory` modes.
 - `BOOTSTRAP_SEED_ENABLED=true` enables startup seeding for the sample catalog and first admin account.
 - `BOOTSTRAP_ADMIN_PASSWORD` must be supplied before first-admin seeding can create a user.
+- `APPLE_SIGN_IN_CLIENT_IDS` must contain the App ID audiences accepted by the API. The production iOS app uses `com.anssoft.akademiktakvim`; multiple audiences are comma- or whitespace-separated.
 
 ## 4. Manual Verification And Deployment
 

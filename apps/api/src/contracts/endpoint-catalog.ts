@@ -29,6 +29,7 @@ export const endpointCatalog: EndpointContract[] = [
   { method: "POST", path: "/auth/password-recovery/confirm", authRequired: false, roles: "public", rateLimit: "strict" },
   { method: "POST", path: "/auth/login", authRequired: false, roles: "public", rateLimit: "strict" },
   { method: "POST", path: "/auth/google", authRequired: false, roles: "public", rateLimit: "strict" },
+  { method: "POST", path: "/auth/apple", authRequired: false, roles: "public", rateLimit: "strict" },
   { method: "POST", path: "/auth/refresh-token", authRequired: false, roles: "public", rateLimit: "strict" },
   { method: "POST", path: "/auth/recent-authentication", authRequired: true, roles: allAuthenticatedRoles, rateLimit: "strict" },
   { method: "POST", path: "/auth/logout", authRequired: true, roles: allAuthenticatedRoles, rateLimit: "standard" },
