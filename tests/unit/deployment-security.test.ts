@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("admin deployment security headers", () => {
@@ -41,20 +41,10 @@ describe("admin deployment security headers", () => {
     expect(script).not.toMatch(/docker\s+(?:compose\s+)?(?:down|system\s+prune|volume\s+rm|network\s+rm)\b/u);
   });
 
-  it("pins Android release and Mongo CI dependencies to immutable identities", () => {
-    const androidWorkflow = readFileSync(
-      new URL("../../.github/workflows/android-release.yml", import.meta.url),
-      "utf8"
-    );
-    const mongoWorkflow = readFileSync(
-      new URL("../../.github/workflows/mongo-integration.yml", import.meta.url),
-      "utf8"
-    );
+  it("does not track GitHub Actions workflows", () => {
+    const workflowDirectory = new URL("../../.github/workflows/", import.meta.url);
+    const workflows = existsSync(workflowDirectory) ? readdirSync(workflowDirectory) : [];
 
-    expect(androidWorkflow).not.toMatch(/uses:\s+[^\s@]+@v\d+/u);
-    expect(androidWorkflow.match(/uses:\s+[^\s@]+@[a-f0-9]{40}/gu)).toHaveLength(6);
-    expect(mongoWorkflow).not.toMatch(/uses:\s+[^\s@]+@v\d+/u);
-    expect(mongoWorkflow.match(/uses:\s+[^\s@]+@[a-f0-9]{40}/gu)).toHaveLength(2);
-    expect(mongoWorkflow).toMatch(/image:\s+mongo:8\.0@sha256:[a-f0-9]{64}/u);
+    expect(workflows).toEqual([]);
   });
 });

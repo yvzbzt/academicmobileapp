@@ -92,22 +92,20 @@ The production compose file builds three application containers: API, admin stat
 - `BOOTSTRAP_SEED_ENABLED=true` enables startup seeding for the sample catalog and first admin account.
 - `BOOTSTRAP_ADMIN_PASSWORD` must be supplied before first-admin seeding can create a user.
 
-## 4. CI/CD Pipeline
+## 4. Manual Verification And Deployment
 
-The general application pipeline stages below remain the target for a future
-`.github/workflows/ci.yml`; that workflow is not present in this checkout.
+This repository does not track or run GitHub Actions workflows. The operator
+reviews the source commit and starts verification, release packaging, and
+deployment manually.
 
-Android release packaging is implemented in
-`.github/workflows/android-release.yml`. It generates the ignored native Android
-project on Linux, requires explicit signed or unsigned mode, fails closed when
-required secrets are absent, and uploads only verified APK/AAB artifacts. See
-[`android-release-ci.md`](./android-release-ci.md) for the signing-secret and
-artifact-verification contract.
+Android release helpers require an explicit signed or unsigned mode and fail
+closed when required inputs are absent. See
+[`android-release-manual.md`](./android-release-manual.md) for the local signing
+and artifact-verification contract.
 
-The three destructive Mongo repository/concurrency suites run only against the
-isolated `mongo:8.0` service in `.github/workflows/mongo-integration.yml`. The
-service image and workflow actions are pinned to immutable digests/commits; the
-workflow never receives the production Mongo URI.
+The three destructive Mongo repository/concurrency suites must be run manually
+against a dedicated disposable Mongo instance. They must never receive or use
+the production Mongo URI.
 
 Audit-remediation VPS releases are packaged from an immutable Git commit with
 `scripts/package-vps-audit-release.sh`. Upload the resulting three-file directory
@@ -117,7 +115,7 @@ verifies the archive checksum and paths, builds a canary, recreates only the
 project API service, reloads only the Academic API Caddy route, and asserts that
 the Mongo and shared Caddy containers were not recreated.
 
-Target general-pipeline stages:
+Required manual verification stages:
 
 1. Install dependencies with lockfile.
 2. Static typecheck.

@@ -18,7 +18,7 @@ release contract.
 - Testing: [test strategy](./05-test-strategy.md),
   [full audit report](./full-audit-report.md)
 - Deployment: [DevOps and deployment](./08-devops-deployment.md),
-  [Android release CI](./android-release-ci.md),
+  [manual Android release](./android-release-manual.md),
   [Firebase deployment](./15-firebase-deploy.md), and the
   [Hetzner deployment assets](../deploy/hetzner/)
 - Product experience: [readiness report](./10-ui-ux-product-readiness-report.md),

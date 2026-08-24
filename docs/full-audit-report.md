@@ -9,11 +9,11 @@ Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport
 ## 2026-08-24 giderim ozeti
 
 - Native production audit sonucu 17 aciktan 0 aciga indirildi; temiz `npm ci`, `npm ls` ve Expo uyumluluk kontrolu gecti.
-- Android release hatti Linux GitHub Actions'a tasindi. Action'lar commit SHA, Mongo image digest ve `bundletool` SHA-256 ile sabitlendi.
+- Android release signing ve dogrulama betikleri manuel calisma icin fail-closed hale getirildi; repository GitHub Actions workflow'u calistirmiyor.
 - Signed/unsigned secimi mevcut Expo config plugin'inde fail-closed uygulandi; eksik mod, eksik imza, debug alias ve beklenmeyen imza ayri test edildi.
 - Guncel, non-debuggable ve v2-imzali APK uretildi: `artifacts/apk/akademik-takvim-release-audit-20260824.apk`.
 - APK SHA-256: `4B0EFDC722732B1410C622B9DFA2707649C96436D02A0F1F9F2098F38F4F022F`.
-- Mongo'ya bagimli uc destructive suite production URI almayan izole GitHub Actions Mongo servisine tasindi.
+- Mongo'ya bagimli uc destructive suite production URI almayan izole ve gecici bir Mongo ortami icin ayrildi; otomatik workflow kullanilmiyor.
 - VPS release paketi immutable Git commit'inden uretiliyor; checksum/path/symlink kontrolu, canary, rollback ve yalnizca `api` servisini yeniden olusturma siniri eklendi.
 - Public HSTS 2026-08-24 kontrolunde canlida mevcut. `/health/ready` ayrinti sizintisi ve bozuk ICS 500 davranisi ise deploy bekliyor.
 - Docker Desktop yerel test/deploy icin kullanilmadi ve kapali birakildi. VPS'de dosya, container, volume, network veya veri degisikligi yapilmadi.
@@ -95,14 +95,14 @@ Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport
 - Aggregate p95: 21.471 ms (esik 50 ms).
 - 700 ms ve uzeri donmus kare: 0 (esik 0).
 - Release performans kabul sonucu: PASS.
-- Windows uzun-yol problemi Linux release workflow'u ile kalici olarak baypas edildi. Yerel kanit APK'si temiz prebuild ve fiziksel `C:\r` kisa kopyasinda basariyla uretildi; gecici dizin build sonrasinda silindi.
+- Windows uzun-yol problemi manuel release sirasinda fiziksel `C:\r` kisa kopyasiyla baypas edildi. Yerel kanit APK'si temiz prebuild ile basariyla uretildi; gecici dizin build sonrasinda silindi.
 - R8, `play-services-auth 21.5.0` icin build'i durdurmayan stack-map uyarilari verdi. APK paketleme/imza/manifest kontrolleri gecti; Google girisi gercek production OAuth hesabiyla ayrica smoke edilmelidir.
 
 ## Otomasyon sonucu
 
 - Native Jest: 37/37 suite, 324/324 test PASS.
 - Kok Vitest (Mongo gerektiren 3 suite haric): 87 dosya, 1108/1108 test PASS.
-- Mongo repository/concurrency icin 3 suite production veritabaninda calistirilmadi. Izole `mongo:8.0` digest'li CI workflow'u eklendi; remote workflow sonucu ayrica kanitlanmalidir.
+- Mongo repository/concurrency icin 3 suite production veritabaninda calistirilmadi. Bu testler otomatik workflow yerine izole ve gecici Mongo instance'i uzerinde manuel calistirilmalidir.
 - Admin Playwright mock: 8/8 PASS.
 - VPS Playwright smoke: 2/2 PASS.
 - Root ve native TypeScript typecheck: PASS.
@@ -141,7 +141,7 @@ Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport
 ## Kapanis onceligi
 
 1. Yetkili VPS SSH anahtariyla hazir release paketini yalnizca Academic API projesine deploy et; health, logout, ICS ve alarm matrisini yeniden calistir.
-2. GitHub Actions'ta Mongo integration ve Android release workflow'larini calistirip remote kanit/artefakt URL'lerini rapora ekle.
+2. Izole Mongo integration testlerini ve Android release dogrulamasini manuel calistirip kanit/artefakt bilgilerini rapora ekle.
 3. Production admin credential ile gercek CRUD -> mobil gorunurluk testini calistir.
 4. Gercek Google/FCM/SMTP hesaplari, fiziksel Android ve iOS cihaz matrisi ekle.
 5. Denetim icin olusturulan gecici canli hesabi deploy sonrasi korumali regresyonlar bittiginde kalici sil.
