@@ -1,0 +1,144 @@
+name: Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      signing:
+        description: Release signing mode
+        required: true
+        default: signed
+        type: choice
+        options:
+          - signed
+          - unsigned
+      artifact_format:
+        description: Release artifact format
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - apk
+          - aab
+  push:
+    tags:
+      - "android-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify Android release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.signing || 'signed' }}
+      ARTIFACT_FORMAT: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_format || 'both' }}
+      EXPO_PUBLIC_USE_LOCAL_API: "0"
+      NODE_ENV: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile-native/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+      - name: Install pinned Android SDK components
+        shell: bash
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1"
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-read-only: ${{ github.ref_type != 'tag' && github.ref_name != github.event.repository.default_branch }}
+
+      - name: Install native dependencies from lockfile
+        working-directory: apps/mobile-native
+        run: npm ci --ignore-scripts=false
+
+      - name: Validate and materialize release inputs
+        shell: bash
+        env:
+          ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: bash scripts/prepare-android-release-inputs.sh "$RELEASE_MODE"
+
+      - name: Generate clean Android project
+        working-directory: apps/mobile-native
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Download pinned bundletool verifier
+        if: env.ARTIFACT_FORMAT != 'apk'
+        shell: bash
+        run: |
+          bundletool_path="$RUNNER_TEMP/bundletool-all-1.18.3.jar"
+          curl --fail --location --retry 3 \
+            --output "$bundletool_path" \
+            "https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar"
+          echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $bundletool_path" |
+            sha256sum --check
+          echo "BUNDLETOOL_JAR=$bundletool_path" >> "$GITHUB_ENV"
+
+      - name: Build requested release artifacts
+        shell: bash
+        working-directory: apps/mobile-native/android
+        run: |
+          tasks=()
+          if [[ "$ARTIFACT_FORMAT" == "apk" || "$ARTIFACT_FORMAT" == "both" ]]; then
+            tasks+=(":app:assembleRelease")
+          fi
+          if [[ "$ARTIFACT_FORMAT" == "aab" || "$ARTIFACT_FORMAT" == "both" ]]; then
+            tasks+=(":app:bundleRelease")
+          fi
+          ./gradlew --no-daemon --stacktrace "${tasks[@]}"
+
+      - name: Verify and stage release artifacts
+        shell: bash
+        run: |
+          bash scripts/verify-android-release-artifacts.sh \
+            "$RELEASE_MODE" \
+            "$ARTIFACT_FORMAT"
+
+      - name: Remove materialized secrets
+        if: always()
+        shell: bash
+        run: |
+          rm -f apps/mobile-native/google-services.json
+          rm -rf "$RUNNER_TEMP/akademik-android-release-inputs"
+          rm -f "$RUNNER_TEMP/bundletool-all-1.18.3.jar"
+
+      - name: Upload verified release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: akademik-takvim-android-${{ env.RELEASE_MODE }}-${{ github.run_number }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 14

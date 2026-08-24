@@ -15,8 +15,10 @@ release contract.
 - Data: [MongoDB data model](./06-data-model.md),
   [cache and queue design](./07-cache-queue.md), and
   [PDF ingestion and alarms](./13-pdf-ingestion-and-alarm-model.md)
-- Testing: [test strategy](./05-test-strategy.md)
+- Testing: [test strategy](./05-test-strategy.md),
+  [full audit report](./full-audit-report.md)
 - Deployment: [DevOps and deployment](./08-devops-deployment.md),
+  [Android release CI](./android-release-ci.md),
   [Firebase deployment](./15-firebase-deploy.md), and the
   [Hetzner deployment assets](../deploy/hetzner/)
 - Product experience: [readiness report](./10-ui-ux-product-readiness-report.md),

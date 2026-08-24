@@ -1,0 +1,57 @@
+name: Mongo Integration
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "audit-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mongo-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Isolated Mongo repository and concurrency tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo:8.0@sha256:02a0cc7939f5ed38f30f9bc714ef5f682d49baf9350c54acf302ce833087fe8a
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NODE_ENV: test
+      MONGODB_TEST_URI: mongodb://127.0.0.1:27017/academic_recovery_concurrency_test_${{ github.run_id }}_${{ github.run_attempt }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Run isolated Mongo suites
+        run: >-
+          npx vitest run
+          apps/api/tests/mongo-notification.repository.test.ts
+          apps/api/tests/mongo-user-data.repository.test.ts
+          apps/api/tests/password-recovery-mongo-concurrency.test.ts
+          --configLoader runner
