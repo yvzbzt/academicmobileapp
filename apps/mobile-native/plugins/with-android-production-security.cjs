@@ -206,7 +206,7 @@ function applyReleaseSigningPolicy(contents) {
     }
     next = next.replace(
       debugReleaseSigningPattern,
-      `$1$2            if (hasUploadSigning) {\n                signingConfig signingConfigs.release\n            }`
+      `$1$2            if (akademikReleaseMode == "signed" && hasUploadSigning) {\n                signingConfig signingConfigs.release\n            }`
     );
   } else if (!next.includes("usesDebugSigningIdentity")) {
     const uploadSigningPattern = /def hasUploadSigning = uploadSigning\.values\(\)\.every \{ value ->[\s\S]*?\r?\n\}/;
@@ -216,6 +216,19 @@ function applyReleaseSigningPolicy(contents) {
       (block) => `${block}\n${debugSigningIdentityDefinition()}`
     );
   }
+
+  if (!next.includes("AKADEMIK_RELEASE_MODE")) {
+    const uploadSigningAnchor = /def uploadSigning = \[/;
+    if (!uploadSigningAnchor.test(next)) throw new Error("ANDROID_UPLOAD_SIGNING_ANCHOR_MISSING");
+    next = next.replace(
+      uploadSigningAnchor,
+      `${releaseModeDefinition()}\ndef uploadSigning = [`
+    );
+  }
+  next = next.replace(
+    /if \(hasUploadSigning\) \{/gu,
+    'if (akademikReleaseMode == "signed" && hasUploadSigning) {'
+  );
 
   const guardPattern = /\r?\ngradle\.taskGraph\.whenReady \{[\s\S]*?\r?\n\}\s*$/;
   if (guardPattern.test(next)) {
@@ -227,7 +240,8 @@ function applyReleaseSigningPolicy(contents) {
 }
 
 function releaseSigningDefinitions() {
-  return `def uploadSigning = [
+  return `${releaseModeDefinition()}
+def uploadSigning = [
     storeFile: System.getenv("AKADEMIK_UPLOAD_STORE_FILE"),
     storePassword: System.getenv("AKADEMIK_UPLOAD_STORE_PASSWORD"),
     keyAlias: System.getenv("AKADEMIK_UPLOAD_KEY_ALIAS"),
@@ -246,8 +260,12 @@ function debugSigningIdentityDefinition() {
 )`;
 }
 
+function releaseModeDefinition() {
+  return `def akademikReleaseMode = System.getenv("AKADEMIK_RELEASE_MODE") ?: ""`;
+}
+
 function releaseSigningConfig() {
-  return `        if (hasUploadSigning) {
+  return `        if (akademikReleaseMode == "signed" && hasUploadSigning) {
             release {
                 storeFile file(uploadSigning.storeFile)
                 storePassword uploadSigning.storePassword
@@ -263,11 +281,17 @@ function releaseTaskGuard() {
     def requestsReleaseArtifact = graph.allTasks.any { task ->
         task.path ==~ /:app:(assemble|bundle|package|install)Release/
     }
-    if (requestsReleaseArtifact && !hasUploadSigning) {
-        throw new GradleException("Release signing credentials are required; debug signing is not allowed.")
+    if (requestsReleaseArtifact && !(akademikReleaseMode in ["signed", "unsigned"])) {
+        throw new GradleException("AKADEMIK_RELEASE_MODE must be explicitly set to signed or unsigned.")
     }
-    if (requestsReleaseArtifact && usesDebugSigningIdentity) {
+    if (requestsReleaseArtifact && akademikReleaseMode == "signed" && !hasUploadSigning) {
+        throw new GradleException("Signed release credentials are required; debug signing is not allowed.")
+    }
+    if (requestsReleaseArtifact && akademikReleaseMode == "signed" && usesDebugSigningIdentity) {
         throw new GradleException("The Android debug signing identity cannot be used for a release artifact.")
+    }
+    if (requestsReleaseArtifact && akademikReleaseMode == "unsigned" && android.buildTypes.release.signingConfig != null) {
+        throw new GradleException("Unsigned release unexpectedly has a signing configuration.")
     }
 }`;
 }

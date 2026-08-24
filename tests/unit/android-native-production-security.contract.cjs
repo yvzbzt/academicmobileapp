@@ -78,7 +78,7 @@ test("network and extraction resources deny release data egress", () => {
   assert.equal(extraction["data-extraction-rules"]["device-transfer"].exclude.length, 9);
 });
 
-test("release Gradle policy minifies and refuses missing or debug signing identities", () => {
+test("release Gradle policy requires an explicit signed or unsigned identity mode", () => {
   const properties = security.applyAndroidReleaseGradleProperties([
     { type: "property", key: "EX_DEV_CLIENT_NETWORK_INSPECTOR", value: "true" }
   ]);
@@ -90,15 +90,21 @@ test("release Gradle policy minifies and refuses missing or debug signing identi
   assert.equal(byKey.get("EX_DEV_CLIENT_NETWORK_INSPECTOR"), "false");
 
   const hardened = security.applyReleaseSigningPolicy(gradleFixture());
+  assert.match(hardened, /AKADEMIK_RELEASE_MODE/u);
+  assert.match(hardened, /signed.*unsigned/u);
   assert.match(hardened, /AKADEMIK_UPLOAD_STORE_FILE/u);
   assert.match(hardened, /usesDebugSigningIdentity/u);
   assert.match(hardened, /androiddebugkey/u);
-  assert.match(hardened, /Release signing credentials are required/u);
+  assert.match(hardened, /Signed release credentials are required/u);
   assert.match(hardened, /debug signing identity cannot be used/u);
+  assert.match(hardened, /Unsigned release unexpectedly has a signing configuration/u);
   assert.doesNotMatch(
     hardened,
     /release \{\s*signingConfig signingConfigs\.debug/u
   );
+
+  const hardenedAgain = security.applyReleaseSigningPolicy(hardened);
+  assert.equal(hardenedAgain, hardened);
 });
 
 test("Gradle wrapper and app config retain the production policy across prebuild", () => {

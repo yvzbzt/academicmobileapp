@@ -1050,6 +1050,10 @@ describe("Phase 6 rendered authentication screens", () => {
   it("keeps the complete four-field form structurally reachable at 320dp and 200% font scale", async () => {
     const fixture = {
       ...signedInLargeTextFixture,
+      appearance: {
+        ...signedInLargeTextFixture.appearance,
+        reducedMotion: true,
+      },
       session: { status: "signed_out" as const, ownerId: null },
     };
     expect(fixture.appearance.windowWidth).toBe(320);

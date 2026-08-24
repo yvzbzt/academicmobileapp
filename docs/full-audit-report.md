@@ -1,10 +1,22 @@
 # Akademik Takvim tam denetim raporu
 
-Tarih: 2026-08-21
+Tarih: 2026-08-24 (ilk denetim: 2026-08-21)
 
 ## Sonuc
 
-Uygulama, yerel otomasyon ve Android emulasyon matrisinde ana kullanici akislari icin calisiyor. Denetim "tamamen basarili" olarak kapatilmadi; canliya alinmamis API guvenlik duzeltmeleri, native bagimlilik aciklari, Windows uzun-yol release sorunu ve gercek admin/Google/FCM/iOS dogrulama bosluklari asagida acikca listelendi.
+Uygulama kodu, web/native otomasyon, Android release paketleme ve admin viewport matrisinde ana kullanici akislari icin calisiyor. Native bagimlilik aciklari, lock tutarsizligi ve tekrarlanabilir release hatti giderildi. Denetim production icin tamamen kapatilmadi: API duzeltmeleri yetkili VPS SSH anahtari olmadigi icin canliya alinamadi; gercek admin/Google/FCM/SMTP/iOS kanit bosluklari da hesap veya fiziksel cihaz gerektiriyor.
+
+## 2026-08-24 giderim ozeti
+
+- Native production audit sonucu 17 aciktan 0 aciga indirildi; temiz `npm ci`, `npm ls` ve Expo uyumluluk kontrolu gecti.
+- Android release hatti Linux GitHub Actions'a tasindi. Action'lar commit SHA, Mongo image digest ve `bundletool` SHA-256 ile sabitlendi.
+- Signed/unsigned secimi mevcut Expo config plugin'inde fail-closed uygulandi; eksik mod, eksik imza, debug alias ve beklenmeyen imza ayri test edildi.
+- Guncel, non-debuggable ve v2-imzali APK uretildi: `artifacts/apk/akademik-takvim-release-audit-20260824.apk`.
+- APK SHA-256: `4B0EFDC722732B1410C622B9DFA2707649C96436D02A0F1F9F2098F38F4F022F`.
+- Mongo'ya bagimli uc destructive suite production URI almayan izole GitHub Actions Mongo servisine tasindi.
+- VPS release paketi immutable Git commit'inden uretiliyor; checksum/path/symlink kontrolu, canary, rollback ve yalnizca `api` servisini yeniden olusturma siniri eklendi.
+- Public HSTS 2026-08-24 kontrolunde canlida mevcut. `/health/ready` ayrinti sizintisi ve bozuk ICS 500 davranisi ise deploy bekliyor.
+- Docker Desktop yerel test/deploy icin kullanilmadi ve kapali birakildi. VPS'de dosya, container, volume, network veya veri degisikligi yapilmadi.
 
 ## Test ortamlari
 
@@ -60,18 +72,18 @@ Uygulama, yerel otomasyon ve Android emulasyon matrisinde ana kullanici akislari
 - Android release guvenlik sozlesmesi 5/5 gecti: cleartext, backup/extraction ve riskli izinler kapali; deep-link allowlist; release minify/shrink; debug/missing signing fail-closed.
 - Kaynak secret taramasinda gercek private key/API key bulunmadi. Tek eslesme `.example.test` kullanan sahte Mongo test girdisiydi.
 - Kok `npm audit --omit=dev`: 0 acik.
-- Native `npm audit --omit=dev`: 17 transitif acik, 9 high ve 8 moderate. Zincir Expo/Metro/prebuild altinda; otomatik tam cozum Expo 57 kirici yukseltmesi istiyor.
-- Native lock `postcss 8.4.49`, kurulu agac `8.5.26`; Metro `~8.4.32` bekledigi icin `npm ls` ELSPROBLEMS ile bitiyor. Temiz `npm ci` ve mevcut makine ayni agaci uretmiyor.
+- Native `npm audit --omit=dev`: 0 acik. Expo 54 korunarak Metro `0.83.8`, PostCSS `8.5.26` ve UUID `11.1.1` guvenli override'lari lock'a islendi.
+- Temiz native `npm ci`, `npm ls postcss metro metro-config metro-transform-worker uuid image-size` ve `npx expo install --check` gecti; lock/node_modules farki kapandi.
 
 ## Canliya alinmamis VPS farklari
 
-- Canli `/health` dependency/job ayrintisi sizdiriyor; yerel kod yalniz sinirli durum dondurecek sekilde duzeltildi.
-- Canli malformed logout body 500 veriyor; yerel kod 400 veriyor.
-- Canli nested notification category 500 veriyor; yerel kod 400 veriyor.
-- Canli bozuk `%` ICS token 500 veriyor; yerel kod 401 veriyor.
-- Canli calendar-event alarm eslemesi eski davranista; yerel kod ve regresyon testi duzeltildi.
-- Canli admin HSTS eksik; yerel Caddy ayari eklendi.
-- Bu maddeler deploy edilmeden production duzelmis sayilmaz.
+- Canli `/health/ready` 2026-08-24 tarihinde dependency ve notification queue ayrintisi sizdirmaya devam ediyor; yerel kod yalniz `{"status":"ok"}` donduruyor.
+- Canli bozuk `%` ICS token 2026-08-24 tarihinde halen 500 veriyor; yerel kod ve regresyon testi 401 davranisini dogruluyor.
+- Malformed logout body son canli kontrolde 500 veriyordu; yerel kod 400 veriyor. Yeni korumali canli test icin deploy ve test hesabi gerekiyor.
+- Nested notification category canlida artik 400 veriyor; bu madde kapanmistir.
+- Calendar-event alarm eslemesi yerel kod ve regresyon testinde duzeltildi; canli korumali yeniden test deploy bekliyor.
+- Public HSTS canlida `max-age=31536000; includeSubDomains` ile mevcut; uc edge konfigurasyonunda da sozlesme testi eklendi.
+- Yetkili VPS SSH hesabi/anahtari bulunmadigi icin deploy yapilmadi. Hazir betik yalnizca `/opt/anssoft-academicmobilapp-backend`, `anssoft-backend` ve Academic API Caddy route'unu hedefliyor; Mongo ve diger projeleri yeniden olusturmuyor.
 
 ## Performans
 
@@ -83,19 +95,22 @@ Uygulama, yerel otomasyon ve Android emulasyon matrisinde ana kullanici akislari
 - Aggregate p95: 21.471 ms (esik 50 ms).
 - 700 ms ve uzeri donmus kare: 0 (esik 0).
 - Release performans kabul sonucu: PASS.
-- Normal uzun workspace yolundan Windows release build, Firebase Messaging generated C++ yolunun 260 karakteri asmasi nedeniyle FAIL. Olcum, stale autolinking temizlenmis fiziksel `C:\r` gecici kopyasinda tamamlandi. Windows release hatti kisa checkout veya Linux CI kullanmadan guvenilir degil.
+- Windows uzun-yol problemi Linux release workflow'u ile kalici olarak baypas edildi. Yerel kanit APK'si temiz prebuild ve fiziksel `C:\r` kisa kopyasinda basariyla uretildi; gecici dizin build sonrasinda silindi.
+- R8, `play-services-auth 21.5.0` icin build'i durdurmayan stack-map uyarilari verdi. APK paketleme/imza/manifest kontrolleri gecti; Google girisi gercek production OAuth hesabiyla ayrica smoke edilmelidir.
 
 ## Otomasyon sonucu
 
 - Native Jest: 37/37 suite, 324/324 test PASS.
-- Kok Vitest (Mongo gerektiren 3 suite haric): 87 dosya, 1103/1103 test PASS.
-- Mongo repository/concurrency icin 3 suite, `MONGODB_TEST_URI`/lokal Mongo olmadigi icin calistirilamadi.
+- Kok Vitest (Mongo gerektiren 3 suite haric): 87 dosya, 1108/1108 test PASS.
+- Mongo repository/concurrency icin 3 suite production veritabaninda calistirilmadi. Izole `mongo:8.0` digest'li CI workflow'u eklendi; remote workflow sonucu ayrica kanitlanmalidir.
 - Admin Playwright mock: 8/8 PASS.
 - VPS Playwright smoke: 2/2 PASS.
 - Root ve native TypeScript typecheck: PASS.
 - Admin production web build: 269.47 KB, gzip 77.77 KB, PASS.
 - Mobile web build: 349.76 KB, gzip 104.37 KB, PASS.
 - Expo dependency compatibility check: direct Expo bagimliliklari up to date.
+- Android config-plugin sozlesmesi: 5/5 PASS. Gradle task graph: eksik mod reddi PASS, signed/eksik anahtar reddi PASS, acik unsigned mod PASS.
+- Release APK: ZIP, zipalign, package id, `debuggable=false`, v2 sertifika ve canli API bundle kontrolu PASS.
 - `git diff --check`: whitespace/conflict marker hatasi yok.
 
 ## Tasarim gorselinde olup tam dogrulanmayan/uygulanmayanlar
@@ -125,9 +140,8 @@ Uygulama, yerel otomasyon ve Android emulasyon matrisinde ana kullanici akislari
 
 ## Kapanis onceligi
 
-1. Yerel API/Caddy duzeltmelerini VPS'ye deploy edip ayni canli kotu-girdi matrisini yeniden calistir.
-2. Native lock/node_modules farkini temiz `npm ci` ile kapat; Expo 57 gecisini ayri dalda test ederek 17 acigi gider.
-3. Android release'i kisa checkout veya Linux CI'da AAB/APK olarak surekli uret; Play signing ve key restriction kontrollerini ekle.
-4. Production admin credential ile gercek CRUD -> mobil gorunurluk testini calistir.
-5. Mongo test veritabani, gercek Google/FCM hesaplari, fiziksel Android ve iOS cihaz matrisi ekle.
-6. Acik onay verilirse denetim icin olusturulan gecici canli hesabi kalici sil ve yerel ignored kimlik dosyasini kaldir.
+1. Yetkili VPS SSH anahtariyla hazir release paketini yalnizca Academic API projesine deploy et; health, logout, ICS ve alarm matrisini yeniden calistir.
+2. GitHub Actions'ta Mongo integration ve Android release workflow'larini calistirip remote kanit/artefakt URL'lerini rapora ekle.
+3. Production admin credential ile gercek CRUD -> mobil gorunurluk testini calistir.
+4. Gercek Google/FCM/SMTP hesaplari, fiziksel Android ve iOS cihaz matrisi ekle.
+5. Denetim icin olusturulan gecici canli hesabi deploy sonrasi korumali regresyonlar bittiginde kalici sil.
