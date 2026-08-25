@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  fireEvent,
   renderAsync,
   screen,
   userEvent,
 } from "@testing-library/react-native";
+import { FlatList } from "react-native";
 import {
   AuthOnboardingPreview,
   type AuthOnboardingPreviewScenario,
@@ -14,6 +16,18 @@ const PREVIEW_SOURCE = resolve(
   __dirname,
   "../../src/auth/AuthOnboardingPreview.tsx",
 );
+
+const mockWindowDimensions = jest.fn(() => ({
+  fontScale: 1,
+  height: 844,
+  scale: 3,
+  width: 390,
+}));
+
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
+  __esModule: true,
+  default: () => mockWindowDimensions(),
+}));
 
 describe("AuthOnboardingPreview", () => {
   it("keeps the development renderer behind a presentation-only import boundary", () => {
@@ -27,6 +41,7 @@ describe("AuthOnboardingPreview", () => {
       "react-native-safe-area-context",
       "../design-system",
       "./AuthScreens",
+      "./PreLoginWelcomeScreen",
     ]);
     expect(
       importSpecifiers.some((specifier) => (
@@ -118,6 +133,38 @@ describe("AuthOnboardingPreview", () => {
       screen.getByRole("button", { name: "Tekrar gönder (00:37)" }),
     ).toBeDisabled();
   });
+
+  it("boots the welcome capture without controls and keeps all slides reachable", async () => {
+    const view = await renderAsync(
+      <AuthOnboardingPreview initialScenario="welcome" preference="light" />,
+    );
+
+    expect(screen.getByTestId("prelogin-welcome-screen")).toBeVisible();
+    expect(screen.getByTestId("prelogin-welcome-screen")).toHaveStyle({
+      paddingBottom: 42,
+    });
+    expect(screen.queryByLabelText("Phase 6 sentetik senaryo kontrolleri")).toBeNull();
+    expect(screen.queryByTestId("phase-6-synthetic-evidence")).toBeNull();
+
+    const slides = view.UNSAFE_getByType(FlatList);
+    expect(slides.props.horizontal).toBe(true);
+    expect(slides.props.pagingEnabled).toBe(true);
+    const pageWidth = slides.props.getItemLayout(undefined, 0).length;
+    fireEvent(slides, "momentumScrollEnd", {
+      nativeEvent: { contentOffset: { x: pageWidth, y: 0 } },
+    });
+    expect(screen.getByRole("button", {
+      name: "2. tanıtım sayfasına git",
+    })).toBeSelected();
+
+    await userEvent.press(screen.getByRole("button", {
+      name: "3. tanıtım sayfasına git",
+    }));
+    expect(screen.getByRole("button", {
+      name: "3. tanıtım sayfasına git",
+    })).toBeSelected();
+    expect(screen.getByRole("button", { name: "Başlayalım" })).toBeVisible();
+  });
 });
 
 function expectEvidence(label: string) {
@@ -148,6 +195,7 @@ async function selectScenario(
 type _ScenarioCoverage = Record<AuthOnboardingPreviewScenario, true>;
 
 const _scenarioCoverage: _ScenarioCoverage = {
+  welcome: true,
   login: true,
   "login-loading": true,
   "login-error": true,

@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
   type ListRenderItem,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Banner,
   Button,
@@ -50,6 +51,7 @@ import {
   formatCalendarClock,
   formatCalendarTemporal,
 } from "../calendar/calendar-time";
+import { academicCalendarDayNumber } from "../temporal/academic-temporal";
 
 export interface HomeDailyBriefProps {
   fullName: string;
@@ -69,6 +71,11 @@ export interface HomeDailyBriefProps {
   announcementError?: string;
   announcementStale?: boolean;
   announcementState?: ContentCollectionState;
+  /**
+   * Authoritative unread/new count from a source that actually tracks that
+   * state. Omit when only the total trusted announcement collection is known.
+   */
+  announcementNewCount?: number;
   offline?: boolean;
   googleCalendarState: string;
   notificationPermission: string;
@@ -79,16 +86,27 @@ export interface HomeDailyBriefProps {
   onOpenAnnouncement: (item: TrustedMobileContentRecord) => void;
   onOpenAnnouncements: () => void;
   onOpenCalendar: () => void;
+  onCreatePersonalEvent: () => void;
   onOpenGoogleCalendarSettings: () => void;
   onOpenNotificationSettings: () => void;
   onRefresh: () => void;
   now?: Date;
+  /**
+   * Optional visual anchor for the compact week strip. Production callers omit
+   * this so the strip and summary continue to follow `now`. Deterministic DEV
+   * previews can focus the week containing the next highlighted event without
+   * changing the clock used for countdowns.
+   */
+  weekAnchorDate?: Date;
+  /** Deterministic DEV/reference previews only; production uses the computed model summary. */
+  weeklySummaryOverride?: HomeWeeklySummary;
 }
 
 type BriefModule = "agenda" | "announcements" | "profile" | "integration";
 type AgendaFilter = "all" | "academic" | "personal";
 
 const academicCalendarLogo = require("../../assets/design-package/academic-calendar-logo.png");
+const homeCampusSilhouette = require("../../assets/home-campus-silhouette-v1.png");
 
 const REFERENCE_COLORS = {
   background: referencePalette.white,
@@ -119,13 +137,18 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
   const theme = useTheme();
   const networkState = useNetworkState();
   const { fontScale, width } = useWindowDimensions();
+  const safeAreaInsets = useSafeAreaInsets();
   const layout = resolveHomeLayout(width, fontScale);
   const compactHero = width < 375 || layout.supportsLargeText;
+  const bottomNavigationClearance = adaptation.navigationLayout === "navigation-rail"
+    ? theme.spacing.xxl
+    : 64 + safeAreaInsets.bottom + theme.spacing.lg;
   const listRef = useRef<FlatList<BriefModule> | null>(null);
   useScrollToTop(listRef);
   const [clock, setClock] = useState(props.now ?? new Date());
   const [profilePromptDismissed, setProfilePromptDismissed] = useState(false);
   const [agendaFilter, setAgendaFilter] = useState<AgendaFilter>("all");
+  const weekAnchorDate = props.weekAnchorDate ?? clock;
 
   useEffect(() => {
     if (props.now) {
@@ -136,17 +159,29 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
     return () => clearInterval(timer);
   }, [props.now]);
 
+  const futureEvents = useMemo(
+    () => props.events
+      .filter((event) => isHomeStartCurrentOrFuture(event.startDate, event.temporalKind, clock))
+      .map((event) => ({ ...event, title: normalizeHomeScheduleTitle(event.title) })),
+    [clock, props.events],
+  );
+  const futureManualExams = useMemo(
+    () => props.manualExams
+      .filter((exam) => isHomeStartCurrentOrFuture(exam.examDate, undefined, clock))
+      .map((exam) => ({ ...exam, title: normalizeHomeScheduleTitle(exam.title) })),
+    [clock, props.manualExams],
+  );
   const todayItems = useMemo(
-    () => selectTodayItems(props.events, props.manualExams, clock),
-    [clock, props.events, props.manualExams]
+    () => selectTodayItems(futureEvents, futureManualExams, clock),
+    [clock, futureEvents, futureManualExams],
   );
   const nextItem = useMemo(
-    () => selectNearestImportantItem(props.events, props.manualExams, clock),
-    [clock, props.events, props.manualExams]
+    () => selectNearestImportantItem(futureEvents, futureManualExams, clock),
+    [clock, futureEvents, futureManualExams],
   );
   const agendaItems = useMemo(
-    () => selectAgendaItems(props.events, props.manualExams, todayItems, clock),
-    [clock, props.events, props.manualExams, todayItems],
+    () => selectAgendaItems(futureEvents, futureManualExams, todayItems, nextItem, clock),
+    [clock, futureEvents, futureManualExams, nextItem, todayItems],
   );
   const filteredAgendaItems = useMemo(
     () => agendaItems.filter((item) => {
@@ -156,10 +191,13 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
     }),
     [agendaFilter, agendaItems],
   );
-  const weeklySummary = useMemo(
-    () => summarizeHomeWeek(props.events, props.manualExams, clock),
-    [clock, props.events, props.manualExams],
+  const computedWeeklySummary = useMemo(
+    () => summarizeHomeWeek(futureEvents, futureManualExams, weekAnchorDate),
+    [futureEvents, futureManualExams, weekAnchorDate],
   );
+  const weeklySummary = __DEV__ && props.weeklySummaryOverride
+    ? props.weeklySummaryOverride
+    : computedWeeklySummary;
   const trustedAnnouncements = useMemo(
     () => props.announcements.flatMap((item) => {
       const admitted = admitTrustedContentRecord(item);
@@ -218,13 +256,23 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
         : availability === "partial"
           ? "Kısmi plan"
           : nextItemRemaining ?? "Takvimi görüntüle";
-  const heroStatusIcon = availability === "ready"
-    ? "checkmark"
-    : availability === "refreshing"
-      ? "refresh"
-      : availability === "offline"
-        ? "cloud-offline-outline"
-        : "alert-circle-outline";
+  const focusAccessibilityLabel = nextItem
+    ? [
+        nextItem.title,
+        agendaTypeLabel(nextItem),
+        formatCalendarTemporal({
+          startDate: nextItem.date,
+          ...(nextItem.endDate ? { endDate: nextItem.endDate } : {}),
+          ...(nextItem.temporalKind ? { temporalKind: nextItem.temporalKind } : {}),
+          ...(nextItem.endTemporalKind ? { endTemporalKind: nextItem.endTemporalKind } : {}),
+          ...(nextItem.timezone ? { timezone: nextItem.timezone } : {}),
+        }),
+        nextItem.courseName,
+        nextItem.location,
+        heroBadgeLabel,
+        "Takvimi aç",
+      ].filter(Boolean).join(". ") + "."
+    : `Akademik takvimin. ${heroBadgeLabel}. Takvimi aç.`;
   const integration = resolveActionableIntegration({
     profileComplete,
     googleCalendarState: props.googleCalendarState,
@@ -274,7 +322,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
             <Pressable
               accessibilityLabel="Kişisel etkinlik ekle"
               accessibilityRole="button"
-              onPress={props.onOpenCalendar}
+              onPress={props.onCreatePersonalEvent}
               style={({ pressed }) => [
                 styles.personalEventButton,
                 pressed && styles.planHeroPressed,
@@ -351,7 +399,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
           gap: theme.spacing.lg,
           maxWidth: layout.maxWidth,
           paddingHorizontal: layout.gutter,
-          paddingBottom: theme.spacing.xxl,
+          paddingBottom: Math.max(theme.spacing.xxl, bottomNavigationClearance, 48),
           width: "100%",
         },
       ]}
@@ -366,15 +414,25 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
               },
             ]}
           >
+            <Image
+              accessibilityElementsHidden
+              accessibilityIgnoresInvertColors
+              importantForAccessibility="no-hide-descendants"
+              resizeMode="cover"
+              source={homeCampusSilhouette}
+              style={styles.homeCampusSilhouette}
+            />
+            <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none" style={styles.homeHeroGlow} />
             <HomeTopBar
               fontScale={fontScale}
               fullName={props.fullName}
               onOpenAccount={props.onOpenAccountMenu}
               onOpenNotifications={props.onOpenNotificationSettings}
+              showNotificationAttention={props.notificationPreferenceEnabled && !props.notificationActive}
             />
             <View
               accessible
-              accessibilityLabel={`${firstName(props.fullName)}, günlük akademik özetin.`}
+              accessibilityLabel={`Merhaba, ${firstName(props.fullName)}. Derslerin, duyuruların ve takvimin burada.`}
               style={styles.identityCopy}
             >
               <Text
@@ -392,11 +450,17 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
               >
                 Merhaba, {firstName(props.fullName)}
               </Text>
+              <Text
+                maxFontSizeMultiplier={1.3}
+                style={styles.greetingSubtitle}
+              >
+                Derslerin, duyuruların ve takvimin burada.
+              </Text>
             </View>
           </View>
-          {primaryState === "populated" ? (
+          {primaryState === "populated" && nextItem ? (
             <Pressable
-              accessibilityLabel={`Akademik takvimin. ${heroBadgeLabel}. Takvimi aç.`}
+              accessibilityLabel={focusAccessibilityLabel}
               accessibilityRole="button"
               android_ripple={adaptation.pressFeedback === "ripple"
                 ? { color: theme.colors.state.pressed, borderless: false }
@@ -412,23 +476,8 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 pressed && adaptation.pressFeedback !== "ripple" ? styles.planHeroPressed : null,
               ]}
             >
-              <View style={styles.heroCountdownColumn}>
-                <Text
-                  adjustsFontSizeToFit={!layout.supportsLargeText}
-                  maxFontSizeMultiplier={1.25}
-                  minimumFontScale={0.78}
-                  numberOfLines={layout.supportsLargeText ? 2 : 1}
-                  style={[
-                    theme.typography.metaStrong,
-                    styles.heroCountdownLabel,
-                    {
-                      color: REFERENCE_COLORS.teal,
-                      lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.25),
-                    },
-                  ]}
-                >
-                  Gün kaldı
-                </Text>
+              <View style={[styles.heroCountdownColumn, compactHero && styles.heroCountdownColumnCompact]}>
+                <Ionicons color={REFERENCE_COLORS.blueDeep} name="calendar-outline" size={23} />
                 <Text
                   maxFontSizeMultiplier={1.2}
                   numberOfLines={1}
@@ -443,46 +492,44 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 >
                   {countdownParts(nextItem, clock).value}
                 </Text>
-                <View style={styles.heroCountdownTrack}>
-                  <View style={styles.heroCountdownProgress} />
-                </View>
+                <Text
+                  adjustsFontSizeToFit={!layout.supportsLargeText}
+                  maxFontSizeMultiplier={1.25}
+                  minimumFontScale={0.78}
+                  numberOfLines={layout.supportsLargeText ? 2 : 1}
+                  style={[
+                    theme.typography.metaStrong,
+                    styles.heroCountdownLabel,
+                    {
+                      color: REFERENCE_COLORS.teal,
+                      lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.25),
+                    },
+                  ]}
+                >
+                  gün kaldı
+                </Text>
               </View>
               <View style={[styles.heroCopy, layout.supportsLargeText && styles.heroCopyLargeText]}>
                 <View style={styles.focusHeader}>
                   <View style={styles.focusPill}>
-                    <Ionicons color={REFERENCE_COLORS.green} name={heroStatusIcon} size={15} />
                     <Text
                       maxFontSizeMultiplier={1.3}
                       numberOfLines={1}
                       style={[
                         theme.typography.metaStrong,
                         {
-                          color: REFERENCE_COLORS.green,
+                          color: REFERENCE_COLORS.blueDeep,
                           lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.3),
                         },
                       ]}
                     >
-                      Sıradaki
+                      Sıradaki Etkinlik
                     </Text>
                   </View>
-                  <Text
-                    maxFontSizeMultiplier={1.3}
-                    numberOfLines={1}
-                    style={[
-                      theme.typography.meta,
-                      styles.focusStatus,
-                      {
-                        color: REFERENCE_COLORS.secondary,
-                        lineHeight: boundedTextLineHeight(theme.typography.meta.lineHeight, fontScale, 1.3),
-                      },
-                    ]}
-                  >
-                    {heroBadgeLabel}
-                  </Text>
                 </View>
                 <Text
                   maxFontSizeMultiplier={1.35}
-                  numberOfLines={layout.supportsLargeText ? 2 : compactHero ? 3 : 2}
+                  numberOfLines={layout.supportsLargeText ? 2 : 3}
                   style={[
                     theme.typography.sectionTitle,
                     styles.heroTitle,
@@ -517,8 +564,10 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                   <View style={styles.heroMetaChip}>
                     <Ionicons color={REFERENCE_COLORS.blueDeep} name="calendar-outline" size={15} />
                     <Text
+                      adjustsFontSizeToFit={!layout.supportsLargeText}
                       ellipsizeMode="tail"
                       maxFontSizeMultiplier={1.3}
+                      minimumFontScale={0.78}
                       numberOfLines={1}
                       style={[
                         theme.typography.metaStrong,
@@ -563,16 +612,17 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                 events={props.events}
                 fontScale={fontScale}
                 manualExams={props.manualExams}
-                now={clock}
+                now={weekAnchorDate}
                 onOpenCalendar={props.onOpenCalendar}
               />
-              <View style={styles.summaryGrid}>
+              <View style={[styles.summaryGrid, layout.supportsLargeText && styles.summaryGridStacked]}>
                 <WeeklySummaryCard
                   summary={weeklySummary}
                   onPress={props.onOpenCalendar}
                 />
                 <AnnouncementSummaryCard
                   count={trustedAnnouncements.length}
+                  newCount={props.announcementNewCount}
                   onPress={props.onOpenAnnouncements}
                 />
               </View>
@@ -642,11 +692,13 @@ function HomeTopBar({
   fullName,
   onOpenAccount,
   onOpenNotifications,
+  showNotificationAttention,
 }: {
   fontScale: number;
   fullName: string;
   onOpenAccount?: () => void;
   onOpenNotifications: () => void;
+  showNotificationAttention: boolean;
 }) {
   return (
     <View style={styles.topBar} testID="home-top-bar">
@@ -661,7 +713,7 @@ function HomeTopBar({
           adjustsFontSizeToFit
           maxFontSizeMultiplier={1.35}
           minimumFontScale={0.8}
-          numberOfLines={1}
+          numberOfLines={2}
           style={[
             styles.homeBrandTitle,
             { lineHeight: boundedTextLineHeight(styles.homeBrandTitle.lineHeight, fontScale, 1.35) },
@@ -672,14 +724,18 @@ function HomeTopBar({
       </View>
       <View style={styles.topBarActions}>
         <Pressable
-          accessibilityLabel="Bildirim tercihlerini aç"
+          accessibilityLabel={showNotificationAttention
+            ? "Bildirim tercihlerini aç. Bildirimlerin etkinleştirilmesi gerekiyor."
+            : "Bildirim tercihlerini aç"}
           accessibilityRole="button"
           hitSlop={8}
           onPress={onOpenNotifications}
           style={({ pressed }) => [styles.notificationButton, pressed && styles.planHeroPressed]}
         >
           <Ionicons color={REFERENCE_COLORS.white} name="notifications-outline" size={24} />
-          <View style={styles.notificationDot} />
+          {showNotificationAttention ? (
+            <View style={styles.notificationDot} testID="notification-attention-indicator" />
+          ) : null}
         </Pressable>
         <Pressable
           accessibilityLabel="Hesap menüsünü aç"
@@ -718,50 +774,55 @@ function WeeklyCalendarStrip({
   });
 
   return (
-    <View style={styles.weeklyCalendar}>
-      <View style={[
-        styles.weeklyCalendarHeader,
-        fontScale > 1.45 && styles.weeklyCalendarHeaderLargeText,
-      ]}>
-        <Text
-          accessibilityRole="header"
-          maxFontSizeMultiplier={1.3}
-          numberOfLines={1}
-          style={[
-            theme.typography.sectionTitle,
-            styles.weeklyCalendarTitle,
-            fontScale > 1.45 && styles.weeklyCalendarTitleLargeText,
-            { lineHeight: boundedTextLineHeight(theme.typography.sectionTitle.lineHeight, fontScale, 1.3) },
-          ]}
-        >
-          Haftalık Takvim
-        </Text>
-        <Pressable
-          accessibilityLabel="Takvimi gör"
-          accessibilityRole="button"
-          onPress={onOpenCalendar}
-          style={({ pressed }) => [
-            styles.calendarLink,
-            fontScale > 1.45 && styles.calendarLinkLargeText,
-            pressed && styles.planHeroPressed,
-          ]}
-        >
-          <Ionicons color={REFERENCE_COLORS.blueDeep} name="calendar-outline" size={16} />
+    <View style={[
+      styles.weeklyCalendar,
+      fontScale <= 1.45 && styles.weeklyCalendarStandard,
+    ]}>
+      {fontScale > 1.45 ? (
+        <View style={[styles.weeklyCalendarHeader, styles.weeklyCalendarHeaderLargeText]}>
           <Text
-            maxFontSizeMultiplier={1.2}
+            accessibilityRole="header"
+            maxFontSizeMultiplier={1.3}
             numberOfLines={1}
             style={[
-              theme.typography.metaStrong,
-              {
-                color: REFERENCE_COLORS.blueDeep,
-                lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.2),
-              },
+              theme.typography.sectionTitle,
+              styles.weeklyCalendarTitle,
+              styles.weeklyCalendarTitleLargeText,
+              { lineHeight: boundedTextLineHeight(theme.typography.sectionTitle.lineHeight, fontScale, 1.3) },
             ]}
           >
-            Takvimi Gör
+            Haftalık Takvim
           </Text>
-        </Pressable>
-      </View>
+          <Pressable
+            accessibilityLabel="Takvimi gör"
+            accessibilityRole="button"
+            onPress={onOpenCalendar}
+            style={({ pressed }) => [
+              styles.calendarLinkLargeText,
+              pressed && styles.planHeroPressed,
+            ]}
+          >
+            <View style={styles.calendarLinkSurface}>
+              <Ionicons color={REFERENCE_COLORS.blueDeep} name="calendar-outline" size={16} />
+              <Text
+                maxFontSizeMultiplier={1.2}
+                numberOfLines={1}
+                style={[
+                  theme.typography.metaStrong,
+                  {
+                    color: REFERENCE_COLORS.blueDeep,
+                    lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, 1.2),
+                  },
+                ]}
+              >
+                Takvimi Gör
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+      ) : (
+        <Text accessibilityRole="header" style={styles.visuallyHidden}>Haftalık Takvim</Text>
+      )}
       <View style={styles.weekDays}>
         {days.map((day) => {
           const selected = sameLocalDay(day, now);
@@ -832,46 +893,57 @@ function WeeklySummaryCard({
       onPress={onPress}
       style={({ pressed }) => [styles.weekSummaryCard, pressed && styles.planHeroPressed]}
     >
-      <View style={styles.summaryCardHeader}>
-        <Text style={[theme.typography.bodyStrong, styles.summaryCardEyebrow]}>Bu hafta</Text>
-        <Ionicons color={REFERENCE_COLORS.white} name="calendar-clear-outline" size={24} />
+      <View style={styles.summaryIconSurface}>
+        <Ionicons color={REFERENCE_COLORS.teal} name="calendar-clear-outline" size={26} />
       </View>
-      <Text style={[theme.typography.display, styles.summaryCardValue]}>{summary.total}</Text>
-      <Text numberOfLines={1} style={[theme.typography.meta, styles.summaryCardDetail]}>{breakdown}</Text>
-      <View style={styles.summaryCardAction}>
-        <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.white }]}>Haftayı görüntüle</Text>
-        <Ionicons color={REFERENCE_COLORS.white} name="chevron-forward" size={18} />
+      <View style={styles.summaryCopy}>
+        <Text style={[theme.typography.metaStrong, styles.summaryCardEyebrow]}>Bu hafta</Text>
+        <View style={styles.summaryValueRow}>
+          <Text style={[theme.typography.display, styles.summaryCardValue]}>{summary.total}</Text>
+          <Text numberOfLines={2} style={[theme.typography.metaStrong, styles.summaryCardDetail]}>önemli tarih</Text>
+        </View>
       </View>
+      <Text style={styles.visuallyHidden}>{breakdown}</Text>
     </Pressable>
   );
 }
 
 function AnnouncementSummaryCard({
   count,
+  newCount,
   onPress,
 }: {
   count: number;
+  newCount?: number;
   onPress: () => void;
 }) {
   const theme = useTheme();
+  const hasAuthoritativeNewCount = Number.isFinite(newCount) && (newCount ?? -1) >= 0;
+  const displayCount = hasAuthoritativeNewCount
+    ? Math.min(count, Math.floor(newCount ?? 0))
+    : count;
+  const detail = hasAuthoritativeNewCount ? "yeni" : "duyuru";
+  const accessibilityHint = hasAuthoritativeNewCount
+    ? `${displayCount} yeni duyuru bulunuyor; toplam ${count} güncel duyuru var.`
+    : `${count} güncel duyuru bulunuyor.`;
   return (
     <Pressable
       accessible
-      accessibilityHint={`${count} güncel içerik bulunuyor.`}
+      accessibilityHint={accessibilityHint}
       accessibilityLabel="Duyuru özeti"
       accessibilityRole="link"
       onPress={onPress}
       style={({ pressed }) => [styles.announcementSummaryCard, pressed && styles.planHeroPressed]}
     >
-      <View style={styles.summaryCardHeader}>
-        <Text style={[theme.typography.bodyStrong, styles.announcementSummaryEyebrow]}>Duyurular</Text>
-        <Ionicons color={REFERENCE_COLORS.navy} name="megaphone-outline" size={25} />
+      <View style={[styles.summaryIconSurface, styles.announcementSummaryIconSurface]}>
+        <Ionicons color={REFERENCE_COLORS.orange} name="megaphone-outline" size={27} />
       </View>
-      <Text style={[theme.typography.display, styles.announcementSummaryValue]}>{count}</Text>
-      <Text numberOfLines={1} style={[theme.typography.meta, styles.announcementSummaryDetail]}>güncel içerik</Text>
-      <View style={styles.announcementSummaryAction}>
-        <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}>Tüm duyurular</Text>
-        <Ionicons color={REFERENCE_COLORS.navy} name="chevron-forward" size={18} />
+      <View style={styles.summaryCopy}>
+        <Text style={[theme.typography.metaStrong, styles.announcementSummaryEyebrow]}>Duyurular</Text>
+        <View style={styles.summaryValueRow}>
+          <Text style={[theme.typography.display, styles.announcementSummaryValue]}>{displayCount}</Text>
+          <Text numberOfLines={2} style={[theme.typography.metaStrong, styles.announcementSummaryDetail]}>{detail}</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -902,18 +974,22 @@ function AgendaFilterControl({
             key={option.value}
             onPress={() => onChange(option.value)}
             style={({ pressed }) => [
-              styles.agendaFilter,
-              active && styles.agendaFilterActive,
+              styles.agendaFilterTarget,
               pressed && styles.planHeroPressed,
             ]}
           >
-            <Text style={[
-              theme.typography.metaStrong,
-              styles.agendaFilterLabel,
-              active && styles.agendaFilterLabelActive,
+            <View style={[
+              styles.agendaFilterSurface,
+              active && styles.agendaFilterActive,
             ]}>
-              {option.label}
-            </Text>
+              <Text style={[
+                theme.typography.metaStrong,
+                styles.agendaFilterLabel,
+                active && styles.agendaFilterLabelActive,
+              ]}>
+                {option.label}
+              </Text>
+            </View>
           </Pressable>
         );
       })}
@@ -960,8 +1036,10 @@ function ProfileCompletionCard({
         onPress={onPress}
         style={({ pressed }) => [styles.profilePromptAction, pressed && styles.planHeroPressed]}
       >
-        <Text style={[theme.typography.metaStrong, { color: referencePalette.academicTealAction }]}>Profili Tamamla</Text>
-        <Ionicons color={referencePalette.academicTealAction} name="chevron-forward" size={17} />
+        <View style={styles.profilePromptActionSurface}>
+          <Text style={[theme.typography.metaStrong, { color: referencePalette.academicTealAction }]}>Profili Tamamla</Text>
+          <Ionicons color={referencePalette.academicTealAction} name="chevron-forward" size={17} />
+        </View>
       </Pressable>
     </View>
   );
@@ -1004,6 +1082,30 @@ function countdownParts(
   return days === 0
     ? { value: "0", unit: "BUGÜN" }
     : { value: String(days), unit: "GÜN KALDI" };
+}
+
+function isHomeStartCurrentOrFuture(
+  value: string,
+  temporalKind: HomeImportantItem["temporalKind"] | undefined,
+  now: Date,
+): boolean {
+  const dateOnly = temporalKind === "date" || /^\d{4}-\d{2}-\d{2}$/u.test(value);
+  if (dateOnly) {
+    const startDay = academicCalendarDayNumber(value);
+    const today = academicCalendarDayNumber(now.toISOString());
+    return startDay !== null && today !== null && startDay >= today;
+  }
+  const start = Date.parse(value);
+  return Number.isFinite(start) && start >= now.getTime();
+}
+
+function normalizeHomeScheduleTitle(value: string): string {
+  const normalized = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  const withoutPagination = normalized.replace(
+    /^\s*(?:[-–—:|>\u00bb]+\s*)?(?:\d{1,4}\s*(?:of|\/)\s*\d{1,4})\s*(?:[-–—:|>\u00bb]+\s*)?/iu,
+    "",
+  ).trim();
+  return withoutPagination || normalized;
 }
 
 function compactTemporalDate(value: string, short = false): string {
@@ -1350,10 +1452,12 @@ function selectAgendaItems(
   events: readonly HomeAcademicEvent[],
   manualExams: readonly HomeManualExam[],
   todayItems: readonly HomeImportantItem[],
+  highlightedItem: HomeImportantItem | null,
   now: Date,
 ): HomeImportantItem[] {
-  const agenda = [...todayItems];
+  const agenda = todayItems.filter((item) => item.id !== highlightedItem?.id);
   const seenIds = new Set(agenda.map((item) => item.id));
+  if (highlightedItem) seenIds.add(highlightedItem.id);
   let remainingEvents = [...events];
   let remainingExams = [...manualExams];
   const maximumIterations = remainingEvents.length + remainingExams.length;
@@ -1433,16 +1537,21 @@ const styles = StyleSheet.create({
   },
   agendaCard: {
     alignItems: "center",
-    backgroundColor: REFERENCE_COLORS.background,
-    borderRadius: 10,
+    backgroundColor: REFERENCE_COLORS.white,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
+    elevation: 2,
     flexDirection: "row",
     gap: 10,
-    minHeight: 88,
+    minHeight: 82,
     minWidth: 0,
     overflow: "hidden",
     paddingHorizontal: 12,
     paddingVertical: 10,
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 3, width: 0 },
+    shadowOpacity: 0.07,
+    shadowRadius: 9,
   },
   agendaCopy: {
     flex: 1,
@@ -1455,7 +1564,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   agendaList: {
-    gap: 6,
+    gap: 10,
   },
   agendaFilters: {
     alignItems: "center",
@@ -1463,7 +1572,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 7,
   },
-  agendaFilter: {
+  agendaFilterTarget: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+  },
+  agendaFilterSurface: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.white,
     borderColor: referencePalette.academicBlueBorder,
@@ -1543,13 +1657,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.blue,
     borderColor: homeDailyBriefColors.avatarBorder,
-    borderRadius: 22,
+    borderRadius: 25,
     borderWidth: 1,
-    height: 44,
+    height: 50,
     justifyContent: "center",
     overflow: "hidden",
     position: "relative",
-    width: 44,
+    width: 50,
   },
   avatarLabel: {
     color: REFERENCE_COLORS.white,
@@ -1558,10 +1672,14 @@ const styles = StyleSheet.create({
   },
   brandHero: {
     backgroundColor: REFERENCE_COLORS.blueDeep,
-    gap: 18,
-    minHeight: 150,
-    paddingBottom: 38,
-    paddingTop: 8,
+    borderBottomLeftRadius: 34,
+    borderBottomRightRadius: 34,
+    gap: 16,
+    minHeight: 210,
+    overflow: "hidden",
+    paddingBottom: 64,
+    paddingTop: 10,
+    position: "relative",
   },
   briefSection: {
     gap: 10,
@@ -1588,8 +1706,12 @@ const styles = StyleSheet.create({
   focusPill: {
     alignItems: "center",
     alignSelf: "flex-start",
+    backgroundColor: REFERENCE_COLORS.blueSoft,
+    borderRadius: 999,
     flexDirection: "row",
-    gap: 5,
+    minHeight: 28,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
   focusHeader: {
     alignItems: "center",
@@ -1621,9 +1743,15 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   greetingTitle: {
-    fontSize: 23,
+    fontSize: 26,
     fontWeight: "800",
-    lineHeight: 29,
+    lineHeight: 32,
+  },
+  greetingSubtitle: {
+    color: REFERENCE_COLORS.white,
+    fontSize: 14,
+    lineHeight: 20,
+    opacity: 0.9,
   },
   heroCopy: {
     flex: 1,
@@ -1636,21 +1764,22 @@ const styles = StyleSheet.create({
   heroCountdownColumn: {
     alignItems: "center",
     alignSelf: "stretch",
-    backgroundColor: referencePalette.academicGreenSurface,
-    borderColor: referencePalette.academicGreenBorder,
-    borderRadius: 8,
-    borderWidth: 1,
+    backgroundColor: REFERENCE_COLORS.blueSoft,
+    borderRadius: 17,
     justifyContent: "center",
     paddingHorizontal: 8,
-    width: 70,
+    width: 96,
+  },
+  heroCountdownColumnCompact: {
+    width: 76,
   },
   heroCountdownLabel: {
     maxWidth: "100%",
     textAlign: "center",
   },
   heroCountdownValue: {
-    fontSize: 35,
-    lineHeight: 39,
+    fontSize: 42,
+    lineHeight: 46,
   },
   heroCountdownTrack: {
     backgroundColor: referencePalette.academicNeutralLineSoft,
@@ -1694,12 +1823,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   heroTitle: {
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 18,
+    lineHeight: 23,
     maxWidth: "100%",
   },
   homeHeader: {
-    gap: 16,
+    gap: 14,
   },
   homeBrand: {
     alignItems: "center",
@@ -1709,15 +1838,34 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   homeBrandLogo: {
-    height: 46,
-    width: 46,
+    height: 54,
+    width: 54,
   },
   homeBrandTitle: {
     color: REFERENCE_COLORS.white,
     flexShrink: 1,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "800",
-    lineHeight: 23,
+    lineHeight: 21,
+    maxWidth: 104,
+  },
+  homeCampusSilhouette: {
+    bottom: -14,
+    height: 150,
+    left: 0,
+    opacity: 0.2,
+    position: "absolute",
+    right: 0,
+    width: "100%",
+  },
+  homeHeroGlow: {
+    backgroundColor: referencePalette.academicBlueDeepAlpha18,
+    borderRadius: 180,
+    height: 260,
+    position: "absolute",
+    right: -110,
+    top: -150,
+    width: 260,
   },
   identityCopy: {
     flex: 1,
@@ -1735,10 +1883,10 @@ const styles = StyleSheet.create({
   },
   notificationButton: {
     alignItems: "center",
-    height: 44,
+    height: 48,
     justifyContent: "center",
     position: "relative",
-    width: 44,
+    width: 48,
   },
   notificationDot: {
     backgroundColor: REFERENCE_COLORS.red,
@@ -1753,13 +1901,13 @@ const styles = StyleSheet.create({
   },
   planHero: {
     alignItems: "center",
-    borderRadius: 8,
+    borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     elevation: 4,
     flexDirection: "row",
     gap: 10,
-    marginTop: -38,
-    minHeight: 132,
+    marginTop: -62,
+    minHeight: 150,
     overflow: "hidden",
     padding: 12,
     shadowColor: REFERENCE_COLORS.navy,
@@ -1779,10 +1927,10 @@ const styles = StyleSheet.create({
   personalEventButton: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.blueDeep,
-    borderRadius: 8,
+    borderRadius: 999,
     flexDirection: "row",
     gap: 10,
-    minHeight: 54,
+    minHeight: 58,
     paddingHorizontal: 14,
   },
   personalEventIcon: {
@@ -1796,7 +1944,9 @@ const styles = StyleSheet.create({
   personalEventLabel: {
     color: REFERENCE_COLORS.white,
     flex: 1,
+    fontSize: 17,
     minWidth: 0,
+    textAlign: "center",
   },
   profilePrompt: {
     alignItems: "stretch",
@@ -1819,14 +1969,19 @@ const styles = StyleSheet.create({
   },
   profilePromptAction: {
     alignItems: "center",
+    alignSelf: "flex-end",
+    justifyContent: "center",
+    marginLeft: "auto",
+    minHeight: 48,
+  },
+  profilePromptActionSurface: {
+    alignItems: "center",
     backgroundColor: REFERENCE_COLORS.white,
     borderColor: referencePalette.academicTealBorderMuted,
     borderRadius: 12,
     borderWidth: 1,
-    alignSelf: "flex-end",
     flexDirection: "row",
     gap: 5,
-    marginLeft: "auto",
     minHeight: 42,
     paddingHorizontal: 12,
   },
@@ -1941,27 +2096,63 @@ const styles = StyleSheet.create({
     gap: 10,
     minWidth: 0,
   },
+  summaryGridStacked: {
+    flexDirection: "column",
+  },
   weekSummaryCard: {
-    backgroundColor: REFERENCE_COLORS.teal,
-    borderRadius: 8,
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.tealSoft,
+    borderColor: referencePalette.academicTealBorder,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
-    gap: 4,
-    justifyContent: "space-between",
-    minHeight: 154,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 88,
     minWidth: 0,
     overflow: "hidden",
-    padding: 13,
+    padding: 10,
   },
   announcementSummaryCard: {
-    backgroundColor: homeDailyBriefColors.announcementSurface,
-    borderRadius: 8,
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.orangeSoft,
+    borderColor: referencePalette.academicBorder,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
-    gap: 4,
-    justifyContent: "space-between",
-    minHeight: 154,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 88,
     minWidth: 0,
     overflow: "hidden",
-    padding: 13,
+    padding: 10,
+  },
+  summaryIconSurface: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.white,
+    borderRadius: 25,
+    elevation: 2,
+    height: 50,
+    justifyContent: "center",
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 3, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    width: 50,
+  },
+  announcementSummaryIconSurface: {
+    backgroundColor: REFERENCE_COLORS.white,
+  },
+  summaryCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  summaryValueRow: {
+    alignItems: "baseline",
+    flexDirection: "row",
+    gap: 7,
+    minWidth: 0,
   },
   summaryCardHeader: {
     alignItems: "center",
@@ -1970,17 +2161,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   summaryCardEyebrow: {
-    color: REFERENCE_COLORS.white,
+    color: referencePalette.academicTealTitle,
     flexShrink: 1,
   },
   summaryCardValue: {
-    color: REFERENCE_COLORS.white,
-    fontSize: 30,
-    lineHeight: 34,
+    color: referencePalette.academicTealTitle,
+    fontSize: 25,
+    lineHeight: 29,
   },
   summaryCardDetail: {
-    color: REFERENCE_COLORS.white,
-    opacity: 0.95,
+    color: referencePalette.academicTealTitle,
+    flex: 1,
   },
   summaryCardAction: {
     alignItems: "center",
@@ -1999,13 +2190,13 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   announcementSummaryValue: {
-    color: REFERENCE_COLORS.navy,
-    fontSize: 30,
-    lineHeight: 34,
+    color: referencePalette.academicOrangeFeed,
+    fontSize: 25,
+    lineHeight: 29,
   },
   announcementSummaryDetail: {
-    color: REFERENCE_COLORS.navy,
-    opacity: 0.85,
+    color: referencePalette.academicOrangeFeed,
+    flex: 1,
   },
   announcementSummaryAction: {
     alignItems: "center",
@@ -2018,7 +2209,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   weeklyCalendar: {
+    backgroundColor: REFERENCE_COLORS.white,
+    borderColor: referencePalette.academicBorderCool,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 2,
     gap: 8,
+    padding: 11,
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 3, width: 0 },
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
   },
   weeklyCalendarHeader: {
     alignItems: "center",
@@ -2041,7 +2242,11 @@ const styles = StyleSheet.create({
     flex: 0,
     width: "100%",
   },
-  calendarLink: {
+  weeklyCalendarStandard: {
+    gap: 0,
+    paddingVertical: 9,
+  },
+  calendarLinkSurface: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.blueSoft,
     borderRadius: 999,
@@ -2051,7 +2256,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
   },
   calendarLinkLargeText: {
+    alignItems: "center",
     alignSelf: "flex-end",
+    justifyContent: "center",
+    minHeight: 48,
   },
   weekDays: {
     flexDirection: "row",
@@ -2061,7 +2269,7 @@ const styles = StyleSheet.create({
   weekDayTarget: {
     alignItems: "center",
     flex: 1,
-    gap: 5,
+    gap: 2,
     minWidth: 0,
   },
   weekDayName: {
@@ -2073,10 +2281,10 @@ const styles = StyleSheet.create({
   weekDayCard: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.white,
-    borderColor: referencePalette.academicBorderCool,
-    borderRadius: 8,
+    borderColor: "transparent",
+    borderRadius: 14,
     borderWidth: 1,
-    height: 56,
+    height: 50,
     justifyContent: "center",
     width: "100%",
   },
@@ -2104,7 +2312,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    minHeight: 50,
+    minHeight: 58,
   },
   topBarActions: {
     alignItems: "center",

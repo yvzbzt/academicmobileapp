@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { Alert, Platform } from "react-native";
+import { Alert, Keyboard, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   act,
@@ -38,11 +38,28 @@ import {
 } from "../fixtures/native-test-environment";
 
 const safeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+const mockWindowDimensions = jest.fn(() => ({
+  fontScale: 1,
+  height: 844,
+  scale: 3,
+  width: 390,
+}));
+
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
+  __esModule: true,
+  default: () => mockWindowDimensions(),
+}));
+
+interface TestViewport {
+  fontScale?: number;
+  height?: number;
+  width?: number;
+}
 
 function authTestTree(
   child: ReactElement,
   overrides: Omit<ThemeProviderProps, "children"> = {},
-  frame: { width?: number; height?: number } = {},
+  frame: TestViewport = {},
 ) {
   const width = frame.width ?? overrides.windowWidth ?? 390;
   const height = frame.height ?? 844;
@@ -71,8 +88,14 @@ function authTestTree(
 function renderAuth(
   child: ReactElement,
   overrides: Omit<ThemeProviderProps, "children"> = {},
-  frame: { width?: number; height?: number } = {},
+  frame: TestViewport = {},
 ) {
+  mockWindowDimensions.mockReturnValue({
+    fontScale: frame.fontScale ?? 1,
+    height: frame.height ?? 844,
+    scale: 3,
+    width: frame.width ?? overrides.windowWidth ?? 390,
+  });
   return renderAsync(authTestTree(child, overrides, frame));
 }
 
@@ -280,18 +303,57 @@ describe("Phase 6 rendered authentication screens", () => {
       await renderAuth(<LoginScreen {...loginProps()} />);
 
       expect(screen.queryByTestId("auth-short-viewport-scroll-login")).toBeNull();
+      expect(screen.getByTestId("auth-login-scroll")).toBeVisible();
       expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 844 });
       expect(screen.getByTestId("login-hero-frame", { includeHiddenElements: true })).toHaveStyle({ height: 333.38 });
-      expect(screen.getByTestId("login-form-sheet")).toHaveStyle({ flex: 1 });
+      expect(screen.getByTestId("login-form-sheet")).toHaveStyle({
+        elevation: 0,
+        flex: 1,
+        shadowOpacity: 0,
+        shadowRadius: 0,
+      });
       expect(screen.getByTestId("auth-hero-title")).toHaveStyle({ fontSize: 28, lineHeight: 34 });
       expect(screen.getByLabelText("Kampüste akademik hayat", { includeHiddenElements: true })).toBeOnTheScreen();
       expect(screen.queryByText("Bugünün planı")).toBeNull();
       expect(screen.queryByText("Sınavlarını, duyurularını ve akademik takvimini tek yerde takip et.")).toBeNull();
       expect(screen.queryByText("ANSSOFT YAZILIM BİLİŞİM ELEKTRONİK MAKİNA İNŞAAT SANAYİ TİCARET LİMİTED ŞİRKETİ ürünüdür.")).toBeNull();
-      expect(screen.getByLabelText("Sosyal medya kanalları")).toBeVisible();
+      expect(screen.queryByLabelText("Sosyal medya kanalları")).toBeNull();
+      expect(screen.queryByText("Bizi takip edin")).toBeNull();
       expect(screen.getByTestId("google-color-mark", { includeHiddenElements: true })).toBeOnTheScreen();
       expect(screen.queryByRole("checkbox", { name: "Beni hatırla" })).toBeNull();
       expect(screen.queryByText("E-postamı doğrula")).toBeNull();
+    });
+
+    it("configures blank-space/drag dismissal and preserves next/done IME behavior", async () => {
+      const dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(jest.fn());
+      const onSubmit = jest.fn();
+      await renderAuth(<LoginScreen {...loginProps({ onSubmit })} />);
+
+      const scroll = screen.getByTestId("auth-login-scroll");
+      expect(scroll).toHaveProp("automaticallyAdjustKeyboardInsets", true);
+      expect(scroll).toHaveProp(
+        "keyboardDismissMode",
+        Platform.OS === "ios" ? "interactive" : "on-drag",
+      );
+      expect(scroll).toHaveProp("keyboardShouldPersistTaps", "handled");
+      expect(scroll).toHaveProp(
+        "onScrollBeginDrag",
+        Platform.OS === "android" ? Keyboard.dismiss : undefined,
+      );
+
+      await userEvent.press(screen.getByLabelText("E-posta adresi"));
+      expect(dismiss).not.toHaveBeenCalled();
+
+      const passwordFocus = spyOnInputFocus("Şifre");
+      fireEvent(screen.getByLabelText("E-posta adresi"), "submitEditing");
+      expect(passwordFocus).toHaveBeenCalledTimes(1);
+      expect(dismiss).not.toHaveBeenCalled();
+
+      fireEvent(screen.getByLabelText("Şifre"), "submitEditing");
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      passwordFocus.mockRestore();
+      dismiss.mockRestore();
     });
 
     it("uses a scroll-safe hero on a short 320 by 568 phone viewport", async () => {
@@ -313,6 +375,38 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
     });
 
+    it("uses a scroll-safe login at 320dp and 200% font scale", async () => {
+      await renderAuth(
+        <LoginScreen {...loginProps()} />,
+        {},
+        { width: 320, height: 640, fontScale: 2 },
+      );
+
+      const scroll = screen.getByTestId("auth-short-viewport-scroll-login");
+      expect(scroll).toHaveProp("automaticallyAdjustKeyboardInsets", true);
+      expect(scroll).toHaveProp("keyboardShouldPersistTaps", "handled");
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ minHeight: 640 });
+      expect(screen.getByTestId("login-brand-lockup")).toHaveStyle({
+        flexDirection: "column",
+        width: "100%",
+      });
+      const title = screen.getByTestId("auth-hero-title");
+      expect(title).toHaveProp("numberOfLines", 2);
+      expect(title).toHaveStyle({ maxWidth: "100%", width: "100%" });
+      expect(title).toHaveTextContent(/Akademik\s*Takvim/u);
+      expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
+      expect(screen.getByLabelText("Şifre")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Giriş yap" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Google ile devam et" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Şifremi unuttum" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
+      expect(screen.getByTestId("login-link-row")).toHaveStyle({
+        alignItems: "stretch",
+        flexDirection: "column",
+        width: "100%",
+      });
+    });
+
     it("keeps every login action reachable in a 568 by 320 landscape viewport", async () => {
       await renderAuth(<LoginScreen {...loginProps()} />, {}, { width: 568, height: 320 });
 
@@ -325,7 +419,7 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(screen.getByRole("button", { name: "Apple ile devam et" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Şifremi unuttum" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
-      expect(screen.getByLabelText("Sosyal medya kanalları")).toBeVisible();
+      expect(screen.queryByLabelText("Sosyal medya kanalları")).toBeNull();
     });
 
     it("keeps session-expiry feedback compact in a short landscape viewport", async () => {
@@ -448,6 +542,60 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(onDismissFeedback).toHaveBeenCalledTimes(1);
     });
 
+    it("overlays provider feedback without shifting the hero, brand, or form anchors", async () => {
+      const stableProps = loginProps();
+      const feedbackProps = loginProps({
+        feedback: {
+          text: "Bu APK için Google giriş ayarları tamamlanmamış görünüyor. Lütfen uygulamanın güncel sürümünü kullan veya e-posta ile giriş yap.",
+          tone: "error",
+        },
+      });
+      const view = await renderAuth(<LoginScreen {...stableProps} />);
+
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 844 });
+      expect(screen.getByTestId("login-form-content")).toHaveStyle({
+        flex: 1,
+        justifyContent: "center",
+        transform: [{ translateY: -16 }],
+      });
+      expect(screen.getByText("Üniversite hayatını planla, zamanı verimli kullan.")).toBeVisible();
+      expect(screen.queryByTestId("login-feedback-overlay")).toBeNull();
+
+      await view.rerenderAsync(authTestTree(
+        <LoginScreen
+          {...feedbackProps}
+        />,
+      ));
+
+      expect(screen.getByTestId("auth-login-scroll")).toBeVisible();
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 844 });
+      expect(screen.getByTestId("login-form-content")).toHaveStyle({
+        flex: 1,
+        justifyContent: "center",
+        transform: [{ translateY: -16 }],
+      });
+      expect(screen.getByTestId("login-feedback-overlay")).toHaveStyle({
+        position: "absolute",
+        top: 12,
+        zIndex: 4,
+      });
+      expect(screen.getByText("Üniversite hayatını planla, zamanı verimli kullan.")).toBeVisible();
+      expect(screen.getByRole("alert", {
+        name: /İşlem tamamlanamadı.*Google giriş ayarları/u,
+      })).toBeVisible();
+      expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Kayıt ol" })).toBeVisible();
+
+      await view.rerenderAsync(authTestTree(<LoginScreen {...stableProps} />));
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 844 });
+      expect(screen.getByTestId("login-form-content")).toHaveStyle({
+        flex: 1,
+        justifyContent: "center",
+        transform: [{ translateY: -16 }],
+      });
+      expect(screen.queryByTestId("login-feedback-overlay")).toBeNull();
+    });
+
     it("preserves the typed password while visibility changes", async () => {
       const onPasswordChange = jest.fn();
       await renderAuth(
@@ -493,6 +641,48 @@ describe("Phase 6 rendered authentication screens", () => {
   });
 
   describe("RegistrationScreen", () => {
+    it("configures blank-space dismissal and keeps the four-field return chain intact", async () => {
+      const dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(jest.fn());
+      const onSubmit = jest.fn();
+      await renderAuth(
+        <RegistrationScreen {...registrationProps({ onSubmit })} />,
+      );
+
+      const scroll = screen.getByTestId("auth-registration-scroll");
+      expect(scroll).toHaveProp("automaticallyAdjustKeyboardInsets", true);
+      expect(scroll).toHaveProp(
+        "keyboardDismissMode",
+        Platform.OS === "ios" ? "interactive" : "on-drag",
+      );
+      expect(scroll).toHaveProp("keyboardShouldPersistTaps", "handled");
+      const emailFocus = spyOnInputFocus("E-posta adresi");
+      fireEvent(screen.getByLabelText("Ad soyad"), "submitEditing");
+      expect(emailFocus).toHaveBeenCalledTimes(1);
+      emailFocus.mockRestore();
+
+      const passwordFocus = spyOnInputFocus("Şifre");
+      fireEvent(screen.getByLabelText("E-posta adresi"), "submitEditing");
+      expect(passwordFocus).toHaveBeenCalledTimes(1);
+      passwordFocus.mockRestore();
+
+      const confirmationFocus = spyOnInputFocus("Şifre tekrar");
+      fireEvent(screen.getByLabelText("Şifre"), "submitEditing");
+      expect(confirmationFocus).toHaveBeenCalledTimes(1);
+      confirmationFocus.mockRestore();
+      expect(dismiss).not.toHaveBeenCalled();
+
+      fireEvent(screen.getByLabelText("Şifre tekrar"), "submitEditing");
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await userEvent.press(screen.getByRole("checkbox", { name: /Kullanım Koşulları/u }));
+      fireEvent(screen.getByLabelText("Şifre tekrar"), "submitEditing");
+      expect(dismiss).toHaveBeenCalledTimes(2);
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+
+      dismiss.mockRestore();
+    });
+
     it("keeps the complete form scrollable in a 568 by 320 landscape viewport", async () => {
       await renderAuth(
         <RegistrationScreen {...registrationProps()} />,
@@ -1066,6 +1256,12 @@ describe("Phase 6 rendered authentication screens", () => {
     };
     expect(fixture.appearance.windowWidth).toBe(320);
     expect(fixture.appearance.fontScale).toBe(2);
+    mockWindowDimensions.mockReturnValue({
+      fontScale: 2,
+      height: 640,
+      scale: 2,
+      width: 320,
+    });
 
     await renderAsync(
       <SafeAreaProvider

@@ -34,6 +34,8 @@ describe("Phase 8 synthetic content-feed preview", () => {
   it("publishes the complete stable scenario inventory", () => {
     expect(CONTENT_FEED_PREVIEW_SCENARIOS).toEqual([
       "populated",
+      "reference-list",
+      "reference-detail",
       "search-results",
       "no-results",
       "active-filters",
@@ -102,6 +104,60 @@ describe("Phase 8 synthetic content-feed preview", () => {
     expect(first.academicItems).toEqual(second.academicItems);
   });
 
+  it("keeps the reference feed and detail fixtures deterministic and model-backed", () => {
+    const list = createContentFeedPreviewFixture("reference-list");
+    const records = [
+      ...list.academicItems,
+      ...list.yokItems,
+      ...list.summerItems,
+    ];
+
+    expect(records.map((record) => [record.title, record.publishedDate])).toEqual([
+      ["2026–2027 Güz Dönemi Akademik Takvimi Yayımlandı", "2026-05-23"],
+      ["Mühendislik Fakültesi Danışmanlık Toplantısı", "2026-05-21"],
+      ["Bilgisayar Mühendisliği Bitirme Projesi Teslim Tarihleri", "2026-05-20"],
+      ["YÖK: Ulusal Staj Programı Duyurusu", "2026-05-19"],
+      ["Yaz Okulu Ders Kayıtları Başladı", "2026-05-18"],
+    ]);
+    expect(list.universityName).toBe("Ankara Üniversitesi");
+
+    const detail = createContentFeedPreviewFixture("reference-detail");
+    expect(detail.initialRoute).toBe("Detail");
+    expect(detail.initialDetail).toMatchObject({
+      body: expect.arrayContaining([
+        expect.objectContaining({ type: "heading", text: "Önemli Bilgiler" }),
+      ]),
+      keyDates: [{
+        label: "Ders kayıtları",
+        startDate: "2026-08-27",
+        endDate: "2026-09-04",
+      }],
+      publishedDate: "2026-08-27",
+      scopeType: "university",
+      sourceName: "Üniversite Duyurusu",
+      title: "2026–2027 Güz Yarıyılı Ders Kayıtları Başladı",
+    });
+  });
+
+  it("renders the reference detail without inventing unsupported attachments", async () => {
+    const view = await renderAsync(
+      <ContentFeedPreview preference="light" scenario="reference-detail" />,
+    );
+    await settleVirtualizedList();
+
+    expect(await screen.findByRole("header", {
+      name: "2026–2027 Güz Yarıyılı Ders Kayıtları Başladı",
+    })).toBeVisible();
+    expect(screen.getByText("Üniversite Duyurusu")).toBeVisible();
+    expect(screen.getByLabelText(
+      "Ders kayıtları: 27 Ağustos 2026 – 04 Eylül 2026",
+    )).toBeVisible();
+    expect(screen.getByText(/Son gün: 0?4 Eylül 2026/iu)).toBeVisible();
+    expect(screen.getByText("Önemli Bilgiler")).toBeVisible();
+    expect(screen.queryByText(/Ekler\s*\(/iu)).not.toBeOnTheScreen();
+    await view.unmountAsync();
+  });
+
   it("keeps the release performance entry isolated, ungated, and fixed at one hundred records", () => {
     const fs = require("fs");
     const path = require("path");
@@ -142,6 +198,7 @@ describe("Phase 8 synthetic content-feed preview", () => {
           scenario={scenario as ContentFeedPreviewScenario}
         />,
       );
+      await settleVirtualizedList();
       expect(
         screen.getByTestId("phase8-content-feed-preview").props.accessibilityLabel,
       ).toBe(`Phase 8 sentetik içerik önizlemesi: ${scenario}`);
@@ -175,12 +232,13 @@ describe("Phase 8 synthetic content-feed preview", () => {
 
   it("contains the official-source handoff without opening an external URL", async () => {
     const openUrl = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
-    await renderAsync(
+    const view = await renderAsync(
       <ContentFeedPreview
         preference="light"
         scenario="official-source-handoff"
       />,
     );
+    await settleVirtualizedList();
 
     expect(screen.getAllByText(/preview\.edu\.tr/iu).length).toBeGreaterThan(0);
     await act(async () => {
@@ -193,5 +251,6 @@ describe("Phase 8 synthetic content-feed preview", () => {
     expect(
       await screen.findByText(/açılamadı|önizlemede dış uygulamaya gönderilmedi/iu),
     ).toBeOnTheScreen();
+    await view.unmountAsync();
   });
 });

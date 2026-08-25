@@ -48,6 +48,7 @@ import type {
 
 export const PROFILE_SETTINGS_PREVIEW_SCENARIOS = [
   "profile-summary",
+  "reference-profile",
   "profile-incomplete",
   "academic-editor",
   "notifications-active",
@@ -94,19 +95,29 @@ const COMPLETE_DRAFT: AcademicOnboardingDraft = {
   classLevel: 3,
 };
 
+const REFERENCE_PROFILE_DRAFT: AcademicOnboardingDraft = {
+  universityId: "reference-ankara-university",
+  facultyId: "reference-ankara-engineering",
+  departmentId: "reference-ankara-computer-engineering",
+  classLevel: 3,
+};
+
 const UNIVERSITIES = [
   { value: "preview-university", label: "Kampüs Üniversitesi", supportingText: "Akademik katalog" },
   { value: "preview-technical-university", label: "Kampüs Teknik Üniversitesi", supportingText: "Akademik katalog" },
+  { value: "reference-ankara-university", label: "Ankara Üniversitesi", supportingText: "Akademik katalog" },
 ] as const;
 
 const FACULTIES = [
   { value: "preview-faculty", label: "Mühendislik Fakültesi" },
   { value: "preview-science-faculty", label: "Fen Fakültesi" },
+  { value: "reference-ankara-engineering", label: "Mühendislik Fakültesi" },
 ] as const;
 
 const DEPARTMENTS = [
   { value: "preview-department", label: "Bilgisayar Mühendisliği" },
   { value: "preview-mathematics", label: "Matematik" },
+  { value: "reference-ankara-computer-engineering", label: "Bilgisayar Mühendisliği" },
 ] as const;
 
 const CLASS_LEVELS: readonly { value: AcademicClassLevel; label: string }[] = [
@@ -139,6 +150,7 @@ const profilePreviewNavigationRef = createNavigationContainerRef<ProfilePreviewS
 
 const PROFILE_ROUTE_BY_SCENARIO: Record<ProfileSettingsPreviewScenario, ProfilePreviewRoute> = {
   "profile-summary": "Profile",
+  "reference-profile": "Profile",
   "profile-incomplete": "Profile",
   "academic-editor": "AcademicProfileSettings",
   "notifications-active": "NotificationSettings",
@@ -208,8 +220,10 @@ function ProfileSettingsPreviewExperience({
 }) {
   const theme = useTheme();
   const reducedMotion = useReducedMotion();
+  const referenceProfile = scenario === "reference-profile";
+  const completeDraft = referenceProfile ? REFERENCE_PROFILE_DRAFT : COMPLETE_DRAFT;
   const [navigationReady, setNavigationReady] = useState(false);
-  const [academicDraft, setAcademicDraft] = useState<AcademicOnboardingDraft>(COMPLETE_DRAFT);
+  const [academicDraft, setAcademicDraft] = useState<AcademicOnboardingDraft>(completeDraft);
   const [academicSaveState, setAcademicSaveState] = useState<ProfileMutationState>("dirty");
   const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [notificationMode, setNotificationMode] = useState<NotificationPreferenceMode>("all_calendar");
@@ -222,13 +236,13 @@ function ProfileSettingsPreviewExperience({
   }, []);
 
   useEffect(() => {
-    setAcademicDraft(COMPLETE_DRAFT);
+    setAcademicDraft(completeDraft);
     setAcademicSaveState("dirty");
     setNotificationEnabled(true);
     setNotificationMode("all_calendar");
     setNotificationCategories(DEFAULT_CATEGORIES);
     setNotificationSaveState(scenario === "notifications-error" ? "error" : "saved");
-  }, [scenario]);
+  }, [completeDraft, scenario]);
 
   useEffect(() => {
     if (!navigationReady || !profilePreviewNavigationRef.isReady()) return;
@@ -255,15 +269,31 @@ function ProfileSettingsPreviewExperience({
   const googlePresentation = resolveGoogleCalendarPresentation(googleState);
   const incomplete = scenario === "profile-incomplete";
   const academicSummary = resolveAcademicProfileSummary(
-    incomplete ? EMPTY_ACADEMIC_ONBOARDING_DRAFT : COMPLETE_DRAFT,
+    incomplete ? EMPTY_ACADEMIC_ONBOARDING_DRAFT : completeDraft,
     incomplete
       ? {}
       : {
-        universityName: "Kampüs Üniversitesi",
+        universityName: referenceProfile ? "Ankara Üniversitesi" : "Kampüs Üniversitesi",
         facultyName: "Mühendislik Fakültesi",
         departmentName: "Bilgisayar Mühendisliği",
       },
   );
+  const profileEmail = referenceProfile
+    ? "fuat.basar@ogrenci.ankara.edu.tr"
+    : "deniz.yilmaz@kampus.example.invalid";
+  const profileFullName = referenceProfile
+    ? "Fuat Başar"
+    : incomplete
+      ? "Örnek Öğrenci"
+      : "Deniz Örnek";
+  const profileNotificationTruth = referenceProfile
+    ? notificationTruth
+    : resolveNotificationTruth({
+      permission: "granted",
+      preferenceEnabled: true,
+      registration: "registered",
+      saveState: "saved",
+    });
 
   const accountScenarioError = scenario === "data-error"
     ? "Sentetik veri silme isteği tamamlanamadı."
@@ -279,16 +309,11 @@ function ProfileSettingsPreviewExperience({
         <ProfileOverviewScreen
           academicSummary={academicSummary}
           appVersion="0.1.2"
-          email="deniz.yilmaz@kampus.example.invalid"
-          fullName={incomplete ? "Örnek Öğrenci" : "Deniz Örnek"}
-          googleAccountEmail={incomplete ? undefined : "deniz.yilmaz@kampus.example.invalid"}
+          email={profileEmail}
+          fullName={profileFullName}
+          googleAccountEmail={incomplete ? undefined : profileEmail}
           googleCalendar={resolveGoogleCalendarPresentation(incomplete ? "disconnected" : "connected")}
-          notificationTruth={resolveNotificationTruth({
-            permission: "granted",
-            preferenceEnabled: true,
-            registration: "registered",
-            saveState: "saved",
-          })}
+          notificationTruth={profileNotificationTruth}
           followedUniversityCount={2}
           onOpenAcademicProfile={() => openRoute("AcademicProfileSettings")}
           onOpenFollowedUniversities={() => undefined}
@@ -379,7 +404,7 @@ function ProfileSettingsPreviewExperience({
       ),
       GoogleCalendarSettings: (
         <GoogleCalendarSettingsScreen
-          accountEmail={googleState === "disconnected" ? undefined : "deniz.yilmaz@kampus.example.invalid"}
+          accountEmail={googleState === "disconnected" ? undefined : profileEmail}
           connectionExists={googleState !== "disconnected"}
           lastSyncedLabel={googleState === "disconnected" ? undefined : "5 Ağustos 2026 09:30"}
           managedEventCount={googleState === "disconnected" ? undefined : 4}
@@ -397,7 +422,7 @@ function ProfileSettingsPreviewExperience({
       AccountDataSettings: (
         <AccountDataSettingsScreen
           key={scenario}
-          email="deniz.yilmaz@kampus.example.invalid"
+          email={profileEmail}
           error={accountScenarioError}
           onDeleteAccount={() => (
             shouldRejectAccountDeletion
@@ -427,6 +452,9 @@ function ProfileSettingsPreviewExperience({
     notificationSaveState,
     notificationTruth,
     openRoute,
+    profileEmail,
+    profileFullName,
+    profileNotificationTruth,
     scenario,
     shouldRejectAccountDeletion,
     shouldRejectDataDeletion,
@@ -524,6 +552,7 @@ function notificationLifecycleFixture(scenario: ProfileSettingsPreviewScenario):
   switch (scenario) {
     case "notifications-denied":
       return { permission: "denied", registration: "unregistered" };
+    case "reference-profile":
     case "notifications-settings-required":
       return { permission: "permanently_denied", registration: "unregistered" };
     case "notifications-registering":

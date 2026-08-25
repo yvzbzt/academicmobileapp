@@ -29,6 +29,7 @@ const callbacks = {
   onOpenAnnouncement: jest.fn(),
   onOpenAnnouncements: jest.fn(),
   onOpenCalendar: jest.fn(),
+  onCreatePersonalEvent: jest.fn(),
   onOpenGoogleCalendarSettings: jest.fn(),
   onOpenNotificationSettings: jest.fn(),
   onRefresh: jest.fn(),
@@ -77,6 +78,24 @@ function props(overrides: Partial<HomeDailyBriefProps> = {}): HomeDailyBriefProp
       title: "Ders kayıtları",
       category: "course_registration",
       startDate: new Date(2026, 7, 1, 13).toISOString(),
+    }, {
+      id: "event-upcoming-registration",
+      title: "Ekle bırak haftası",
+      category: "course_add_drop",
+      startDate: "2026-08-03",
+      temporalKind: "date",
+    }, {
+      id: "event-upcoming-application",
+      title: "Burs Başvuruları",
+      category: "scholarship_application",
+      startDate: "2026-08-04",
+      temporalKind: "date",
+    }, {
+      id: "event-upcoming-term",
+      title: "Güz Dönemi Ders Başlangıcı",
+      category: "semester_start",
+      startDate: "2026-08-05",
+      temporalKind: "date",
     }],
     manualExams: [],
     announcements: [
@@ -138,11 +157,13 @@ describe("Phase 7 Home daily brief", () => {
     await renderHome(props());
 
     expect(screen.getByTestId("home-top-bar")).toBeOnTheScreen();
+    expect(screen.queryByTestId("notification-attention-indicator")).toBeNull();
     expect(screen.queryByRole("header", { name: "Ana Sayfa" })).toBeNull();
     expect(screen.getByText("Akademik Takvim")).toBeOnTheScreen();
-    expect(screen.getByText("Sıradaki")).toBeOnTheScreen();
+    expect(screen.getByText("Sıradaki Etkinlik")).toBeOnTheScreen();
     expect(screen.getByTestId("home-focus-card")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Haftalık Takvim" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /^Bu hafta 1 önemli tarih/u })).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Senin için" })).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Kişisel etkinlik ekle" })).toBeOnTheScreen();
     expect(screen.getAllByText(/Ağustos 2026/u).some((node) => node.props.numberOfLines === 1)).toBe(true);
@@ -152,6 +173,156 @@ describe("Phase 7 Home daily brief", () => {
     fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));
     expect(callbacks.onOpenAccountMenu).toHaveBeenCalledTimes(1);
     expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("anchors the week strip to now by default and accepts an explicit visual anchor", async () => {
+    const defaultWeek = await renderHome(props());
+    expect(screen.getByRole("button", { name: "CMT, 1 Ağustos. Takvimi aç." })).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "PER, 27 Ağustos. Takvimi aç." })).toBeNull();
+    await defaultWeek.unmountAsync();
+
+    await renderHome(props({ weekAnchorDate: new Date(2026, 7, 27, 10, 0, 0) }));
+    expect(screen.getByRole("button", { name: "PER, 27 Ağustos. Takvimi aç." })).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "CMT, 1 Ağustos. Takvimi aç." })).toBeNull();
+  });
+
+  it("keeps the highlighted next item out of the agenda and backfills three distinct rows", async () => {
+    const highlightedTitle = "Lisansüstü Programlara Yatay Geçiş Başvuruları";
+    await renderHome(props({
+      events: [{
+        id: "highlighted",
+        title: highlightedTitle,
+        category: "horizontal_transfer",
+        startDate: new Date(2026, 7, 1, 11).toISOString(),
+      }, {
+        id: "today-second",
+        title: "Bugünkü ikinci önemli tarih",
+        category: "course_registration",
+        startDate: new Date(2026, 7, 1, 12).toISOString(),
+      }, {
+        id: "next-registration",
+        title: "Ders Kayıtları",
+        category: "course_registration",
+        startDate: "2026-08-31",
+        temporalKind: "date",
+      }, {
+        id: "next-scholarship",
+        title: "Burs Başvuruları",
+        category: "scholarship_application",
+        startDate: "2026-09-01",
+        temporalKind: "date",
+      }, {
+        id: "fourth-remaining",
+        title: "Dördüncü kalan tarih",
+        category: "semester_start",
+        startDate: "2027-02-08",
+        temporalKind: "date",
+      }],
+    }));
+
+    expect(screen.getAllByText(highlightedTitle)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /^Bugünkü ikinci önemli tarih\./u })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /^Ders Kayıtları\./u })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /^Burs Başvuruları\./u })).toBeOnTheScreen();
+    expect(screen.queryByText("Dördüncü kalan tarih")).not.toBeOnTheScreen();
+  });
+
+  it("keeps past starts out of future Home surfaces and removes page-count copy", async () => {
+    await renderHome(props({
+      now: new Date("2026-08-25T10:00:00.000Z"),
+      announcements: [],
+      events: [{
+        id: "past-range",
+        title: "SINAV TARİHLERİ",
+        category: "final_exam",
+        startDate: "2026-08-17",
+        endDate: "2026-09-04",
+        temporalKind: "date",
+        endTemporalKind: "date",
+      }, {
+        id: "past-this-week",
+        title: "Dün başlayan ders kayıtları",
+        category: "course_registration",
+        startDate: "2026-08-24",
+        endDate: "2026-09-04",
+        temporalKind: "date",
+        endTemporalKind: "date",
+      }, {
+        id: "future-application",
+        title: "8 of 10 -- Yabancı Diller Yüksekokulu başvurusu",
+        category: "scholarship_application",
+        startDate: "2026-08-26",
+        temporalKind: "date",
+      }, {
+        id: "future-registration",
+        title: "Ders kayıtları",
+        category: "course_registration",
+        startDate: "2026-08-27",
+        temporalKind: "date",
+      }],
+    }));
+
+    expect(screen.getByTestId("home-focus-card")).toHaveProp(
+      "accessibilityLabel",
+      expect.stringContaining("Yabancı Diller Yüksekokulu başvurusu"),
+    );
+    expect(screen.queryByText(/8 of 10/iu)).not.toBeOnTheScreen();
+    expect(screen.queryByText("SINAV TARİHLERİ")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Dün başlayan ders kayıtları")).not.toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /^Bu hafta 2 önemli tarih\./u }))
+      .toHaveProp("accessibilityLabel", expect.stringContaining("1 başvuru · 1 kayıt"));
+  });
+
+  it("does not render an empty next-event card when only announcements are available", async () => {
+    await renderHome(props({ events: [], manualExams: [] }));
+
+    expect(screen.queryByTestId("home-focus-card")).not.toBeOnTheScreen();
+    expect(screen.queryByText("Sıradaki Etkinlik")).not.toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Önemli duyuru" })).toBeOnTheScreen();
+  });
+
+  it("reserves the measured bottom-tab height below the last Home card", async () => {
+    await renderHome(props());
+
+    expect(screen.getByTestId(/^home-(?:android|ios)-/u).props.contentContainerStyle).toEqual(
+      expect.arrayContaining([expect.objectContaining({ paddingBottom: 84 })]),
+    );
+  });
+
+  it("routes the personal-event CTA through its create intent instead of generic Calendar navigation", async () => {
+    await renderHome(props());
+
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinlik ekle" }));
+
+    expect(callbacks.onCreatePersonalEvent).toHaveBeenCalledTimes(1);
+    expect(callbacks.onOpenCalendar).not.toHaveBeenCalled();
+  });
+
+  it("shows notification attention only when the enabled preference is not active", async () => {
+    await renderHome(props({ notificationActive: false }));
+
+    expect(screen.getByTestId("notification-attention-indicator")).toBeOnTheScreen();
+    expect(screen.getByRole("button", {
+      name: "Bildirim tercihlerini aç. Bildirimlerin etkinleştirilmesi gerekiyor.",
+    })).toBeOnTheScreen();
+  });
+
+  it("does not call the trusted announcement total new without an authoritative count", async () => {
+    const defaultSummary = await renderHome(props());
+    expect(screen.getByText("duyuru")).toBeOnTheScreen();
+    expect(screen.queryByText("yeni")).not.toBeOnTheScreen();
+    expect(screen.getByLabelText("Duyuru özeti")).toHaveProp(
+      "accessibilityHint",
+      "2 güncel duyuru bulunuyor.",
+    );
+    await defaultSummary.unmountAsync();
+
+    await renderHome(props({ announcementNewCount: 1 }));
+    expect(screen.getByText("yeni")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Duyuru özeti")).toHaveProp(
+      "accessibilityHint",
+      "1 yeni duyuru bulunuyor; toplam 2 güncel duyuru var.",
+    );
   });
 
   it("bounds fixed focus-card typography at 320 dp and 200% font scale", async () => {
@@ -165,16 +336,43 @@ describe("Phase 7 Home daily brief", () => {
       }],
     }));
 
-    expect(screen.getByText("Gün kaldı")).toHaveProp("maxFontSizeMultiplier", 1.25);
-    expect(screen.getByText("Gün kaldı")).toHaveProp("numberOfLines", 2);
+    expect(screen.getByText("gün kaldı")).toHaveProp("maxFontSizeMultiplier", 1.25);
+    expect(screen.getByText("gün kaldı")).toHaveProp("numberOfLines", 2);
     expect(screen.getByText("Akademik Takvim")).toHaveProp("adjustsFontSizeToFit", true);
-    expect(screen.getByText("Sıradaki")).toHaveProp("maxFontSizeMultiplier", 1.3);
+    expect(screen.getByText("Sıradaki Etkinlik")).toHaveProp("maxFontSizeMultiplier", 1.3);
     const boundedHeroTitle = screen.getAllByText(longTitle).find(
       (node) => node.props.maxFontSizeMultiplier === 1.35,
     );
     expect(boundedHeroTitle).toBeDefined();
     expect(boundedHeroTitle).toHaveProp("numberOfLines", 2);
     expect(screen.getAllByText("13:00").some((node) => node.props.maxFontSizeMultiplier === 1.3)).toBe(true);
+  });
+
+  it("keeps compact Home controls inside real 48dp press targets", async () => {
+    await renderHome(props({ facultyName: undefined, departmentName: undefined }));
+
+    screen.getAllByRole("tab").forEach((filter) => {
+      expect(filter).toHaveStyle({ minHeight: 48 });
+    });
+    expect(screen.getByRole("button", { name: "Takvimi gör" })).toHaveStyle({ minHeight: 48 });
+    expect(screen.getByRole("button", { name: "Akademik profili tamamla" })).toHaveStyle({ minHeight: 48 });
+  });
+
+  it("announces the highlighted event title, schedule, remaining time, and destination", async () => {
+    await renderHome(props({
+      events: [{
+        id: "accessible-focus",
+        title: "Veri Yapıları Final Sınavı",
+        category: "final_exam",
+        startDate: new Date(2026, 7, 1, 13).toISOString(),
+        endDate: new Date(2026, 7, 1, 15).toISOString(),
+      }],
+    }));
+
+    expect(screen.getByTestId("home-focus-card")).toHaveProp(
+      "accessibilityLabel",
+      expect.stringMatching(/Veri Yapıları Final Sınavı.*Sınav.*13:00.*15:00.*3 saat kaldı.*Takvimi aç/u),
+    );
   });
 
   it("keeps the incomplete-profile prompt compact and locally dismissible", async () => {
@@ -202,7 +400,10 @@ describe("Phase 7 Home daily brief", () => {
     }));
 
     expect(screen.getByText("Veri Yapıları")).toBeOnTheScreen();
-    expect(screen.getByText("Mühendislik Fak. – A Blok 201")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-focus-card")).toHaveProp(
+      "accessibilityLabel",
+      expect.stringContaining("Mühendislik Fak. – A Blok 201"),
+    );
     expect(screen.getAllByText("Veri Yapıları Final Sınavı").length).toBeGreaterThanOrEqual(1);
   });
 
@@ -243,9 +444,12 @@ describe("Phase 7 Home daily brief", () => {
     }));
 
     expect(screen.getByText("1 başvuru · 2 kayıt · 1 sınav")).toBeOnTheScreen();
-    expect(screen.getByText("Sınav")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-focus-card")).toHaveProp(
+      "accessibilityLabel",
+      expect.stringMatching(/Azami Süreyi Dolduran Öğrenciler için Ek Sınavlar.*Sınav/u),
+    );
     expect(screen.getByText("Başvuru")).toBeOnTheScreen();
-    expect(screen.getByText("Kayıt")).toBeOnTheScreen();
+    expect(screen.getAllByText("Kayıt").length).toBeGreaterThan(0);
     expect(screen.queryByText("4 kayıt")).not.toBeOnTheScreen();
   });
 
@@ -268,7 +472,10 @@ describe("Phase 7 Home daily brief", () => {
       }));
 
       expect(screen.getAllByText("10:00").length).toBeGreaterThan(0);
-      expect(screen.getByText("12:00")).toBeOnTheScreen();
+      expect(screen.getByTestId("home-focus-card")).toHaveProp(
+        "accessibilityLabel",
+        expect.stringMatching(/10:00.*12:00/u),
+      );
       expect(screen.queryByText("07:00")).not.toBeOnTheScreen();
       expect(screen.queryByText("09:00")).not.toBeOnTheScreen();
     } finally {

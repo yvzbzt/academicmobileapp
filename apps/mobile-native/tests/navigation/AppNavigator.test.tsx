@@ -145,6 +145,7 @@ function createProductionHomeScreens(): AppScreenSlots {
         onOpenAnnouncement={jest.fn()}
         onOpenAnnouncements={jest.fn()}
         onOpenCalendar={jest.fn()}
+        onCreatePersonalEvent={jest.fn()}
         onOpenGoogleCalendarSettings={jest.fn()}
         onOpenNotificationSettings={jest.fn()}
         onRefresh={jest.fn()}
@@ -531,7 +532,9 @@ describe("AppNavigator", () => {
       });
       await expectVisibleRoute("Home");
       expect(screen.queryByRole("header", { name: "Ana Sayfa" })).toBeNull();
+      const homeRoot = screen.getByTestId("home-root-surface");
       expect(screen.UNSAFE_getByType(SafeAreaView).props.edges).toContain("top");
+      expect(homeRoot).toHaveStyle({ backgroundColor: "#0758E9" });
       await waitFor(() => {
         expect(announceSpy).toHaveBeenLastCalledWith("Ana Sayfa ekranı");
       });
@@ -566,6 +569,26 @@ describe("AppNavigator", () => {
       });
     } finally {
       focusSpy.mockRestore();
+      announceSpy.mockRestore();
+    }
+  });
+
+  it("announces the Profile root with its visible title", async () => {
+    const announceSpy = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockImplementation(() => undefined);
+
+    try {
+      const view = await renderNavigator({
+        activeRoute: "Profile",
+        rootSurface: "authenticated",
+      });
+      await expectVisibleRoute("Profile");
+      await waitFor(() => {
+        expect(announceSpy).toHaveBeenLastCalledWith("Profil ekranı");
+      });
+      await view.unmountAsync();
+    } finally {
       announceSpy.mockRestore();
     }
   });

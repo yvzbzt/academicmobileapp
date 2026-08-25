@@ -80,6 +80,8 @@ function PerformanceFeed() {
         summerItems={performanceFixture.summerItems}
         universityName="Performance fixture"
         attempted
+        notificationPreferenceEnabled
+        notificationActive
         serverLimit={CONTENT_FEED_PERFORMANCE_RECORD_COUNT}
         onOpenItem={() => undefined}
       />

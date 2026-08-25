@@ -48,6 +48,40 @@ function expectMinimumContrast(
 }
 
 describe("mobile-native Phase 11 cross-platform quality", () => {
+  it("keeps route and visual-preview status bars aligned with their page backgrounds", () => {
+    const appSource = source("apps/mobile-native/App.tsx");
+    const routedStatusBarStart = appSource.indexOf("function RoutedStatusBar");
+    const appComponentStart = appSource.indexOf("export default function App", routedStatusBarStart);
+    const routedStatusBar = appSource.slice(routedStatusBarStart, appComponentStart);
+
+    expect(appSource).toContain("<RoutedStatusBar activeRoute={controlledActiveRoute} />");
+    expect(routedStatusBarStart).toBeGreaterThanOrEqual(0);
+    expect(routedStatusBar).toContain('const homeActive = activeRoute === "Home";');
+    expect(routedStatusBar).toContain('backgroundColor={homeActive ? "#0758E9" : "#FFFFFF"}');
+    expect(routedStatusBar).toContain('style={homeActive ? "light" : "dark"}');
+    expect(routedStatusBar).toContain("translucent={false}");
+
+    const previewContracts = [
+      ["showPhase10ProfilePreview", "showPhase9CalendarPreview", "#FFFFFF", "dark"],
+      ["showPhase9CalendarPreview", "showPhase8ContentFeedPreview", "#FFFFFF", "dark"],
+      ["showPhase8ContentFeedPreview", "showPhase7HomePreview", "#FFFFFF", "dark"],
+      ["showPhase7HomePreview", "showPhase6AuthPreview", "#0758E9", "light"],
+      ["showPhase6AuthPreview", "showPhase5AppShellPreview", "#FFFFFF", "dark"],
+    ] as const;
+
+    for (const [startMarker, endMarker, backgroundColor, style] of previewContracts) {
+      const start = appSource.indexOf(`if (${startMarker})`);
+      const end = appSource.indexOf(`if (${endMarker})`, start);
+      const previewBlock = appSource.slice(start, end);
+
+      expect(start, startMarker).toBeGreaterThanOrEqual(0);
+      expect(end, endMarker).toBeGreaterThan(start);
+      expect(previewBlock).toContain(
+        `<StatusBar backgroundColor="${backgroundColor}" style="${style}" translucent={false} />`,
+      );
+    }
+  });
+
   it("keeps every normal semantic text pair at 4.5:1 in light and dark themes", () => {
     for (const theme of [lightTheme, darkTheme]) {
       const surfaces = [

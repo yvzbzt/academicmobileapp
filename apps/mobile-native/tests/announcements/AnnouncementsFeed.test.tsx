@@ -142,6 +142,8 @@ function feedProps(
     serverLimit: 20,
     hasMore: false,
     paginationLoading: false,
+    notificationPreferenceEnabled: false,
+    notificationActive: false,
     ...callbacks,
     ...overrides,
   };
@@ -263,6 +265,17 @@ describe("Phase 8 Announcements feed", () => {
     expect(screen.getByText(/Güncellendi/iu)).toBeOnTheScreen();
   });
 
+  it("reserves the measured bottom-tab height without inventing empty-state content", async () => {
+    await renderFeed(feedProps({ academicItems: [], yokItems: [], summerItems: [] }));
+
+    const list = screen.getByTestId(/^announcements-feed-/u);
+    expect(list.props.contentContainerStyle).toEqual(
+      expect.arrayContaining([expect.objectContaining({ paddingBottom: 84 })]),
+    );
+    expect(screen.getByRole("header", { name: "Henüz güvenilir içerik yok" })).toBeOnTheScreen();
+    expect(screen.queryByTestId(/^announcement-feed-item-/u)).not.toBeOnTheScreen();
+  });
+
   it("renders the reference top bar, compact search/filter rails, and actionable reminder artwork", async () => {
     await renderFeed(feedProps());
 
@@ -282,6 +295,62 @@ describe("Phase 8 Announcements feed", () => {
       name: "Hiçbir duyuruyu kaçırma. Bildirimleri aç.",
     }));
     expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the compact reference card hierarchy at standard phone width without hiding source context from accessibility", async () => {
+    mockWindowDimensions.mockReturnValue({
+      fontScale: 1,
+      height: 891,
+      scale: 2.625,
+      width: 411,
+    });
+    await renderFeed(feedProps());
+
+    expect(screen.getByTestId(/announcements-feed-android-wrapped-standard-text/u))
+      .toBeOnTheScreen();
+    expect(screen.getByTestId("announcements-search-frame")).toHaveStyle({ minHeight: 52 });
+
+    const row = screen.getAllByRole("button", {
+      name: /Örnek Üniversitesi Öğrenci İşleri.*Ders kayıt takvimi açıklandı.*Ayrıntıyı aç/iu,
+    })[0]!;
+    expect(row).toHaveStyle({ minHeight: 112 });
+    expect(within(row).getByText("Ders kayıt takvimi açıklandı"))
+      .toHaveProp("numberOfLines", 2);
+    expect(within(row).getByText("Güvenilir özet registration"))
+      .toHaveProp("numberOfLines", 2);
+    expect(within(row).getByText("Üniversite", { includeHiddenElements: true }))
+      .toBeOnTheScreen();
+    expect(within(row).queryByText("Duyuru", { includeHiddenElements: true }))
+      .not.toBeOnTheScreen();
+    expect(within(row).queryByText("Örnek Üniversitesi Öğrenci İşleri"))
+      .not.toBeOnTheScreen();
+    expect(row.props.accessibilityLabel).toContain("Örnek Üniversitesi Öğrenci İşleri");
+  });
+
+  it("shows the reminder only for an actionable notification state that needs attention", async () => {
+    const active = await renderFeed(feedProps({
+      notificationPreferenceEnabled: true,
+      notificationActive: true,
+    }));
+    expect(screen.queryByTestId("announcements-reminder-banner")).not.toBeOnTheScreen();
+    await active.unmountAsync();
+
+    const incomplete = await renderFeed(feedProps({
+      notificationPreferenceEnabled: true,
+      notificationActive: false,
+    }));
+    expect(screen.getByTestId("announcements-reminder-banner")).toBeOnTheScreen();
+    expect(screen.getByRole("button", {
+      name: "Bildirim tercihin açık ancak bu cihazda etkin değil. Bildirim ayarlarını aç.",
+    })).toBeOnTheScreen();
+    await incomplete.unmountAsync();
+
+    await renderFeed(feedProps({
+      notificationPreferenceEnabled: false,
+      notificationActive: false,
+      onOpenNotificationSettings: undefined,
+    }));
+    expect(screen.queryByTestId("announcements-reminder-banner")).not.toBeOnTheScreen();
   });
 
   it("debounces raw search for 300 ms and exposes a recoverable no-result state", async () => {
@@ -305,32 +374,39 @@ describe("Phase 8 Announcements feed", () => {
     expect(renderedTitles()).toHaveLength(5);
   });
 
-  it("uses one content rail and one compact source menu with selected semantics", async () => {
+  it("uses one visible source rail and a compact content filter sheet with selected semantics", async () => {
     await renderFeed(feedProps());
 
-    expect(screen.getByRole("header", { name: "İçerik türü" })).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Kaynak" })).toBeOnTheScreen();
-    const newsFilter = screen.getByRole("button", {
+    expect(screen.getByTestId("announcements-source-filter-rail")).toBeOnTheScreen();
+    expect(screen.queryByTestId("announcements-content-filter-rail")).not.toBeOnTheScreen();
+    expect(screen.queryByRole("radio", {
+      name: "Haberler içerik türü filtresi",
+    })).not.toBeOnTheScreen();
+    const filterTrigger = screen.getByTestId("announcements-content-filter");
+    expect(filterTrigger.props.accessibilityState).toEqual({ expanded: false });
+    expect(filterTrigger).toHaveStyle({ height: 48, width: 48 });
+
+    fireEvent.press(filterTrigger);
+    expect(screen.getByRole("header", { name: "İçerik türü" })).toBeOnTheScreen();
+    const newsFilter = within(screen.getByTestId("bottom-sheet")).getByRole("radio", {
       name: "Haberler içerik türü filtresi",
     });
     fireEvent.press(newsFilter);
-    expect(newsFilter.props.accessibilityState).toEqual(
-      expect.objectContaining({ selected: true }),
-    );
     expect(renderedTitles()).toEqual(["Burs başvurusu belge listesi"]);
 
-    fireEvent.press(screen.getByTestId("announcements-source-filter"));
-    const facultyFilter = within(screen.getByTestId("bottom-sheet")).getByRole("radio", {
+    fireEvent.press(screen.getByTestId("announcements-content-filter"));
+    const selectedNewsFilter = within(screen.getByTestId("bottom-sheet")).getByRole("radio", {
+      name: "Haberler içerik türü filtresi",
+    });
+    expect(selectedNewsFilter.props.accessibilityState).toEqual({ selected: true });
+    fireEvent.press(screen.getByLabelText("Alt sayfayı kapat"));
+
+    const facultyFilter = screen.getByRole("button", {
       name: "Fakültem kaynak filtresi",
     });
     fireEvent.press(facultyFilter);
-    fireEvent.press(screen.getByTestId("announcements-source-filter"));
-    const selectedFacultyFilter = within(screen.getByTestId("bottom-sheet")).getByRole("radio", {
-      name: "Fakültem kaynak filtresi",
-    });
-    expect(selectedFacultyFilter.props.accessibilityState).toEqual(
-      expect.objectContaining({ selected: true }),
-    );
+    expect(facultyFilter.props.accessibilityState).toEqual({ selected: true });
     expect(screen.getByTestId("announcements-filter-summary").props.accessibilityLabel)
       .toContain("Haberler, Fakültem");
     expect(screen.getByTestId("announcements-filter-summary").props.accessibilityLiveRegion)
@@ -346,7 +422,8 @@ describe("Phase 8 Announcements feed", () => {
       await renderFeed(feedProps(), "ios");
       expect(announceSpy).not.toHaveBeenCalled();
 
-      fireEvent.press(screen.getByRole("button", {
+      fireEvent.press(screen.getByTestId("announcements-content-filter"));
+      fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("radio", {
         name: "Haberler içerik türü filtresi",
       }));
       expect(announceSpy).toHaveBeenLastCalledWith(
@@ -375,9 +452,11 @@ describe("Phase 8 Announcements feed", () => {
   it("keeps YÖK and Summer School reachable and uses full-row in-app navigation", async () => {
     await renderFeed(feedProps());
 
-    fireEvent.press(screen.getByTestId("announcements-source-filter"));
-    fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("button", { name: "YÖK sayfasını aç" }));
-    fireEvent.press(screen.getByTestId("announcements-source-filter"));
+    fireEvent.press(screen.getByTestId("announcements-content-filter"));
+    const yokDestination = within(screen.getByTestId("bottom-sheet")).getByRole("button", { name: "YÖK sayfasını aç" });
+    expect(yokDestination).toHaveStyle({ height: 48, width: 48 });
+    fireEvent.press(yokDestination);
+    fireEvent.press(screen.getByTestId("announcements-content-filter"));
     fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("button", { name: "Yaz Okulu sayfasını aç" }));
     expect(callbacks.onOpenYok).toHaveBeenCalledTimes(1);
     expect(callbacks.onOpenSummerSchool).toHaveBeenCalledTimes(1);
@@ -392,8 +471,7 @@ describe("Phase 8 Announcements feed", () => {
       }),
     );
 
-    fireEvent.press(screen.getByTestId("announcements-source-filter"));
-    fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("radio", { name: "YÖK kaynak filtresi" }));
+    fireEvent.press(screen.getByRole("button", { name: "YÖK kaynak filtresi" }));
     expect(renderedTitles()).toEqual(["YÖK öğrenci bilgilendirmesi"]);
   });
 

@@ -14,10 +14,43 @@ export type HomeDailyBriefPreviewScenario =
   | "empty"
   | "stale"
   | "error"
-  | "long-title";
+  | "long-title"
+  | "reference";
 
 const PreviewStack = createNativeStackNavigator<{ Home: undefined; Detail: undefined }>();
 const previewNow = new Date(2026, 7, 1, 10, 0, 0);
+const referenceNow = new Date(2026, 7, 20, 10, 0, 0);
+const referenceWeekAnchor = new Date(2026, 7, 27, 10, 0, 0);
+
+const referenceEvents: HomeDailyBriefProps["events"] = [{
+  id: "reference-horizontal-transfer",
+  title: "Lisansüstü Programlara Yatay Geçiş Başvuruları",
+  category: "horizontal_transfer",
+  startDate: "2026-08-27",
+  temporalKind: "date",
+}, {
+  id: "reference-course-registration",
+  title: "Ders Kayıtları",
+  category: "course_registration",
+  startDate: "2026-08-31",
+  endDate: "2026-09-04",
+  temporalKind: "date",
+  endTemporalKind: "date",
+}, {
+  id: "reference-scholarship-applications",
+  title: "Burs Başvuruları",
+  category: "scholarship_application",
+  startDate: "2026-09-01",
+  endDate: "2026-09-15",
+  temporalKind: "date",
+  endTemporalKind: "date",
+}, {
+  id: "reference-spring-term-start",
+  title: "Bahar Dönemi Ders Başlangıcı",
+  category: "semester_start",
+  startDate: "2027-02-08",
+  temporalKind: "date",
+}];
 
 export function HomeDailyBriefPreview({
   scenario = "populated",
@@ -26,6 +59,7 @@ export function HomeDailyBriefPreview({
   scenario?: HomeDailyBriefPreviewScenario;
   preference?: ThemePreference;
 }) {
+  if (!__DEV__) return null;
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<TrustedMobileContentRecord | null>(null);
   return (
     <SafeAreaProvider>
@@ -35,7 +69,7 @@ export function HomeDailyBriefPreview({
             <PreviewStack.Screen name="Home">
               {({ navigation }) => (
                 <HomeDailyBrief
-                  {...previewProps(scenario)}
+                  {...createHomeDailyBriefPreviewProps(scenario)}
                   onOpenAnnouncement={(item) => {
                     setSelectedAnnouncement(item);
                     navigation.navigate("Detail");
@@ -70,7 +104,50 @@ function PreviewDetail({ title, onBack }: { title: string; onBack: () => void })
   );
 }
 
-function previewProps(scenario: HomeDailyBriefPreviewScenario): HomeDailyBriefProps {
+export function createHomeDailyBriefPreviewProps(
+  scenario: HomeDailyBriefPreviewScenario,
+): HomeDailyBriefProps {
+  if (scenario === "reference") {
+    return {
+      ...basePreviewProps(scenario),
+      fullName: "Fuat Başar",
+      universityName: "Ankara Üniversitesi",
+      facultyName: "Mühendislik Fakültesi",
+      departmentName: "Bilgisayar Mühendisliği",
+      events: referenceEvents,
+      announcements: [
+        previewAnnouncement(
+          "reference-academic-calendar",
+          "2026–2027 Güz Dönemi Akademik Takvimi Yayımlandı",
+          "2026-08-20T07:30:00.000Z",
+        ),
+        previewAnnouncement(
+          "reference-engineering-advising",
+          "Mühendislik Fakültesi Danışmanlık Toplantısı",
+          "2026-08-19T07:30:00.000Z",
+        ),
+        previewAnnouncement(
+          "reference-capstone-deadline",
+          "Bilgisayar Mühendisliği Bitirme Projesi Teslim Tarihleri",
+          "2026-08-18T07:30:00.000Z",
+        ),
+      ],
+      announcementNewCount: 3,
+      now: referenceNow,
+      weekAnchorDate: referenceWeekAnchor,
+      weeklySummaryOverride: {
+        applications: 1,
+        exams: 1,
+        registrations: 2,
+        total: 4,
+      },
+    };
+  }
+
+  return basePreviewProps(scenario);
+}
+
+function basePreviewProps(scenario: HomeDailyBriefPreviewScenario): HomeDailyBriefProps {
   const populatedAnnouncements = [previewAnnouncement(
     "announcement-important",
     scenario === "long-title"
@@ -115,6 +192,7 @@ function previewProps(scenario: HomeDailyBriefPreviewScenario): HomeDailyBriefPr
     onOpenAnnouncement: () => undefined,
     onOpenAnnouncements: () => undefined,
     onOpenCalendar: () => undefined,
+    onCreatePersonalEvent: () => undefined,
     onOpenGoogleCalendarSettings: () => undefined,
     onOpenNotificationSettings: () => undefined,
     onRefresh: () => undefined,

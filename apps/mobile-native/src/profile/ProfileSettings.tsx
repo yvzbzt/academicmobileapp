@@ -33,6 +33,7 @@ import {
   IconButton,
   ListItem,
   Skeleton,
+  referencePalette,
   useTheme,
 } from "../design-system";
 import type { SemanticTheme } from "../design-system";
@@ -78,6 +79,8 @@ function boundedTextLineHeight(baseLineHeight: number, fontScale: number, maximu
 
 /** The profile root is an ordered settings index, not a second dashboard. */
 export function ProfileOverviewScreen({
+  fullName,
+  email,
   academicSummary,
   notificationTruth,
   googleCalendar,
@@ -90,9 +93,16 @@ export function ProfileOverviewScreen({
   onOpenFollowedUniversities,
   onOpenNotifications,
   onOpenGoogleCalendar,
+  onOpenAccountManagement,
 }: ProfileOverviewScreenProps) {
   const theme = useTheme();
-  const { fontScale } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
+  const layout = useProfileLayout();
+  const completionPercent = academicSummary.complete ? 100 : 0;
+  const stackedIdentity = layout.compact || fontScale >= 1.55;
+  const stackedProgress = width < 448 || fontScale >= 1.35;
+  const showNotificationAttention = notificationTruth.mismatch
+    && notificationTruth.tone === "warning";
 
   return (
     <SettingsBody gap={theme.spacing.md}>
@@ -108,11 +118,11 @@ export function ProfileOverviewScreen({
             styles.profileOverviewTitle,
             {
               color: theme.colors.text.primary,
-              lineHeight: boundedTextLineHeight(theme.typography.screenTitle.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
+              lineHeight: boundedTextLineHeight(47, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
             },
           ]}
         >
-          Ayarlar
+          Profil
         </Text>
         <Pressable
           accessibilityLabel="Bildirim tercihlerini aç"
@@ -122,7 +132,9 @@ export function ProfileOverviewScreen({
           style={({ pressed }) => [styles.profileBellButton, pressed && { backgroundColor: theme.colors.action.ghostPressed }]}
         >
           <Ionicons color={theme.colors.text.primary} name="notifications-outline" size={27} />
-          <View style={[styles.profileBellDot, { backgroundColor: theme.colors.action.primary, borderColor: theme.colors.background.canvas }]} />
+          {showNotificationAttention ? (
+            <View style={[styles.profileBellDot, { backgroundColor: referencePalette.academicOrange, borderColor: theme.colors.background.canvas }]} />
+          ) : null}
         </Pressable>
       </View>
 
@@ -136,13 +148,169 @@ export function ProfileOverviewScreen({
         />
       ) : null}
 
-      <ProfileReferenceSection title="Akademik bilgiler">
+      <Card
+        style={[
+          styles.profileOverviewIdentityCard,
+          {
+            backgroundColor: theme.colors.background.surface,
+            borderColor: referencePalette.academicBlueBorderMuted,
+            borderRadius: 24,
+            gap: theme.spacing.md,
+            padding: layout.compact ? theme.spacing.md : theme.spacing.lg,
+          },
+        ]}
+        testID="profile-identity-summary"
+        variant="elevated"
+      >
+        <View style={[
+          styles.profileHeroMain,
+          stackedIdentity && styles.profileHeroMainStacked,
+          { gap: theme.spacing.md },
+        ]}>
+          <View
+            accessibilityLabel={`${profileInitials(fullName)} baş harfli profil avatarı`}
+            style={[
+              styles.profileAvatarFrame,
+              styles.profileInitials,
+              {
+                backgroundColor: referencePalette.academicBlue,
+                borderRadius: 40,
+              },
+            ]}
+          >
+            <Text
+              maxFontSizeMultiplier={1.25}
+              style={[styles.profileInitialsText, { color: referencePalette.white }]}
+            >
+              {profileInitials(fullName)}
+            </Text>
+          </View>
+          <View style={[styles.profileHeroCopy, { gap: theme.spacing.xxs }]}>
+            <Text
+              maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+              numberOfLines={2}
+              style={[theme.typography.screenTitle, { color: referencePalette.navy }]}
+            >
+              {fullName.trim() || "Öğrenci"}
+            </Text>
+            <Text
+              maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+              numberOfLines={2}
+              style={[theme.typography.meta, { color: referencePalette.academicTextSecondary }]}
+            >
+              {email.trim() || "E-posta bilgisi yok"}
+            </Text>
+            <ProfileIdentityLine icon="business-outline" text={academicSummary.universityLabel} />
+            {academicSummary.facultyLabel ? (
+              <ProfileIdentityLine icon="shield-checkmark-outline" text={academicSummary.facultyLabel} />
+            ) : null}
+          </View>
+        </View>
+
+        <View style={[styles.profileIdentityDivider, { backgroundColor: theme.colors.border.subtle }]} />
+        <View
+          style={[styles.profileProgressHeader, stackedProgress && styles.profileProgressHeaderStacked]}
+          testID="profile-completion-header"
+        >
+          <Text
+            maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+            style={[theme.typography.body, styles.profileProgressCopy, { color: theme.colors.text.secondary }]}
+          >
+            Akademik profil <Text style={[theme.typography.bodyStrong, { color: referencePalette.academicBlueDeep }]}>%{completionPercent}</Text> tamamlandı
+          </Text>
+          <View style={[styles.profileProgressBadge, { backgroundColor: referencePalette.academicBlueTint }]}>
+            <Ionicons color={referencePalette.academicBlue} name="stats-chart" size={16} />
+            <Text
+              maxFontSizeMultiplier={1.3}
+              numberOfLines={2}
+              style={[theme.typography.metaStrong, styles.profileProgressBadgeText, { color: referencePalette.academicBlueDeep }]}
+            >
+              {academicSummary.complete ? "Harika gidiyorsun!" : "Profilini tamamla"}
+            </Text>
+          </View>
+        </View>
+        <View
+          accessibilityLabel={`Akademik profil yüzde ${completionPercent} tamamlandı`}
+          accessibilityRole="progressbar"
+          accessibilityValue={{ min: 0, max: 100, now: completionPercent }}
+          style={[styles.profileProgressTrack, { backgroundColor: referencePalette.academicBlueBorderMuted }]}
+          testID="profile-completion-progress"
+        >
+          <View
+            style={[
+              styles.profileProgressFill,
+              {
+                backgroundColor: referencePalette.academicBlue,
+                width: `${completionPercent}%` as `${number}%`,
+              },
+            ]}
+          />
+        </View>
+      </Card>
+
+      {showNotificationAttention ? (
+        <Pressable
+          accessibilityHint="Bildirim tercihi ve cihaz teslimat durumunu açar."
+          accessibilityLabel={`${notificationTruth.title}. Tercihleri gözden geçir`}
+          accessibilityRole="button"
+          onPress={onOpenNotifications}
+          style={({ pressed }) => [
+            styles.notificationAttentionCard,
+            {
+              backgroundColor: referencePalette.academicOrangeSoft,
+              borderColor: referencePalette.academicOrange,
+              borderRadius: 22,
+              gap: theme.spacing.md,
+              opacity: pressed ? 0.86 : 1,
+              padding: theme.spacing.md,
+            },
+            stackedIdentity && styles.notificationAttentionCardStacked,
+          ]}
+        >
+          <View style={[styles.notificationAttentionIcon, { backgroundColor: referencePalette.white }]}>
+            <Ionicons color={referencePalette.academicOrange} name="notifications-outline" size={28} />
+          </View>
+          <View style={[styles.profileOverviewItemCopy, { gap: theme.spacing.xxs }]}>
+            <Text maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER} style={[theme.typography.bodyStrong, { color: referencePalette.amberStrong }]}>
+              {notificationTruth.title}
+            </Text>
+            <Text maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER} numberOfLines={3} style={[theme.typography.meta, { color: referencePalette.academicTextBody }]}>
+              {notificationTruth.detail}
+            </Text>
+          </View>
+          <View style={styles.notificationAttentionAction}>
+            <Text maxFontSizeMultiplier={1.3} style={[theme.typography.metaStrong, { color: referencePalette.amberStrong }]}>Gözden geçir</Text>
+            <Ionicons color={referencePalette.amberStrong} name="arrow-forward" size={19} />
+          </View>
+        </Pressable>
+      ) : null}
+
+      <View testID="profile-settings-group">
+        <Card
+          style={[
+            styles.sectionCard,
+            {
+              backgroundColor: theme.colors.background.surface,
+              borderColor: theme.colors.border.subtle,
+              borderRadius: 22,
+            },
+          ]}
+          variant="elevated"
+        >
+        <ProfileOverviewItem
+          accessibilityHint="Hesap ve güvenlik yönetimi ekranını açar."
+          leading={<SettingsIcon name="person-outline" tone="primary" />}
+          onPress={onOpenAccountManagement}
+          supportingText="Hesap, oturum ve veri tercihlerini yönet"
+          title="Hesap ve güvenlik"
+          trailing={<Chevron />}
+        />
         <ProfileOverviewItem
           accessibilityHint="Akademik profil düzenleme ekranını açar."
           leading={<SettingsIcon name="school-outline" tone="primary" />}
           onPress={onOpenAcademicProfile}
-          supportingText={`${academicSummary.universityLabel} · Fakülte, bölüm, sınıf ve dönem bilgilerin`}
-          title="Akademik bilgiler"
+          supportingText={academicSummary.supportingText}
+          title="Akademik profil"
           trailing={<Chevron />}
         />
         <ProfileOverviewItem
@@ -153,9 +321,6 @@ export function ProfileOverviewScreen({
           title="Takip edilen üniversiteler"
           trailing={<Chevron />}
         />
-      </ProfileReferenceSection>
-
-      <ProfileReferenceSection title="Bildirimler">
         <ProfileOverviewItem
           accessibilityHint="Bildirim tercihi ve cihaz teslimat durumunu açar."
           leading={<SettingsIcon name="notifications-outline" tone="warning" />}
@@ -164,13 +329,12 @@ export function ProfileOverviewScreen({
           title="Bildirim tercihleri"
           trailing={<Chevron />}
         />
-      </ProfileReferenceSection>
-
-      <ProfileReferenceSection title="Bağlantılar">
         <ProfileOverviewItem
+          accessibilityLabel={`Google Takvim bağlantısı. ${googleCalendar.label}. ${googleCalendar.detail}`}
           accessibilityHint="Google Takvim bağlantı yönetimini açar."
           leading={<SettingsIcon name="calendar-outline" tone="success" />}
           onPress={onOpenGoogleCalendar}
+          stackTrailingAtLargeText
           supportingText="Takvimini senkronize et, hiçbir etkinliği kaçırma"
           title="Google Takvim bağlantısı"
           trailing={(
@@ -191,8 +355,10 @@ export function ProfileOverviewScreen({
               <Chevron />
             </View>
           )}
+          last
         />
-      </ProfileReferenceSection>
+        </Card>
+      </View>
 
       <Text
         maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
@@ -211,33 +377,64 @@ export function ProfileOverviewScreen({
   );
 }
 
+function ProfileIdentityLine({
+  icon,
+  text,
+}: {
+  icon: "business-outline" | "shield-checkmark-outline";
+  text: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.profileIdentityLine}>
+      <Ionicons color={referencePalette.academicTextSecondary} name={icon} size={18} />
+      <Text
+        maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
+        numberOfLines={2}
+        style={[theme.typography.meta, styles.profileOverviewItemCopy, { color: referencePalette.academicTextSecondary }]}
+      >
+        {text}
+      </Text>
+    </View>
+  );
+}
+
 function ProfileOverviewItem({
   accessibilityHint,
+  accessibilityLabel,
   leading,
   onPress,
+  stackTrailingAtLargeText = false,
   supportingText,
   title,
   trailing,
+  last = false,
 }: {
   accessibilityHint: string;
+  accessibilityLabel?: string;
   leading: ReactNode;
   onPress: (event: GestureResponderEvent) => void;
+  stackTrailingAtLargeText?: boolean;
   supportingText: string;
   title: string;
   trailing: ReactNode;
+  last?: boolean;
 }) {
   const theme = useTheme();
   const { fontScale } = useWindowDimensions();
+  const stackTrailing = stackTrailingAtLargeText && fontScale >= 1.8;
 
   return (
     <Pressable
       accessibilityHint={accessibilityHint}
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel ?? title}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
         styles.profileMenuRow,
         styles.profileOverviewItem,
+        stackTrailing && styles.profileOverviewItemStacked,
+        last && styles.profileOverviewItemLast,
         {
           backgroundColor: pressed ? theme.colors.action.ghostPressed : theme.colors.background.surface,
           borderColor: theme.colors.border.subtle,
@@ -276,7 +473,12 @@ function ProfileOverviewItem({
           {supportingText}
         </Text>
       </View>
-      <View importantForAccessibility="no">{trailing}</View>
+      <View
+        importantForAccessibility="no"
+        style={stackTrailing ? styles.profileOverviewTrailingStacked : undefined}
+      >
+        {trailing}
+      </View>
     </Pressable>
   );
 }
@@ -1672,8 +1874,15 @@ const styles = StyleSheet.create({
   },
   profileOverviewTitle: {
     flex: 1,
+    fontSize: 40,
+    fontWeight: "800",
+    lineHeight: 47,
     minWidth: 0,
     textAlign: "left",
+  },
+  profileOverviewIdentityCard: {
+    minWidth: 0,
+    overflow: "hidden",
   },
   profileOverviewItem: {
     alignItems: "center",
@@ -1681,9 +1890,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     minWidth: 0,
   },
+  profileOverviewItemLast: {
+    borderBottomWidth: 0,
+  },
+  profileOverviewItemStacked: {
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+  },
   profileOverviewItemCopy: {
     flex: 1,
     minWidth: 0,
+  },
+  profileOverviewTrailingStacked: {
+    alignItems: "flex-end",
+    paddingLeft: 52,
+    width: "100%",
   },
   profileBellButton: {
     alignItems: "center",
@@ -1729,9 +1950,86 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  profileInitialsText: {
+    fontSize: 31,
+    fontWeight: "700",
+    lineHeight: 38,
+  },
   profileHeroCopy: {
     flex: 1,
     minWidth: 0,
+  },
+  profileIdentityLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 3,
+    minWidth: 0,
+  },
+  profileIdentityDivider: {
+    height: StyleSheet.hairlineWidth,
+    width: "100%",
+  },
+  profileProgressHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  profileProgressHeaderStacked: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+  },
+  profileProgressCopy: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  profileProgressBadge: {
+    alignItems: "center",
+    borderRadius: 999,
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 7,
+    maxWidth: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  profileProgressBadgeText: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  profileProgressTrack: {
+    borderRadius: 999,
+    height: 10,
+    overflow: "hidden",
+    width: "100%",
+  },
+  profileProgressFill: {
+    borderRadius: 999,
+    height: "100%",
+  },
+  notificationAttentionCard: {
+    alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    minWidth: 0,
+  },
+  notificationAttentionCardStacked: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+  },
+  notificationAttentionIcon: {
+    alignItems: "center",
+    borderRadius: 28,
+    height: 56,
+    justifyContent: "center",
+    width: 56,
+  },
+  notificationAttentionAction: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 44,
   },
   profileStudentBadge: {
     alignItems: "center",

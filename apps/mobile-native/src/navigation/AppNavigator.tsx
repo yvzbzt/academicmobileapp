@@ -328,8 +328,21 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
     );
   }
 
-  if (route === "Home"
-    || route === "Announcements"
+  if (route === "Home") {
+    return (
+      <Screen
+        edges={[...authenticatedScreenEdges]}
+        fullBleed
+        style={styles.homeRootSurface}
+        testID="home-root-surface"
+      >
+        {globalFeedback}
+        {screens[route]}
+      </Screen>
+    );
+  }
+
+  if (route === "Announcements"
     || route === "SummerSchool"
     || route === "YokAnnouncements"
     || route === "AnnouncementDetail"
@@ -750,7 +763,12 @@ function ShellBottomTabBar({
         style={styles.tabItem}
         testID={descriptor.options.tabBarButtonTestID}
       >
-        <ShellTabIcon color={color} focused={focused} route={definition.route} size={22} />
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.tabActiveIndicator, !focused && styles.tabActiveIndicatorHidden]}
+        />
+        <ShellTabIcon color={color} focused={focused} route={definition.route} size={25} />
         <ShellTabLabel color={color} label={definition.label} />
       </TouchableOpacity>
     );
@@ -1305,7 +1323,7 @@ const ROUTE_ACCESSIBILITY_TITLES: Readonly<Record<AppVisibleRoute, string>> = {
   AnnouncementDetail: "Duyuru Detayı",
   Calendar: "Takvim",
   CalendarEventDetail: "Takvim Ayrıntısı",
-  Profile: "Ayarlar",
+  Profile: "Profil",
   AcademicProfileSettings: "Akademik Profil",
   FollowedUniversitiesSettings: "Üniversite Takipleri",
   NotificationSettings: "Bildirim tercihleri",
@@ -1327,6 +1345,9 @@ const styles = StyleSheet.create({
   content: {
     gap: 14
   },
+  homeRootSurface: {
+    backgroundColor: referencePalette.academicBlueDeep,
+  },
   registerSurface: {
     backgroundColor: referencePalette.white,
   },
@@ -1339,7 +1360,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-start",
     minHeight: 48,
-    paddingTop: 5,
+    paddingTop: 10,
+    position: "relative",
   },
   railTabItem: {
     alignItems: "center",
@@ -1362,17 +1384,36 @@ const styles = StyleSheet.create({
   tabIconIndicator: {
     alignItems: "center",
     borderRadius: 999,
-    height: 28,
+    height: 30,
     justifyContent: "center",
     minWidth: 32,
   },
   bottomTabBar: {
     alignItems: "flex-start",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     borderBottomWidth: 0,
     borderLeftWidth: 0,
     borderRightWidth: 0,
+    elevation: 12,
     flexDirection: "row",
     overflow: "visible",
-    paddingTop: 6,
+    paddingTop: 4,
+    shadowColor: referencePalette.navy,
+    shadowOffset: { height: -5, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+  },
+  tabActiveIndicator: {
+    backgroundColor: referencePalette.academicBlue,
+    borderRadius: 999,
+    height: 4,
+    left: "24%",
+    position: "absolute",
+    right: "24%",
+    top: 0,
+  },
+  tabActiveIndicatorHidden: {
+    opacity: 0,
   },
 });

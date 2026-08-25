@@ -12,6 +12,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Button,
   preLoginWelcomeColors,
@@ -20,9 +21,9 @@ import {
 } from "../design-system";
 
 const appMark = require("../../assets/design-package/academic-calendar-logo.png") as ImageSourcePropType;
-const announcementsArtwork = require("../../assets/design-package/onboarding-announcements.png") as ImageSourcePropType;
-const planningArtwork = require("../../assets/design-package/onboarding-planning.png") as ImageSourcePropType;
-const remindersArtwork = require("../../assets/design-package/onboarding-reminders.png") as ImageSourcePropType;
+const announcementsArtwork = require("../../assets/design-package/onboarding-announcements-reference-v2.png") as ImageSourcePropType;
+const planningArtwork = require("../../assets/design-package/onboarding-planning-reference-v2.png") as ImageSourcePropType;
+const remindersArtwork = require("../../assets/design-package/onboarding-reminders-reference-v2.png") as ImageSourcePropType;
 
 const BRAND_NAVY = preLoginWelcomeColors.brandNavy;
 const BRAND_BLUE = referencePalette.academicBlue;
@@ -36,6 +37,7 @@ interface WelcomeSlide {
   background: string;
   detail: string;
   id: "announcements" | "planning" | "reminders";
+  layout: "artwork-first" | "copy-first";
   title: string;
 }
 
@@ -46,6 +48,7 @@ const WELCOME_SLIDES: readonly WelcomeSlide[] = [
     background: preLoginWelcomeColors.canvasCool,
     detail: "Üniversite, fakülte ve bölüm kaynaklarından gelen içerikleri tek yerde takip et.",
     id: "announcements",
+    layout: "artwork-first",
     title: "Duyuruları tek yerden takip et",
   },
   {
@@ -54,6 +57,7 @@ const WELCOME_SLIDES: readonly WelcomeSlide[] = [
     background: preLoginWelcomeColors.canvasWarm,
     detail: "Akademik tarihlerini, derslerini ve kişisel planlarını aynı akışta düzenle.",
     id: "planning",
+    layout: "copy-first",
     title: "Dönemini rahatça planla",
   },
   {
@@ -62,6 +66,7 @@ const WELCOME_SLIDES: readonly WelcomeSlide[] = [
     background: preLoginWelcomeColors.canvasCool,
     detail: "Kendi etkinliğini ekle, hatırlatma kur ve önemli günlere hazırlıklı gir.",
     id: "reminders",
+    layout: "copy-first",
     title: "Kendi düzenini oluştur",
   },
 ] as const;
@@ -76,16 +81,25 @@ export function PreLoginWelcomeScreen({
   onContinue,
 }: PreLoginWelcomeScreenProps) {
   const reducedMotion = useReducedMotion();
+  const safeAreaInsets = useSafeAreaInsets();
   const { fontScale, height, width } = useWindowDimensions();
-  const compact = height < 720 || width < 360 || fontScale > 1.2;
-  const veryCompact = height < 610 || width < 330 || fontScale > 1.45;
+  const layoutHeight = Math.max(0, height - safeAreaInsets.bottom);
+  const landscape = width > height;
+  const tablet = width >= 700;
+  const compact = layoutHeight < 720 || width < 360 || fontScale > 1.2;
+  const veryCompact = layoutHeight < 610 || width < 330 || fontScale > 1.45;
   const gutter = veryCompact ? 12 : compact ? 16 : 24;
-  const contentWidth = Math.min(560, Math.max(240, width - gutter * 2));
-  const illustrationHeight = veryCompact
-    ? Math.max(210, Math.min(270, height * 0.42))
-    : compact
-      ? Math.min(390, height * 0.5)
-      : Math.min(510, height * 0.57);
+  const contentWidth = Math.min(
+    tablet ? 720 : landscape ? 680 : 560,
+    Math.max(240, width - gutter * 2),
+  );
+  const illustrationHeight = landscape
+    ? Math.max(96, Math.min(210, layoutHeight - (veryCompact ? 184 : 208)))
+    : veryCompact
+      ? Math.max(190, Math.min(245, layoutHeight * 0.4))
+      : compact
+        ? Math.min(390, contentWidth * 1.28, layoutHeight * 0.49)
+        : Math.min(tablet ? 680 : 520, contentWidth * 1.28, layoutHeight * 0.56);
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<FlatList<WelcomeSlide> | null>(null);
   const activeSlide = WELCOME_SLIDES[activeIndex];
@@ -112,7 +126,7 @@ export function PreLoginWelcomeScreen({
         styles.root,
         {
           backgroundColor: activeSlide.background,
-          paddingBottom: veryCompact ? 4 : 8,
+          paddingBottom: safeAreaInsets.bottom + (veryCompact ? 4 : 8),
           paddingHorizontal: gutter,
           paddingTop: compact ? 4 : 8,
         },
@@ -171,16 +185,26 @@ export function PreLoginWelcomeScreen({
           <View
             accessible
             accessibilityLabel={`${index + 1} / ${WELCOME_SLIDES.length}. ${item.title}. ${item.detail}`}
-            style={[styles.slide, { width: contentWidth }]}
+            style={[styles.slide, landscape && styles.slideLandscape, { width: contentWidth }]}
             testID={`prelogin-slide-${index}`}
           >
+            {item.layout === "copy-first" ? (
+              <WelcomeSlideCopy
+                compact={compact}
+                landscape={landscape}
+                slide={item}
+                veryCompact={veryCompact}
+              />
+            ) : null}
             <View
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
               style={[
                 styles.illustrationFrame,
+                landscape && styles.illustrationFrameLandscape,
                 { backgroundColor: item.background, height: illustrationHeight },
               ]}
+              testID={`prelogin-illustration-${index}`}
             >
               <Image
                 accessibilityIgnoresInvertColors
@@ -191,38 +215,20 @@ export function PreLoginWelcomeScreen({
                 style={styles.illustrationImage}
               />
             </View>
-            <View
-              style={[
-                styles.slideCopy,
-                compact && styles.slideCopyCompact,
-                veryCompact && styles.slideCopyVeryCompact,
-              ]}
-            >
-              <Text
-                accessibilityRole="header"
-                maxFontSizeMultiplier={1.2}
-                numberOfLines={2}
-                style={[
-                  styles.slideTitle,
-                  compact && styles.slideTitleCompact,
-                  veryCompact && styles.slideTitleVeryCompact,
-                ]}
-              >
-                {item.title}
-              </Text>
-              <Text
-                maxFontSizeMultiplier={1.18}
-                numberOfLines={veryCompact ? 2 : 3}
-                style={[styles.slideDetail, compact && styles.slideDetailCompact]}
-              >
-                {item.detail}
-              </Text>
-            </View>
+            {item.layout === "artwork-first" ? (
+              <WelcomeSlideCopy
+                compact={compact}
+                landscape={landscape}
+                slide={item}
+                veryCompact={veryCompact}
+              />
+            ) : null}
           </View>
         )}
         scrollEnabled={!busy}
         showsHorizontalScrollIndicator={false}
         style={[styles.slider, { width: contentWidth }]}
+        testID="prelogin-welcome-slides"
       />
 
       <View
@@ -254,6 +260,7 @@ export function PreLoginWelcomeScreen({
             accessibilityRole="button"
             accessibilityState={{ disabled: busy, selected: index === activeIndex }}
             disabled={busy}
+            hitSlop={4}
             key={slide.id}
             onPress={() => selectSlide(index)}
             style={styles.paginationTarget}
@@ -268,7 +275,10 @@ export function PreLoginWelcomeScreen({
         ))}
       </View>
 
-      <View style={[styles.actionArea, { width: contentWidth }]}>
+      <View
+        style={[styles.actionArea, { width: contentWidth }]}
+        testID="prelogin-action-area"
+      >
         <Button
           accessibilityHint={finalSlide
             ? "Giriş ekranını açar ve tanıtımı tamamlar."
@@ -289,7 +299,7 @@ export function PreLoginWelcomeScreen({
             ? <Ionicons color={preLoginWelcomeColors.success} name="checkmark" size={24} />
             : <Ionicons color={referencePalette.white} name="chevron-forward" size={23} />}
         />
-        <View style={styles.footerTrust}>
+        <View style={styles.footerTrust} testID="prelogin-trust-footer">
           <Ionicons color={TRUST_BLUE} name="shield-checkmark-outline" size={17} />
           <Text
             maxFontSizeMultiplier={1.12}
@@ -300,6 +310,71 @@ export function PreLoginWelcomeScreen({
           </Text>
         </View>
       </View>
+    </View>
+  );
+}
+
+function WelcomeSlideCopy({
+  compact,
+  landscape,
+  slide,
+  veryCompact,
+}: {
+  compact: boolean;
+  landscape: boolean;
+  slide: WelcomeSlide;
+  veryCompact: boolean;
+}) {
+  const title = slide.id === "announcements" ? (
+    <>
+      Duyuruları{"\n"}
+      <Text style={styles.slideTitleAccent}>tek yerden takip et</Text>
+    </>
+  ) : slide.id === "planning" ? (
+    <>
+      Dönemini{"\n"}
+      <Text style={styles.slideTitleAccent}>rahatça</Text> planla
+    </>
+  ) : (
+    <>
+      Kendi düzenini{"\n"}oluştur
+    </>
+  );
+
+  return (
+    <View
+      style={[
+        styles.slideCopy,
+        slide.layout === "copy-first" && styles.slideCopyFirst,
+        compact && styles.slideCopyCompact,
+        veryCompact && styles.slideCopyVeryCompact,
+        landscape && styles.slideCopyLandscape,
+      ]}
+    >
+      <Text
+        accessibilityRole="header"
+        maxFontSizeMultiplier={1.2}
+        numberOfLines={landscape ? 3 : 2}
+        style={[
+          styles.slideTitle,
+          compact && styles.slideTitleCompact,
+          veryCompact && styles.slideTitleVeryCompact,
+          landscape && styles.slideTitleLandscape,
+        ]}
+      >
+        {title}
+      </Text>
+      <Text
+        maxFontSizeMultiplier={1.18}
+        numberOfLines={veryCompact && !landscape ? 2 : 3}
+        style={[
+          styles.slideDetail,
+          compact && styles.slideDetailCompact,
+          landscape && styles.slideDetailLandscape,
+        ]}
+      >
+        {slide.detail}
+      </Text>
     </View>
   );
 }
@@ -315,6 +390,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     flexDirection: "row",
     gap: 10,
+    flexShrink: 0,
     minHeight: 58,
   },
   brandRowCompact: {
@@ -362,19 +438,30 @@ const styles = StyleSheet.create({
   slider: {
     alignSelf: "center",
     flex: 1,
+    flexShrink: 1,
+    minHeight: 0,
   },
   slide: {
     alignItems: "center",
     flex: 1,
     justifyContent: "center",
+    minHeight: 0,
+  },
+  slideLandscape: {
+    flexDirection: "row",
   },
   illustrationFrame: {
     alignItems: "center",
     alignSelf: "stretch",
     flexShrink: 1,
     justifyContent: "center",
-    minHeight: 200,
+    minHeight: 0,
     overflow: "hidden",
+  },
+  illustrationFrameLandscape: {
+    alignSelf: "center",
+    flex: 1.35,
+    minHeight: 0,
   },
   illustrationImage: {
     height: "100%",
@@ -386,6 +473,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingTop: 12,
   },
+  slideCopyFirst: {
+    paddingBottom: 14,
+    paddingTop: 2,
+  },
   slideCopyCompact: {
     gap: 5,
     paddingTop: 8,
@@ -393,6 +484,12 @@ const styles = StyleSheet.create({
   slideCopyVeryCompact: {
     paddingHorizontal: 4,
     paddingTop: 5,
+  },
+  slideCopyLandscape: {
+    flex: 1,
+    paddingBottom: 4,
+    paddingHorizontal: 8,
+    paddingTop: 4,
   },
   slideTitle: {
     color: BRAND_NAVY,
@@ -402,6 +499,9 @@ const styles = StyleSheet.create({
     lineHeight: 36,
     textAlign: "center",
   },
+  slideTitleAccent: {
+    color: BRAND_BLUE,
+  },
   slideTitleCompact: {
     fontSize: 24,
     lineHeight: 29,
@@ -409,6 +509,10 @@ const styles = StyleSheet.create({
   slideTitleVeryCompact: {
     fontSize: 21,
     lineHeight: 25,
+  },
+  slideTitleLandscape: {
+    fontSize: 20,
+    lineHeight: 23,
   },
   slideDetail: {
     color: BRAND_BODY,
@@ -423,20 +527,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  slideDetailLandscape: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
   pagination: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "center",
-    minHeight: 30,
+    flexShrink: 0,
+    minHeight: 48,
   },
   paginationVeryCompact: {
-    minHeight: 25,
+    minHeight: 48,
   },
   paginationTarget: {
     alignItems: "center",
-    height: 30,
+    height: 48,
     justifyContent: "center",
-    width: 36,
+    width: 48,
   },
   paginationDot: {
     borderRadius: 5,
@@ -451,6 +560,7 @@ const styles = StyleSheet.create({
     width: 8,
   },
   actionArea: {
+    flexShrink: 0,
     gap: 3,
   },
   actionButton: {

@@ -60,6 +60,12 @@ function tree(child: React.ReactElement) {
 describe("Phase 10 profile and settings presentation", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockWindowDimensions.mockReturnValue({
+      fontScale: 2,
+      height: 640,
+      scale: 2,
+      width: 320,
+    });
   });
 
   it("stacks the notification hero for narrow or large-text layouts only", () => {
@@ -70,7 +76,7 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(resolveNotificationHeroLayout(430, 1)).toBe("side-by-side");
   });
 
-  it("renders a settings-only hierarchy while identity and logout stay in the account drawer", async () => {
+  it("renders the reference profile identity and one capability-backed settings group", async () => {
     const academicSummary = resolveAcademicProfileSummary(
       { universityId: "uni", facultyId: "faculty", departmentId: "department", classLevel: 3 },
       { universityName: "Örnek Üniversitesi", facultyName: "Mühendislik Fakültesi", departmentName: "Bilgisayar Mühendisliği" },
@@ -103,26 +109,116 @@ describe("Phase 10 profile and settings presentation", () => {
       />,
     ));
 
-    expect(screen.getByRole("header", { name: "Ayarlar" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Ayarlar" })).toHaveProp("maxFontSizeMultiplier", 1.35);
-    expect(screen.getByRole("header", { name: "Ayarlar" })).toHaveProp("numberOfLines", 1);
-    expect(screen.queryByText("Ada Lovelace")).toBeNull();
-    expect(screen.queryByText("ada@example.invalid")).toBeNull();
-    expect(screen.getByRole("header", { name: "Akademik bilgiler" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Bildirimler" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Bağlantılar" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Akademik bilgiler" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
+    expect(screen.getByRole("header", { name: "Profil" })).toHaveProp("maxFontSizeMultiplier", 1.35);
+    expect(screen.getByRole("header", { name: "Profil" })).toHaveProp("numberOfLines", 1);
+    expect(screen.getByText("Ada Lovelace")).toBeVisible();
+    expect(screen.getByText("ada@example.invalid")).toBeVisible();
+    expect(screen.getByLabelText("AL baş harfli profil avatarı")).toBeVisible();
+    expect(screen.getByLabelText("Akademik profil yüzde 100 tamamlandı")).toHaveProp("accessibilityValue", {
+      max: 100,
+      min: 0,
+      now: 100,
+    });
+    expect(screen.getByTestId("profile-completion-header")).toHaveStyle({
+      alignItems: "flex-start",
+      flexDirection: "column",
+    });
+    expect(screen.getByRole("button", { name: "Akademik profil" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Bildirim tercihleri" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Takip edilen üniversiteler" })).toBeVisible();
-    expect(screen.getByText("Örnek Üniversitesi · Fakülte, bölüm, sınıf ve dönem bilgilerin")).toHaveProp("maxFontSizeMultiplier", 1.35);
-    expect(screen.getByText("Örnek Üniversitesi · Fakülte, bölüm, sınıf ve dönem bilgilerin")).toHaveProp("numberOfLines", 3);
-    expect(screen.getAllByText("Akademik bilgiler").some((node) => node.props.maxFontSizeMultiplier === 1.35)).toBe(true);
+    expect(screen.getByRole("button", { name: "Hesap ve güvenlik" })).toBeVisible();
+    expect(screen.getByRole("button", {
+      name: "Google Takvim bağlantısı. Bağlı. Yalnızca uygulamanın yönettiği akademik kayıtlar eşitlenir.",
+    })).toHaveStyle({ alignItems: "flex-start", flexWrap: "wrap" });
+    expect(screen.getByTestId("profile-settings-group")).toBeVisible();
+    expect(screen.queryByText("Gözden geçir")).toBeNull();
     expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
     expect(onOpenAccountMenu).not.toHaveBeenCalled();
     expect(screen.getByText("Sürüm 0.1.2")).toBeVisible();
     expect(screen.queryByText(/Derleme/u)).toBeNull();
     expect(screen.queryByText(/tema|görünüm|takipçi|öğrenci kimliği/iu)).toBeNull();
+  });
+
+  it("stacks profile completion at phone widths and keeps the reference-width row", async () => {
+    const props = {
+      academicSummary: resolveAcademicProfileSummary(
+        { universityId: "uni", facultyId: "faculty", departmentId: "department", classLevel: 3 },
+        { universityName: "Ankara Üniversitesi", facultyName: "Mühendislik Fakültesi", departmentName: "Bilgisayar Mühendisliği" },
+      ),
+      appVersion: "0.1.1",
+      email: "fuat.basar@ogrenci.ankara.edu.tr",
+      fullName: "Fuat Başar",
+      googleCalendar: resolveGoogleCalendarPresentation("connected"),
+      notificationTruth: resolveNotificationTruth({
+        permission: "denied" as const,
+        preferenceEnabled: true,
+        registration: "unregistered" as const,
+        saveState: "saved" as const,
+      }),
+      onOpenAcademicProfile: jest.fn(),
+      onOpenFollowedUniversities: jest.fn(),
+      onOpenAccountManagement: jest.fn(),
+      onOpenGoogleCalendar: jest.fn(),
+      onOpenNotifications: jest.fn(),
+      onLogout: jest.fn(),
+    };
+
+    mockWindowDimensions.mockReturnValue({ fontScale: 1, height: 891, scale: 2.625, width: 411 });
+    const view = await renderAsync(tree(<ProfileOverviewScreen {...props} />));
+    expect(screen.getByTestId("profile-completion-header")).toHaveStyle({
+      alignItems: "flex-start",
+      flexDirection: "column",
+    });
+    expect(screen.getByText("Harika gidiyorsun!")).toHaveStyle({ flexShrink: 1, minWidth: 0 });
+
+    mockWindowDimensions.mockReturnValue({ fontScale: 1, height: 836, scale: 2, width: 471 });
+    await view.rerenderAsync(tree(<ProfileOverviewScreen {...props} />));
+    expect(screen.getByTestId("profile-completion-header")).toHaveStyle({
+      alignItems: "center",
+      flexDirection: "row",
+    });
+  });
+
+  it("shows the yellow notification callout only for a real delivery mismatch", async () => {
+    const onOpenNotifications = jest.fn();
+    await renderAsync(tree(
+      <ProfileOverviewScreen
+        academicSummary={resolveAcademicProfileSummary(
+          { universityId: "uni" },
+          { universityName: "Örnek Üniversitesi" },
+        )}
+        appVersion="0.1.1"
+        email="ada@example.invalid"
+        fullName="Ada Lovelace"
+        googleCalendar={resolveGoogleCalendarPresentation("disconnected")}
+        notificationTruth={resolveNotificationTruth({
+          permission: "denied",
+          preferenceEnabled: true,
+          registration: "unregistered",
+          saveState: "saved",
+        })}
+        onOpenAcademicProfile={jest.fn()}
+        onOpenFollowedUniversities={jest.fn()}
+        onOpenAccountManagement={jest.fn()}
+        onOpenGoogleCalendar={jest.fn()}
+        onOpenNotifications={onOpenNotifications}
+        onLogout={jest.fn()}
+      />,
+    ));
+
+    const callout = screen.getByRole("button", {
+      name: "Bildirim izni gerekiyor. Tercihleri gözden geçir",
+    });
+    expect(callout).toBeVisible();
+    expect(screen.getByLabelText("Akademik profil yüzde 100 tamamlandı")).toHaveProp("accessibilityValue", {
+      max: 100,
+      min: 0,
+      now: 100,
+    });
+    fireEvent.press(callout);
+    expect(onOpenNotifications).toHaveBeenCalledTimes(1);
   });
 
   it("uses one explicit academic commit and exposes cancel at compact large text", async () => {

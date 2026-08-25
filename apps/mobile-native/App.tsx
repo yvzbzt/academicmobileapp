@@ -1263,6 +1263,11 @@ function MainApplication() {
     PreloginWelcomeGate | "loading" | "saving"
   >("loading");
   const [activeTab, setActiveTab] = useState<TabId>("home");
+  const calendarCreateRequestSequenceRef = useRef(0);
+  const [calendarCreateIntent, setCalendarCreateIntent] = useState<{
+    key: number;
+    ownerId: string;
+  } | null>(null);
   const {
     acknowledgeNavigationRequest,
     activeRoute,
@@ -8799,6 +8804,11 @@ function MainApplication() {
       }}
       onOpenAnnouncements={() => requestAppRoute("Announcements")}
       onOpenCalendar={() => requestAppRoute("Calendar")}
+      onCreatePersonalEvent={() => {
+        const key = ++calendarCreateRequestSequenceRef.current;
+        setCalendarCreateIntent({ key, ownerId: session.user.id });
+        requestAppRoute("Calendar");
+      }}
       onOpenGoogleCalendarSettings={() => requestAppRoute("GoogleCalendarSettings")}
       onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
       onRefresh={() => {
@@ -8825,6 +8835,8 @@ function MainApplication() {
       hasMore={contentFeedHasMore}
       paginationLoading={contentFeedPagination.loading}
       paginationError={contentFeedPagination.error}
+      notificationPreferenceEnabled={notificationLifecycle.preferenceEnabled}
+      notificationActive={notificationLifecycle.active}
       onRefresh={() => void refreshContentFeed()}
       onRetry={() => void refreshContentFeed()}
       onLoadMore={() => void loadMoreContentFeed()}
@@ -8950,6 +8962,9 @@ function MainApplication() {
   const calendarExperience = session ? (
     <CalendarExperience
       academicEvents={universityAcademicCalendarEvents}
+      createPersonalExamRequestKey={calendarCreateIntent?.ownerId === session.user.id
+        ? calendarCreateIntent.key
+        : undefined}
       personalExams={homeManualExams}
       personalExamsReady={manualExamsHydrated && manualExamOwnerId === session.user.id}
       calendarTitle={calendar.data?.calendar.title}
@@ -8980,6 +8995,13 @@ function MainApplication() {
       onRefresh={() => void Promise.allSettled([loadMyCalendar(), loadCourseSchedule()])}
       onOpenItem={openCalendarItem}
       onCreatePersonalExam={createPersonalExam}
+      onConsumeCreatePersonalExamRequest={(requestKey) => {
+        setCalendarCreateIntent((current) => (
+          current?.ownerId === session.user.id && current.key === requestKey
+            ? null
+            : current
+        ));
+      }}
       onUpdatePersonalExam={updatePersonalExam}
       onSyncGoogle={() => void syncGoogleCalendar(!googleCalendarIntegration)}
       onManageGoogle={() => requestAppRoute("GoogleCalendarSettings")}
@@ -9346,7 +9368,7 @@ function MainApplication() {
   return (
     <SafeAreaProvider>
       <ThemeProvider preference="light">
-        <RoutedStatusBar />
+        <RoutedStatusBar activeRoute={controlledActiveRoute} />
         <AppNavigator
           rootSurface={navigatorRootSurface}
           activeRoute={controlledActiveRoute}
@@ -9382,11 +9404,12 @@ function MainApplication() {
   );
 }
 
-function RoutedStatusBar() {
+function RoutedStatusBar({ activeRoute }: { activeRoute: AppVisibleRoute }) {
+  const homeActive = activeRoute === "Home";
   return (
     <StatusBar
-      backgroundColor="#FFFFFF"
-      style="dark"
+      backgroundColor={homeActive ? "#0758E9" : "#FFFFFF"}
+      style={homeActive ? "light" : "dark"}
       translucent={false}
     />
   );
@@ -9413,10 +9436,13 @@ export default function App() {
       ? "dark"
       : "light";
     return (
-      <ProfileSettingsPreview
-        preference={previewTheme}
-        scenario={process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW_SCENARIO as ProfileSettingsPreviewScenario | undefined}
-      />
+      <>
+        <StatusBar backgroundColor="#FFFFFF" style="dark" translucent={false} />
+        <ProfileSettingsPreview
+          preference={previewTheme}
+          scenario={process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW_SCENARIO as ProfileSettingsPreviewScenario | undefined}
+        />
+      </>
     );
   }
 
@@ -9425,10 +9451,13 @@ export default function App() {
       ? "dark"
       : "light";
     return (
-      <CalendarPreview
-        preference={previewTheme}
-        scenario={process.env.EXPO_PUBLIC_PHASE9_CALENDAR_PREVIEW_SCENARIO as CalendarPreviewScenario | undefined}
-      />
+      <>
+        <StatusBar backgroundColor="#FFFFFF" style="dark" translucent={false} />
+        <CalendarPreview
+          preference={previewTheme}
+          scenario={process.env.EXPO_PUBLIC_PHASE9_CALENDAR_PREVIEW_SCENARIO as CalendarPreviewScenario | undefined}
+        />
+      </>
     );
   }
 
@@ -9437,10 +9466,13 @@ export default function App() {
       ? "dark"
       : "light";
     return (
-      <ContentFeedPreview
-        preference={previewTheme}
-        scenario={process.env.EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW_SCENARIO as ContentFeedPreviewScenario | undefined}
-      />
+      <>
+        <StatusBar backgroundColor="#FFFFFF" style="dark" translucent={false} />
+        <ContentFeedPreview
+          preference={previewTheme}
+          scenario={process.env.EXPO_PUBLIC_PHASE8_CONTENT_FEED_PREVIEW_SCENARIO as ContentFeedPreviewScenario | undefined}
+        />
+      </>
     );
   }
 
@@ -9449,10 +9481,13 @@ export default function App() {
       ? "dark"
       : "light";
     return (
-      <HomeDailyBriefPreview
-        preference={previewTheme}
-        scenario={process.env.EXPO_PUBLIC_PHASE7_HOME_PREVIEW_SCENARIO as HomeDailyBriefPreviewScenario | undefined}
-      />
+      <>
+        <StatusBar backgroundColor="#0758E9" style="light" translucent={false} />
+        <HomeDailyBriefPreview
+          preference={previewTheme}
+          scenario={process.env.EXPO_PUBLIC_PHASE7_HOME_PREVIEW_SCENARIO as HomeDailyBriefPreviewScenario | undefined}
+        />
+      </>
     );
   }
 
@@ -9462,11 +9497,14 @@ export default function App() {
       : "light";
     const previewScenario = process.env.EXPO_PUBLIC_PHASE6_AUTH_PREVIEW_SCENARIO as AuthOnboardingPreviewScenario | undefined;
     return (
-      <AuthOnboardingPreview
-        initialScenario={previewScenario}
-        preference={previewTheme}
-        showScenarioControls={!previewScenario}
-      />
+      <>
+        <StatusBar backgroundColor="#FFFFFF" style="dark" translucent={false} />
+        <AuthOnboardingPreview
+          initialScenario={previewScenario}
+          preference={previewTheme}
+          showScenarioControls={!previewScenario}
+        />
+      </>
     );
   }
 

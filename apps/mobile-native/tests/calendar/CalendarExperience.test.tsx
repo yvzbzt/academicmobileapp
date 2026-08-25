@@ -5,6 +5,7 @@ import {
   fireEvent,
   renderAsync,
   screen,
+  within,
 } from "@testing-library/react-native";
 import { AccessibilityInfo, StyleSheet, Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -34,6 +35,7 @@ jest.mock("@react-navigation/native", () => {
 
 const callbacks = {
   onCreatePersonalExam: jest.fn((_input: PersonalExamMutationInput) => ({ ok: true as const })),
+  onConsumeCreatePersonalExamRequest: jest.fn(),
   onManageGoogle: jest.fn(),
   onOpenAccountMenu: jest.fn(),
   onOpenItem: jest.fn(),
@@ -90,16 +92,23 @@ function props(overrides: Partial<CalendarExperienceProps> = {}): CalendarExperi
 async function renderCalendar(
   input = props(),
   platform: "android" | "ios" = "android",
+  safeAreaBottom = 0,
 ) {
+  const dimensions = mockWindowDimensions();
   return renderAsync(
-    <SafeAreaProvider>
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: { x: 0, y: 0, width: dimensions.width, height: dimensions.height },
+        insets: { top: 0, right: 0, bottom: safeAreaBottom, left: 0 },
+      }}
+    >
       <ThemeProvider
         liquidGlassAvailable={platform === "ios"}
         platform={platform}
         preference="light"
         reducedMotion
         reducedTransparency={false}
-        windowWidth={320}
+        windowWidth={dimensions.width}
       >
         <NavigationContainer>
           <CalendarExperience {...input} />
@@ -107,6 +116,10 @@ async function renderCalendar(
       </ThemeProvider>
     </SafeAreaProvider>,
   );
+}
+
+function openCalendarOptions() {
+  fireEvent.press(screen.getByRole("button", { name: "Takvim seçeneklerini aç" }));
 }
 
 describe("Phase 9 Calendar experience", () => {
@@ -129,11 +142,16 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByRole("radio", { name: "Ajanda" }).props.accessibilityState).toEqual(
       expect.objectContaining({ selected: true }),
     );
+    expect(screen.getByText("Akademik")).toBeOnTheScreen();
+    expect(screen.getByText("Zamanını planla, hedeflerine odaklan.")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Takvim" })).toBeOnTheScreen();
-    expect(screen.getByRole("header", { name: "3 Ağustos Pazartesi" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Yaklaşan etkinlikler" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Devam eden etkinlikler" })).toBeOnTheScreen();
+    expect(screen.queryByRole("header", { name: "3 Ağustos Pazartesi" })).not.toBeOnTheScreen();
     expect(screen.getByTestId("calendar-view-announcement").props.accessibilityLiveRegion)
       .toBe("polite");
-    expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Hesap menüsünü aç" }));
+    expect(callbacks.onOpenAccountMenu).toHaveBeenCalledTimes(1);
 
     fireEvent.press(screen.getByRole("radio", { name: "Hafta" }));
     expect(screen.getByRole("radio", { name: "Hafta" }).props.accessibilityState).toEqual(
@@ -142,17 +160,104 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByLabelText("Haftalık takvim özeti")).toBeOnTheScreen();
     expect(screen.getByText("3 Ağu 2026 – 9 Ağu 2026")).toBeOnTheScreen();
 
+    openCalendarOptions();
     fireEvent.press(screen.getByRole("radio", { name: "Ay" }));
+    openCalendarOptions();
     expect(screen.getByRole("radio", { name: "Ay" }).props.accessibilityState).toEqual(
       expect.objectContaining({ selected: true }),
     );
+    fireEvent.press(screen.getByRole("button", { name: "Alt sayfayı kapat" }));
     expect(screen.getByLabelText("Aylık takvim özeti")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Takvim" })).toBeOnTheScreen();
     expect(screen.getByText("Ağustos 2026")).toBeOnTheScreen();
   });
 
+  it("shows the code-native calendar artwork at regular phone and tablet text sizes", async () => {
+    mockWindowDimensions.mockReturnValue({ fontScale: 1, height: 900, scale: 3, width: 430 });
+    await renderCalendar();
+    expect(
+      screen.getByTestId("calendar-hero-artwork", { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+  });
+
+  it("renders the account avatar only when the host supplies a real account action", async () => {
+    await renderCalendar(props({ onOpenAccountMenu: undefined }));
+
+    expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Takvim seçeneklerini aç" })).toBeOnTheScreen();
+  });
+
+  it("fits all seven week days without horizontal clipping on a narrow, enlarged-text phone", async () => {
+    await renderCalendar();
+
+    const strip = screen.getByTestId("calendar-week-strip");
+    expect(StyleSheet.flatten(strip.props.style)).toMatchObject({
+      alignSelf: "stretch",
+      flexDirection: "row",
+      width: "100%",
+    });
+    const dayButtons = Array.from({ length: 7 }, (_, index) => (
+      screen.getByTestId(`calendar-week-day-2026-08-${String(index + 3).padStart(2, "0")}`)
+    ));
+    expect(dayButtons).toHaveLength(7);
+    dayButtons.forEach((button) => {
+      const buttonStyle = typeof button.props.style === "function"
+        ? button.props.style({ pressed: false })
+        : button.props.style;
+      expect(StyleSheet.flatten(buttonStyle)).toMatchObject({ flexBasis: 0, minWidth: 0 });
+    });
+  });
+
+  it("keeps the explicit Agenda view selected when a day in its summary is chosen", async () => {
+    await renderCalendar();
+
+    fireEvent.press(screen.getByTestId("calendar-week-day-2026-08-06"));
+
+    expect(screen.getByRole("radio", { name: "Ajanda" }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+    expect(screen.getByTestId("calendar-week-day-2026-08-06").props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+  });
+
+  it("groups an overlapping record as continuing instead of showing a date outside the visible range", async () => {
+    await renderCalendar(props({
+      academicEvents: [{
+        id: "continuing-window",
+        title: "Devam eden sınav tarihleri",
+        category: "department_exam_schedule",
+        startDate: "2026-08-17",
+        endDate: "2026-08-28",
+        temporalKind: "date",
+        endTemporalKind: "date",
+      }, {
+        id: "week-event",
+        title: "Hafta içi etkinlik",
+        category: "event",
+        startDate: "2026-08-26",
+        temporalKind: "date",
+      }],
+      initialAnchorDate: "2026-08-25",
+      now: new Date("2026-08-25T09:00:00.000+03:00"),
+      personalExams: [],
+    }));
+
+    expect(screen.getByRole("header", { name: "Devam eden etkinlikler" })).toBeOnTheScreen();
+    expect(screen.queryByRole("header", { name: "17 Ağustos Pazartesi" })).not.toBeOnTheScreen();
+    expect(screen.getByText("Devam eden sınav tarihleri")).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("radio", { name: "Hafta" }));
+
+    expect(screen.getByText("24 Ağu 2026 – 30 Ağu 2026")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Devam eden etkinlikler" })).toBeOnTheScreen();
+    expect(screen.queryByRole("header", { name: "17 Ağustos Pazartesi" })).not.toBeOnTheScreen();
+    expect(screen.getByText("Devam eden sınav tarihleri")).toBeOnTheScreen();
+  });
+
   it("uses the selected Month cell as the event-list range", async () => {
     await renderCalendar();
+    openCalendarOptions();
     fireEvent.press(screen.getByRole("radio", { name: "Ay" }));
     expect(screen.getByText("Ders kayıt dönemi")).toBeOnTheScreen();
     expect(screen.queryByText("Final sınavı")).not.toBeOnTheScreen();
@@ -166,15 +271,19 @@ describe("Phase 9 Calendar experience", () => {
   it("clears the active query when calendar search is closed", async () => {
     await renderCalendar();
 
+    expect(screen.queryByRole("button", { name: "Takvimde ara" })).not.toBeOnTheScreen();
+    openCalendarOptions();
     fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
     fireEvent.changeText(screen.getByLabelText("Takvimde ara"), "Lineer");
     expect(screen.getByText("Lineer Cebir")).toBeOnTheScreen();
     expect(screen.queryByText("Final sınavı")).not.toBeOnTheScreen();
 
+    openCalendarOptions();
     fireEvent.press(screen.getByRole("button", { name: "Takvim aramasını kapat" }));
     expect(screen.queryByPlaceholderText("Etkinlik, ders veya konum ara")).not.toBeOnTheScreen();
     expect(screen.getByText("Final sınavı")).toBeOnTheScreen();
 
+    openCalendarOptions();
     fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
     expect(screen.getByPlaceholderText("Etkinlik, ders veya konum ara")).toHaveDisplayValue("");
   });
@@ -297,16 +406,50 @@ describe("Phase 9 Calendar experience", () => {
     }));
   });
 
-  it("keeps the add action in the header so calendar cells are never covered", async () => {
+  it("keeps secondary views and actions behind one 48dp header menu", async () => {
+    mockWindowDimensions.mockReturnValue({ fontScale: 1, height: 891, scale: 3, width: 411 });
     await renderCalendar(props({ initialView: "month" }));
 
-    expect(screen.getByRole("button", { name: "Kişisel etkinlik ekle" })).toHaveStyle({ height: 48, width: 48 });
+    expect(screen.getByRole("button", { name: "Takvim seçeneklerini aç" })).toHaveStyle({ height: 48, width: 48 });
+    expect(screen.queryByRole("button", { name: "Takvimde ara" })).not.toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Bugüne git" })).not.toBeOnTheScreen();
+    expect(screen.queryByRole("radio", { name: "Gün" })).not.toBeOnTheScreen();
+    expect(screen.queryByRole("radio", { name: "Ay" })).not.toBeOnTheScreen();
+    expect(screen.queryByText("Diğer")).not.toBeOnTheScreen();
     expect(screen.queryByText("Kişisel etkinlik ekle")).not.toBeOnTheScreen();
+
+    openCalendarOptions();
+    expect(screen.getByTestId("bottom-sheet")).toHaveProp("accessibilityLabel", "Takvim seçenekleri");
+    expect(screen.getByRole("radio", { name: "Gün" })).toBeOnTheScreen();
+    expect(screen.getByRole("radio", { name: "Ay" }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+    expect(screen.getByRole("button", { name: "Takvimde ara" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Bugüne git" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Kişisel etkinlik ekle" })).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinlik ekle" }));
+    expect(screen.getByTestId("bottom-sheet")).toHaveProp(
+      "accessibilityLabel",
+      "Kişisel etkinlik ekleme alt sayfası",
+    );
+  });
+
+  it("keeps the today action functional inside the options sheet", async () => {
+    await renderCalendar(props({ initialAnchorDate: "2026-08-10", initialView: "day" }));
+    expect(screen.getByLabelText(/Gün dönemi.*10 Ağustos 2026/u)).toBeOnTheScreen();
+
+    openCalendarOptions();
+    fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("button", { name: "Bugüne git" }));
+
+    expect(screen.getByLabelText(/Gün dönemi.*5 Ağustos 2026/u)).toBeOnTheScreen();
   });
 
   it("creates a personal exam only after native date and time selection", async () => {
     await renderCalendar();
-    fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinlik ekle" }));
+    const createButton = screen.getByRole("button", { name: "Kişisel etkinlik ekle" });
+    expect(createButton).toHaveStyle({ minHeight: 58, width: "100%" });
+    fireEvent.press(createButton);
     expect(screen.getByTestId("bottom-sheet").props.accessibilityLabel).toBe(
       "Kişisel etkinlik ekleme alt sayfası",
     );
@@ -358,6 +501,62 @@ describe("Phase 9 Calendar experience", () => {
     expect(callbacks.onManageGoogle).toHaveBeenCalledTimes(1);
   });
 
+  it("consumes a Home create intent once when personal exams become ready", async () => {
+    const initial = props({
+      createPersonalExamRequestKey: 7,
+      personalExamsReady: false,
+    });
+    const view = await renderCalendar(initial);
+    expect(screen.queryByTestId("bottom-sheet")).not.toBeOnTheScreen();
+    expect(callbacks.onConsumeCreatePersonalExamRequest).not.toHaveBeenCalled();
+
+    const ready = { ...initial, personalExamsReady: true };
+    await view.rerenderAsync(
+      <SafeAreaProvider>
+        <ThemeProvider
+          liquidGlassAvailable={false}
+          platform="android"
+          preference="light"
+          reducedMotion
+          reducedTransparency={false}
+          windowWidth={320}
+        >
+          <NavigationContainer>
+            <CalendarExperience {...ready} />
+          </NavigationContainer>
+        </ThemeProvider>
+      </SafeAreaProvider>,
+    );
+    expect(screen.getByTestId("bottom-sheet")).toHaveProp(
+      "accessibilityLabel",
+      "Kişisel etkinlik ekleme alt sayfası",
+    );
+    expect(callbacks.onConsumeCreatePersonalExamRequest).toHaveBeenCalledTimes(1);
+    expect(callbacks.onConsumeCreatePersonalExamRequest).toHaveBeenCalledWith(7);
+
+    fireEvent.press(screen.getByRole("button", { name: "Vazgeç" }));
+    expect(screen.queryByTestId("bottom-sheet")).not.toBeOnTheScreen();
+
+    await view.rerenderAsync(
+      <SafeAreaProvider>
+        <ThemeProvider
+          liquidGlassAvailable={false}
+          platform="android"
+          preference="light"
+          reducedMotion
+          reducedTransparency={false}
+          windowWidth={320}
+        >
+          <NavigationContainer>
+            <CalendarExperience {...ready} />
+          </NavigationContainer>
+        </ThemeProvider>
+      </SafeAreaProvider>,
+    );
+    expect(screen.queryByTestId("bottom-sheet")).not.toBeOnTheScreen();
+    expect(callbacks.onConsumeCreatePersonalExamRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("limits a long agenda to twelve items and reveals the next page on demand", async () => {
     const academicEvents = Array.from({ length: 15 }, (_, index) => ({
       id: `event-${index + 1}`,
@@ -368,11 +567,28 @@ describe("Phase 9 Calendar experience", () => {
     }));
     await renderCalendar(props({ academicEvents, personalExams: [] }));
 
+    expect(screen.getByTestId("calendar-event-count")).toHaveProp(
+      "accessibilityLabel",
+      "12 etkinlik gösteriliyor",
+    );
+    expect(within(screen.getByTestId("calendar-event-count")).getByText("12")).toBeOnTheScreen();
     expect(screen.getByText("12 / 15 etkinlik gösteriliyor")).toBeOnTheScreen();
     expect(screen.queryByText("Etkinlik 13")).not.toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "Daha fazla etkinlik göster" }));
     expect(screen.UNSAFE_getByType(require("react-native").FlatList).props.data).toHaveLength(15);
+    expect(screen.getByTestId("calendar-event-count")).toHaveProp(
+      "accessibilityLabel",
+      "15 etkinlik gösteriliyor",
+    );
     expect(screen.queryByRole("button", { name: "Daha fazla etkinlik göster" })).not.toBeOnTheScreen();
+  });
+
+  it("keeps the final calendar content above an iOS home indicator and bottom navigation", async () => {
+    await renderCalendar(props(), "ios", 34);
+    const list = screen.getByLabelText("Takvim etkinlikleri");
+    expect(StyleSheet.flatten(list.props.contentContainerStyle)).toMatchObject({
+      paddingBottom: 146,
+    });
   });
 
   it("keeps route-scoped personal-exam results reachable in the virtualized header", async () => {

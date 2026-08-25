@@ -6,9 +6,9 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   FlatList,
+  Image,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,8 +17,10 @@ import {
   type ListRenderItem,
   type View as NativeView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Banner,
+  BottomSheet,
   Button,
   Card,
   EmptyState,
@@ -35,8 +37,6 @@ import {
   formatCalendarTemporal,
 } from "./calendar-time";
 import {
-  ACADEMIC_CALENDAR_VIEW_OPTIONS,
-  CALENDAR_VIEW_OPTIONS,
   buildCalendarItems,
   buildMonthSummary,
   buildWeekSummary,
@@ -91,6 +91,9 @@ export interface CalendarExperienceProps {
   initialView?: CalendarViewMode;
   initialAnchorDate?: string;
   now?: Date;
+  /** Monotonic one-shot intent supplied by a host CTA that wants the create editor. */
+  createPersonalExamRequestKey?: number;
+  onConsumeCreatePersonalExamRequest?: (requestKey: number) => void;
   onOpenAccountMenu?: () => void;
   onRefresh: () => void;
   onOpenItem: (item: CalendarItem) => void;
@@ -106,7 +109,13 @@ export interface CalendarExperienceProps {
 type CalendarListEntry = {
   item: CalendarItem;
   headingDate?: string;
+  headingLabel?: string;
   today?: boolean;
+};
+
+type CalendarListHeadingRange = {
+  start: string;
+  end?: string;
 };
 
 const compactWeekdayFormatter = new Intl.DateTimeFormat("tr-TR", {
@@ -128,6 +137,15 @@ const selectedDayHeadingFormatter = new Intl.DateTimeFormat("tr-TR", {
 });
 const agendaDayHeadingCache = new Map<string, string>();
 const AGENDA_PAGE_SIZE = 12;
+const academicCalendarLogo = require("../../assets/design-package/academic-calendar-logo.png");
+const PRIMARY_CALENDAR_VIEWS = [
+  { value: "agenda", label: "Ajanda" },
+  { value: "week", label: "Hafta" },
+] as const;
+const SECONDARY_CALENDAR_VIEWS = [
+  { value: "day", label: "Gün" },
+  { value: "month", label: "Ay" },
+] as const;
 
 export function CalendarExperience({
   academicEvents,
@@ -147,6 +165,8 @@ export function CalendarExperience({
   initialView = "agenda",
   initialAnchorDate,
   now,
+  createPersonalExamRequestKey,
+  onConsumeCreatePersonalExamRequest,
   onOpenAccountMenu,
   onRefresh,
   onOpenItem,
@@ -157,11 +177,14 @@ export function CalendarExperience({
 }: CalendarExperienceProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
+  const safeAreaInsets = useSafeAreaInsets();
   const networkState = useNetworkState();
   const { fontScale, width } = useWindowDimensions();
   const listRef = useRef<FlatList<CalendarListEntry> | null>(null);
   const createExamRef = useRef<NativeView | null>(null);
+  const optionsButtonRef = useRef<NativeView | null>(null);
   const calendarAnnouncementRequestedRef = useRef(false);
+  const handledCreateRequestKeyRef = useRef<number | null>(null);
   useScrollToTop(listRef);
   const [view, setView] = useState<CalendarViewMode>(initialView);
   const [anchorDate, setAnchorDate] = useState(initialAnchorDate ?? todayDateOnly(now));
@@ -169,12 +192,36 @@ export function CalendarExperience({
   const [editorVisible, setEditorVisible] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [optionsVisible, setOptionsVisible] = useState(false);
   const [agendaLimit, setAgendaLimit] = useState(AGENDA_PAGE_SIZE);
   const isOffline = offline ?? (
     networkState.isConnected === false || networkState.isInternetReachable === false
   );
   const gutter = width < 375 ? 16 : 20;
   const today = todayDateOnly(now);
+  const listBottomPadding = adaptation.navigationLayout === "navigation-rail"
+    ? Math.max(48, safeAreaInsets.bottom + 32)
+    : Math.max(132, safeAreaInsets.bottom + 112);
+
+  useEffect(() => {
+    if (
+      !personalExamsReady
+      || editorVisible
+      || typeof createPersonalExamRequestKey !== "number"
+      || !Number.isInteger(createPersonalExamRequestKey)
+      || createPersonalExamRequestKey <= 0
+      || handledCreateRequestKeyRef.current === createPersonalExamRequestKey
+    ) return;
+    handledCreateRequestKeyRef.current = createPersonalExamRequestKey;
+    setEditorExam(null);
+    setEditorVisible(true);
+    onConsumeCreatePersonalExamRequest?.(createPersonalExamRequestKey);
+  }, [
+    createPersonalExamRequestKey,
+    editorVisible,
+    onConsumeCreatePersonalExamRequest,
+    personalExamsReady,
+  ]);
 
   const allItems = useMemo(() => {
     const startedAt = Date.now();
@@ -207,9 +254,22 @@ export function CalendarExperience({
       : periodItems,
     [anchorDate, filteredItems, now, periodItems, view],
   );
+  const visibleHeadingRange = useMemo<CalendarListHeadingRange | undefined>(() => {
+    if (view === "agenda") return { start: today };
+    if (view === "week") {
+      const weekPeriod = calendarPeriod("week", anchorDate);
+      return { start: weekPeriod.start, end: weekPeriod.end };
+    }
+    return undefined;
+  }, [anchorDate, today, view]);
   const entries = useMemo(() => {
     const startedAt = Date.now();
-    const result = listEntries(visibleItems, view === "agenda" || view === "week", today);
+    const result = listEntries(
+      visibleItems,
+      view === "agenda" || view === "week",
+      today,
+      visibleHeadingRange,
+    );
     runtimeDiagnostic("calendar.model", {
       phase: "build_entries",
       inputCount: visibleItems.length,
@@ -217,7 +277,7 @@ export function CalendarExperience({
       elapsedMs: Date.now() - startedAt,
     });
     return result;
-  }, [today, view, visibleItems]);
+  }, [today, view, visibleHeadingRange, visibleItems]);
   const displayedEntries = useMemo(
     () => view === "agenda" ? entries.slice(0, agendaLimit) : entries,
     [agendaLimit, entries, view],
@@ -242,7 +302,7 @@ export function CalendarExperience({
     [anchorDate, filteredItems, view],
   );
   const calendarAnnouncement = view === "agenda"
-    ? `Ajanda görünümü. ${entries.length} kayıt.`
+    ? `Ajanda görünümü. ${displayedEntries.length} kayıt gösteriliyor${hasMoreAgendaItems ? ", daha fazla kayıt var" : ""}.`
     : `${view === "day" ? "Gün" : view === "week" ? "Hafta" : "Ay"} görünümü. ${period?.label ?? ""}. ${entries.length} kayıt.`;
 
   useEffect(() => {
@@ -280,7 +340,7 @@ export function CalendarExperience({
 
   const renderItem: ListRenderItem<CalendarListEntry> = ({ item: entry }) => (
     <View style={[styles.entry, { gap: theme.spacing.xs }]}>
-      {entry.headingDate ? (
+      {entry.headingDate || entry.headingLabel ? (
         <View style={[styles.dayHeading, { gap: theme.spacing.xs }]}>
           <Ionicons
             accessibilityElementsHidden
@@ -293,7 +353,7 @@ export function CalendarExperience({
             accessibilityRole="header"
             style={[theme.typography.bodyStrong, styles.flexOne, { color: referencePalette.academicTealTitle }]}
           >
-            {formatAgendaDayHeading(entry.headingDate)}
+            {entry.headingLabel ?? formatAgendaDayHeading(entry.headingDate!)}
           </Text>
           {entry.today ? (
             <View style={[styles.todayPill, { backgroundColor: theme.colors.action.secondary, borderRadius: theme.radii.pill }]}>
@@ -311,18 +371,10 @@ export function CalendarExperience({
       {feedback}
 
       <CalendarScreenHeader
-        createButtonRef={createExamRef}
-        createDisabled={!personalExamsReady}
+        compact={width < 375 || fontScale >= 1.6}
         onAccountMenuPress={onOpenAccountMenu}
-        onCalendarPress={() => changeAnchorDate(today)}
-        onCreatePress={() => {
-          setEditorExam(null);
-          setEditorVisible(true);
-        }}
-        onMenuPress={() => changeView("agenda")}
-        onSearchPress={toggleSearch}
-        searchVisible={searchVisible}
-        view={view}
+        onOptionsPress={() => setOptionsVisible(true)}
+        optionsButtonRef={optionsButtonRef}
       />
 
       {searchVisible ? (
@@ -376,13 +428,12 @@ export function CalendarExperience({
         />
       ) : null}
 
-      {view === "week" ? (
+      {view === "agenda" || view === "week" ? (
         <WeekSummary
           compact={width <= 375 || fontScale >= 1.6}
           days={week}
           onSelectDate={(date) => {
             changeAnchorDate(date);
-            changeView("day");
           }}
           selectedDate={anchorDate}
         />
@@ -414,6 +465,27 @@ export function CalendarExperience({
 
       <CalendarAvailability error={error} onRefresh={onRefresh} state={state} />
 
+      {displayedEntries.length > 0 ? (
+        <View style={styles.eventsSectionHeading}>
+          <Text
+            accessibilityRole="header"
+            maxFontSizeMultiplier={1.4}
+            style={[theme.typography.sectionTitle, { color: referencePalette.navy }]}
+          >
+            {view === "agenda" ? "Yaklaşan etkinlikler" : view === "week" ? "Haftanın etkinlikleri" : "Seçili günün etkinlikleri"}
+          </Text>
+          <View
+            accessibilityLabel={`${view === "agenda" ? displayedEntries.length : entries.length} etkinlik gösteriliyor`}
+            style={[styles.eventCountPill, { backgroundColor: referencePalette.academicBlueTint }]}
+            testID="calendar-event-count"
+          >
+            <Text maxFontSizeMultiplier={1.3} style={[theme.typography.metaStrong, { color: referencePalette.academicBlueDeep }]}>
+              {view === "agenda" ? displayedEntries.length : entries.length}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       <Text
         accessibilityLabel={calendarAnnouncement}
         accessibilityLiveRegion={adaptation.platform === "android" ? "polite" : undefined}
@@ -435,7 +507,7 @@ export function CalendarExperience({
           styles.listContent,
           {
             gap: theme.spacing.md,
-            paddingBottom: 108,
+            paddingBottom: listBottomPadding,
             paddingHorizontal: gutter,
           },
         ]}
@@ -480,10 +552,21 @@ export function CalendarExperience({
               </View>
             ) : null}
             <GoogleSyncBanner
+              compact={width < 430 || fontScale >= 1.45}
               google={google}
               onManage={onManageGoogle}
               onSync={onSyncGoogle}
             />
+            {view === "agenda" || view === "week" ? (
+              <PersonalEventCta
+                buttonRef={createExamRef}
+                disabled={!personalExamsReady}
+                onPress={() => {
+                  setEditorExam(null);
+                  setEditorVisible(true);
+                }}
+              />
+            ) : null}
           </View>
         )}
         ListHeaderComponent={listHeader}
@@ -507,65 +590,136 @@ export function CalendarExperience({
         returnFocusRef={createExamRef}
         visible={editorVisible}
       />
+
+      <CalendarOptionsSheet
+        createDisabled={!personalExamsReady}
+        onCreate={() => {
+          setOptionsVisible(false);
+          setEditorExam(null);
+          setEditorVisible(true);
+        }}
+        onDismiss={() => setOptionsVisible(false)}
+        onSearch={() => {
+          setOptionsVisible(false);
+          toggleSearch();
+        }}
+        onSelectView={(nextView) => {
+          setOptionsVisible(false);
+          changeView(nextView);
+        }}
+        onToday={() => {
+          setOptionsVisible(false);
+          changeAnchorDate(today);
+        }}
+        returnFocusRef={optionsButtonRef}
+        searchVisible={searchVisible}
+        value={view}
+        visible={optionsVisible}
+      />
     </>
   );
 }
 
 function CalendarScreenHeader({
-  createButtonRef,
-  createDisabled,
+  compact,
   onAccountMenuPress,
-  onCalendarPress,
-  onCreatePress,
-  onMenuPress,
-  onSearchPress,
-  searchVisible,
-  view,
+  onOptionsPress,
+  optionsButtonRef,
 }: {
-  createButtonRef: RefObject<NativeView | null>;
-  createDisabled: boolean;
+  compact: boolean;
   onAccountMenuPress?: () => void;
-  onCalendarPress: () => void;
-  onCreatePress: () => void;
-  onMenuPress: () => void;
-  onSearchPress: () => void;
-  searchVisible: boolean;
-  view: CalendarViewMode;
+  onOptionsPress: () => void;
+  optionsButtonRef: RefObject<NativeView | null>;
 }) {
   const theme = useTheme();
-  const agenda = view === "agenda";
   return (
-    <View style={styles.screenHeader}>
-      <Text
-        accessibilityRole="header"
-        adjustsFontSizeToFit
-        maxFontSizeMultiplier={1.3}
-        minimumFontScale={0.75}
-        numberOfLines={1}
-        style={[theme.typography.display, styles.flexOne, { color: theme.colors.text.primary }]}
-      >
-        Takvim
-      </Text>
-      <View style={styles.headerActions}>
-        {agenda ? (
-          <CalendarIconButton
-            label={searchVisible ? "Takvim aramasını kapat" : "Takvimde ara"}
-            name={searchVisible ? "close-outline" : "search-outline"}
-            onPress={onSearchPress}
+    <View style={[styles.calendarHero, { gap: theme.spacing.md }]}>
+      <View style={styles.brandBar}>
+        <View accessibilityLabel="Akademik Takvim" style={styles.brandIdentity}>
+          <Image
+            accessibilityIgnoresInvertColors
+            resizeMode="contain"
+            source={academicCalendarLogo}
+            style={styles.brandLogo}
           />
-        ) : null}
-        <CalendarIconButton label="Bugüne git" name="calendar-outline" onPress={onCalendarPress} />
-        <CalendarIconButton
-          buttonRef={createButtonRef}
-          disabled={createDisabled}
-          label={createDisabled ? "Kişisel takvim hazırlanıyor" : "Kişisel etkinlik ekle"}
-          name="add"
-          onPress={onCreatePress}
-        />
-        {!agenda ? (
-          <CalendarIconButton label="Ajanda görünümünü aç" name="list-outline" onPress={onMenuPress} />
-        ) : null}
+          <View style={styles.brandCopy}>
+            <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={styles.brandName}>Akademik</Text>
+            <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={styles.brandNameAccent}>Takvim</Text>
+          </View>
+        </View>
+        <View style={styles.brandActions}>
+          <CalendarIconButton
+            buttonRef={optionsButtonRef}
+            label="Takvim seçeneklerini aç"
+            name="ellipsis-horizontal"
+            onPress={onOptionsPress}
+          />
+          {onAccountMenuPress ? (
+            <Pressable
+              accessibilityLabel="Hesap menüsünü aç"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onAccountMenuPress}
+              style={({ pressed }) => [
+                styles.accountAvatar,
+                { borderColor: referencePalette.academicBlue },
+                pressed ? { backgroundColor: referencePalette.academicBlueTint } : null,
+              ]}
+            >
+              <Ionicons color={referencePalette.academicBlue} name="person-outline" size={23} />
+            </Pressable>
+          ) : null}
+        </View>
       </View>
+
+      <View style={styles.heroHeadingRow}>
+        <View style={[styles.heroCopy, { gap: theme.spacing.xs }]}>
+          <Text
+            accessibilityRole="header"
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.3}
+            minimumFontScale={0.75}
+            numberOfLines={1}
+            style={[theme.typography.display, styles.calendarTitle, { color: referencePalette.navy }]}
+          >
+            Takvim
+          </Text>
+          <Text
+            maxFontSizeMultiplier={1.35}
+            style={[theme.typography.body, { color: referencePalette.academicTextSecondary }]}
+          >
+            Zamanını planla, hedeflerine odaklan.
+          </Text>
+        </View>
+        {!compact ? <CalendarHeroArtwork /> : null}
+      </View>
+    </View>
+  );
+}
+
+function CalendarHeroArtwork() {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.calendarArtwork}
+      testID="calendar-hero-artwork"
+    >
+      <View style={styles.artPlant}>
+        <View style={styles.artPlantStem} />
+        <View style={[styles.artLeaf, styles.artLeafLeft]} />
+        <View style={[styles.artLeaf, styles.artLeafRight]} />
+        <View style={styles.artPot} />
+      </View>
+      <View style={styles.artCalendar}>
+        <View style={styles.artCalendarBindingRow}>
+          <View style={styles.artCalendarBinding} />
+          <View style={styles.artCalendarBinding} />
+          <View style={styles.artCalendarBinding} />
+        </View>
+        <Ionicons color={referencePalette.academicBlue} name="calendar-clear-outline" size={46} />
+      </View>
+      <View style={styles.artPen} />
     </View>
   );
 }
@@ -580,7 +734,7 @@ function CalendarIconButton({
   buttonRef?: RefObject<NativeView | null>;
   disabled?: boolean;
   label: string;
-  name: "add" | "calendar-outline" | "close-outline" | "list-outline" | "search-outline";
+  name: "add" | "calendar-outline" | "close-outline" | "ellipsis-horizontal" | "list-outline" | "search-outline";
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -622,7 +776,6 @@ function CalendarViewTabs({
   value: CalendarViewMode;
 }) {
   const theme = useTheme();
-  const options = value === "agenda" ? CALENDAR_VIEW_OPTIONS : ACADEMIC_CALENDAR_VIEW_OPTIONS;
   return (
     <View
       accessibilityLabel="Takvim görünümü"
@@ -630,51 +783,181 @@ function CalendarViewTabs({
       style={[
         styles.viewTabs,
         compact && styles.viewTabsCompact,
-        {
-          backgroundColor: theme.colors.background.subtle,
-          borderColor: theme.colors.border.subtle,
-          borderRadius: theme.radii.prominent,
-        },
       ]}
     >
-      {options.map((option) => {
-        const selected = option.value === value;
-        const filled = selected && value === "month";
-        return (
-          <Pressable
-            key={option.value}
-            accessibilityLabel={option.label}
-            accessibilityRole="radio"
-            accessibilityState={{ selected }}
-            onPress={() => onValueChange(option.value)}
-            style={({ pressed }) => [
-              styles.viewTab,
-              compact && styles.viewTabCompact,
-              {
-                backgroundColor: filled
-                  ? theme.colors.action.primary
-                  : selected
-                    ? theme.colors.background.surface
+      <View style={[
+        styles.primaryViewTabs,
+        compact && styles.primaryViewTabsCompact,
+        {
+          backgroundColor: theme.colors.background.surface,
+          borderColor: referencePalette.academicBlueBorderMuted,
+          borderRadius: 24,
+        },
+      ]}>
+        {PRIMARY_CALENDAR_VIEWS.map((option) => {
+          const selected = option.value === value;
+          return (
+            <Pressable
+              key={option.value}
+              accessibilityLabel={option.label}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              onPress={() => onValueChange(option.value)}
+              style={({ pressed }) => [
+                styles.primaryViewTab,
+                compact && styles.viewTabCompact,
+                {
+                  backgroundColor: selected
+                    ? referencePalette.academicBlue
                     : pressed
                       ? theme.colors.action.ghostPressed
                       : "transparent",
-                borderColor: selected ? theme.colors.border.subtle : "transparent",
-                borderRadius: theme.radii.card,
-              },
-            ]}
-          >
-            <Text maxFontSizeMultiplier={1.35} style={[
-              theme.typography.label,
-              { color: filled
-                ? theme.colors.action.onPrimary
-                : selected
-                  ? theme.colors.text.link
-                  : theme.colors.text.secondary },
-            ]}>{option.label}</Text>
-          </Pressable>
-        );
-      })}
+                  borderRadius: 21,
+                },
+              ]}
+            >
+              <Text maxFontSizeMultiplier={1.35} style={[
+                theme.typography.label,
+                { color: selected ? referencePalette.white : referencePalette.academicTextSecondary },
+              ]}>{option.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
+  );
+}
+
+function CalendarOptionsSheet({
+  createDisabled,
+  onCreate,
+  onDismiss,
+  onSearch,
+  onSelectView,
+  onToday,
+  returnFocusRef,
+  searchVisible,
+  value,
+  visible,
+}: {
+  createDisabled: boolean;
+  onCreate: () => void;
+  onDismiss: () => void;
+  onSearch: () => void;
+  onSelectView: (view: CalendarViewMode) => void;
+  onToday: () => void;
+  returnFocusRef: RefObject<NativeView | null>;
+  searchVisible: boolean;
+  value: CalendarViewMode;
+  visible: boolean;
+}) {
+  const theme = useTheme();
+  const viewOptions = [...PRIMARY_CALENDAR_VIEWS, ...SECONDARY_CALENDAR_VIEWS];
+  return (
+    <BottomSheet
+      accessibilityLabel="Takvim seçenekleri"
+      onDismiss={onDismiss}
+      returnFocusRef={returnFocusRef}
+      scrollable
+      title="Takvim seçenekleri"
+      visible={visible}
+    >
+      <View style={styles.optionsSheetContent}>
+        <Text
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.4}
+          style={[theme.typography.bodyStrong, { color: referencePalette.navy }]}
+        >
+          Görünüm
+        </Text>
+        <View accessibilityLabel="Tüm takvim görünümleri" accessibilityRole="radiogroup" style={styles.optionGroup}>
+          {viewOptions.map((option) => {
+            const selected = option.value === value;
+            return (
+              <CalendarOptionRow
+                icon={selected ? "radio-button-on" : "radio-button-off"}
+                key={option.value}
+                label={option.label}
+                onPress={() => onSelectView(option.value)}
+                selected={selected}
+              />
+            );
+          })}
+        </View>
+        <Text
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.4}
+          style={[theme.typography.bodyStrong, styles.optionSectionHeading, { color: referencePalette.navy }]}
+        >
+          İşlemler
+        </Text>
+        <View style={styles.optionGroup}>
+          <CalendarOptionRow
+            icon={searchVisible ? "close-outline" : "search-outline"}
+            label={searchVisible ? "Takvim aramasını kapat" : "Takvimde ara"}
+            onPress={onSearch}
+          />
+          <CalendarOptionRow icon="calendar-outline" label="Bugüne git" onPress={onToday} />
+          <CalendarOptionRow
+            disabled={createDisabled}
+            icon="add-circle-outline"
+            label={createDisabled ? "Kişisel takvim hazırlanıyor" : "Kişisel etkinlik ekle"}
+            onPress={onCreate}
+          />
+        </View>
+      </View>
+    </BottomSheet>
+  );
+}
+
+function CalendarOptionRow({
+  disabled = false,
+  icon,
+  label,
+  onPress,
+  selected,
+}: {
+  disabled?: boolean;
+  icon: "add-circle-outline" | "calendar-outline" | "close-outline" | "radio-button-off" | "radio-button-on" | "search-outline";
+  label: string;
+  onPress: () => void;
+  selected?: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole={selected === undefined ? "button" : "radio"}
+      accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }) }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.optionRow,
+        { borderBottomColor: theme.colors.border.subtle },
+        pressed ? { backgroundColor: theme.colors.action.ghostPressed } : null,
+      ]}
+    >
+      <Ionicons
+        color={disabled
+          ? theme.colors.text.disabled
+          : selected
+            ? referencePalette.academicBlue
+            : theme.colors.text.secondary}
+        name={icon}
+        size={23}
+      />
+      <Text
+        maxFontSizeMultiplier={2}
+        style={[
+          theme.typography.body,
+          styles.optionRowLabel,
+          { color: disabled ? theme.colors.text.disabled : theme.colors.text.primary },
+        ]}
+      >
+        {label}
+      </Text>
+      {selected ? <Ionicons color={referencePalette.academicBlue} name="checkmark" size={21} /> : null}
+    </Pressable>
   );
 }
 
@@ -835,11 +1118,11 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
         {
           backgroundColor: theme.colors.background.surface,
           borderColor: theme.colors.border.subtle,
-          borderRadius: theme.radii.card,
+          borderRadius: 20,
           padding: 0,
         },
       ]}
-      variant="outlined"
+      variant="elevated"
     >
       <View style={styles.eventCardLayout}>
         <View style={[styles.eventAccent, { backgroundColor: palette.accent }]} />
@@ -891,10 +1174,12 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
 }
 
 function GoogleSyncBanner({
+  compact,
   google,
   onSync,
   onManage,
 }: {
+  compact: boolean;
   google: CalendarGoogleStatus;
   onSync: () => void;
   onManage: () => void;
@@ -904,10 +1189,19 @@ function GoogleSyncBanner({
     <Card
       accessibilityLabel={`Google Takvim durumu. ${google.stateLabel}. ${google.accountEmail ?? "Hesap seçilmedi"}.`}
       busy={google.busy}
-      style={[styles.googleBanner, { gap: theme.spacing.sm, padding: theme.spacing.sm }]}
+      style={[
+        styles.googleBanner,
+        {
+          backgroundColor: theme.colors.background.surface,
+          borderColor: referencePalette.academicBlueBorderMuted,
+          borderRadius: 22,
+          gap: theme.spacing.sm,
+          padding: theme.spacing.md,
+        },
+      ]}
       variant="elevated"
     >
-      <View style={[styles.googleRow, { gap: theme.spacing.sm }]}>
+      <View style={[styles.googleRow, compact && styles.googleRowCompact, { gap: theme.spacing.sm }]}>
         <View style={[styles.googleIcon, { backgroundColor: theme.colors.status.successContainer, borderRadius: theme.radii.control }]}>
           <Ionicons color={theme.colors.action.primary} name="logo-google" size={25} />
         </View>
@@ -918,23 +1212,69 @@ function GoogleSyncBanner({
             <Text maxFontSizeMultiplier={1.3} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{google.verifiedCount} uygulama kaydı doğrulandı</Text>
           ) : null}
         </View>
-        <Button
-          compact
-          label="Senkronize"
-          loading={google.busy}
-          onPress={onSync}
-          variant="secondary"
-        />
-        {google.connected ? <Ionicons color={theme.colors.status.success} name="checkmark-circle" size={24} /> : null}
-        <Pressable accessibilityLabel="Google Takvim'i yönet" accessibilityRole="button" hitSlop={8} onPress={onManage}>
-          <Ionicons color={theme.colors.text.secondary} name="settings-outline" size={20} />
-        </Pressable>
+        <View style={[styles.googleActions, compact && styles.googleActionsCompact]}>
+          <Button
+            compact
+            label="Senkronize"
+            loading={google.busy}
+            onPress={onSync}
+            variant="secondary"
+          />
+          {google.connected ? <Ionicons color={theme.colors.status.success} name="checkmark-circle" size={24} /> : null}
+          <Pressable
+            accessibilityLabel="Google Takvim'i yönet"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onManage}
+            style={styles.googleManageButton}
+          >
+            <Ionicons color={theme.colors.text.secondary} name="settings-outline" size={20} />
+          </Pressable>
+        </View>
       </View>
       {google.error ? <Banner message={google.error} title="Google Takvim işlemi tamamlanamadı" tone="error" /> : null}
       {google.warnings?.length ? (
         <Banner message={`${google.warnings.length} eşitleme uyarısı var.`} title="Kısmi eşitleme" tone="warning" />
       ) : null}
     </Card>
+  );
+}
+
+function PersonalEventCta({
+  buttonRef,
+  disabled,
+  onPress,
+}: {
+  buttonRef: RefObject<NativeView | null>;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const adaptation = usePlatformAdaptation();
+  const label = disabled ? "Kişisel takvim hazırlanıyor" : "Kişisel etkinlik ekle";
+  return (
+    <Pressable
+      ref={buttonRef}
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      android_ripple={adaptation.pressFeedback === "ripple" ? { color: referencePalette.whiteAlpha24 } : undefined}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.personalEventCta,
+        {
+          backgroundColor: disabled ? theme.colors.action.disabled : referencePalette.academicBlue,
+          borderRadius: 22,
+          opacity: pressed && adaptation.pressFeedback !== "ripple" ? 0.88 : 1,
+        },
+      ]}
+    >
+      <Ionicons color={disabled ? theme.colors.text.disabled : referencePalette.white} name="add" size={28} />
+      <Text maxFontSizeMultiplier={1.4} style={[theme.typography.bodyStrong, { color: disabled ? theme.colors.text.disabled : referencePalette.white }]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -951,11 +1291,10 @@ function WeekSummary({
 }) {
   const theme = useTheme();
   return (
-    <ScrollView
+    <View
       accessibilityLabel="Haftalık takvim özeti"
-      contentContainerStyle={[styles.weekSummary, { gap: theme.spacing.xxs }]}
-      horizontal
-      showsHorizontalScrollIndicator={false}
+      style={[styles.weekSummary, { gap: theme.spacing.xxs }]}
+      testID="calendar-week-strip"
     >
       {days.map((day) => {
         const date = new Date(`${day.date}T12:00:00Z`);
@@ -967,21 +1306,26 @@ function WeekSummary({
             accessibilityRole="button"
             accessibilityState={{ selected }}
             onPress={() => onSelectDate(day.date)}
+            testID={`calendar-week-day-${day.date}`}
             style={({ pressed }) => [
               styles.weekDay,
+              compact && styles.weekDayCompact,
               {
                 backgroundColor: selected ? theme.colors.action.primary : theme.colors.background.surface,
                 borderColor: selected ? theme.colors.action.primary : theme.colors.border.subtle,
                 borderRadius: theme.radii.card,
-                minWidth: compact ? 45 : 50,
               },
               pressed ? { opacity: 0.85 } : null,
             ]}
           >
-            <Text maxFontSizeMultiplier={1.3} style={[theme.typography.metaStrong, { color: selected ? theme.colors.action.onPrimary : theme.colors.text.secondary }]}>
-              {compactWeekdayFormatter.format(date)}
+            <Text
+              maxFontSizeMultiplier={1.2}
+              numberOfLines={1}
+              style={[theme.typography.metaStrong, { color: selected ? theme.colors.action.onPrimary : theme.colors.text.secondary }]}
+            >
+              {compactWeekdayFormatter.format(date).replace(/\.$/u, "").toLocaleUpperCase("tr-TR")}
             </Text>
-            <Text maxFontSizeMultiplier={1.3} style={[theme.typography.bodyStrong, { color: selected ? theme.colors.action.onPrimary : theme.colors.text.primary }]}>
+            <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[theme.typography.bodyStrong, { color: selected ? theme.colors.action.onPrimary : theme.colors.text.primary }]}>
               {day.dayNumber}
             </Text>
             <View style={[
@@ -993,7 +1337,7 @@ function WeekSummary({
           </Pressable>
         );
       })}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -1086,13 +1430,18 @@ function listEntries(
   items: readonly CalendarItem[],
   showHeadings: boolean,
   today: string,
+  headingRange?: CalendarListHeadingRange,
 ): CalendarListEntry[] {
-  let previousDate = "";
+  let previousGroup = "";
   return items.map((item) => {
     const date = calendarItemStartDateOnly(item);
-    const headingDate = showHeadings && date !== previousDate ? date : undefined;
-    previousDate = date;
-    return { item, ...(headingDate ? { headingDate, today: date === today } : {}) };
+    const continuesIntoRange = headingRange !== undefined && date < headingRange.start;
+    const group = continuesIntoRange ? `continuing:${headingRange.start}` : date;
+    const showHeading = showHeadings && group !== previousGroup;
+    previousGroup = group;
+    if (!showHeading) return { item };
+    if (continuesIntoRange) return { item, headingLabel: "Devam eden etkinlikler" };
+    return { item, headingDate: date, today: date === today };
   });
 }
 
@@ -1158,15 +1507,154 @@ const styles = StyleSheet.create({
   header: {
     alignSelf: "stretch",
   },
-  screenHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    minHeight: 56,
+  calendarHero: {
+    minWidth: 0,
   },
-  headerActions: {
+  brandBar: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 5,
+    justifyContent: "space-between",
+    minHeight: 58,
+  },
+  brandIdentity: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 10,
+    minWidth: 0,
+  },
+  brandLogo: {
+    height: 54,
+    width: 54,
+  },
+  brandCopy: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  brandActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginLeft: 8,
+  },
+  brandName: {
+    color: referencePalette.navy,
+    fontSize: 19,
+    fontWeight: "800",
+    lineHeight: 21,
+  },
+  brandNameAccent: {
+    color: referencePalette.academicBlue,
+    fontSize: 19,
+    fontWeight: "800",
+    lineHeight: 21,
+  },
+  accountAvatar: {
+    alignItems: "center",
+    borderRadius: 24,
+    borderWidth: 1.5,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  heroHeadingRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: 112,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  calendarTitle: {
+    fontSize: 40,
+    fontWeight: "800",
+    lineHeight: 47,
+  },
+  calendarArtwork: {
+    height: 106,
+    position: "relative",
+    width: 154,
+  },
+  artCalendar: {
+    alignItems: "center",
+    backgroundColor: referencePalette.academicBlueSurface,
+    borderColor: referencePalette.academicBlueBorder,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    height: 79,
+    justifyContent: "center",
+    position: "absolute",
+    right: 10,
+    top: 2,
+    transform: [{ rotate: "7deg" }],
+    width: 72,
+  },
+  artCalendarBindingRow: {
+    flexDirection: "row",
+    gap: 8,
+    left: 10,
+    position: "absolute",
+    top: -5,
+  },
+  artCalendarBinding: {
+    backgroundColor: referencePalette.academicBlue,
+    borderRadius: 2,
+    height: 12,
+    width: 4,
+  },
+  artPlant: {
+    bottom: 12,
+    height: 65,
+    left: 12,
+    position: "absolute",
+    width: 55,
+  },
+  artPlantStem: {
+    backgroundColor: referencePalette.academicGreen,
+    bottom: 16,
+    height: 37,
+    left: 26,
+    position: "absolute",
+    width: 3,
+  },
+  artLeaf: {
+    backgroundColor: referencePalette.academicTealSoft,
+    borderColor: referencePalette.academicTeal,
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 21,
+    position: "absolute",
+    width: 12,
+  },
+  artLeafLeft: {
+    left: 14,
+    top: 18,
+    transform: [{ rotate: "-42deg" }],
+  },
+  artLeafRight: {
+    right: 13,
+    top: 8,
+    transform: [{ rotate: "38deg" }],
+  },
+  artPot: {
+    backgroundColor: referencePalette.academicBlueSoft,
+    borderBottomLeftRadius: 7,
+    borderBottomRightRadius: 7,
+    bottom: 0,
+    height: 19,
+    left: 15,
+    width: 27,
+  },
+  artPen: {
+    backgroundColor: referencePalette.academicBlue,
+    borderRadius: 4,
+    bottom: 5,
+    height: 7,
+    position: "absolute",
+    right: 0,
+    transform: [{ rotate: "-10deg" }],
+    width: 91,
   },
   headerIconButton: {
     alignItems: "center",
@@ -1199,17 +1687,24 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   viewTabs: {
+    alignItems: "stretch",
+    flexDirection: "column",
+    gap: 8,
+  },
+  viewTabsCompact: {
+    flexDirection: "column",
+  },
+  primaryViewTabs: {
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 3,
     padding: 3,
   },
-  viewTabsCompact: {
+  primaryViewTabsCompact: {
     flexDirection: "column",
   },
-  viewTab: {
+  primaryViewTab: {
     alignItems: "center",
-    borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
     justifyContent: "center",
     minHeight: 46,
@@ -1218,6 +1713,28 @@ const styles = StyleSheet.create({
   viewTabCompact: {
     flex: undefined,
     width: "100%",
+  },
+  optionsSheetContent: {
+    gap: 8,
+  },
+  optionGroup: {
+    alignSelf: "stretch",
+  },
+  optionSectionHeading: {
+    marginTop: 12,
+  },
+  optionRow: {
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 56,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  optionRowLabel: {
+    flex: 1,
+    minWidth: 0,
   },
   periodNavigator: {
     alignItems: "center",
@@ -1251,6 +1768,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     paddingHorizontal: 4,
+  },
+  eventsSectionHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+    paddingTop: 4,
+  },
+  eventCountPill: {
+    alignItems: "center",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 28,
+    minWidth: 34,
+    paddingHorizontal: 9,
   },
   entry: {
     alignSelf: "stretch",
@@ -1321,11 +1854,42 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
   },
+  googleRowCompact: {
+    alignItems: "stretch",
+    flexWrap: "wrap",
+  },
+  googleActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  googleActionsCompact: {
+    justifyContent: "flex-end",
+    paddingLeft: 58,
+    width: "100%",
+  },
+  googleManageButton: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
   googleIcon: {
     alignItems: "center",
     height: 46,
     justifyContent: "center",
     width: 46,
+  },
+  personalEventCta: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+    minHeight: 58,
+    overflow: "hidden",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    width: "100%",
   },
   flexOne: {
     flex: 1,
@@ -1333,18 +1897,29 @@ const styles = StyleSheet.create({
   },
   weekSummary: {
     alignItems: "stretch",
+    alignSelf: "stretch",
+    backgroundColor: referencePalette.white,
+    borderColor: referencePalette.academicBlueBorderMuted,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
-    flexGrow: 1,
+    padding: 5,
+    width: "100%",
   },
   weekDay: {
     alignItems: "center",
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 0,
+    flexBasis: 0,
     flexGrow: 1,
     gap: 2,
     justifyContent: "center",
     minHeight: 64,
-    paddingHorizontal: 6,
+    minWidth: 0,
+    paddingHorizontal: 3,
     paddingVertical: 6,
+  },
+  weekDayCompact: {
+    paddingHorizontal: 1,
   },
   weekDayDot: {
     height: 4,

@@ -502,7 +502,8 @@ describe("mobile authentication recovery contract", () => {
       appSource.indexOf("function routeForLegacyTab")
     );
 
-    expect(loginScreen).toContain("onPress={props.onForgotPassword}");
+    expect(loginScreen).toContain('label="Şifremi unuttum"');
+    expect(loginScreen).toMatch(/onPress=\{\(\) => \{[\s\S]*?Keyboard\.dismiss\(\);[\s\S]*?props\.onForgotPassword\(\);[\s\S]*?\}\}/u);
     expect(loginScreen).toContain('autoComplete="email"');
     expect(loginScreen).toContain('autoComplete="password"');
     expect(loginScreen).not.toContain('label="Beni hatırla"');

@@ -13,6 +13,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +23,7 @@ import {
   useWindowDimensions,
   type ListRenderItem,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Banner,
   BottomSheet,
@@ -67,9 +69,9 @@ const SOURCE_FILTERS: ReadonlyArray<{
   icon: keyof typeof Ionicons.glyphMap;
 }> = [
   { value: "all", label: "Tüm kaynaklar", shortLabel: "Tümü", icon: "layers-outline" },
-  { value: "university", label: "Üniversitem", shortLabel: "Üniversitem", icon: "business-outline" },
-  { value: "faculty", label: "Fakültem", shortLabel: "Fakültem", icon: "library-outline" },
-  { value: "department", label: "Bölümüm", shortLabel: "Bölümüm", icon: "people-outline" },
+  { value: "university", label: "Üniversitem", shortLabel: "Üniversite", icon: "business-outline" },
+  { value: "faculty", label: "Fakültem", shortLabel: "Fakülte", icon: "library-outline" },
+  { value: "department", label: "Bölümüm", shortLabel: "Bölüm", icon: "people-outline" },
   { value: "yok", label: "YÖK", shortLabel: "YÖK", icon: "school-outline" },
   { value: "summer-school", label: "Yaz Okulu", shortLabel: "Yaz Okulu", icon: "sunny-outline" },
 ];
@@ -90,6 +92,8 @@ const REFERENCE_COLORS = {
   redSoft: referencePalette.academicRedSoft,
   secondary: referencePalette.academicTextSecondary,
 } as const;
+
+const academicCalendarLogo = require("../../assets/design-package/academic-calendar-logo.png");
 
 const CONTENT_TYPE_LABELS: Record<Exclude<FeedContentTypeFilter, "all">, string> = {
   announcement: "Duyuru",
@@ -122,6 +126,8 @@ export interface AnnouncementsFeedProps {
   hasMore?: boolean;
   paginationLoading?: boolean;
   paginationError?: string;
+  notificationPreferenceEnabled: boolean;
+  notificationActive: boolean;
   initialSearchText?: string;
   initialContentTypeFilter?: FeedContentTypeFilter;
   initialSourceFilter?: FeedSourceFilter;
@@ -155,6 +161,8 @@ export function AnnouncementsFeed({
   hasMore = false,
   paginationLoading = false,
   paginationError,
+  notificationPreferenceEnabled,
+  notificationActive,
   initialSearchText = "",
   initialContentTypeFilter = "all",
   initialSourceFilter = "all",
@@ -172,7 +180,11 @@ export function AnnouncementsFeed({
   const adaptation = usePlatformAdaptation();
   const networkState = useNetworkState();
   const { fontScale, width } = useWindowDimensions();
+  const safeAreaInsets = useSafeAreaInsets();
   const layout = resolveContentFeedLayout(width, fontScale);
+  const bottomNavigationClearance = adaptation.navigationLayout === "navigation-rail"
+    ? theme.spacing.xxl
+    : 64 + safeAreaInsets.bottom + theme.spacing.lg;
   const listRef = useRef<FlatList<ContentFeedItem> | null>(null);
   useScrollToTop(listRef);
   const [searchText, setSearchText] = useState(initialSearchText);
@@ -181,8 +193,12 @@ export function AnnouncementsFeed({
     initialContentTypeFilter,
   );
   const [sourceFilter, setSourceFilter] = useState<FeedSourceFilter>(initialSourceFilter);
-  const [sourceMenuVisible, setSourceMenuVisible] = useState(false);
+  const [filterMenuVisible, setFilterMenuVisible] = useState(false);
   const resultAnnouncementRequestedRef = useRef(false);
+  const showNotificationReminder = Boolean(
+    onOpenNotificationSettings
+    && (!notificationPreferenceEnabled || !notificationActive),
+  );
 
   useEffect(() => {
     const timer = setTimeout(
@@ -278,9 +294,11 @@ export function AnnouncementsFeed({
   };
 
   const selectContentType = (value: FeedContentTypeFilter) => {
-    if (contentTypeFilter === value) return;
-    resultAnnouncementRequestedRef.current = true;
-    setContentTypeFilter(value);
+    if (contentTypeFilter !== value) {
+      resultAnnouncementRequestedRef.current = true;
+      setContentTypeFilter(value);
+    }
+    setFilterMenuVisible(false);
   };
 
   const selectSource = (value: FeedSourceFilter) => {
@@ -288,37 +306,102 @@ export function AnnouncementsFeed({
       resultAnnouncementRequestedRef.current = true;
       setSourceFilter(value);
     }
-    setSourceMenuVisible(false);
+    setFilterMenuVisible(false);
   };
 
   const renderItem: ListRenderItem<ContentFeedItem> = ({ item }) => (
-    <FeedRow item={item} onPress={onOpenItem} />
+    <FeedRow
+      item={item}
+      onPress={onOpenItem}
+      stacked={layout.supportsLargeText}
+    />
   );
 
   const header = (
-    <View style={[styles.header, { gap: theme.spacing.md }]}>
-      <View style={styles.pageTitleRow} testID="announcements-top-bar">
-        <Text
-          accessibilityRole="header"
-          adjustsFontSizeToFit
-          maxFontSizeMultiplier={1.3}
-          minimumFontScale={0.8}
-          numberOfLines={1}
-          style={[theme.typography.screenTitle, styles.pageTitle, { color: REFERENCE_COLORS.navy }]}
-        >
-          Duyurular
-        </Text>
-        <Pressable
-          accessibilityLabel="Bildirim tercihlerini aç"
-          accessibilityRole="button"
-          disabled={!onOpenNotificationSettings}
-          hitSlop={8}
-          onPress={onOpenNotificationSettings}
-          style={({ pressed }) => [styles.notificationGlyph, pressed && styles.pressed]}
-        >
-          <Ionicons color={REFERENCE_COLORS.navy} name="notifications-outline" size={26} />
-          <View style={styles.notificationDot} />
-        </Pressable>
+    <View
+      style={[
+        styles.header,
+        layout.supportsLargeText ? styles.headerLargeText : styles.headerStandardText,
+      ]}
+    >
+      <View style={styles.brandBar} testID="announcements-top-bar">
+        <View accessibilityLabel="Akademik Takvim" style={styles.brandIdentity}>
+          <Image
+            accessibilityIgnoresInvertColors
+            resizeMode="contain"
+            source={academicCalendarLogo}
+            style={styles.brandLogo}
+          />
+          <View style={styles.brandCopy}>
+            <Text
+              maxFontSizeMultiplier={1.25}
+              numberOfLines={1}
+              style={styles.brandName}
+            >
+              Akademik
+            </Text>
+            <Text
+              maxFontSizeMultiplier={1.25}
+              numberOfLines={1}
+              style={styles.brandNameAccent}
+            >
+              Takvim
+            </Text>
+          </View>
+        </View>
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Bildirim tercihlerini aç"
+            accessibilityRole="button"
+            disabled={!onOpenNotificationSettings}
+            hitSlop={8}
+            onPress={onOpenNotificationSettings}
+            style={({ pressed }) => [styles.notificationGlyph, pressed && styles.pressed]}
+          >
+            <Ionicons color={REFERENCE_COLORS.navy} name="notifications-outline" size={27} />
+          </Pressable>
+          {onOpenAccountMenu ? (
+            <Pressable
+              accessibilityLabel="Hesap menüsünü aç"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onOpenAccountMenu}
+              style={({ pressed }) => [styles.accountAvatar, pressed && styles.pressed]}
+            >
+              <Ionicons color={REFERENCE_COLORS.blue} name="person-outline" size={23} />
+            </Pressable>
+          ) : (
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.accountAvatar}
+            >
+              <Ionicons color={REFERENCE_COLORS.blue} name="person-outline" size={23} />
+            </View>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.heroHeader}>
+        <View style={styles.heroCopy}>
+          <Text
+            accessibilityRole="header"
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.3}
+            minimumFontScale={0.8}
+            numberOfLines={1}
+            style={[theme.typography.screenTitle, styles.pageTitle, { color: REFERENCE_COLORS.navy }]}
+          >
+            Duyurular
+          </Text>
+          <Text
+            maxFontSizeMultiplier={1.35}
+            style={[theme.typography.body, styles.pageSubtitle, { color: REFERENCE_COLORS.secondary }]}
+          >
+            Resmî akademik kaynaklardan güvenilir içerikler.
+          </Text>
+        </View>
+        {!layout.supportsLargeText ? <AnnouncementArtwork /> : null}
       </View>
 
       <View
@@ -337,7 +420,7 @@ export function AnnouncementsFeed({
             resultAnnouncementRequestedRef.current = true;
             setSearchText(value);
           }}
-          placeholder={layout.supportsLargeText ? "Duyurularda ara" : "Başlık, özet veya kaynak ara"}
+          placeholder="Duyuru ara..."
           placeholderTextColor={referencePalette.academicPlaceholder}
           returnKeyType="search"
           selectionColor={REFERENCE_COLORS.blue}
@@ -359,53 +442,47 @@ export function AnnouncementsFeed({
             <Ionicons color={REFERENCE_COLORS.secondary} name="close-circle" size={20} />
           </Pressable>
         ) : null}
+        <Pressable
+          aria-expanded={filterMenuVisible}
+          accessibilityLabel={`İçerik türü filtresi. ${selectedContentLabel}`}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: filterMenuVisible }}
+          onPress={() => setFilterMenuVisible(true)}
+          style={({ pressed }) => [
+            styles.filterMenuButton,
+            pressed && styles.pressed,
+          ]}
+          testID="announcements-content-filter"
+        >
+          <Ionicons
+            color={contentTypeFilter === "all" ? REFERENCE_COLORS.secondary : REFERENCE_COLORS.blue}
+            name="options-outline"
+            size={20}
+          />
+          {contentTypeFilter !== "all" ? (
+            <View style={[styles.activeFilterDot, { backgroundColor: REFERENCE_COLORS.blue }]} />
+          ) : null}
+        </Pressable>
       </View>
 
-      <FilterGroup title="İçerik türü">
+      <FilterGroup title="Kaynak">
         <ScrollView
-          contentContainerStyle={styles.filterRail}
+          contentContainerStyle={styles.scopeRail}
           horizontal
           keyboardShouldPersistTaps="handled"
           showsHorizontalScrollIndicator={false}
+          testID="announcements-source-filter-rail"
         >
-          {CONTENT_FILTERS.map((option) => (
+          {SOURCE_FILTERS.map((option) => (
             <FilterPill
-              accessibilityLabel={`${option.label} içerik türü filtresi`}
-              icon={option.icon}
+              accessibilityLabel={`${option.label} kaynak filtresi`}
               key={option.value}
-              label={option.label}
-              onPress={() => selectContentType(option.value)}
-              selected={contentTypeFilter === option.value}
+              label={option.shortLabel}
+              onPress={() => selectSource(option.value)}
+              selected={sourceFilter === option.value}
             />
           ))}
         </ScrollView>
-      </FilterGroup>
-
-      <FilterGroup title="Kaynak">
-        <Pressable
-          aria-expanded={sourceMenuVisible}
-          accessibilityLabel={`Kaynak filtresi. ${selectedSourceLabel}`}
-          accessibilityRole="button"
-          onPress={() => setSourceMenuVisible(true)}
-          style={({ pressed }) => [
-            styles.sourceFilterButton,
-            {
-              backgroundColor: pressed ? REFERENCE_COLORS.blueSoft : REFERENCE_COLORS.background,
-              borderColor: sourceFilter === "all" ? REFERENCE_COLORS.border : REFERENCE_COLORS.blue,
-            },
-          ]}
-          testID="announcements-source-filter"
-        >
-          <Ionicons color={REFERENCE_COLORS.secondary} name="options-outline" size={19} />
-          <View style={styles.sourceFilterCopy}>
-            <Text maxFontSizeMultiplier={1.25} style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}>Kaynak</Text>
-            <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}>{selectedSourceLabel}</Text>
-          </View>
-          {sourceFilter !== "all" ? (
-            <View style={[styles.activeFilterDot, { backgroundColor: REFERENCE_COLORS.blue }]} />
-          ) : null}
-          <Ionicons color={REFERENCE_COLORS.secondary} name="chevron-down" size={18} />
-        </Pressable>
       </FilterGroup>
 
       <View
@@ -433,9 +510,9 @@ export function AnnouncementsFeed({
         {
           alignSelf: "center",
           maxWidth: layout.maxWidth,
-          paddingBottom: theme.spacing.xxl,
+          paddingBottom: Math.max(theme.spacing.xxl, bottomNavigationClearance),
           paddingHorizontal: layout.gutter,
-          paddingTop: theme.spacing.lg,
+          paddingTop: layout.supportsLargeText ? theme.spacing.lg : theme.spacing.sm,
           width: "100%",
         },
       ]}
@@ -450,7 +527,12 @@ export function AnnouncementsFeed({
             paginationError,
             onRetryPagination,
           })}
-          <AnnouncementReminderBanner onPress={onOpenNotificationSettings} />
+          {showNotificationReminder && onOpenNotificationSettings ? (
+            <AnnouncementReminderBanner
+              preferenceEnabled={notificationPreferenceEnabled}
+              onPress={onOpenNotificationSettings}
+            />
+          ) : null}
         </View>
       ) : null}
       ListHeaderComponent={header}
@@ -468,49 +550,118 @@ export function AnnouncementsFeed({
       windowSize={7}
     />
     <BottomSheet
-      onDismiss={() => setSourceMenuVisible(false)}
-      title="Kaynak filtresi"
-      visible={sourceMenuVisible}
+      onDismiss={() => setFilterMenuVisible(false)}
+      scrollable
+      title="Filtreler"
+      visible={filterMenuVisible}
     >
-      <View accessibilityRole="radiogroup" style={styles.sourceMenuList}>
-        {SOURCE_FILTERS.map((option) => {
-          const selected = sourceFilter === option.value;
-          const destinationAction = option.value === "yok"
-            ? onOpenYok
-            : option.value === "summer-school"
-              ? onOpenSummerSchool
-              : undefined;
-          return (
-            <View key={option.value} style={[styles.sourceMenuRow, { borderBottomColor: REFERENCE_COLORS.border }]}>
+      <View style={styles.filterMenuContent}>
+        <Text
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.35}
+          style={[theme.typography.bodyStrong, { color: REFERENCE_COLORS.navy }]}
+        >
+          İçerik türü
+        </Text>
+        <View accessibilityRole="radiogroup" style={styles.sourceMenuList}>
+          {CONTENT_FILTERS.map((option) => {
+            const selected = contentTypeFilter === option.value;
+            return (
               <Pressable
-                accessibilityLabel={`${option.label} kaynak filtresi`}
+                accessibilityLabel={`${option.label} içerik türü filtresi`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
-                onPress={() => selectSource(option.value)}
+                key={option.value}
+                onPress={() => selectContentType(option.value)}
                 style={({ pressed }) => [
-                  styles.sourceMenuOption,
+                  styles.filterMenuOption,
+                  { borderBottomColor: REFERENCE_COLORS.border },
                   pressed && { backgroundColor: REFERENCE_COLORS.blueSoft },
                 ]}
               >
-                <Ionicons color={selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.secondary} name={option.icon} size={20} />
-                <Text maxFontSizeMultiplier={1.35} numberOfLines={1} style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}>{option.label}</Text>
+                <Ionicons
+                  color={selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.secondary}
+                  name={option.icon}
+                  size={20}
+                />
+                <Text
+                  maxFontSizeMultiplier={1.35}
+                  numberOfLines={1}
+                  style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}
+                >
+                  {option.label}
+                </Text>
                 {selected ? <Ionicons color={REFERENCE_COLORS.blue} name="checkmark" size={20} /> : null}
               </Pressable>
-              {destinationAction ? (
-                <SourceDestinationButton
-                  accessibilityLabel={`${option.label} sayfasını aç`}
-                  onPress={() => {
-                    setSourceMenuVisible(false);
-                    destinationAction();
-                  }}
-                />
-              ) : null}
-            </View>
-          );
-        })}
+            );
+          })}
+        </View>
+        <Text
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.35}
+          style={[theme.typography.bodyStrong, styles.filterMenuSectionTitle, { color: REFERENCE_COLORS.navy }]}
+        >
+          Kaynaklar
+        </Text>
+        <View accessibilityRole="radiogroup" style={styles.sourceMenuList}>
+          {SOURCE_FILTERS.map((option) => {
+            const selected = sourceFilter === option.value;
+            const destinationAction = option.value === "yok"
+              ? onOpenYok
+              : option.value === "summer-school"
+                ? onOpenSummerSchool
+                : undefined;
+            return (
+              <View key={option.value} style={[styles.sourceMenuRow, { borderBottomColor: REFERENCE_COLORS.border }]}>
+                <Pressable
+                  accessibilityLabel={`${option.label} kaynak filtresi`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => selectSource(option.value)}
+                  style={({ pressed }) => [
+                    styles.sourceMenuOption,
+                    pressed && { backgroundColor: REFERENCE_COLORS.blueSoft },
+                  ]}
+                >
+                  <Ionicons color={selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.secondary} name={option.icon} size={20} />
+                  <Text maxFontSizeMultiplier={1.35} numberOfLines={1} style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}>{option.label}</Text>
+                  {selected ? <Ionicons color={REFERENCE_COLORS.blue} name="checkmark" size={20} /> : null}
+                </Pressable>
+                {destinationAction ? (
+                  <SourceDestinationButton
+                    accessibilityLabel={`${option.label} sayfasını aç`}
+                    onPress={() => {
+                      setFilterMenuVisible(false);
+                      destinationAction();
+                    }}
+                  />
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
       </View>
     </BottomSheet>
     </>
+  );
+}
+
+function AnnouncementArtwork() {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.announcementArtwork}
+    >
+      <View style={styles.artworkHalo}>
+        <Ionicons color={REFERENCE_COLORS.blue} name="megaphone" size={49} />
+      </View>
+      <View style={[styles.artworkRay, styles.artworkRayTop]} />
+      <View style={[styles.artworkRay, styles.artworkRayMiddle]} />
+      <View style={[styles.artworkRay, styles.artworkRayBottom]} />
+      <View style={styles.artworkDot} />
+      <View style={styles.artworkRing} />
+    </View>
   );
 }
 
@@ -530,13 +681,11 @@ function FilterGroup({ title, children }: { title: string; children: ReactNode }
 
 function FilterPill({
   accessibilityLabel,
-  icon,
   label,
   onPress,
   selected,
 }: {
   accessibilityLabel: string;
-  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
   selected: boolean;
@@ -551,25 +700,18 @@ function FilterPill({
       style={({ pressed }) => [
         styles.filterPill,
         {
-          backgroundColor: selected ? REFERENCE_COLORS.blueSoft : REFERENCE_COLORS.background,
+          backgroundColor: selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.background,
           borderColor: selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.border,
           opacity: pressed ? 0.72 : 1,
         },
       ]}
     >
-      <Ionicons
-        accessibilityElementsHidden
-        color={selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.secondary}
-        importantForAccessibility="no-hide-descendants"
-        name={icon}
-        size={17}
-      />
       <Text
         maxFontSizeMultiplier={1.25}
         numberOfLines={1}
         style={[
           theme.typography.metaStrong,
-          { color: selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.secondary },
+          { color: selected ? REFERENCE_COLORS.background : REFERENCE_COLORS.secondary },
         ]}
       >
         {label}
@@ -601,13 +743,16 @@ function SourceDestinationButton({
 function FeedRow({
   item,
   onPress,
+  stacked,
 }: {
   item: ContentFeedItem;
   onPress: (item: ContentFeedItem) => void;
+  stacked: boolean;
 }) {
   const theme = useTheme();
   const record = item.record;
   const scopeLabel = scopeAndSourceLabel(item);
+  const categoryLabel = feedRowCategoryLabel(item);
   const typeLabel = CONTENT_TYPE_LABELS[item.contentType];
   const timeLabel = contentTimestampLabel(record);
   const palette = feedItemPalette(item);
@@ -629,42 +774,23 @@ function FeedRow({
       style={({ pressed }) => [styles.feedRow, pressed && styles.feedRowPressed]}
       testID={`announcement-feed-item-${item.key}`}
     >
-      <View style={styles.feedMetaRow}>
-        <View
-          style={[styles.typeBadge, { backgroundColor: palette.soft }]}
-        >
-          <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[theme.typography.navLabel, { color: palette.accent }]}>{typeLabel}</Text>
-        </View>
-        <View style={styles.sourceIdentity}>
-          <Text
-            maxFontSizeMultiplier={1.25}
-            numberOfLines={1}
-            style={[theme.typography.metaStrong, styles.sourceName, { color: REFERENCE_COLORS.secondary }]}
-          >
-            {record.sourceName}
-          </Text>
-          <Ionicons color={REFERENCE_COLORS.blue} name="checkmark-circle" size={15} />
-        </View>
-        <Text
-          maxFontSizeMultiplier={1.2}
-          numberOfLines={1}
-          style={[theme.typography.meta, styles.timestamp, { color: REFERENCE_COLORS.secondary }]}
-        >
-          {timeLabel}
-        </Text>
-      </View>
-      <View style={styles.feedBodyRow}>
+      <View style={[styles.feedAccent, { backgroundColor: palette.accent }]} />
+      <View style={[styles.feedBodyRow, stacked && styles.feedBodyRowStacked]}>
         <View
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          style={[styles.feedIconTile, { backgroundColor: palette.soft }]}
+          style={[
+            styles.feedIconTile,
+            stacked && styles.feedIconTileLargeText,
+            { backgroundColor: palette.soft },
+          ]}
         >
-          <Ionicons color={palette.accent} name={palette.icon} size={31} />
+          <Ionicons color={palette.accent} name={palette.icon} size={36} />
         </View>
-        <View style={styles.feedCopy}>
+        <View style={[styles.feedCopy, stacked && styles.feedCopyStacked]}>
           <Text
             maxFontSizeMultiplier={1.35}
-            numberOfLines={3}
+            numberOfLines={2}
             style={[theme.typography.cardTitle, styles.feedTitle, { color: REFERENCE_COLORS.navy }]}
           >
             {record.title}
@@ -673,27 +799,38 @@ function FeedRow({
             <Text
               ellipsizeMode="tail"
               maxFontSizeMultiplier={1.3}
-              numberOfLines={3}
+              numberOfLines={2}
               style={[theme.typography.meta, styles.feedSummary, { color: REFERENCE_COLORS.secondary }]}
             >
               {record.summary}
             </Text>
           ) : null}
-          <Text
-            maxFontSizeMultiplier={1.2}
-            numberOfLines={1}
-            style={[theme.typography.navLabel, styles.scopeLabel, { color: palette.accent }]}
-          >
-            {scopeLabel}
-          </Text>
+          <View style={styles.feedMetaRow}>
+            <Ionicons color={REFERENCE_COLORS.secondary} name="calendar-outline" size={15} />
+            <Text
+              maxFontSizeMultiplier={1.2}
+              numberOfLines={1}
+              style={[theme.typography.meta, styles.timestamp, { color: REFERENCE_COLORS.secondary }]}
+            >
+              {timeLabel}
+            </Text>
+          </View>
         </View>
         <View
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          style={styles.feedActions}
+          style={[styles.feedActions, stacked && styles.feedActionsStacked]}
         >
-          <Ionicons color={REFERENCE_COLORS.secondary} name="bookmark-outline" size={20} />
-          <Ionicons color={REFERENCE_COLORS.secondary} name="arrow-redo-outline" size={21} />
+          <View style={[styles.categoryBadge, { backgroundColor: palette.soft }]}>
+            <Text
+              maxFontSizeMultiplier={1.15}
+              numberOfLines={1}
+              style={[theme.typography.navLabel, styles.categoryBadgeLabel, { color: palette.accent }]}
+            >
+              {categoryLabel}
+            </Text>
+          </View>
+          <Ionicons color={REFERENCE_COLORS.secondary} name="chevron-forward" size={22} />
         </View>
       </View>
     </Pressable>
@@ -729,13 +866,27 @@ function scopeAndSourceLabel(item: ContentFeedItem): string {
   return [...familyLabels, scopeLabel].join(" · ");
 }
 
-function AnnouncementReminderBanner({ onPress }: { onPress?: () => void }) {
+function feedRowCategoryLabel(item: ContentFeedItem): string {
+  if (item.sourceFamilies.includes("summer-school")) return "Yaz Okulu";
+  if (item.sourceFamilies.includes("yok")) return "YÖK";
+  return SCOPE_LABELS[item.record.scopeType];
+}
+
+function AnnouncementReminderBanner({
+  preferenceEnabled,
+  onPress,
+}: {
+  preferenceEnabled: boolean;
+  onPress: () => void;
+}) {
   const theme = useTheme();
+  const accessibilityLabel = preferenceEnabled
+    ? "Bildirim tercihin açık ancak bu cihazda etkin değil. Bildirim ayarlarını aç."
+    : "Hiçbir duyuruyu kaçırma. Bildirimleri aç.";
   return (
     <Pressable
-      accessibilityLabel="Hiçbir duyuruyu kaçırma. Bildirimleri aç."
-      accessibilityRole={onPress ? "button" : undefined}
-      disabled={!onPress}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.reminderBanner, pressed && styles.pressed]}
       testID="announcements-reminder-banner"
@@ -752,17 +903,21 @@ function AnnouncementReminderBanner({ onPress }: { onPress?: () => void }) {
           maxFontSizeMultiplier={1.3}
           style={[theme.typography.bodyStrong, styles.reminderTitle, { color: REFERENCE_COLORS.navy }]}
         >
-          Duyurular için bildirim al
+          {preferenceEnabled ? "Bildirim ayarını tamamla" : "Duyurular için bildirim al"}
         </Text>
         <Text
           maxFontSizeMultiplier={1.3}
           numberOfLines={2}
           style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
         >
-          Önemli duyurular için bildirimlerini açmayı unutma.
+          {preferenceEnabled
+            ? "Bildirim tercihin açık; bu cihazda etkinleştirmek için ayarlarını gözden geçir."
+            : "Önemli duyurular için bildirimlerini açmayı unutma."}
         </Text>
         <View style={styles.reminderAction}>
-          <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.blue }]}>Bildirimleri Aç</Text>
+          <Text maxFontSizeMultiplier={1.25} numberOfLines={1} style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.blue }]}>
+            {preferenceEnabled ? "Ayarları Aç" : "Bildirimleri Aç"}
+          </Text>
           <Ionicons color={REFERENCE_COLORS.blue} name="chevron-forward" size={17} />
         </View>
       </View>
@@ -925,34 +1080,160 @@ function paginationFooter({
 }
 
 const styles = StyleSheet.create({
-  clearSearch: {
+  accountAvatar: {
     alignItems: "center",
-    height: 40,
+    backgroundColor: REFERENCE_COLORS.blueSoft,
+    borderColor: referencePalette.academicBlueBorderStrong,
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 48,
     justifyContent: "center",
-    width: 40,
+    width: 48,
   },
   activeFilterDot: {
     borderRadius: 3,
     height: 6,
+    position: "absolute",
+    right: 7,
+    top: 7,
     width: 6,
+  },
+  announcementArtwork: {
+    height: 88,
+    position: "relative",
+    width: 108,
+  },
+  artworkDot: {
+    backgroundColor: REFERENCE_COLORS.blue,
+    borderRadius: 4,
+    height: 8,
+    left: 1,
+    opacity: 0.48,
+    position: "absolute",
+    top: 20,
+    width: 8,
+  },
+  artworkHalo: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.blueSoft,
+    borderRadius: 38,
+    bottom: 3,
+    height: 76,
+    justifyContent: "center",
+    left: 13,
+    position: "absolute",
+    transform: [{ rotate: "-9deg" }],
+    width: 76,
+  },
+  artworkRay: {
+    backgroundColor: REFERENCE_COLORS.blue,
+    borderRadius: 3,
+    height: 4,
+    position: "absolute",
+    right: 1,
+    width: 18,
+  },
+  artworkRayBottom: {
+    bottom: 15,
+    transform: [{ rotate: "20deg" }],
+  },
+  artworkRayMiddle: {
+    top: 40,
+  },
+  artworkRayTop: {
+    top: 21,
+    transform: [{ rotate: "-24deg" }],
+  },
+  artworkRing: {
+    borderColor: REFERENCE_COLORS.orange,
+    borderRadius: 12,
+    borderWidth: 3,
+    bottom: 5,
+    height: 23,
+    left: 0,
+    opacity: 0.35,
+    position: "absolute",
+    width: 23,
+  },
+  brandBar: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 50,
+  },
+  brandCopy: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  brandIdentity: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 10,
+    minWidth: 0,
+  },
+  brandLogo: {
+    height: 46,
+    width: 46,
+  },
+  brandName: {
+    color: REFERENCE_COLORS.navy,
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  brandNameAccent: {
+    color: REFERENCE_COLORS.blue,
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  clearSearch: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  feedAccent: {
+    borderBottomLeftRadius: 20,
+    borderTopLeftRadius: 20,
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    top: 0,
+    width: 5,
   },
   feedActions: {
     alignItems: "center",
-    gap: 14,
+    gap: 12,
+    justifyContent: "center",
+    width: 82,
+  },
+  feedActionsStacked: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
     justifyContent: "flex-end",
-    paddingBottom: 2,
-    width: 24,
+    paddingLeft: 74,
+    width: "100%",
   },
   feedBodyRow: {
-    alignItems: "stretch",
+    alignItems: "center",
     flexDirection: "row",
-    gap: 12,
+    gap: 11,
     minWidth: 0,
+  },
+  feedBodyRowStacked: {
+    alignItems: "flex-start",
+    flexWrap: "wrap",
   },
   feedCopy: {
     flex: 1,
-    gap: 4,
+    gap: 3,
     minWidth: 0,
+  },
+  feedCopyStacked: {
+    flexBasis: 165,
   },
   feedFooter: {
     gap: 14,
@@ -960,50 +1241,85 @@ const styles = StyleSheet.create({
   },
   feedIconTile: {
     alignItems: "center",
-    borderRadius: 16,
+    borderRadius: 34,
+    height: 68,
     justifyContent: "center",
-    minHeight: 76,
-    width: 62,
+    width: 68,
+  },
+  feedIconTileLargeText: {
+    borderRadius: 32,
+    height: 64,
+    width: 64,
   },
   feedMetaRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
     minWidth: 0,
   },
   feedRow: {
-    borderBottomColor: REFERENCE_COLORS.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 10,
-    minHeight: 132,
-    paddingVertical: 16,
+    backgroundColor: REFERENCE_COLORS.background,
+    borderColor: REFERENCE_COLORS.border,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 3,
+    marginBottom: 10,
+    minHeight: 112,
+    paddingBottom: 11,
+    paddingLeft: 14,
+    paddingRight: 10,
+    paddingTop: 11,
+    position: "relative",
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 5, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 13,
   },
   feedRowPressed: {
     backgroundColor: REFERENCE_COLORS.blueSoft,
   },
   feedSummary: {
-    lineHeight: 19,
+    lineHeight: 17,
   },
   feedTitle: {
     fontSize: 16,
-    lineHeight: 22,
+    lineHeight: 20,
   },
   filterGroup: {
     minWidth: 0,
   },
+  filterMenuButton: {
+    alignItems: "center",
+    borderRadius: 24,
+    height: 48,
+    justifyContent: "center",
+    position: "relative",
+    width: 48,
+  },
+  filterMenuContent: {
+    gap: 4,
+    minHeight: 0,
+  },
+  filterMenuOption: {
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 52,
+    minWidth: 0,
+    paddingHorizontal: 8,
+  },
+  filterMenuSectionTitle: {
+    marginTop: 12,
+  },
   filterPill: {
     alignItems: "center",
-    borderRadius: 8,
+    borderRadius: 24,
     borderWidth: 1,
     flexDirection: "row",
     gap: 7,
-    minHeight: 44,
-    paddingHorizontal: 13,
-  },
-  filterRail: {
-    alignItems: "center",
-    gap: 8,
-    paddingRight: 12,
+    minHeight: 48,
+    paddingHorizontal: 14,
   },
   flexibleText: {
     flex: 1,
@@ -1012,7 +1328,28 @@ const styles = StyleSheet.create({
   },
   header: {
     minWidth: 0,
-    paddingBottom: 2,
+    paddingBottom: 10,
+  },
+  headerLargeText: {
+    gap: 12,
+  },
+  headerStandardText: {
+    gap: 9,
+  },
+  headerActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
+  },
+  heroCopy: {
+    flex: 1,
+    gap: 6,
+    minWidth: 0,
+  },
+  heroHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: 88,
   },
   listContent: {
     flexGrow: 1,
@@ -1029,16 +1366,15 @@ const styles = StyleSheet.create({
     minHeight: 64,
   },
   pageTitle: {
-    flex: 1,
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: 34,
+    fontWeight: "800",
+    lineHeight: 40,
     textAlign: "left",
   },
-  pageTitleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
+  pageSubtitle: {
+    fontSize: 16,
+    lineHeight: 23,
+    maxWidth: 410,
   },
   pressed: {
     opacity: 0.65,
@@ -1051,19 +1387,25 @@ const styles = StyleSheet.create({
   },
   reminderBanner: {
     alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.background,
     borderColor: referencePalette.academicBorderBlueMuted,
-    borderRadius: 8,
+    borderRadius: 18,
     borderWidth: 1,
+    elevation: 2,
     flexDirection: "row",
     gap: 12,
     minHeight: 96,
     overflow: "hidden",
     paddingHorizontal: 14,
     paddingVertical: 13,
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
   },
   reminderIcon: {
     alignItems: "center",
-    borderRadius: 8,
+    borderRadius: 24,
     height: 48,
     justifyContent: "center",
     width: 48,
@@ -1077,41 +1419,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
   },
-  notificationDot: {
-    backgroundColor: REFERENCE_COLORS.blue,
-    borderColor: REFERENCE_COLORS.background,
-    borderRadius: 5,
-    borderWidth: 2,
-    height: 10,
-    position: "absolute",
-    right: 1,
-    top: 1,
-    width: 10,
-  },
   notificationGlyph: {
     alignItems: "center",
-    height: 44,
+    height: 48,
     justifyContent: "center",
-    width: 44,
+    width: 48,
   },
-  scopeLabel: {
-    marginTop: 2,
+  scopeRail: {
+    alignItems: "center",
+    gap: 8,
+    paddingRight: 12,
   },
   searchFrame: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.background,
     borderColor: REFERENCE_COLORS.border,
-    borderRadius: 10,
+    borderRadius: 17,
     borderWidth: 1,
+    elevation: 2,
     flexDirection: "row",
-    minHeight: 58,
+    minHeight: 52,
     paddingLeft: 16,
     paddingRight: 7,
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
   },
   searchInput: {
     color: REFERENCE_COLORS.navy,
     flex: 1,
-    minHeight: 56,
+    minHeight: 48,
     minWidth: 0,
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -1122,23 +1460,10 @@ const styles = StyleSheet.create({
   sourceDestinationButton: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.blueSoft,
-    borderRadius: 8,
-    height: 36,
+    borderRadius: 24,
+    height: 48,
     justifyContent: "center",
-    width: 36,
-  },
-  sourceFilterButton: {
-    alignItems: "center",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    minHeight: 52,
-    paddingHorizontal: 12,
-  },
-  sourceFilterCopy: {
-    flex: 1,
-    minWidth: 0,
+    width: 48,
   },
   sourceMenuList: {
     minHeight: 0,
@@ -1158,28 +1483,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     minHeight: 52,
   },
-  sourceIdentity: {
-    alignItems: "center",
-    flex: 1,
-    flexDirection: "row",
-    gap: 4,
-    minWidth: 0,
-  },
-  sourceName: {
-    flexShrink: 1,
-    minWidth: 0,
-  },
   timestamp: {
+    flex: 1,
     flexShrink: 1,
-    maxWidth: 118,
-    textAlign: "right",
+    minWidth: 0,
   },
-  typeBadge: {
+  categoryBadge: {
     alignItems: "center",
-    borderRadius: 12,
+    borderRadius: 14,
     justifyContent: "center",
-    paddingHorizontal: 10,
+    maxWidth: 82,
+    minHeight: 28,
+    paddingHorizontal: 9,
     paddingVertical: 5,
+  },
+  categoryBadgeLabel: {
+    flexShrink: 1,
   },
   visuallyHidden: {
     height: 1,

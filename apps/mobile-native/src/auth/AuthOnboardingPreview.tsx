@@ -21,8 +21,10 @@ import {
   type AuthFeedback,
   type AuthTiming,
 } from "./AuthScreens";
+import { PreLoginWelcomeScreen } from "./PreLoginWelcomeScreen";
 
 export type AuthOnboardingPreviewScenario =
+  | "welcome"
   | "login"
   | "login-loading"
   | "login-error"
@@ -53,6 +55,7 @@ const SYNTHETIC_EMAIL = "ogrenci@phase6.invalid";
 const SYNTHETIC_PASSWORD = "Phase6-Parola1";
 const SYNTHETIC_VERIFICATION_CODE = "4242";
 const SYNTHETIC_RECOVERY_CODE = "616161";
+const NOOP = () => undefined;
 
 const ACTIVE_TIMING: AuthTiming = {
   expired: false,
@@ -104,6 +107,7 @@ const INITIAL_ACADEMIC_DRAFT: AcademicOnboardingScreenProps["initialDraft"] = {
 };
 
 const SCENARIOS: readonly PreviewScenarioDefinition[] = [
+  { id: "welcome", controlLabel: "Tanıtım", evidenceLabel: "tanıtım" },
   { id: "login", controlLabel: "Giriş", evidenceLabel: "giriş" },
   {
     id: "login-loading",
@@ -264,6 +268,10 @@ function AuthOnboardingPreviewContent({
     setClassLevel: (value) => setDraft((current) => ({ ...current, classLevel: value })),
   });
 
+  if (scenario === "welcome") {
+    return scenarioScreen;
+  }
+
   if (!showScenarioControls) {
     return (
       <Screen
@@ -349,6 +357,10 @@ interface ScenarioRenderInput {
 }
 
 function renderScenario(input: ScenarioRenderInput): ReactNode {
+  if (input.scenario === "welcome") {
+    return <PreLoginWelcomeScreen onContinue={NOOP} />;
+  }
+
   const loginFeedback: AuthFeedback | null = input.scenario === "login-error"
     ? { tone: "error", text: "phase6.invalid sentetik giriş hatası." }
     : input.scenario === "recovery-success"

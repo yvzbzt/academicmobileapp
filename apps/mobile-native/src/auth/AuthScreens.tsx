@@ -1,10 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  Animated,
   Alert,
   BackHandler,
   Image,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -25,7 +25,6 @@ import {
   authScreenColors,
   referencePalette,
   usePlatformAdaptation,
-  useReducedMotion,
   useTheme,
   type FeedbackTone,
 } from "../design-system";
@@ -78,6 +77,7 @@ interface AuthScaffoldProps {
 }
 
 interface AuthViewportMetrics {
+  largeText: boolean;
   safeHeight: number;
   safeWidth: number;
   short: boolean;
@@ -85,6 +85,7 @@ interface AuthViewportMetrics {
 
 const SHORT_AUTH_VIEWPORT_HEIGHT = 620;
 const SHORT_LOGIN_CONTENT_MIN_HEIGHT = 620;
+const LARGE_AUTH_FONT_SCALE = 1.3;
 
 function useAuthViewportMetrics(): AuthViewportMetrics {
   const window = useWindowDimensions();
@@ -102,11 +103,15 @@ function useAuthViewportMetrics(): AuthViewportMetrics {
     0,
     viewportWidth - safeAreaInsets.left - safeAreaInsets.right,
   );
+  const largeText = window.fontScale > LARGE_AUTH_FONT_SCALE;
 
   return {
+    largeText,
     safeHeight,
     safeWidth,
-    short: safeHeight < SHORT_AUTH_VIEWPORT_HEIGHT,
+    short:
+      safeHeight < SHORT_AUTH_VIEWPORT_HEIGHT ||
+      largeText,
   };
 }
 
@@ -130,6 +135,7 @@ function ShortAuthViewportScroll({
       keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
       keyboardShouldPersistTaps="handled"
       nestedScrollEnabled
+      onScrollBeginDrag={Platform.OS === "android" ? Keyboard.dismiss : undefined}
       showsVerticalScrollIndicator={false}
       style={styles.shortViewportScroll}
       testID={testID}
@@ -198,30 +204,19 @@ export function resolveLoginViewportLayout(safeViewportHeight: number): LoginVie
 }
 
 const LOGIN_FORM_COLORS = {
-  fieldIcon: authScreenColors.fieldIcon,
+  fieldIcon: referencePalette.academicBlue,
   fieldIconSurface: authScreenColors.fieldIconSurface,
   fieldSurface: referencePalette.white,
   googleBorder: authScreenColors.googleBorder,
   googleSurface: referencePalette.white,
-  link: authScreenColors.fieldIcon,
+  link: referencePalette.academicBlue,
   primary: referencePalette.academicBlue,
   primaryBorder: referencePalette.academicBlueDeep,
   sheetSurface: referencePalette.white,
 } as const;
 
 const academicCalendarLogo = require("../../assets/design-package/academic-calendar-logo.png");
-
-const LOGIN_SOCIAL_ICONS = [
-  { name: "globe-outline", color: authScreenColors.socialIcon, surface: authScreenColors.socialSurface, border: authScreenColors.socialBorder },
-  { name: "logo-instagram", color: authScreenColors.socialIcon, surface: authScreenColors.socialSurface, border: authScreenColors.socialBorder },
-  { name: "logo-linkedin", color: authScreenColors.socialIcon, surface: authScreenColors.socialSurface, border: authScreenColors.socialBorder },
-  { name: "logo-youtube", color: authScreenColors.socialIcon, surface: authScreenColors.socialSurface, border: authScreenColors.socialBorder },
-] as const satisfies readonly {
-  name: keyof typeof Ionicons.glyphMap;
-  color: string;
-  surface: string;
-  border: string;
-}[];
+const loginHeroArtwork = require("../../assets/auth-campus-login-reference-v4.png");
 
 function LoginFieldIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
   return (
@@ -243,7 +238,7 @@ function AuthScaffold({
   const theme = useTheme();
   const viewport = useAuthViewportMetrics();
   const loginLayout = resolveLoginViewportLayout(viewport.safeHeight);
-  const showHeroDescription = Boolean(description.trim()) && !feedback;
+  const showHeroDescription = Boolean(description.trim());
 
   if (hero) {
     const heroContent = (
@@ -271,7 +266,7 @@ function AuthScaffold({
               borderColor: theme.colors.border.subtle,
               borderRadius: 0,
               height: loginLayout.heroHeight,
-              marginTop: loginLayout.compact ? 6 : 10,
+              marginTop: 0,
             },
           ]}
         >
@@ -279,10 +274,41 @@ function AuthScaffold({
             accessibilityIgnoresInvertColors
             accessibilityLabel="Kampüste akademik hayat"
             resizeMode="cover"
-            source={require("../../assets/auth-campus-login-v3.png")}
+            source={loginHeroArtwork}
             style={styles.heroImage}
           />
         </View>
+
+        {feedback ? (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.heroFeedbackOverlay,
+              {
+                paddingHorizontal: loginLayout.sheetPadding,
+                top: loginLayout.compact ? 8 : 12,
+              },
+            ]}
+            testID="login-feedback-overlay"
+          >
+            <Banner
+              message={viewport.short ? undefined : feedback.text}
+              onDismiss={onDismissFeedback}
+              style={[
+                styles.heroFeedbackBanner,
+                viewport.short && styles.authFeedbackCompact,
+              ]}
+              title={viewport.short
+                ? feedback.text
+                : feedback.tone === "error"
+                  ? "İşlem tamamlanamadı"
+                  : feedback.tone === "success"
+                    ? "Tamamlandı"
+                    : "Bilgi"}
+              tone={feedback.tone}
+            />
+          </View>
+        ) : null}
 
         <View
           accessibilityLabel={`${title} formu`}
@@ -290,9 +316,13 @@ function AuthScaffold({
             styles.heroSheet,
             {
               backgroundColor: LOGIN_FORM_COLORS.sheetSurface,
+              borderTopColor: theme.colors.border.subtle,
+              borderTopWidth: StyleSheet.hairlineWidth,
               flex: 1,
-              marginTop: 0,
-              padding: loginLayout.sheetPadding,
+              marginTop: loginLayout.compact ? -30 : -34,
+              paddingBottom: loginLayout.compact ? 8 : 14,
+              paddingHorizontal: loginLayout.sheetPadding,
+              paddingTop: loginLayout.compact ? 18 : 28,
             },
             viewport.short && styles.heroSheetShort,
           ]}
@@ -302,24 +332,25 @@ function AuthScaffold({
             style={[
               styles.loginCenteredContent,
               {
-                gap: loginLayout.sheetGap,
-                paddingBottom: loginLayout.compact ? theme.spacing.sm : theme.spacing.xl,
+                gap: loginLayout.compact ? 4 : 8,
+                paddingBottom: 4,
                 transform: [{
                   translateY: viewport.short
                     ? 0
                     : loginLayout.compact
-                      ? -10
-                      : -28,
+                      ? -4
+                      : -16,
                 }],
               },
               viewport.short && styles.loginCenteredContentShort,
             ]}
+            testID="login-form-content"
           >
             <View
               style={[
                 styles.heroIdentity,
                 {
-                  gap: loginLayout.compact ? theme.spacing.xxs : theme.spacing.xs,
+                  gap: theme.spacing.xxs,
                   marginBottom: 0,
                 },
               ]}
@@ -329,7 +360,13 @@ function AuthScaffold({
                   {eyebrow}
                 </Text>
               ) : null}
-              <View style={styles.loginBrandRow}>
+              <View
+                style={[
+                  styles.loginBrandRow,
+                  viewport.largeText && styles.loginBrandRowLargeText,
+                ]}
+                testID="login-brand-lockup"
+              >
                 <Image
                   accessibilityIgnoresInvertColors
                   accessibilityLabel="Akademik Takvim logosu"
@@ -342,12 +379,14 @@ function AuthScaffold({
                 />
                 <Text
                   accessibilityRole="header"
+                  accessibilityLabel={title}
                   maxFontSizeMultiplier={1.3}
-                  numberOfLines={1}
+                  numberOfLines={2}
                   testID="auth-hero-title"
                   style={[
                     theme.typography.screenTitle,
                     styles.heroTitle,
+                    viewport.largeText && styles.heroTitleLargeText,
                     {
                       color: theme.colors.text.primary,
                       fontSize: loginLayout.titleFontSize,
@@ -355,88 +394,55 @@ function AuthScaffold({
                     },
                   ]}
                 >
-                  {title}
+                  {title === "Akademik Takvim" ? (
+                    <>
+                      Akademik{"\n"}
+                      <Text style={styles.heroTitleAccent}>Takvim</Text>
+                    </>
+                  ) : title}
                 </Text>
               </View>
               {showHeroDescription ? (
-                <Text
-                  maxFontSizeMultiplier={1.2}
-                  style={[
-                    theme.typography.body,
-                    styles.heroDescription,
-                    loginLayout.compact && styles.heroDescriptionCompact,
-                    { color: theme.colors.text.secondary },
-                  ]}
-                >
-                  {description}
-                </Text>
+                <>
+                  <Text
+                    maxFontSizeMultiplier={1.2}
+                    style={[
+                      theme.typography.body,
+                      styles.heroDescription,
+                      loginLayout.compact && styles.heroDescriptionCompact,
+                      { color: theme.colors.text.secondary },
+                    ]}
+                  >
+                    {description}
+                  </Text>
+                  <View
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    style={styles.heroDescriptionUnderline}
+                  />
+                </>
               ) : null}
             </View>
 
-            {feedback ? (
-              <Banner
-                message={viewport.short ? undefined : feedback.text}
-                onDismiss={onDismissFeedback}
-                style={viewport.short ? styles.authFeedbackCompact : undefined}
-                title={viewport.short
-                  ? feedback.text
-                  : feedback.tone === "error"
-                    ? "İşlem tamamlanamadı"
-                    : feedback.tone === "success"
-                      ? "Tamamlandı"
-                      : "Bilgi"}
-                tone={feedback.tone}
-              />
-            ) : null}
-
             {children}
-          </View>
-
-          <View
-            accessible
-            accessibilityLabel="Sosyal medya kanalları"
-            style={[styles.loginFooter, { gap: loginLayout.socialGap }]}
-            testID="login-brand-footer"
-          >
-            <View style={[styles.loginSocialPool, { gap: theme.spacing.sm }]}>
-              {LOGIN_SOCIAL_ICONS.map((icon) => (
-                <View
-                  key={icon.name}
-                  accessibilityElementsHidden
-                  importantForAccessibility="no-hide-descendants"
-                  style={[
-                    styles.loginSocialIcon,
-                    {
-                      backgroundColor: icon.surface,
-                      borderColor: icon.border,
-                      borderRadius: theme.radii.pill,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    color={icon.color}
-                    name={icon.name}
-                    size={loginLayout.iconSize}
-                  />
-                </View>
-              ))}
-            </View>
           </View>
         </View>
       </View>
     );
 
-    return viewport.short ? (
+    return (
       <ShortAuthViewportScroll
         minContentHeight={Math.max(
           viewport.safeHeight,
           SHORT_LOGIN_CONTENT_MIN_HEIGHT,
         )}
-        testID="auth-short-viewport-scroll-login"
+        testID={viewport.short
+          ? "auth-short-viewport-scroll-login"
+          : "auth-login-scroll"}
       >
         {heroContent}
       </ShortAuthViewportScroll>
-    ) : heroContent;
+    );
   }
 
   const formContent = (
@@ -524,6 +530,7 @@ export interface LoginScreenProps {
 
 export function LoginScreen(props: LoginScreenProps) {
   const theme = useTheme();
+  const viewport = useAuthViewportMetrics();
   const [attempted, setAttempted] = useState(false);
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
@@ -540,12 +547,13 @@ export function LoginScreen(props: LoginScreenProps) {
       passwordRef.current?.focus();
       return;
     }
+    Keyboard.dismiss();
     props.onSubmit();
   }
 
   return (
     <AuthScaffold
-      description=""
+      description="Üniversite hayatını planla, zamanı verimli kullan."
       feedback={props.feedback}
       hero
       onDismissFeedback={props.onDismissFeedback}
@@ -558,7 +566,7 @@ export function LoginScreen(props: LoginScreenProps) {
         blurOnSubmit={false}
         disabled={interactionBusy}
         error={attempted ? validation.errors.email : undefined}
-        frameStyle={styles.loginInputFrame}
+        frameStyle={[styles.loginInputFrame, styles.loginPillField]}
         keyboardType="email-address"
         label="E-posta adresi"
         labelVisuallyHidden
@@ -577,7 +585,7 @@ export function LoginScreen(props: LoginScreenProps) {
         autoComplete="password"
         disabled={interactionBusy}
         error={attempted ? validation.errors.password : undefined}
-        frameStyle={styles.loginInputFrame}
+        frameStyle={[styles.loginInputFrame, styles.loginPillField]}
         ref={passwordRef}
         label="Şifre"
         labelVisuallyHidden
@@ -618,7 +626,10 @@ export function LoginScreen(props: LoginScreenProps) {
           leadingIcon={<GoogleColorMark />}
           loading={props.googleBusy}
           maxFontSizeMultiplier={1.2}
-          onPress={props.onGoogleSubmit}
+          onPress={() => {
+            Keyboard.dismiss();
+            props.onGoogleSubmit();
+          }}
           style={[
             styles.loginPillButton,
             !(props.busy || props.googleBusy || props.appleBusy) && styles.loginGoogleButton,
@@ -629,23 +640,40 @@ export function LoginScreen(props: LoginScreenProps) {
       ) : (
         <Banner message={props.googleUnavailableMessage} title="Google girişi kullanılamıyor" tone="info" />
       )}
-      <View style={[styles.loginLinks, { gap: theme.spacing.xs }]}>
+      <View
+        style={[
+          styles.loginLinks,
+          { gap: theme.spacing.xs },
+          viewport.largeText && styles.loginLinksLargeText,
+        ]}
+        testID="login-link-row"
+      >
         <Button
           compact
           disabled={interactionBusy}
+          fullWidth={viewport.largeText}
           label="Şifremi unuttum"
           labelStyle={!interactionBusy && styles.loginLinkLabel}
+          leadingIcon={!interactionBusy ? <Ionicons color={LOGIN_FORM_COLORS.link} name="lock-closed-outline" size={17} /> : undefined}
           maxFontSizeMultiplier={1.2}
-          onPress={props.onForgotPassword}
+          onPress={() => {
+            Keyboard.dismiss();
+            props.onForgotPassword();
+          }}
           variant="ghost"
         />
         <Button
           compact
           disabled={interactionBusy}
+          fullWidth={viewport.largeText}
           label="Kayıt ol"
           labelStyle={!interactionBusy && styles.loginLinkLabel}
+          leadingIcon={!interactionBusy ? <Ionicons color={LOGIN_FORM_COLORS.link} name="person-add-outline" size={18} /> : undefined}
           maxFontSizeMultiplier={1.2}
-          onPress={props.onRegister}
+          onPress={() => {
+            Keyboard.dismiss();
+            props.onRegister();
+          }}
           variant="ghost"
         />
       </View>
@@ -688,6 +716,7 @@ export interface RegistrationScreenProps {
 export function RegistrationScreen(props: RegistrationScreenProps) {
   const theme = useTheme();
   const viewport = useAuthViewportMetrics();
+  const registrationCompact = viewport.safeHeight < 900 || viewport.safeWidth < 380;
   const [attempted, setAttempted] = useState(false);
   const nameRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
@@ -696,6 +725,8 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
   const [legalAccepted, setLegalAccepted] = useState(false);
   const [legalAttempted, setLegalAttempted] = useState(false);
   const validation = validateRegistrationForm(props);
+  const fullNameValid = Boolean(props.fullName.trim()) && !validation.errors.fullName;
+  const emailValid = Boolean(props.email.trim()) && !validation.errors.email;
   const passwordRuleText = `En az ${AUTH_PASSWORD_MIN_LENGTH} karakter; büyük/küçük harf, rakam ve özel karakter gruplarından en az ${AUTH_PASSWORD_REQUIRED_CHARACTER_GROUPS} tanesi.`;
 
   function submit() {
@@ -708,7 +739,11 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
       else confirmationRef.current?.focus();
       return;
     }
-    if (!legalAccepted) return;
+    if (!legalAccepted) {
+      Keyboard.dismiss();
+      return;
+    }
+    Keyboard.dismiss();
     props.onSubmit();
   }
 
@@ -718,7 +753,9 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
         styles.registrationScreen,
         {
           gap: theme.spacing.sm,
+          justifyContent: viewport.safeHeight >= 1000 ? "center" : "flex-start",
         },
+        registrationCompact && styles.registrationScreenCompact,
       ]}
     >
       <View style={styles.registrationBrandBar}>
@@ -727,7 +764,10 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           accessibilityRole="button"
           disabled={props.busy}
           hitSlop={8}
-          onPress={props.onLogin}
+          onPress={() => {
+            Keyboard.dismiss();
+            props.onLogin();
+          }}
           style={({ pressed }) => [
             styles.registrationBackButton,
             pressed && styles.authControlPressed,
@@ -743,11 +783,14 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
             accessibilityIgnoresInvertColors
             resizeMode="contain"
             source={academicCalendarLogo}
-            style={styles.registrationBrandLogo}
+            style={[
+              styles.registrationBrandLogo,
+              registrationCompact && styles.registrationBrandLogoCompact,
+            ]}
           />
           <Text
             maxFontSizeMultiplier={1.15}
-            numberOfLines={1}
+            numberOfLines={2}
             style={[theme.typography.bodyStrong, styles.registrationBrandTitle]}
           >
             Akademik Takvim
@@ -757,16 +800,35 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
       </View>
 
       <View style={[styles.registrationHeader, { gap: theme.spacing.xxs }]}>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={styles.registrationHeaderSparkle}
+        >
+          <Ionicons
+            color={referencePalette.academicBlue}
+            name="sparkles-outline"
+            size={20}
+          />
+        </View>
         <Text
           accessibilityRole="header"
           maxFontSizeMultiplier={1.2}
-          style={[theme.typography.screenTitle, styles.registrationTitle]}
+          style={[
+            theme.typography.screenTitle,
+            styles.registrationTitle,
+            registrationCompact && styles.registrationTitleCompact,
+          ]}
         >
           Hesabını oluştur
         </Text>
         <Text
           maxFontSizeMultiplier={1.15}
-          style={[theme.typography.body, { color: theme.colors.text.secondary }]}
+          style={[
+            theme.typography.body,
+            styles.registrationDescription,
+            { color: theme.colors.text.secondary },
+          ]}
         >
           Öğrenci hesabın için gerekli bilgileri doldur.
         </Text>
@@ -785,6 +847,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
         accessibilityLabel="Hesap oluşturma formu"
         style={[
           styles.registrationForm,
+          !registrationCompact && styles.registrationFormSpacious,
           {
             gap: theme.spacing.sm,
           },
@@ -799,6 +862,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           error={attempted ? validation.errors.fullName : undefined}
           frameStyle={styles.registrationInputFrame}
           leadingAccessory={<AuthFieldIcon name="person-outline" />}
+          trailingAccessory={fullNameValid ? <RegistrationValidAccessory /> : undefined}
           ref={nameRef}
           label="Ad soyad"
           onChangeText={props.onFullNameChange}
@@ -818,6 +882,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           error={attempted ? validation.errors.email : undefined}
           frameStyle={styles.registrationInputFrame}
           leadingAccessory={<AuthFieldIcon name="mail-outline" />}
+          trailingAccessory={emailValid ? <RegistrationValidAccessory /> : undefined}
           ref={emailRef}
           keyboardType="email-address"
           label="E-posta adresi"
@@ -889,25 +954,38 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
         loading={props.busy}
         onPress={submit}
         style={[
+          styles.loginPillButton,
+          styles.registrationPrimaryButton,
           !props.busy && styles.loginPrimaryButton,
         ]}
         trailingIcon={<Ionicons color={referencePalette.white} name="arrow-forward" size={23} />}
       />
       <View style={[styles.accountSwitch, { gap: theme.spacing.xs }]}>
         <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>Zaten hesabın var mı?</Text>
-        <Button compact disabled={props.busy} label="Giriş yap" onPress={props.onLogin} variant="ghost" />
+        <Button
+          compact
+          disabled={props.busy}
+          label="Giriş yap"
+          onPress={() => {
+            Keyboard.dismiss();
+            props.onLogin();
+          }}
+          variant="ghost"
+        />
       </View>
     </View>
   );
 
-  return viewport.short ? (
+  return (
     <ShortAuthViewportScroll
       minContentHeight={viewport.safeHeight}
-      testID="auth-short-viewport-scroll-registration"
+      testID={viewport.short
+        ? "auth-short-viewport-scroll-registration"
+        : "auth-registration-scroll"}
     >
       {registrationContent}
     </ShortAuthViewportScroll>
-  ) : registrationContent;
+  );
 }
 
 type PasswordStrengthLevel = 1 | 2 | 3 | 4;
@@ -941,39 +1019,10 @@ function PasswordStrengthMeter({
   ruleText: string;
 }) {
   const theme = useTheme();
-  const reducedMotion = useReducedMotion();
-  const progress = useRef(new Animated.Value(0)).current;
   const level = password ? passwordStrengthLevel(password) : 0;
-
-  useEffect(() => {
-    if (reducedMotion) {
-      return undefined;
-    }
-    const animation = Animated.timing(progress, {
-      duration: 200,
-      toValue: level,
-      useNativeDriver: false,
-    });
-    animation.start();
-    return () => animation.stop();
-  }, [level, progress, reducedMotion]);
 
   if (!password) return null;
 
-  const fillWidth = progress.interpolate({
-    inputRange: [0, 1, 2, 3, 4],
-    outputRange: ["0%", "25%", "50%", "75%", "100%"],
-  });
-  const fillColor = progress.interpolate({
-    inputRange: [0, 1, 2, 3, 4],
-    outputRange: [
-      authScreenColors.passwordWeak,
-      authScreenColors.passwordWeak,
-      authScreenColors.passwordMedium,
-      authScreenColors.passwordGood,
-      authScreenColors.passwordStrong,
-    ],
-  });
   const strengthLabel = PASSWORD_STRENGTH_LABELS[level as PasswordStrengthLevel];
   const staticFillColor = level === 1
     ? authScreenColors.passwordWeak
@@ -982,7 +1031,14 @@ function PasswordStrengthMeter({
       : level === 3
         ? authScreenColors.passwordGood
         : authScreenColors.passwordStrong;
-  const staticFillWidth = `${level * 25}%` as `${number}%`;
+  const activeSegmentCount = level === 1 ? 1 : level === 2 ? 3 : level === 3 ? 5 : 6;
+  const labelColor = level === 1
+    ? authScreenColors.passwordWeakText
+    : level === 2
+      ? authScreenColors.passwordMediumText
+      : level === 3
+        ? authScreenColors.passwordGoodText
+        : authScreenColors.passwordStrongText;
 
   return (
     <View
@@ -991,49 +1047,41 @@ function PasswordStrengthMeter({
       style={styles.passwordStrength}
       testID="registration-password-strength"
     >
-      <View style={styles.passwordStrengthTrack}>
-        {reducedMotion ? (
-          <View
+      <View style={styles.passwordStrengthVisualRow}>
+        <View style={styles.passwordStrengthSegments}>
+          {Array.from({ length: 6 }, (_, segmentIndex) => (
+            <View
+              key={`password-strength-${segmentIndex}`}
+              style={[
+                styles.passwordStrengthSegment,
+                {
+                  backgroundColor: segmentIndex < activeSegmentCount
+                    ? staticFillColor
+                    : authScreenColors.disabledSurface,
+                },
+              ]}
+            />
+          ))}
+        </View>
+        <View style={styles.passwordStrengthStatus}>
+          <Ionicons color={labelColor} name="shield-checkmark" size={17} />
+          <Text
+            maxFontSizeMultiplier={1.15}
             style={[
-              styles.passwordStrengthFill,
-              { backgroundColor: staticFillColor, width: staticFillWidth },
+              theme.typography.label,
+              styles.passwordStrengthLabel,
+              { color: labelColor },
             ]}
-          />
-        ) : (
-          <Animated.View
-            style={[
-              styles.passwordStrengthFill,
-              { backgroundColor: fillColor, width: fillWidth },
-            ]}
-          />
-        )}
-        <View style={[styles.passwordStrengthDivider, { left: "25%" }]} />
-        <View style={[styles.passwordStrengthDivider, { left: "50%" }]} />
-        <View style={[styles.passwordStrengthDivider, { left: "75%" }]} />
+          >
+            {strengthLabel}
+          </Text>
+        </View>
       </View>
       <Text
         maxFontSizeMultiplier={1.15}
         style={[theme.typography.meta, styles.passwordRuleText, { color: theme.colors.text.secondary }]}
       >
         {ruleText}
-      </Text>
-      <Text
-        maxFontSizeMultiplier={1.15}
-        style={[
-          theme.typography.label,
-          styles.passwordStrengthLabel,
-          {
-            color: level === 1
-              ? authScreenColors.passwordWeakText
-              : level === 2
-                ? authScreenColors.passwordMediumText
-                : level === 3
-                  ? authScreenColors.passwordGoodText
-                  : authScreenColors.passwordStrongText,
-          },
-        ]}
-      >
-        {strengthLabel}
       </Text>
     </View>
   );
@@ -1109,6 +1157,22 @@ function AuthFieldIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
   return (
     <View style={[styles.authFieldIcon, { backgroundColor: LOGIN_FORM_COLORS.fieldIconSurface, borderRadius: theme.radii.control }]}>
       <Ionicons color={LOGIN_FORM_COLORS.fieldIcon} name={name} size={19} />
+    </View>
+  );
+}
+
+function RegistrationValidAccessory() {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.registrationValidAccessory}
+    >
+      <Ionicons
+        color={referencePalette.academicGreen}
+        name="checkmark-circle-outline"
+        size={24}
+      />
     </View>
   );
 }
@@ -1696,21 +1760,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     maxWidth: "100%",
   },
+  loginBrandRowLargeText: {
+    flexDirection: "column",
+    gap: 4,
+    width: "100%",
+  },
   loginBrandLogo: {
-    height: 62,
-    width: 62,
+    height: 64,
+    width: 64,
   },
   loginBrandLogoCompact: {
-    height: 48,
-    width: 48,
+    height: 50,
+    width: 50,
   },
   heroScreenStack: {
     alignSelf: "stretch",
+    backgroundColor: LOGIN_FORM_COLORS.sheetSurface,
     minHeight: 0,
     width: "auto",
   },
   heroFrame: {
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 0,
     overflow: "hidden",
     width: "100%",
   },
@@ -1719,17 +1789,37 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   heroSheet: {
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    elevation: 0,
     justifyContent: "space-between",
     minHeight: 0,
-    overflow: "hidden",
+    overflow: "visible",
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    zIndex: 2,
+  },
+  heroFeedbackOverlay: {
+    alignItems: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    zIndex: 4,
+  },
+  heroFeedbackBanner: {
+    maxWidth: 500,
+    width: "100%",
   },
   heroSheetShort: {
     flex: 0,
     overflow: "visible",
   },
   loginCenteredContent: {
+    alignSelf: "center",
     flex: 1,
     justifyContent: "center",
+    maxWidth: 500,
     minHeight: 0,
     width: "100%",
   },
@@ -1745,10 +1835,21 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontWeight: "800",
     letterSpacing: 0,
+    maxWidth: 150,
     textAlign: "center",
     width: "auto",
   },
+  heroTitleLargeText: {
+    flexShrink: 0,
+    maxWidth: "100%",
+    width: "100%",
+  },
+  heroTitleAccent: {
+    color: referencePalette.academicBlue,
+  },
   heroDescription: {
+    fontSize: 15,
+    lineHeight: 21,
     maxWidth: 390,
     textAlign: "center",
   },
@@ -1756,16 +1857,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
   },
+  heroDescriptionUnderline: {
+    backgroundColor: referencePalette.academicTeal,
+    borderRadius: 3,
+    height: 3,
+    marginTop: 1,
+    width: 54,
+  },
   authFeedbackCompact: {
     gap: 4,
     padding: 8,
   },
   loginPillButton: {
     borderRadius: 999,
+    minHeight: 56,
   },
   loginFieldIconBadge: {
     alignItems: "center",
-    backgroundColor: LOGIN_FORM_COLORS.fieldIconSurface,
+    backgroundColor: "transparent",
     borderRadius: 999,
     height: 30,
     justifyContent: "center",
@@ -1773,6 +1882,15 @@ const styles = StyleSheet.create({
   },
   loginInputFrame: {
     backgroundColor: LOGIN_FORM_COLORS.fieldSurface,
+    shadowColor: referencePalette.navy,
+    shadowOffset: { height: 2, width: 0 },
+    shadowOpacity: 0.035,
+    shadowRadius: 6,
+  },
+  loginPillField: {
+    borderRadius: 999,
+    minHeight: 56,
+    overflow: "hidden",
   },
   loginPrimaryButton: {
     backgroundColor: LOGIN_FORM_COLORS.primary,
@@ -1792,24 +1910,6 @@ const styles = StyleSheet.create({
   },
   loginLinkLabel: {
     color: LOGIN_FORM_COLORS.link,
-  },
-  loginFooter: {
-    alignItems: "center",
-    flexShrink: 0,
-    paddingTop: 4,
-    width: "100%",
-  },
-  loginSocialPool: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "center",
-  },
-  loginSocialIcon: {
-    alignItems: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    height: 32,
-    justifyContent: "center",
-    width: 32,
   },
   googleMark: {
     height: 24,
@@ -1848,6 +1948,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
+  },
+  loginLinksLargeText: {
+    alignItems: "stretch",
+    flexDirection: "column",
+    width: "100%",
   },
   checkRowStack: {
     width: "100%",
@@ -1898,11 +2003,14 @@ const styles = StyleSheet.create({
     backgroundColor: referencePalette.white,
     width: "auto",
   },
+  registrationScreenCompact: {
+    paddingVertical: 0,
+  },
   registrationBrandBar: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    minHeight: 58,
+    minHeight: 70,
   },
   registrationBackButton: {
     alignItems: "center",
@@ -1916,11 +2024,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     justifyContent: "center",
+    flex: 1,
     minWidth: 0,
   },
   registrationBrandLogo: {
-    height: 50,
-    width: 50,
+    height: 62,
+    width: 62,
+  },
+  registrationBrandLogoCompact: {
+    height: 54,
+    width: 54,
   },
   registrationBrandSpacer: {
     width: 48,
@@ -1928,40 +2041,61 @@ const styles = StyleSheet.create({
   registrationBrandTitle: {
     color: referencePalette.navy,
     flexShrink: 1,
+    fontSize: 20,
     fontWeight: "800",
+    lineHeight: 22,
+    maxWidth: 130,
   },
   registrationHeader: {
-    alignItems: "flex-start",
+    alignItems: "center",
     paddingHorizontal: 4,
-    paddingTop: 12,
+    paddingTop: 10,
+    position: "relative",
+  },
+  registrationHeaderSparkle: {
+    left: 0,
+    position: "absolute",
+    top: 50,
   },
   registrationTitle: {
     color: referencePalette.navy,
-    fontSize: 30,
+    fontSize: 36,
     fontWeight: "800",
-    lineHeight: 36,
+    lineHeight: 42,
     letterSpacing: 0,
+    textAlign: "center",
+  },
+  registrationTitleCompact: {
+    fontSize: 31,
+    lineHeight: 37,
+  },
+  registrationDescription: {
+    maxWidth: 440,
+    textAlign: "center",
   },
   registrationForm: {
     alignSelf: "stretch",
     backgroundColor: referencePalette.white,
     borderColor: referencePalette.academicBorderCool,
-    borderRadius: 10,
+    borderRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
     elevation: 3,
-    padding: 16,
+    padding: 18,
     shadowColor: referencePalette.navy,
     shadowOffset: { height: 3, width: 0 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
   },
+  registrationFormSpacious: {
+    padding: 24,
+  },
   registrationInputFrame: {
     alignSelf: "center",
     backgroundColor: referencePalette.white,
     borderColor: referencePalette.academicBlueBorderMuted,
-    borderRadius: 9,
+    borderRadius: 17,
     borderWidth: 1,
-    minHeight: 56,
+    minHeight: 58,
     width: "100%",
   },
   authFieldIcon: {
@@ -1972,7 +2106,8 @@ const styles = StyleSheet.create({
   },
   legalConsent: {
     borderWidth: 0,
-    paddingTop: 2,
+    borderRadius: 14,
+    padding: 4,
   },
   registrationDivider: {
     backgroundColor: referencePalette.academicBorderCool,
@@ -1981,36 +2116,48 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   passwordStrength: {
-    alignItems: "center",
+    alignItems: "stretch",
     gap: 6,
     paddingHorizontal: 4,
     width: "100%",
   },
-  passwordStrengthTrack: {
-    backgroundColor: authScreenColors.disabledSurface,
-    borderRadius: 4,
-    height: 6,
-    overflow: "hidden",
-    position: "relative",
-    width: "100%",
+  passwordStrengthVisualRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
   },
-  passwordStrengthFill: {
-    borderRadius: 4,
-    height: "100%",
+  passwordStrengthSegments: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 5,
+    minWidth: 0,
   },
-  passwordStrengthDivider: {
-    backgroundColor: referencePalette.white,
-    height: "100%",
-    position: "absolute",
-    top: 0,
-    width: 6,
+  passwordStrengthSegment: {
+    borderRadius: 4,
+    flex: 1,
+    height: 7,
+  },
+  passwordStrengthStatus: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: 5,
   },
   passwordRuleText: {
-    textAlign: "center",
+    textAlign: "left",
   },
   passwordStrengthLabel: {
     fontWeight: "700",
-    textAlign: "center",
+    textAlign: "right",
+  },
+  registrationValidAccessory: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  registrationPrimaryButton: {
+    minHeight: 58,
   },
   authControlPressed: {
     backgroundColor: referencePalette.academicBlueSoft,

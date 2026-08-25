@@ -211,6 +211,8 @@ export function AnnouncementDetail({
     }
   };
 
+  const deadline = detail.keyDates.find((keyDate) => Boolean(keyDate.endDate));
+
   return (
     <View
       style={styles.detailScreen}
@@ -232,45 +234,55 @@ export function AnnouncementDetail({
       >
         {onBack ? (
           <View style={styles.previewHeader}>
-            <Button
+            <Pressable
               accessibilityLabel="Duyurulara geri dön"
-              compact
-              label="Geri"
+              accessibilityRole="button"
+              hitSlop={8}
               onPress={onBack}
-              style={styles.backButton}
-              variant="ghost"
-            />
+              style={({ pressed }) => [styles.backButton, pressed && styles.pressedAction]}
+            >
+              <Ionicons color={REFERENCE_COLORS.blue} name="arrow-back" size={30} />
+            </Pressable>
             <Text
-              style={[theme.typography.cardTitle, styles.previewHeaderTitle, { color: REFERENCE_COLORS.navy }]}
+              accessibilityRole="header"
+              style={[theme.typography.screenTitle, styles.previewHeaderTitle, { color: REFERENCE_COLORS.navy }]}
             >
               Duyuru Detayı
             </Text>
-            <View style={styles.previewHeaderSpacer} />
           </View>
         ) : null}
 
         <View style={styles.sourcePill} testID="announcement-detail-source-pill">
           <View style={styles.sourceSeal}>
-            <Text
-              style={[theme.typography.label, { color: REFERENCE_COLORS.blue }]}
-            >
-              {sourceInitial(detail.sourceName)}
-            </Text>
+            <Ionicons color={REFERENCE_COLORS.blue} name="business" size={25} />
           </View>
-          <Text
-            accessibilityRole="header"
-            numberOfLines={2}
-            style={[theme.typography.metaStrong, styles.sourcePillName, { color: REFERENCE_COLORS.navy }]}
-          >
-            {detail.sourceName}
-          </Text>
-          <Text style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}>·</Text>
-          <Text
-            style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.secondary }]}
-          >
-            {detail.typeAndScopeLabel}
-          </Text>
-          <Ionicons color={REFERENCE_COLORS.blue} name="checkmark-circle" size={17} />
+          <View style={styles.sourcePillCopy}>
+            <Text
+              accessibilityRole="header"
+              maxFontSizeMultiplier={1.35}
+              numberOfLines={2}
+              style={[theme.typography.bodyStrong, styles.sourcePillName, { color: REFERENCE_COLORS.navy }]}
+            >
+              {detail.sourceName}
+            </Text>
+            <View style={styles.sourceMetaRow}>
+              <Text
+                maxFontSizeMultiplier={1.35}
+                style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.secondary }]}
+              >
+                {detail.typeAndScopeLabel}
+              </Text>
+              <Text
+                maxFontSizeMultiplier={1.35}
+                style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
+              >
+                · doğrulanmış resmî kaynak
+              </Text>
+            </View>
+          </View>
+          <View style={styles.sourceStatus}>
+            <Ionicons color={REFERENCE_COLORS.green} name="checkmark-circle" size={19} />
+          </View>
         </View>
 
         <Card
@@ -278,38 +290,70 @@ export function AnnouncementDetail({
           testID="announcement-detail-article-card"
           variant="elevated"
         >
-          <Text
-            accessibilityRole="header"
-            style={[theme.typography.screenTitle, styles.articleTitle, { color: REFERENCE_COLORS.navy }]}
-          >
-            {detail.title}
-          </Text>
-
-          <View style={styles.articleDateRow}>
-            <Ionicons color={REFERENCE_COLORS.blue} name="calendar-outline" size={20} />
-            <View style={styles.articleDates}>
-              {detail.publishedLabel ? (
-                <MetadataRow label="Yayın" value={detail.publishedLabel} />
-              ) : null}
-              {detail.updatedLabel ? (
-                <MetadataRow label="Güncelleme" value={detail.updatedLabel} />
-              ) : null}
-              {!detail.publishedLabel && !detail.updatedLabel ? (
-                <MetadataRow label="Tarih" value="Yayın tarihi belirtilmemiş" />
-              ) : null}
-            </View>
-          </View>
-
-          <View style={styles.infoCallout}>
-            <View style={styles.infoIcon}>
-              <Ionicons color={REFERENCE_COLORS.blue} name="information-circle" size={25} />
+          <View style={[styles.articleHeadingRow, layout.supportsLargeText && styles.articleHeadingRowStacked]}>
+            <View style={styles.articleHeadingIcon}>
+              <Ionicons color={REFERENCE_COLORS.blue} name="megaphone" size={31} />
             </View>
             <Text
-              style={[theme.typography.metaStrong, styles.infoCopy, { color: referencePalette.academicTextInfo }]}
+              accessibilityRole="header"
+              maxFontSizeMultiplier={1.45}
+              style={[
+                theme.typography.screenTitle,
+                styles.articleTitle,
+                layout.supportsLargeText && styles.articleTitleStacked,
+                { color: REFERENCE_COLORS.navy },
+              ]}
             >
-              {detail.summary || "Bu duyuru doğrulanmış resmî kaynaktan alınmıştır. Ayrıntılar için resmî bağlantıyı kullanabilirsin."}
+              {detail.title}
             </Text>
           </View>
+
+          <View style={styles.articleDateRow}>
+            <View style={styles.articleDates}>
+              <View style={styles.dateLine}>
+                <Ionicons color={REFERENCE_COLORS.blue} name="calendar-outline" size={20} />
+                <Text
+                  maxFontSizeMultiplier={1.35}
+                  style={[theme.typography.body, styles.dateText, { color: REFERENCE_COLORS.secondary }]}
+                >
+                  {detail.publishedLabel ?? "Yayın tarihi belirtilmemiş"}
+                </Text>
+              </View>
+              {detail.updatedLabel ? (
+                <View style={styles.dateLine}>
+                  <Ionicons color={REFERENCE_COLORS.blue} name="time-outline" size={20} />
+                  <Text
+                    maxFontSizeMultiplier={1.35}
+                    style={[theme.typography.body, styles.dateText, { color: REFERENCE_COLORS.secondary }]}
+                  >
+                    {detail.updatedLabel}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            {deadline?.endDate ? (
+              <View style={styles.deadlineChip}>
+                <Ionicons color={REFERENCE_COLORS.green} name="calendar" size={17} />
+                <Text
+                  maxFontSizeMultiplier={1.25}
+                  style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.green }]}
+                >
+                  Son gün: {formatKeyDate(deadline.endDate)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.articleDivider} />
+
+          {detail.summary ? (
+            <Text
+              maxFontSizeMultiplier={1.5}
+              style={[theme.typography.body, styles.articleSummary, { color: referencePalette.academicTextBody }]}
+            >
+              {detail.summary}
+            </Text>
+          ) : null}
 
           {detail.body.length ? (
             <View style={styles.articleBodyBlocks} testID="announcement-detail-rich-body">
@@ -382,7 +426,7 @@ export function AnnouncementDetail({
                 <ActivityIndicator color={REFERENCE_COLORS.green} size="small" />
               ) : (
                 <>
-                  <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.green }]}>Resmî bağlantıyı aç</Text>
+                  <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.green }]}>Kaynağa git</Text>
                   <Ionicons color={REFERENCE_COLORS.green} name="open-outline" size={17} />
                 </>
               )}
@@ -418,7 +462,11 @@ export function AnnouncementDetail({
       </ScrollView>
 
       <View
-        style={[styles.stickyActions, { paddingBottom: Math.max(12, insets.bottom) }]}
+        style={[
+          styles.stickyActions,
+          layout.supportsLargeText && styles.stickyActionsStacked,
+          { paddingBottom: Math.max(12, insets.bottom) },
+        ]}
         testID="announcement-detail-sticky-actions"
       >
         <Button
@@ -427,7 +475,7 @@ export function AnnouncementDetail({
           leadingIcon={<Ionicons color={REFERENCE_COLORS.blue} name="share-outline" size={21} />}
           loading={sharing}
           onPress={() => void handleShare()}
-          style={styles.stickyAction}
+          style={[styles.stickyAction, layout.supportsLargeText && styles.stickyActionStacked]}
           variant="secondary"
         />
         <Button
@@ -436,30 +484,10 @@ export function AnnouncementDetail({
           leadingIcon={<Ionicons color={REFERENCE_COLORS.blue} name={saved ? "bookmark" : "bookmark-outline"} size={21} />}
           loading={saveLoading || togglingSaved}
           onPress={() => void handleToggleSaved()}
-          style={styles.stickyAction}
+          style={[styles.stickyAction, layout.supportsLargeText && styles.stickyActionStacked]}
           variant="secondary"
         />
       </View>
-    </View>
-  );
-}
-
-function MetadataRow({ label, value }: { label: string; value: string }) {
-  const theme = useTheme();
-  return (
-    <View accessible accessibilityLabel={`${label}: ${value}`} style={styles.metadataRow}>
-      <Text style={[theme.typography.metaStrong, { color: theme.colors.text.secondary }]}>
-        {label}
-      </Text>
-      <Text
-        style={[
-          theme.typography.body,
-          styles.metadataValue,
-          { color: theme.colors.text.primary },
-        ]}
-      >
-        {value}
-      </Text>
     </View>
   );
 }
@@ -553,10 +581,6 @@ function timestampLabel(
   return label === "Yayın tarihi belirtilmemiş" ? null : label;
 }
 
-function sourceInitial(sourceName: string): string {
-  return Array.from(sourceName.trim())[0]?.toLocaleUpperCase("tr-TR") ?? "R";
-}
-
 function normalizeDetailText(value: string | undefined): string {
   return normalizeDisplayText(value).replace(/\s+([,.;:!?])/gu, "$1");
 }
@@ -568,15 +592,15 @@ function officialAuthority(value: string): string {
 
 const styles = StyleSheet.create({
   articleBody: {
-    lineHeight: 25,
+    lineHeight: 26,
   },
   articleBodyBlocks: {
-    gap: 14,
+    gap: 16,
   },
   articleBulletRow: {
     alignItems: "flex-start",
     flexDirection: "row",
-    gap: 9,
+    gap: 10,
   },
   articleBulletText: {
     flex: 1,
@@ -584,31 +608,100 @@ const styles = StyleSheet.create({
   },
   articleCard: {
     borderColor: REFERENCE_COLORS.border,
-    borderRadius: 18,
-    gap: 18,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 4,
+    gap: 20,
     marginHorizontal: 1,
-    padding: 18,
+    padding: 20,
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 7, width: 0 },
+    shadowOpacity: 0.09,
+    shadowRadius: 18,
   },
   articleDateRow: {
-    alignItems: "flex-start",
+    alignItems: "center",
     flexDirection: "row",
-    gap: 10,
+    flexWrap: "wrap",
+    gap: 12,
+    justifyContent: "space-between",
   },
   articleDates: {
     flex: 1,
-    gap: 5,
+    gap: 8,
+    minWidth: 190,
+  },
+  articleDivider: {
+    backgroundColor: REFERENCE_COLORS.border,
+    height: StyleSheet.hairlineWidth,
+    width: "100%",
+  },
+  articleHeadingIcon: {
+    alignItems: "center",
+    backgroundColor: REFERENCE_COLORS.blueSoft,
+    borderRadius: 29,
+    height: 58,
+    justifyContent: "center",
+    width: 58,
+  },
+  articleHeadingRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 14,
     minWidth: 0,
   },
+  articleHeadingRowStacked: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+  },
+  articleSummary: {
+    fontSize: 16,
+    lineHeight: 26,
+  },
   articleTitle: {
+    flex: 1,
     fontSize: 25,
     lineHeight: 32,
+    minWidth: 0,
+  },
+  articleTitleStacked: {
+    flex: 0,
+    width: "100%",
   },
   backButton: {
-    alignSelf: "flex-start",
+    alignItems: "center",
+    height: 48,
+    justifyContent: "center",
+    width: 48,
   },
   content: {
     alignSelf: "center",
     width: "100%",
+  },
+  dateLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    minWidth: 0,
+  },
+  dateText: {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  deadlineChip: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: REFERENCE_COLORS.greenSoft,
+    borderColor: referencePalette.academicGreenBorder,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    maxWidth: "100%",
+    minHeight: 38,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
   },
   detailScreen: {
     backgroundColor: REFERENCE_COLORS.background,
@@ -618,58 +711,29 @@ const styles = StyleSheet.create({
     backgroundColor: REFERENCE_COLORS.background,
     flex: 1,
   },
-  infoCallout: {
-    alignItems: "center",
-    backgroundColor: referencePalette.academicBlueSurface,
-    borderColor: referencePalette.academicBlueBorder,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    padding: 13,
-  },
-  infoCopy: {
-    flex: 1,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  infoIcon: {
-    alignItems: "center",
-    backgroundColor: referencePalette.academicBlueSurfaceStrong,
-    borderRadius: 20,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
   keyDateCopy: {
     flex: 1,
     gap: 2,
     minWidth: 0,
   },
   keyDateList: {
-    gap: 14,
+    gap: 10,
   },
   keyDateRow: {
     alignItems: "flex-start",
+    backgroundColor: referencePalette.academicBlueSurface,
+    borderColor: referencePalette.academicBlueBorderMuted,
+    borderRadius: 14,
+    borderWidth: 1,
     flexDirection: "row",
     gap: 12,
-  },
-  metadataRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 7,
-    minWidth: 0,
-  },
-  metadataValue: {
-    flex: 1,
-    flexShrink: 1,
-    minWidth: 0,
+    padding: 12,
   },
   officialSourceCard: {
     alignItems: "center",
-    backgroundColor: referencePalette.academicGreenSurface,
+    backgroundColor: REFERENCE_COLORS.background,
     borderColor: referencePalette.academicGreenBorder,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
     flexWrap: "wrap",
@@ -692,39 +756,43 @@ const styles = StyleSheet.create({
   officialSourceAction: {
     alignItems: "center",
     borderColor: referencePalette.academicGreenBorderStrong,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     flexDirection: "row",
     gap: 6,
     justifyContent: "center",
     marginLeft: "auto",
     maxWidth: "100%",
-    minHeight: 42,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    minHeight: 48,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
   },
   previewHeader: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 48,
-  },
-  previewHeaderSpacer: {
-    height: 44,
-    width: 64,
+    gap: 9,
+    minHeight: 58,
   },
   previewHeaderTitle: {
     flex: 1,
-    textAlign: "center",
+    fontSize: 28,
+    lineHeight: 34,
+    textAlign: "left",
   },
   notificationCallout: {
     alignItems: "center",
-    backgroundColor: referencePalette.academicBlueTint,
+    backgroundColor: REFERENCE_COLORS.background,
     borderColor: referencePalette.academicBlueBorder,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
+    elevation: 2,
     flexDirection: "row",
     gap: 11,
     padding: 14,
+    shadowColor: REFERENCE_COLORS.navy,
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.06,
+    shadowRadius: 11,
   },
   notificationCopy: {
     flex: 1,
@@ -742,32 +810,48 @@ const styles = StyleSheet.create({
   pressedAction: {
     opacity: 0.78,
   },
+  sourceMetaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+  },
   sourcePill: {
     alignItems: "center",
-    alignSelf: "flex-start",
     backgroundColor: referencePalette.academicBlueSurface,
     borderColor: referencePalette.academicBlueBorderMuted,
-    borderRadius: 24,
+    borderRadius: 17,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 7,
+    gap: 12,
     maxWidth: "100%",
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    minHeight: 82,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    width: "100%",
+  },
+  sourcePillCopy: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
   },
   sourcePillName: {
-    flexShrink: 1,
     minWidth: 0,
   },
   sourceSeal: {
     alignItems: "center",
     backgroundColor: REFERENCE_COLORS.blueSoft,
     borderColor: referencePalette.academicBlueBorderStrong,
-    borderRadius: 18,
+    borderRadius: 25,
     borderWidth: 1,
-    height: 36,
+    height: 50,
     justifyContent: "center",
-    width: 36,
+    width: 50,
+  },
+  sourceStatus: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
   },
   stateContainer: {
     backgroundColor: REFERENCE_COLORS.background,
@@ -777,6 +861,10 @@ const styles = StyleSheet.create({
   stickyAction: {
     flex: 1,
     minWidth: 0,
+  },
+  stickyActionStacked: {
+    flex: 0,
+    width: "100%",
   },
   stickyActions: {
     backgroundColor: REFERENCE_COLORS.background,
@@ -791,5 +879,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -3 },
     shadowOpacity: 0.08,
     shadowRadius: 10,
+  },
+  stickyActionsStacked: {
+    flexDirection: "column",
   },
 });

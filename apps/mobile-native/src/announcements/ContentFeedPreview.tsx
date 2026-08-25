@@ -20,6 +20,8 @@ import {
 
 export const CONTENT_FEED_PREVIEW_SCENARIOS = [
   "populated",
+  "reference-list",
+  "reference-detail",
   "search-results",
   "no-results",
   "active-filters",
@@ -67,6 +69,9 @@ export interface ContentFeedPreviewFixture {
   initialRoute: keyof PreviewStackParamList;
   initialDetail: TrustedMobileContentRecord;
   officialHandoffResult: boolean;
+  universityName: string;
+  facultyName: string;
+  departmentName: string;
 }
 
 const PreviewStack = createNativeStackNavigator<PreviewStackParamList>();
@@ -138,6 +143,94 @@ const longTitleAnnouncement = previewRecord({
   path: "duyurular/uzun-turkce-baslik",
 });
 
+const referenceUniversityAnnouncement = previewRecord({
+  id: "reference-academic-calendar",
+  sourceId: "reference-ankara-rectorate",
+  sourceName: "Ankara Üniversitesi Rektörlüğü",
+  title: "2026–2027 Güz Dönemi Akademik Takvimi Yayımlandı",
+  summary: "Ders kayıtlarından sınav takvimine kadar tüm önemli tarihler takvimde yer almaktadır.",
+  publicationKind: "date",
+  publishedDate: "2026-05-23",
+  path: "duyurular/2026-2027-guz-donemi-akademik-takvimi",
+});
+
+const referenceFacultyAnnouncement = previewRecord({
+  id: "reference-faculty-advising",
+  sourceId: "reference-ankara-engineering",
+  sourceName: "Ankara Üniversitesi Mühendislik Fakültesi",
+  scopeType: "faculty",
+  scopeId: "reference-ankara-engineering",
+  title: "Mühendislik Fakültesi Danışmanlık Toplantısı",
+  summary: "Akademik danışmanlık toplantıları 2 Haziran itibarıyla başlayacaktır.",
+  publicationKind: "date",
+  publishedDate: "2026-05-21",
+  path: "muhendislik/duyurular/danismanlik-toplantisi",
+});
+
+const referenceDepartmentAnnouncement = previewRecord({
+  id: "reference-capstone-deadlines",
+  sourceId: "reference-ankara-computer-engineering",
+  sourceName: "Ankara Üniversitesi Bilgisayar Mühendisliği Bölümü",
+  scopeType: "department",
+  scopeId: "reference-ankara-computer-engineering",
+  title: "Bilgisayar Mühendisliği Bitirme Projesi Teslim Tarihleri",
+  summary: "Bitirme projelerinin ön teslimi 10 Haziran’da, son teslimi 24 Haziran’da yapılacaktır.",
+  publicationKind: "date",
+  publishedDate: "2026-05-20",
+  path: "bilgisayar-muhendisligi/duyurular/bitirme-projesi-teslim-tarihleri",
+});
+
+const referenceYokAnnouncement = previewRecord({
+  id: "reference-yok-internship",
+  sourceId: "reference-yok-source",
+  sourceName: "Yükseköğretim Kurulu",
+  scopeId: "yok-council-of-higher-education",
+  title: "YÖK: Ulusal Staj Programı Duyurusu",
+  summary: "2026 dönemi başvuruları başladı. Son başvuru tarihi 31 Mayıs 2026’dır.",
+  publicationKind: "date",
+  publishedDate: "2026-05-19",
+  origin: "https://www.yok.gov.tr",
+  path: "tr/announcements/ulusal-staj-programi-2026",
+});
+
+const referenceSummerAnnouncement = previewRecord({
+  id: "reference-summer-registration",
+  sourceId: "reference-ankara-summer-school",
+  sourceName: "Ankara Üniversitesi Yaz Okulu Koordinatörlüğü",
+  title: "Yaz Okulu Ders Kayıtları Başladı",
+  summary: "Yaz okulu ders kayıtları 18 Mayıs – 30 Mayıs 2026 tarihleri arasında alınacaktır.",
+  publicationKind: "date",
+  publishedDate: "2026-05-18",
+  path: "yaz-okulu/duyurular/ders-kayitlari-2026",
+});
+
+const referenceDetailAnnouncement = previewRecord({
+  id: "reference-fall-registration-detail",
+  sourceId: "reference-ankara-rectorate",
+  sourceName: "Üniversite Duyurusu",
+  title: "2026–2027 Güz Yarıyılı Ders Kayıtları Başladı",
+  summary: "2026–2027 eğitim-öğretim yılı Güz Yarıyılı ders kayıt işlemleri başlamıştır.",
+  body: [
+    {
+      type: "paragraph",
+      text: "Önlisans ve lisans öğrencilerimiz, danışman onayı gerektiren ders kayıtlarını Akademik Takvim üzerinden yapabilirler.",
+    },
+    { type: "heading", text: "Önemli Bilgiler" },
+    { type: "bullet", text: "Danışman onayı 4 Eylül 2026 saat 17:00’ye kadar gereklidir." },
+    { type: "bullet", text: "Kayıtlanma, ekleme/bırakma ve danışman onayı takvimi için Akademik Takvim’i kontrol ediniz." },
+    { type: "bullet", text: "Kayıt sırasında ders kontenjanlarına dikkat ediniz." },
+    { type: "paragraph", text: "Başarılar dileriz." },
+  ],
+  keyDates: [{
+    label: "Ders kayıtları",
+    startDate: "2026-08-27",
+    endDate: "2026-09-04",
+  }],
+  publicationKind: "date",
+  publishedDate: "2026-08-27",
+  path: "duyurular/2026-2027-guz-yariyili-ders-kayitlari",
+});
+
 export function createContentFeedPreviewFixture(
   scenario: ContentFeedPreviewScenario,
 ): ContentFeedPreviewFixture {
@@ -157,9 +250,35 @@ export function createContentFeedPreviewFixture(
     initialRoute: "Feed",
     initialDetail: primaryAnnouncement,
     officialHandoffResult: true,
+    universityName: "Kampüs Üniversitesi",
+    facultyName: "Mühendislik Fakültesi",
+    departmentName: "Bilgisayar Mühendisliği",
   };
 
   switch (scenario) {
+    case "reference-list":
+      return {
+        ...base,
+        academicItems: [
+          referenceUniversityAnnouncement,
+          referenceFacultyAnnouncement,
+          referenceDepartmentAnnouncement,
+        ],
+        yokItems: [referenceYokAnnouncement],
+        summerItems: [referenceSummerAnnouncement],
+        initialDetail: referenceUniversityAnnouncement,
+        universityName: "Ankara Üniversitesi",
+      };
+    case "reference-detail":
+      return {
+        ...base,
+        academicItems: [referenceDetailAnnouncement],
+        yokItems: [],
+        summerItems: [],
+        initialDetail: referenceDetailAnnouncement,
+        initialRoute: "Detail",
+        universityName: "Ankara Üniversitesi",
+      };
     case "search-results":
       return { ...base, initialSearchText: "burs" };
     case "no-results":
@@ -351,9 +470,9 @@ function PreviewFeedRoute({
       academicItems={fixture.academicItems}
       yokItems={fixture.yokItems}
       summerItems={fixture.summerItems}
-      universityName="Kampüs Üniversitesi"
-      facultyName="Mühendislik Fakültesi"
-      departmentName="Bilgisayar Mühendisliği"
+      universityName={fixture.universityName}
+      facultyName={fixture.facultyName}
+      departmentName={fixture.departmentName}
       loading={fixture.loading}
       attempted={fixture.attempted}
       refreshing={fixture.refreshing}
@@ -365,6 +484,8 @@ function PreviewFeedRoute({
       hasMore={fixture.hasMore}
       paginationLoading={fixture.paginationLoading}
       paginationError={fixture.paginationError}
+      notificationPreferenceEnabled
+      notificationActive
       onRefresh={() => undefined}
       onRetry={() => undefined}
       onLoadMore={() => undefined}
@@ -392,7 +513,11 @@ function previewRecord({
   scopeType = "university",
   scopeId = "preview-university",
   publishedAt,
+  publicationKind,
+  publishedDate,
   sourceUpdatedAt,
+  body,
+  keyDates,
   origin = "https://preview.edu.tr",
   path,
 }: {
@@ -405,7 +530,11 @@ function previewRecord({
   scopeType?: "university" | "faculty" | "department";
   scopeId?: string;
   publishedAt?: string;
+  publicationKind?: "date" | "timestamp";
+  publishedDate?: string;
   sourceUpdatedAt?: string;
+  body?: TrustedMobileContentRecord["body"];
+  keyDates?: TrustedMobileContentRecord["keyDates"];
   origin?: "https://preview.edu.tr" | "https://www.yok.gov.tr";
   path?: string;
 }): TrustedMobileContentRecord {
@@ -431,7 +560,11 @@ function previewRecord({
       canonicalUrl: officialUrl,
     }],
     ...(publishedAt ? { publishedAt } : {}),
+    ...(publicationKind ? { publicationKind } : {}),
+    ...(publishedDate ? { publishedDate } : {}),
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
+    ...(body ? { body } : {}),
+    ...(keyDates ? { keyDates } : {}),
     freshness: "fresh",
     trustStatus: "trusted",
     sourceStatus: "active",

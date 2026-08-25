@@ -27,6 +27,7 @@ export const CALENDAR_PREVIEW_SCENARIOS = [
   "detail-academic",
   "detail-personal",
   "long-title",
+  "reference",
 ] as const;
 
 export type CalendarPreviewScenario = (typeof CALENDAR_PREVIEW_SCENARIOS)[number];
@@ -38,6 +39,43 @@ type PreviewStackParamList = {
 
 const PreviewStack = createNativeStackNavigator<PreviewStackParamList>();
 const fixedNow = new Date("2026-08-05T09:00:00.000+03:00");
+const weekNow = new Date("2026-08-25T09:00:00.000+03:00");
+const referenceNow = new Date("2025-05-22T08:00:00.000+03:00");
+
+export const REFERENCE_CALENDAR_EVENTS = [{
+  id: "reference-midterm",
+  title: "Vize Sınavı",
+  category: "midterm_exam",
+  startDate: "2025-05-22T09:00:00.000+03:00",
+  endDate: "2025-05-22T10:50:00.000+03:00",
+  temporalKind: "timestamp" as const,
+  endTemporalKind: "timestamp" as const,
+  timezone: "Europe/Istanbul",
+  description: "Matematik II",
+  location: "Mühendislik Fakültesi - A Blok",
+}, {
+  id: "reference-assignment",
+  title: "Ödev Teslimi",
+  category: "assignment_deadline",
+  startDate: "2025-05-22T14:00:00.000+03:00",
+  endDate: "2025-05-22T15:30:00.000+03:00",
+  temporalKind: "timestamp" as const,
+  endTemporalKind: "timestamp" as const,
+  timezone: "Europe/Istanbul",
+  description: "Veri Yapıları",
+  location: "Online Platform",
+}, {
+  id: "reference-scholarship",
+  title: "Burs Başvurusu",
+  category: "scholarship_application",
+  startDate: "2025-05-22T17:00:00.000+03:00",
+  endDate: "2025-05-22T19:00:00.000+03:00",
+  temporalKind: "timestamp" as const,
+  endTemporalKind: "timestamp" as const,
+  timezone: "Europe/Istanbul",
+  description: "Son gün",
+  location: "Öğrenci İşleri",
+}] as const;
 
 const academicEvents = [
   {
@@ -72,6 +110,16 @@ const academicEvents = [
   },
 ];
 
+export const WEEK_RANGE_REGRESSION_EVENT = {
+  id: "preview-continuing-exam-window",
+  title: "Devam eden sınav tarihleri",
+  category: "department_exam_schedule",
+  startDate: "2026-08-17",
+  endDate: "2026-08-28",
+  temporalKind: "date" as const,
+  endTemporalKind: "date" as const,
+};
+
 const longTitleEvent = {
   id: "preview-long-title",
   title: "Bilgisayar Mühendisliği Bölümü öğrencileri için çok uzun açıklamalı bütünleme sınavları ve ders kayıt danışmanlığı tarih aralığı",
@@ -97,6 +145,7 @@ export function CalendarPreview({
   preference = "light",
   scenario = "populated",
 }: CalendarPreviewProps) {
+  if (!__DEV__) return null;
   const [activePreference, setActivePreference] = useState(preference);
   const [activeScenario, setActiveScenario] = useState(scenario);
 
@@ -112,6 +161,7 @@ export function CalendarPreview({
 
   return (
     <CalendarPreviewExperience
+      key={activeScenario}
       preference={activePreference}
       scenario={activeScenario}
     />
@@ -135,13 +185,22 @@ function CalendarPreviewExperience({
   scenario,
 }: Required<CalendarPreviewProps>) {
   const [personalExams, setPersonalExams] = useState(initialPersonalExams);
-  const fixtureEvents = scenario === "long-title"
-    ? [...academicEvents, longTitleEvent]
-    : academicEvents;
+  const referenceScenario = scenario === "reference";
+  const fixtureEvents = referenceScenario
+    ? REFERENCE_CALENDAR_EVENTS
+    : scenario === "week"
+      ? [WEEK_RANGE_REGRESSION_EVENT, ...academicEvents]
+    : scenario === "long-title"
+      ? [...academicEvents, longTitleEvent]
+      : academicEvents;
+  const fixturePersonalExams = referenceScenario ? [] : personalExams;
+  const fixtureNow = referenceScenario ? referenceNow : scenario === "week" ? weekNow : fixedNow;
   const initialItems = buildCalendarItems({
     academicEvents: fixtureEvents,
-    personalExams,
-    academicSourceLabel: "Kampüs Üniversitesi Akademik Takvimi",
+    personalExams: fixturePersonalExams,
+    academicSourceLabel: referenceScenario
+      ? "Ankara Üniversitesi Akademik Takvimi"
+      : "Kampüs Üniversitesi Akademik Takvimi",
   });
   const [selectedItem, setSelectedItem] = useState<CalendarItem | null>(() => (
     scenario === "detail-personal"
@@ -188,14 +247,22 @@ function CalendarPreviewExperience({
       warnings: ["Bir sentetik kayıt doğrulanamadı."],
       connected: true,
     }
-    : {
-      state: "connected",
-      stateLabel: "Bağlı",
-      accountEmail: "deniz.yilmaz@kampus.example.invalid",
-      verifiedCount: 4,
-      lastSyncedLabel: "Son eşitleme: 5 Ağustos 2026 09:30",
-      connected: true,
-    };
+    : referenceScenario
+      ? {
+        state: "disconnected",
+        stateLabel: "Bağlı değil",
+        verifiedCount: 0,
+        lastSyncedLabel: "Henüz eşitlenmedi",
+        connected: false,
+      }
+      : {
+        state: "connected",
+        stateLabel: "Bağlı",
+        accountEmail: "deniz.yilmaz@kampus.example.invalid",
+        verifiedCount: 4,
+        lastSyncedLabel: "Son eşitleme: 5 Ağustos 2026 09:30",
+        connected: true,
+      };
 
   return (
     <SafeAreaProvider>
@@ -206,18 +273,25 @@ function CalendarPreviewExperience({
               {({ navigation }) => (
                 <CalendarExperience
                   academicEvents={emptyData ? [] : fixtureEvents}
-                  academicYear="2026-2027"
+                  academicYear={referenceScenario ? "2025-2026" : "2026-2027"}
                   attempted={scenario !== "loading"}
-                  calendarTitle="Kampüs Üniversitesi Akademik Takvimi"
+                  calendarTitle={referenceScenario
+                    ? "Ankara Üniversitesi Akademik Takvimi"
+                    : "Kampüs Üniversitesi Akademik Takvimi"}
                   error={scenario === "error" || scenario === "stale" ? "Sentetik kaynak yanıt vermedi." : undefined}
                   google={selectedGoogleState}
-                  initialAnchorDate="2026-08-05"
+                  initialAnchorDate={referenceScenario
+                    ? "2025-05-22"
+                    : scenario === "week"
+                      ? "2026-08-25"
+                      : "2026-08-05"}
                   initialView={scenario === "week" ? "week" : scenario === "month" ? "month" : "agenda"}
                   loading={scenario === "loading" || scenario === "refreshing"}
-                  now={fixedNow}
+                  now={fixtureNow}
                   offline={scenario === "offline"}
                   onCreatePersonalExam={createExam}
                   onManageGoogle={() => undefined}
+                  onOpenAccountMenu={() => undefined}
                   onOpenItem={(item) => {
                     setSelectedItem(item);
                     navigation.navigate("Detail");
@@ -226,10 +300,10 @@ function CalendarPreviewExperience({
                   onSyncGoogle={() => undefined}
                   onUpdatePersonalExam={updateExam}
                   partial={scenario === "partial"}
-                  personalExams={emptyData ? [] : personalExams}
+                  personalExams={emptyData ? [] : fixturePersonalExams}
                   personalExamsReady
                   stale={scenario === "stale"}
-                  universityName="Kampüs Üniversitesi"
+                  universityName={referenceScenario ? "Ankara Üniversitesi" : "Kampüs Üniversitesi"}
                 />
               )}
             </PreviewStack.Screen>

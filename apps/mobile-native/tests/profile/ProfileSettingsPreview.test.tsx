@@ -14,6 +14,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
   it("keeps the stable scenario and deep-link contract", () => {
     const expected: readonly ProfileSettingsPreviewScenario[] = [
       "profile-summary",
+      "reference-profile",
       "profile-incomplete",
       "academic-editor",
       "notifications-active",
@@ -82,9 +83,23 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     fireEvent.press(back);
 
     await waitFor(() => {
-      expect(screen.getByRole("header", { name: "Ayarlar" })).toBeVisible();
+      expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
     });
-    expect(screen.getByRole("button", { name: "Akademik bilgiler" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Akademik profil" })).toBeVisible();
+  });
+
+  it("renders the reference identity with model-derived completion and a real notification mismatch", async () => {
+    await renderAsync(<ProfileSettingsPreview scenario="reference-profile" />);
+
+    expect(await screen.findByText("Fuat Başar")).toBeVisible();
+    expect(screen.getByText("fuat.basar@ogrenci.ankara.edu.tr")).toBeVisible();
+    expect(screen.getByText("Ankara Üniversitesi")).toBeVisible();
+    expect(screen.getByText("Mühendislik Fakültesi")).toBeVisible();
+    expect(screen.getByLabelText("Akademik profil yüzde 100 tamamlandı")).toHaveProp(
+      "accessibilityValue",
+      { max: 100, min: 0, now: 100 },
+    );
+    expect(screen.getByText("Bildirim izni gerekiyor")).toBeVisible();
   });
 
   it("updates the routed scenario from an accepted synthetic deep link", async () => {
@@ -95,7 +110,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     });
 
     await renderAsync(<ProfileSettingsPreview scenario="profile-summary" />);
-    expect(await screen.findByRole("header", { name: "Ayarlar" })).toBeVisible();
+    expect(await screen.findByRole("header", { name: "Profil" })).toBeVisible();
     expect(urlHandlers.length).toBeGreaterThan(0);
 
     act(() => {
