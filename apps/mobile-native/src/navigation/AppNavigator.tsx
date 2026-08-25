@@ -302,7 +302,7 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
   if (route === "Login") {
     return (
       <Screen
-        edges={["top", "left", "right", "bottom"]}
+        edges={["top", "left", "right"]}
         fullBleed
         keyboardSafe
         readableWidth="form"

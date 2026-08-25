@@ -47,6 +47,10 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
+    "androidNavigationBar": {
+      "barStyle": "dark-content",
+      "enforceContrast": false
+    },
     "web": {
       "favicon": "./assets/favicon.png"
     },

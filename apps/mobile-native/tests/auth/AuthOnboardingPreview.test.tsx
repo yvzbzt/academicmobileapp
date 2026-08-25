@@ -7,8 +7,10 @@ import {
   userEvent,
 } from "@testing-library/react-native";
 import { FlatList } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   AuthOnboardingPreview,
+  resolveAuthPreviewSafeAreaMetrics,
   type AuthOnboardingPreviewScenario,
 } from "../../src/auth/AuthOnboardingPreview";
 
@@ -30,6 +32,19 @@ jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
 }));
 
 describe("AuthOnboardingPreview", () => {
+  it("uses real capture-window metrics and keeps a deterministic test fallback", () => {
+    const emulatorMetrics = {
+      frame: { x: 0, y: 0, width: 471, height: 1024 },
+      insets: { top: 40, right: 0, bottom: 77, left: 0 },
+    };
+
+    expect(resolveAuthPreviewSafeAreaMetrics(emulatorMetrics)).toBe(emulatorMetrics);
+    expect(resolveAuthPreviewSafeAreaMetrics(null)).toEqual({
+      frame: { x: 0, y: 0, width: 390, height: 844 },
+      insets: { top: 47, right: 0, bottom: 34, left: 0 },
+    });
+  });
+
   it("keeps the development renderer behind a presentation-only import boundary", () => {
     const source = readFileSync(PREVIEW_SOURCE, "utf8");
     const importSpecifiers = [...source.matchAll(/\bfrom\s+["']([^"']+)["']/gu)]
@@ -134,9 +149,46 @@ describe("AuthOnboardingPreview", () => {
     ).toBeDisabled();
   });
 
+  it.each([
+    "login",
+    "login-loading",
+    "login-error",
+    "recovery-success",
+  ] as const)("matches production bottom-edge rendering for the %s capture", async (scenario) => {
+    await renderAsync(
+      <AuthOnboardingPreview
+        initialScenario={scenario}
+        preference="light"
+        showScenarioControls={false}
+      />,
+    );
+
+    expect(screen.UNSAFE_getByType(SafeAreaView).props.edges).toEqual([
+      "top",
+      "left",
+      "right",
+    ]);
+  });
+
+  it("keeps the bottom safe edge for non-Login form captures", async () => {
+    await renderAsync(
+      <AuthOnboardingPreview
+        initialScenario="register"
+        preference="light"
+        showScenarioControls={false}
+      />,
+    );
+
+    expect(screen.UNSAFE_getByType(SafeAreaView).props.edges).toContain("bottom");
+  });
+
   it("boots the welcome capture without controls and keeps all slides reachable", async () => {
     const view = await renderAsync(
-      <AuthOnboardingPreview initialScenario="welcome" preference="light" />,
+      <AuthOnboardingPreview
+        initialMetrics={null}
+        initialScenario="welcome"
+        preference="light"
+      />,
     );
 
     expect(screen.getByTestId("prelogin-welcome-screen")).toBeVisible();

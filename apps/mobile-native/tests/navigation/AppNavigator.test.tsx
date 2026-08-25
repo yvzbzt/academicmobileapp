@@ -480,6 +480,12 @@ describe("AppNavigator", () => {
 
     await expectVisibleRoute("Login");
     expect(screen.UNSAFE_queryAllByType(ScrollView)).toHaveLength(0);
+    expect(screen.UNSAFE_getAllByType(SafeAreaView).some((view) => (
+      view.props.edges?.includes("top")
+      && view.props.edges?.includes("left")
+      && view.props.edges?.includes("right")
+      && !view.props.edges?.includes("bottom")
+    ))).toBe(true);
   });
 
   it("exposes Introduction and replaces it with the auth root without back history", async () => {

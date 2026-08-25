@@ -8,7 +8,11 @@ const require = createRequire(import.meta.url);
 describe("mobile-native release configuration", () => {
   it("applies the installed SecureStore plugin with Android backup exclusions enabled", () => {
     const appConfig = JSON.parse(readFileSync(resolve("apps/mobile-native/app.json"), "utf8")) as {
-      expo?: { android?: { googleServicesFile?: string }; plugins?: unknown[] };
+      expo?: {
+        android?: { googleServicesFile?: string };
+        androidNavigationBar?: { barStyle?: string; enforceContrast?: boolean };
+        plugins?: unknown[];
+      };
     };
 
     expect(appConfig.expo?.plugins).toContainEqual([
@@ -24,6 +28,10 @@ describe("mobile-native release configuration", () => {
     expect(notificationOverride).toContain("com.google.firebase.messaging.default_notification_color");
     expect(notificationOverride).toContain('metadata.$["tools:replace"]');
     expect(appConfig.expo?.android?.googleServicesFile).toBe("./google-services.json");
+    expect(appConfig.expo?.androidNavigationBar).toEqual({
+      barStyle: "dark-content",
+      enforceContrast: false
+    });
     expect(readFileSync(resolve(".gitignore"), "utf8"))
       .toContain("apps/mobile-native/google-services.json");
   });

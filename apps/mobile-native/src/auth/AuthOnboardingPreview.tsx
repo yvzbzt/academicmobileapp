@@ -1,6 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import {
+  initialWindowMetrics,
+  SafeAreaProvider,
+  type Metrics,
+} from "react-native-safe-area-context";
 import {
   Card,
   Chip,
@@ -40,6 +44,7 @@ export type AuthOnboardingPreviewScenario =
   | "onboarding-success";
 
 export interface AuthOnboardingPreviewProps {
+  initialMetrics?: Metrics | null;
   initialScenario?: AuthOnboardingPreviewScenario;
   preference?: "light" | "dark";
   showScenarioControls?: boolean;
@@ -159,16 +164,28 @@ const SCENARIOS: readonly PreviewScenarioDefinition[] = [
   },
 ];
 
+const LOGIN_SURFACE_SCENARIOS = new Set<AuthOnboardingPreviewScenario>([
+  "login",
+  "login-loading",
+  "login-error",
+  "recovery-success",
+]);
+
 const PREVIEW_SAFE_AREA_METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, right: 0, bottom: 34, left: 0 },
 };
+
+export function resolveAuthPreviewSafeAreaMetrics(metrics: Metrics | null): Metrics {
+  return metrics ?? PREVIEW_SAFE_AREA_METRICS;
+}
 
 /**
  * Purely local Phase 6 evidence surface. The application can select it only
  * behind its __DEV__ evidence gate; all actions mutate synthetic preview state.
  */
 export function AuthOnboardingPreview({
+  initialMetrics = initialWindowMetrics,
   initialScenario = "login",
   preference = "light",
   showScenarioControls = true,
@@ -176,7 +193,9 @@ export function AuthOnboardingPreview({
   if (!__DEV__) return null;
 
   return (
-    <SafeAreaProvider initialMetrics={PREVIEW_SAFE_AREA_METRICS}>
+    <SafeAreaProvider
+      initialMetrics={resolveAuthPreviewSafeAreaMetrics(initialMetrics)}
+    >
       <ThemeProvider
         liquidGlassAvailable={false}
         preference={preference}
@@ -275,6 +294,9 @@ function AuthOnboardingPreviewContent({
   if (!showScenarioControls) {
     return (
       <Screen
+        edges={LOGIN_SURFACE_SCENARIOS.has(scenario)
+          ? ["top", "left", "right"]
+          : undefined}
         accessibilityLabel="Phase 6 sentetik kimlik ve akademik profil önizlemesi"
         keyboardSafe
         readableWidth="form"

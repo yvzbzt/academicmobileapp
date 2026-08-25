@@ -51,6 +51,7 @@ jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
 }));
 
 interface TestViewport {
+  bottomInset?: number;
   fontScale?: number;
   height?: number;
   width?: number;
@@ -67,7 +68,10 @@ function authTestTree(
     <SafeAreaProvider
       initialMetrics={{
         frame: { x: 0, y: 0, width, height },
-        insets: safeAreaInsets,
+        insets: {
+          ...safeAreaInsets,
+          bottom: frame.bottomInset ?? 0,
+        },
       }}
     >
       <ThemeProvider
@@ -354,6 +358,17 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(onSubmit).toHaveBeenCalledTimes(1);
       passwordFocus.mockRestore();
       dismiss.mockRestore();
+    });
+
+    it("extends the white Login sheet behind the bottom inset while keeping controls safe", async () => {
+      await renderAuth(
+        <LoginScreen {...loginProps()} />,
+        {},
+        { width: 390, height: 844, bottomInset: 34 },
+      );
+
+      expect(screen.getByTestId("login-hero-stack")).toHaveStyle({ height: 844 });
+      expect(screen.getByTestId("login-form-sheet")).toHaveStyle({ paddingBottom: 48 });
     });
 
     it("uses a scroll-safe hero on a short 320 by 568 phone viewport", async () => {

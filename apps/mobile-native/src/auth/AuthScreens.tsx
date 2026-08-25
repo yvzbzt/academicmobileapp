@@ -77,6 +77,7 @@ interface AuthScaffoldProps {
 }
 
 interface AuthViewportMetrics {
+  bottomInset: number;
   largeText: boolean;
   safeHeight: number;
   safeWidth: number;
@@ -106,6 +107,7 @@ function useAuthViewportMetrics(): AuthViewportMetrics {
   const largeText = window.fontScale > LARGE_AUTH_FONT_SCALE;
 
   return {
+    bottomInset: safeAreaInsets.bottom,
     largeText,
     safeHeight,
     safeWidth,
@@ -241,15 +243,23 @@ function AuthScaffold({
   const showHeroDescription = Boolean(description.trim());
 
   if (hero) {
+    // The Login route deliberately draws its white surface behind the system
+    // navigation/home-indicator inset. Keep the controls inside the safe area,
+    // but let the sheet background reach the physical bottom edge.
+    const bottomExtendedHeight = viewport.safeHeight + viewport.bottomInset;
+    const shortLoginContentHeight = Math.max(
+      viewport.safeHeight,
+      SHORT_LOGIN_CONTENT_MIN_HEIGHT,
+    ) + viewport.bottomInset;
     const heroContent = (
       <View
         style={[
           styles.screenStack,
           styles.heroScreenStack,
           {
-            height: viewport.short ? undefined : viewport.safeHeight,
+            height: viewport.short ? undefined : bottomExtendedHeight,
             minHeight: viewport.short
-              ? Math.max(viewport.safeHeight, SHORT_LOGIN_CONTENT_MIN_HEIGHT)
+              ? shortLoginContentHeight
               : undefined,
           },
         ]}
@@ -320,7 +330,8 @@ function AuthScaffold({
               borderTopWidth: StyleSheet.hairlineWidth,
               flex: 1,
               marginTop: loginLayout.compact ? -30 : -34,
-              paddingBottom: loginLayout.compact ? 8 : 14,
+              paddingBottom:
+                (loginLayout.compact ? 8 : 14) + viewport.bottomInset,
               paddingHorizontal: loginLayout.sheetPadding,
               paddingTop: loginLayout.compact ? 18 : 28,
             },
@@ -432,10 +443,7 @@ function AuthScaffold({
 
     return (
       <ShortAuthViewportScroll
-        minContentHeight={Math.max(
-          viewport.safeHeight,
-          SHORT_LOGIN_CONTENT_MIN_HEIGHT,
-        )}
+        minContentHeight={shortLoginContentHeight}
         testID={viewport.short
           ? "auth-short-viewport-scroll-login"
           : "auth-login-scroll"}
