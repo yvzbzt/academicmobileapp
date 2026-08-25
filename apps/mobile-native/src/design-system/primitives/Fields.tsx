@@ -1,5 +1,14 @@
-import { forwardRef, useId, useState, type ReactNode } from "react";
 import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -212,15 +221,122 @@ export const PasswordField = forwardRef<TextInput, PasswordFieldProps>(function 
   const [actionFocused, setActionFocused] = useState(false);
   const revealed = controlledRevealed ?? uncontrolledRevealed;
   const actionLabel = revealed ? hidePasswordLabel : showPasswordLabel;
+  const keyboardType = textFieldProps.keyboardType
+    ?? (Platform.OS === "android" && revealed ? "visible-password" : undefined);
+  const nativeInputRef = useRef<TextInput | null>(null);
+  const inputIsFocusedRef = useRef(false);
+  const previousRevealedRef = useRef(revealed);
+  const reconnectPhaseRef = useRef<"idle" | "scheduled" | "blurring" | "focusing">("idle");
+  const blurFrameRef = useRef<number | null>(null);
+  const focusFrameRef = useRef<number | null>(null);
+  const settleFrameRef = useRef<number | null>(null);
+
+  const cancelFocusReconnect = useCallback(() => {
+    if (blurFrameRef.current !== null) {
+      cancelAnimationFrame(blurFrameRef.current);
+      blurFrameRef.current = null;
+    }
+    if (focusFrameRef.current !== null) {
+      cancelAnimationFrame(focusFrameRef.current);
+      focusFrameRef.current = null;
+    }
+    if (settleFrameRef.current !== null) {
+      cancelAnimationFrame(settleFrameRef.current);
+      settleFrameRef.current = null;
+    }
+    reconnectPhaseRef.current = "idle";
+  }, []);
+
+  const setInputRef = useCallback((node: TextInput | null) => {
+    nativeInputRef.current = node;
+    if (typeof inputRef === "function") {
+      inputRef(node);
+    } else if (inputRef) {
+      inputRef.current = node;
+    }
+  }, [inputRef]);
+
+  useEffect(() => {
+    const visibilityChanged = previousRevealedRef.current !== revealed;
+    previousRevealedRef.current = revealed;
+
+    if (
+      Platform.OS !== "android"
+      || !visibilityChanged
+      || !inputIsFocusedRef.current
+      || !nativeInputRef.current?.isFocused()
+    ) {
+      return undefined;
+    }
+
+    // Android drops the active IME connection when secureTextEntry changes even
+    // though the native input still reports itself as focused. Reconnect only an
+    // input that was already focused; an idle password field must stay idle.
+    cancelFocusReconnect();
+    reconnectPhaseRef.current = "scheduled";
+    blurFrameRef.current = requestAnimationFrame(() => {
+      blurFrameRef.current = null;
+      const input = nativeInputRef.current;
+      if (!input || !inputIsFocusedRef.current || !input.isFocused()) {
+        reconnectPhaseRef.current = "idle";
+        return;
+      }
+
+      reconnectPhaseRef.current = "blurring";
+      input.blur();
+      focusFrameRef.current = requestAnimationFrame(() => {
+        focusFrameRef.current = null;
+        const currentInput = nativeInputRef.current;
+        const focusedInput = TextInput.State.currentlyFocusedInput();
+        if (!currentInput || (focusedInput && focusedInput !== currentInput)) {
+          inputIsFocusedRef.current = false;
+          reconnectPhaseRef.current = "idle";
+          return;
+        }
+
+        reconnectPhaseRef.current = "focusing";
+        currentInput.focus();
+        settleFrameRef.current = requestAnimationFrame(() => {
+          settleFrameRef.current = null;
+          reconnectPhaseRef.current = "idle";
+        });
+      });
+    });
+
+    return cancelFocusReconnect;
+  }, [cancelFocusReconnect, revealed]);
+
+  useEffect(() => cancelFocusReconnect, [cancelFocusReconnect]);
 
   return (
     <TextField
       {...textFieldProps}
-      ref={inputRef}
+      ref={setInputRef}
       autoCapitalize={textFieldProps.autoCapitalize ?? "none"}
       autoCorrect={textFieldProps.autoCorrect ?? false}
+      onBlur={(event) => {
+        if (reconnectPhaseRef.current === "blurring") {
+          return;
+        }
+        inputIsFocusedRef.current = false;
+        cancelFocusReconnect();
+        textFieldProps.onBlur?.(event);
+      }}
+      onFocus={(event) => {
+        inputIsFocusedRef.current = true;
+        if (reconnectPhaseRef.current === "focusing") {
+          reconnectPhaseRef.current = "idle";
+          if (settleFrameRef.current !== null) {
+            cancelAnimationFrame(settleFrameRef.current);
+            settleFrameRef.current = null;
+          }
+          return;
+        }
+        textFieldProps.onFocus?.(event);
+      }}
       secureTextEntry={!revealed}
       textContentType={textFieldProps.textContentType ?? "password"}
+      keyboardType={keyboardType}
       trailingAccessory={
         <Pressable
           accessibilityLabel={actionLabel}

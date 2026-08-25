@@ -536,6 +536,7 @@ export function AnnouncementsFeed({
         </View>
       ) : null}
       ListHeaderComponent={header}
+      keyboardShouldPersistTaps="handled"
       maxToRenderPerBatch={10}
       onEndReached={() => {
         if (hasMore && !paginationLoading && !paginationError) onLoadMore?.();

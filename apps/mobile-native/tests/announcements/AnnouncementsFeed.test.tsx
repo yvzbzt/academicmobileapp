@@ -279,6 +279,10 @@ describe("Phase 8 Announcements feed", () => {
   it("renders the reference top bar, compact search/filter rails, and actionable reminder artwork", async () => {
     await renderFeed(feedProps());
 
+    expect(screen.getByTestId(/^announcements-feed-/u)).toHaveProp(
+      "keyboardShouldPersistTaps",
+      "handled",
+    );
     expect(screen.getByTestId("announcements-top-bar")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Duyurular" })).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Duyurular" })).toHaveProp("maxFontSizeMultiplier", 1.3);

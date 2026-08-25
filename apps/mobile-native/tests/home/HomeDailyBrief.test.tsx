@@ -2,7 +2,7 @@ import { NavigationContainer, useScrollToTop } from "@react-navigation/native";
 import { fireEvent, renderAsync, screen } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { HomeDailyBrief, type HomeDailyBriefProps } from "../../src/home/HomeDailyBrief";
-import { ThemeProvider } from "../../src/design-system";
+import { referencePalette, ThemeProvider } from "../../src/design-system";
 import type { TrustedMobileContentRecord } from "../../src/content/content-trust";
 
 jest.mock("@react-navigation/native", () => {
@@ -118,15 +118,16 @@ function props(overrides: Partial<HomeDailyBriefProps> = {}): HomeDailyBriefProp
 }
 
 async function renderHome(input: HomeDailyBriefProps, platform: "ios" | "android" = "android") {
+  const dimensions = mockWindowDimensions();
   return renderAsync(
-    <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 640 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
+    <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: dimensions.width, height: dimensions.height }, insets: { top: 0, left: 0, right: 0, bottom: 0 } }}>
       <ThemeProvider
         liquidGlassAvailable={platform === "ios"}
         platform={platform}
         preference="light"
         reducedMotion
         reducedTransparency={false}
-        windowWidth={320}
+        windowWidth={dimensions.width}
       >
         <NavigationContainer>
           <HomeDailyBrief {...input} />
@@ -137,7 +138,15 @@ async function renderHome(input: HomeDailyBriefProps, platform: "ios" | "android
 }
 
 describe("Phase 7 Home daily brief", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockWindowDimensions.mockReturnValue({
+      fontScale: 2,
+      height: 568,
+      scale: 2,
+      width: 320,
+    });
+  });
 
   it("renders an exclusive incomplete-profile state without misleading dashboards", async () => {
     await renderHome(props({ profileComplete: false, universityName: undefined, events: [], announcements: [], calendarLoading: true, calendarAttempted: false, announcementLoading: true, announcementAttempted: false }));
@@ -166,7 +175,7 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getByRole("button", { name: /^Bu hafta 1 önemli tarih/u })).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Senin için" })).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Kişisel etkinlik ekle" })).toBeOnTheScreen();
-    expect(screen.getAllByText(/Ağustos 2026/u).some((node) => node.props.numberOfLines === 1)).toBe(true);
+    expect(screen.getAllByText(/Ağustos 2026/u).some((node) => node.props.numberOfLines <= 2)).toBe(true);
     expect(screen.getByRole("header", { name: "Önemli duyuru" })).toHaveTextContent("Öne çıkan duyurular");
 
     fireEvent.press(screen.getByRole("button", { name: "Hesap menüsünü aç" }));
@@ -225,6 +234,106 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getByRole("button", { name: /^Ders Kayıtları\./u })).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: /^Burs Başvuruları\./u })).toBeOnTheScreen();
     expect(screen.queryByText("Dördüncü kalan tarih")).not.toBeOnTheScreen();
+  });
+
+  it("uses the editorial agenda-card hierarchy instead of the legacy all-day side column", async () => {
+    await renderHome(props());
+
+    const cards = screen.getAllByTestId("home-agenda-card");
+    const headers = screen.getAllByTestId("home-agenda-card-header");
+    expect(cards).toHaveLength(3);
+    expect(headers).toHaveLength(3);
+    expect(screen.getAllByTestId("home-agenda-time-pill")).toHaveLength(3);
+    expect(screen.getAllByTestId("home-agenda-footer")).toHaveLength(3);
+    expect(screen.getAllByTestId("home-agenda-category-label")[0]).toHaveStyle({ color: referencePalette.navy });
+    expect(screen.getAllByTestId("home-agenda-time-label")[0]).toHaveStyle({ color: referencePalette.navy });
+    expect(screen.getByText("Akademik")).toHaveStyle({ color: referencePalette.academicTealAction });
+    expect(cards[0]).toHaveStyle({ minHeight: 124, paddingHorizontal: 14 });
+    expect(headers[0]).toHaveStyle({ alignItems: "flex-start", flexDirection: "column" });
+    expect(screen.getByTestId("home-agenda-filters-scroll")).toBeOnTheScreen();
+    expect(screen.getAllByText("Tüm gün").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Ağu/u).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the editorial card header inline at a regular phone width", async () => {
+    mockWindowDimensions.mockReturnValue({
+      fontScale: 1,
+      height: 891,
+      scale: 2.625,
+      width: 411,
+    });
+
+    await renderHome(props());
+
+    expect(screen.getAllByTestId("home-agenda-card-header")[0]).toHaveStyle({
+      alignItems: "center",
+      flexDirection: "row",
+    });
+    expect(screen.queryByTestId("home-agenda-filters-scroll")).not.toBeOnTheScreen();
+  });
+
+  it("keeps the editorial card hierarchy intact on a portrait tablet", async () => {
+    mockWindowDimensions.mockReturnValue({
+      fontScale: 1,
+      height: 1280,
+      scale: 1.5,
+      width: 800,
+    });
+
+    await renderHome(props());
+
+    expect(screen.getAllByTestId("home-agenda-card")).toHaveLength(3);
+    expect(screen.getAllByTestId("home-agenda-card-header")[0]).toHaveStyle({
+      alignItems: "center",
+      flexDirection: "row",
+    });
+    expect(screen.getAllByTestId("home-agenda-footer")).toHaveLength(3);
+  });
+
+  it("keeps date ranges, cross-midnight clocks, location, press, and a11y truth in agenda cards", async () => {
+    await renderHome(props({
+      events: [{
+        id: "focus",
+        title: "Yaklaşan ilk kayıt",
+        category: "course_registration",
+        startDate: "2026-08-01T08:00:00.000Z",
+        temporalKind: "timestamp",
+        timezone: "Europe/Istanbul",
+      }, {
+        id: "all-day-range",
+        title: "Ders Kayıtları",
+        category: "course_registration",
+        startDate: "2026-08-31",
+        endDate: "2026-09-04",
+        temporalKind: "date",
+        endTemporalKind: "date",
+        location: "Öğrenci İşleri",
+      }, {
+        id: "cross-midnight",
+        title: "Gece Çalışma Programı",
+        category: "custom_event",
+        startDate: "2026-08-02T20:00:00.000Z",
+        endDate: "2026-08-03T08:00:00.000Z",
+        temporalKind: "timestamp",
+        endTemporalKind: "timestamp",
+        timezone: "Europe/Istanbul",
+        location: "Merkez Kampüs",
+      }],
+    }));
+
+    expect(screen.getByText("31 Ağustos 2026 – 4 Eylül 2026")).toBeOnTheScreen();
+    expect(screen.getByText("2 Ağustos 2026 – 3 Ağustos 2026")).toBeOnTheScreen();
+    expect(screen.getByText("23:00 – 11:00")).toBeOnTheScreen();
+    expect(screen.getByText("Öğrenci İşleri")).toBeOnTheScreen();
+    expect(screen.getByText("Merkez Kampüs")).toBeOnTheScreen();
+
+    const rangeCard = screen.getByRole("button", { name: /^Ders Kayıtları\./u });
+    expect(rangeCard).toHaveProp(
+      "accessibilityLabel",
+      expect.stringContaining("31 Ağustos 2026 – 4 Eylül 2026"),
+    );
+    fireEvent.press(rangeCard);
+    expect(callbacks.onOpenCalendar).toHaveBeenCalledTimes(1);
   });
 
   it("keeps past starts out of future Home surfaces and removes page-count copy", async () => {

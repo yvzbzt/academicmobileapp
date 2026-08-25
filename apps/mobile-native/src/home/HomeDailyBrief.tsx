@@ -6,6 +6,7 @@ import {
   FlatList,
   Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -49,6 +50,7 @@ import {
 } from "./home-model";
 import {
   formatCalendarClock,
+  formatCalendarDateRange,
   formatCalendarTemporal,
 } from "../calendar/calendar-time";
 import { academicCalendarDayNumber } from "../temporal/academic-temporal";
@@ -957,42 +959,63 @@ function AgendaFilterControl({
   onChange: (filter: AgendaFilter) => void;
 }) {
   const theme = useTheme();
+  const { fontScale, width } = useWindowDimensions();
+  const scrollable = width < 360 || fontScale >= 1.35;
   const options: readonly { label: string; value: AgendaFilter }[] = [
     { label: "Tümü", value: "all" },
     { label: "Akademik", value: "academic" },
     { label: "Kişisel", value: "personal" },
   ];
+  const controls = options.map((option) => {
+    const active = selected === option.value;
+    return (
+      <Pressable
+        accessibilityLabel={option.label}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: active }}
+        key={option.value}
+        onPress={() => onChange(option.value)}
+        style={({ pressed }) => [
+          styles.agendaFilterTarget,
+          pressed && styles.planHeroPressed,
+        ]}
+      >
+        <View style={[
+          styles.agendaFilterSurface,
+          active && styles.agendaFilterActive,
+        ]}>
+          <Text style={[
+            theme.typography.metaStrong,
+            styles.agendaFilterLabel,
+            active && styles.agendaFilterLabelActive,
+          ]}>
+            {option.label}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  });
+
+  if (scrollable) {
+    return (
+      <ScrollView
+        accessibilityLabel="Etkinlik filtresi"
+        accessibilityRole="tablist"
+        alwaysBounceHorizontal={false}
+        contentContainerStyle={styles.agendaFiltersScrollableContent}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.agendaFiltersScrollable}
+        testID="home-agenda-filters-scroll"
+      >
+        {controls}
+      </ScrollView>
+    );
+  }
+
   return (
     <View accessibilityLabel="Etkinlik filtresi" accessibilityRole="tablist" style={styles.agendaFilters}>
-      {options.map((option) => {
-        const active = selected === option.value;
-        return (
-          <Pressable
-            accessibilityLabel={option.label}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            key={option.value}
-            onPress={() => onChange(option.value)}
-            style={({ pressed }) => [
-              styles.agendaFilterTarget,
-              pressed && styles.planHeroPressed,
-            ]}
-          >
-            <View style={[
-              styles.agendaFilterSurface,
-              active && styles.agendaFilterActive,
-            ]}>
-              <Text style={[
-                theme.typography.metaStrong,
-                styles.agendaFilterLabel,
-                active && styles.agendaFilterLabelActive,
-              ]}>
-                {option.label}
-              </Text>
-            </View>
-          </Pressable>
-        );
-      })}
+      {controls}
     </View>
   );
 }
@@ -1148,9 +1171,27 @@ function CompactAgendaRow({
   onPress: () => void;
 }) {
   const theme = useTheme();
+  const { fontScale, width } = useWindowDimensions();
   const palette = agendaPalette(event);
   const allDay = event.temporalKind === "date" || /^\d{4}-\d{2}-\d{2}$/u.test(event.date);
+  const stackHeader = width < 360 || fontScale >= 1.35;
   const temporalLabel = formatCalendarTemporal({
+    startDate: event.date,
+    ...(event.endDate ? { endDate: event.endDate } : {}),
+    ...(event.temporalKind ? { temporalKind: event.temporalKind } : {}),
+    ...(event.endTemporalKind ? { endTemporalKind: event.endTemporalKind } : {}),
+    ...(event.timezone ? { timezone: event.timezone } : {}),
+  });
+  const startClock = compactTemporalTime(event.date, event.temporalKind, event.timezone);
+  const endClock = event.endDate && !allDay
+    ? compactTemporalTime(
+      event.endDate,
+      event.endTemporalKind ?? event.temporalKind,
+      event.timezone,
+    )
+    : null;
+  const timeLabel = endClock ? `${startClock} – ${endClock}` : startClock;
+  const dateLabel = formatCalendarDateRange({
     startDate: event.date,
     ...(event.endDate ? { endDate: event.endDate } : {}),
     ...(event.temporalKind ? { temporalKind: event.temporalKind } : {}),
@@ -1163,56 +1204,87 @@ function CompactAgendaRow({
       accessibilityLabel={`${event.title}. ${agendaTypeLabel(event)}. ${temporalLabel}.${event.location ? ` ${event.location}.` : ""}`}
       accessibilityRole="button"
       onPress={onPress}
+      testID="home-agenda-card"
       style={({ pressed }) => [
         styles.agendaCard,
         { borderColor: theme.colors.border.subtle },
         pressed && styles.planHeroPressed,
       ]}
     >
-      <View style={[styles.agendaAccent, { backgroundColor: palette.text }]} />
-      <View style={styles.agendaTimeColumn}>
-        <Text
-          adjustsFontSizeToFit
-          minimumFontScale={0.85}
-          numberOfLines={1}
-          style={[theme.typography.metaStrong, styles.agendaTimeLabel, { color: REFERENCE_COLORS.navy }]}
-        >
-          {compactTemporalTime(event.date, event.temporalKind, event.timezone)}
-        </Text>
-        {event.endDate && !allDay ? (
+      <View
+        style={[
+          styles.agendaCardHeader,
+          stackHeader && styles.agendaCardHeaderStacked,
+        ]}
+        testID="home-agenda-card-header"
+      >
+        <View style={[styles.agendaCategoryGroup, stackHeader && styles.agendaCategoryGroupStacked]}>
+          <View style={[styles.agendaCategoryIcon, { backgroundColor: palette.container }]}>
+            <Ionicons color={palette.text} name={agendaIconName(event)} size={17} />
+          </View>
           <Text
-            numberOfLines={1}
-            style={[theme.typography.meta, styles.agendaTimeLabel, { color: REFERENCE_COLORS.secondary }]}
+            numberOfLines={2}
+            style={[theme.typography.metaStrong, styles.agendaCategoryLabel, { color: REFERENCE_COLORS.navy }]}
+            testID="home-agenda-category-label"
           >
-            {compactTemporalTime(
-              event.endDate,
-              event.endTemporalKind ?? event.temporalKind,
-              event.timezone,
-            )}
-          </Text>
-        ) : null}
-      </View>
-      <View style={styles.agendaCopy}>
-        <View style={styles.agendaMetaRow}>
-          <Ionicons color={palette.text} name={agendaIconName(event)} size={15} />
-          <Text style={[theme.typography.metaStrong, { color: palette.text }]}>
             {agendaTypeLabel(event)}
           </Text>
         </View>
-        <Text
-          numberOfLines={3}
-          style={[theme.typography.bodyStrong, styles.agendaTitle, { color: REFERENCE_COLORS.navy }]}
+        <View
+          style={[
+            styles.agendaTimePill,
+            { backgroundColor: palette.container },
+            stackHeader && styles.agendaTimePillStacked,
+          ]}
+          testID="home-agenda-time-pill"
         >
-          {event.title}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
-        >
-          {event.location || temporalLabel}
-        </Text>
+          <Ionicons
+            color={palette.text}
+            name={allDay ? "sunny-outline" : "time-outline"}
+            size={14}
+          />
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.metaStrong, styles.agendaTimePillLabel, { color: REFERENCE_COLORS.navy }]}
+            testID="home-agenda-time-label"
+          >
+            {timeLabel}
+          </Text>
+        </View>
       </View>
-      <Ionicons color={referencePalette.academicMutedIcon} name="chevron-forward" size={18} />
+      <Text
+        numberOfLines={3}
+        style={[theme.typography.bodyStrong, styles.agendaTitle, { color: REFERENCE_COLORS.navy }]}
+      >
+        {event.title}
+      </Text>
+      <View style={styles.agendaCardFooter} testID="home-agenda-footer">
+        <View style={styles.agendaFooterMeta}>
+          <View style={styles.agendaFooterMetaLine}>
+            <Ionicons color={REFERENCE_COLORS.secondary} name="calendar-clear-outline" size={15} />
+            <Text
+              numberOfLines={stackHeader ? 2 : 1}
+              style={[theme.typography.meta, styles.agendaFooterLabel, { color: REFERENCE_COLORS.secondary }]}
+            >
+              {dateLabel}
+            </Text>
+          </View>
+          {event.location ? (
+            <View style={styles.agendaFooterMetaLine}>
+              <Ionicons color={REFERENCE_COLORS.secondary} name="location-outline" size={15} />
+              <Text
+                numberOfLines={stackHeader ? 2 : 1}
+                style={[theme.typography.meta, styles.agendaFooterLabel, { color: REFERENCE_COLORS.secondary }]}
+              >
+                {event.location}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={[styles.agendaDisclosure, { borderColor: theme.colors.border.subtle }]}>
+          <Ionicons color={REFERENCE_COLORS.blue} name="arrow-forward" size={16} />
+        </View>
+      </View>
     </Pressable>
   );
 }
@@ -1528,40 +1600,83 @@ function homeAnnouncementPalette(
 }
 
 const styles = StyleSheet.create({
-  agendaAccent: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    top: 0,
-    width: 4,
-  },
   agendaCard: {
-    alignItems: "center",
     backgroundColor: REFERENCE_COLORS.white,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     elevation: 2,
-    flexDirection: "row",
-    gap: 10,
-    minHeight: 82,
+    gap: 9,
+    minHeight: 124,
     minWidth: 0,
-    overflow: "hidden",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     shadowColor: REFERENCE_COLORS.navy,
     shadowOffset: { height: 3, width: 0 },
     shadowOpacity: 0.07,
     shadowRadius: 9,
   },
-  agendaCopy: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0,
-  },
-  agendaMetaRow: {
+  agendaCardFooter: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 5,
+    gap: 10,
+    minWidth: 0,
+  },
+  agendaCardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    minWidth: 0,
+  },
+  agendaCardHeaderStacked: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+    gap: 8,
+  },
+  agendaCategoryGroup: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 8,
+    minWidth: 0,
+  },
+  agendaCategoryIcon: {
+    alignItems: "center",
+    borderRadius: 9,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  agendaCategoryGroupStacked: {
+    flex: 0,
+    width: "100%",
+  },
+  agendaCategoryLabel: {
+    flex: 1,
+    minWidth: 0,
+  },
+  agendaDisclosure: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  agendaFooterLabel: {
+    flex: 1,
+    minWidth: 0,
+  },
+  agendaFooterMeta: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  agendaFooterMetaLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    minWidth: 0,
   },
   agendaList: {
     gap: 10,
@@ -1571,6 +1686,15 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
     flexDirection: "row",
     gap: 7,
+  },
+  agendaFiltersScrollable: {
+    alignSelf: "stretch",
+  },
+  agendaFiltersScrollableContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
+    paddingRight: 1,
   },
   agendaFilterTarget: {
     alignItems: "center",
@@ -1592,22 +1716,31 @@ const styles = StyleSheet.create({
     borderColor: REFERENCE_COLORS.blueDeep,
   },
   agendaFilterLabel: {
-    color: REFERENCE_COLORS.teal,
+    color: referencePalette.academicTealAction,
   },
   agendaFilterLabelActive: {
     color: REFERENCE_COLORS.white,
   },
-  agendaTimeColumn: {
-    alignItems: "flex-start",
+  agendaTimePill: {
+    alignItems: "center",
+    alignSelf: "center",
+    borderRadius: 999,
+    flexDirection: "row",
     flexShrink: 0,
-    width: 52,
+    gap: 5,
+    minHeight: 30,
+    paddingHorizontal: 10,
   },
-  agendaTimeLabel: {
-    width: "100%",
+  agendaTimePillLabel: {
+    flexShrink: 1,
+  },
+  agendaTimePillStacked: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
   },
   agendaTitle: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 21,
   },
   announcementCard: {
     marginHorizontal: 1,

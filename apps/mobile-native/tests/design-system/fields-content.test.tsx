@@ -1,10 +1,13 @@
 import { createRef, useState } from "react";
 import { Text, TextInput } from "react-native";
 import {
+  act,
+  fireEvent,
   fireEventAsync,
   screen,
   userEvent,
 } from "@testing-library/react-native";
+import { Platform } from "react-native";
 import {
   PasswordField,
   SearchField,
@@ -26,6 +29,33 @@ function ControlledPasswordField() {
       value="gizli-parola"
     />
   );
+}
+
+function mockAnimationFrames() {
+  let nextFrameId = 1;
+  const callbacks = new Map<number, Parameters<typeof requestAnimationFrame>[0]>();
+  jest.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+    const frameId = nextFrameId;
+    nextFrameId += 1;
+    callbacks.set(frameId, callback);
+    return frameId;
+  });
+  jest.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((frameId) => {
+    callbacks.delete(frameId);
+  });
+
+  return {
+    pending: () => callbacks.size,
+    runNext: async () => {
+      const next = callbacks.entries().next().value;
+      if (!next) {
+        throw new Error("No animation frame is pending.");
+      }
+      const [frameId, callback] = next;
+      callbacks.delete(frameId);
+      await act(async () => callback(16));
+    },
+  };
 }
 
 describe("accessible field and content primitives", () => {
@@ -64,6 +94,17 @@ describe("accessible field and content primitives", () => {
 
     expect(inputRef.current).not.toBeNull();
     expect(typeof inputRef.current?.focus).toBe("function");
+  });
+
+  it("forwards password inputs through callback refs and clears them on unmount", async () => {
+    const callbackRef = jest.fn((_input: TextInput | null) => undefined);
+    const view = await renderWithTheme(
+      <PasswordField label="Password" ref={callbackRef} value="" />,
+    );
+
+    expect(callbackRef).toHaveBeenCalledWith(expect.anything());
+    await view.unmountAsync();
+    expect(callbackRef).toHaveBeenLastCalledWith(null);
   });
 
   it("renders supporting text and a non-color disabled field state", async () => {
@@ -111,6 +152,155 @@ describe("accessible field and content primitives", () => {
 
     await userEvent.press(screen.getByRole("button", { name: "Şifreyi gizle" }));
     expect(password).toHaveProp("secureTextEntry", true);
+  });
+
+  it("reconnects an already-focused Android password input without exposing a synthetic blur", async () => {
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+    const frames = mockAnimationFrames();
+    const inputRef = createRef<TextInput>();
+    const onBlur = jest.fn();
+    const onFocus = jest.fn();
+
+    try {
+      await renderWithTheme(
+        <PasswordField
+          hidePasswordLabel="Hide password"
+          label="Password"
+          onBlur={onBlur}
+          onFocus={onFocus}
+          ref={inputRef}
+          selection={{ start: 4, end: 4 }}
+          showPasswordLabel="Show password"
+          value="gizli-parola"
+        />,
+      );
+
+      const password = screen.getByLabelText("Password");
+      const nativeInput = inputRef.current!;
+      const blur = jest.spyOn(nativeInput, "blur").mockImplementation(() => undefined);
+      const focus = jest.spyOn(nativeInput, "focus").mockImplementation(() => undefined);
+      jest.spyOn(nativeInput, "isFocused").mockReturnValue(true);
+      jest.spyOn(TextInput.State, "currentlyFocusedInput").mockImplementation(() => null as never);
+
+      fireEvent(password, "focus");
+      expect(onFocus).toHaveBeenCalledTimes(1);
+      fireEvent.press(screen.getByRole("button", { name: "Show password" }));
+
+      expect(password).toHaveProp("secureTextEntry", false);
+      expect(password).toHaveProp("keyboardType", "visible-password");
+      expect(password).toHaveProp("selection", { start: 4, end: 4 });
+      expect(frames.pending()).toBe(1);
+
+      await frames.runNext();
+      expect(blur).toHaveBeenCalledTimes(1);
+      fireEvent(password, "blur");
+      expect(onBlur).not.toHaveBeenCalled();
+
+      await frames.runNext();
+      expect(focus).toHaveBeenCalledTimes(1);
+      fireEvent(password, "focus");
+      expect(onFocus).toHaveBeenCalledTimes(1);
+      expect(frames.pending()).toBe(0);
+
+      fireEvent(password, "blur");
+      expect(onBlur).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+    }
+  });
+
+  it("does not focus an idle password input when visibility changes", async () => {
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+    const frames = mockAnimationFrames();
+    const inputRef = createRef<TextInput>();
+
+    try {
+      await renderWithTheme(
+        <PasswordField
+          hidePasswordLabel="Hide password"
+          label="Password"
+          ref={inputRef}
+          showPasswordLabel="Show password"
+          value="gizli-parola"
+        />,
+      );
+      const password = screen.getByLabelText("Password");
+      const nativeInput = inputRef.current!;
+      const blur = jest.spyOn(nativeInput, "blur").mockImplementation(() => undefined);
+      const focus = jest.spyOn(nativeInput, "focus").mockImplementation(() => undefined);
+      jest.spyOn(nativeInput, "isFocused").mockReturnValue(false);
+
+      fireEvent.press(screen.getByRole("button", { name: "Show password" }));
+
+      expect(password).toHaveProp("secureTextEntry", false);
+      expect(password).toHaveProp("keyboardType", "visible-password");
+      expect(frames.pending()).toBe(0);
+      expect(blur).not.toHaveBeenCalled();
+      expect(focus).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+    }
+  });
+
+  it("does not reconnect focused password inputs on iOS", async () => {
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+    const frames = mockAnimationFrames();
+    const inputRef = createRef<TextInput>();
+
+    try {
+      await renderWithTheme(
+        <PasswordField
+          hidePasswordLabel="Hide password"
+          label="Password"
+          ref={inputRef}
+          showPasswordLabel="Show password"
+          value="gizli-parola"
+        />,
+      );
+      const password = screen.getByLabelText("Password");
+      const nativeInput = inputRef.current!;
+      const blur = jest.spyOn(nativeInput, "blur").mockImplementation(() => undefined);
+      const focus = jest.spyOn(nativeInput, "focus").mockImplementation(() => undefined);
+      jest.spyOn(nativeInput, "isFocused").mockReturnValue(true);
+
+      fireEvent(password, "focus");
+      fireEvent.press(screen.getByRole("button", { name: "Show password" }));
+
+      expect(password).toHaveProp("secureTextEntry", false);
+      expect(password.props.keyboardType).toBeUndefined();
+      expect(frames.pending()).toBe(0);
+      expect(blur).not.toHaveBeenCalled();
+      expect(focus).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+    }
+  });
+
+  it("preserves an explicit password keyboard type on Android", async () => {
+    const originalPlatform = Platform.OS;
+    Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+
+    try {
+      await renderWithTheme(
+        <PasswordField
+          hidePasswordLabel="Hide password"
+          keyboardType="number-pad"
+          label="PIN"
+          showPasswordLabel="Show password"
+          value="1234"
+        />,
+      );
+      const password = screen.getByLabelText("PIN");
+
+      expect(password).toHaveProp("keyboardType", "number-pad");
+      fireEvent.press(screen.getByRole("button", { name: "Show password" }));
+      expect(password).toHaveProp("keyboardType", "number-pad");
+    } finally {
+      Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+    }
   });
 
   it("clears search input through a named clear action", async () => {

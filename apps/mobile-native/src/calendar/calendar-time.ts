@@ -34,6 +34,19 @@ export function formatCalendarClock(
   }).format(date);
 }
 
+/** Formats only the calendar date span while preserving the event timezone. */
+export function formatCalendarDateRange(value: CalendarTemporalDisplayValue): string {
+  const startKind = value.temporalKind
+    ?? (isDateOnlyValue(value.startDate) ? "date" : "timestamp");
+  const endKind = value.endDate
+    ? value.endTemporalKind ?? (isDateOnlyValue(value.endDate) ? "date" : startKind)
+    : undefined;
+  const start = formatCalendarDateEndpoint(value.startDate, startKind, value.timezone);
+  if (!value.endDate) return start;
+  const end = formatCalendarDateEndpoint(value.endDate, endKind ?? startKind, value.timezone);
+  return end === start ? start : `${start} – ${end}`;
+}
+
 export function formatCalendarTemporal(value: CalendarTemporalDisplayValue): string {
   const startKind = value.temporalKind
     ?? (isDateOnlyValue(value.startDate) ? "date" : "timestamp");
@@ -92,6 +105,25 @@ function timestampFormatter(
   if (timestampFormatterCache.size >= 32) timestampFormatterCache.clear();
   timestampFormatterCache.set(cacheKey, formatter);
   return formatter;
+}
+
+function formatCalendarDateEndpoint(
+  value: string,
+  temporalKind: AcademicTemporalKind,
+  timezone?: string,
+): string {
+  if (temporalKind === "date") {
+    const dateOnly = dateOnlyAtNoonUtc(value);
+    return dateOnly ? dateOnlyFormatter.format(dateOnly) : "Tarih belirtilmemiş";
+  }
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Tarih belirtilmemiş";
+  return timestampFormatter(timezone, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
 function dateOnlyAtNoonUtc(value: string): Date | null {

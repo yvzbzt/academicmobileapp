@@ -130,8 +130,9 @@ const CLASS_LEVELS: readonly { value: AcademicClassLevel; label: string }[] = [
 ];
 
 const DEFAULT_CATEGORIES: readonly NotificationCategoryOption[] = [
-  { key: "registration", label: "Ders kayıtları", enabled: true },
-  { key: "exam", label: "Sınav tarihleri", enabled: true },
+  { key: "course_registration", label: "Ders kayıtları", enabled: true },
+  { key: "midterm_exam", label: "Sınav tarihleri", enabled: true },
+  { key: "announcement", label: "Duyurular", enabled: true },
   { key: "holiday", label: "Tatil ve ara günleri", enabled: false },
 ];
 

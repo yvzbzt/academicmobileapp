@@ -143,4 +143,19 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     expect(confirmation).toHaveProp("accessibilityLabel", "Uygulama verileri silinsin mi?");
     expect(within(confirmation).getAllByText(/geri alınamaz/iu).length).toBeGreaterThan(0);
   });
+
+  it("keeps every visible notification group backed by a mutable preview category", async () => {
+    await renderAsync(<ProfileSettingsPreview scenario="notifications-active" />);
+
+    const announcements = await screen.findByRole("switch", { name: "Duyurular bildirimi" });
+    expect(announcements.props.accessibilityState).toEqual({ checked: true, disabled: false });
+
+    fireEvent.press(announcements);
+
+    await waitFor(() => {
+      expect(screen.getByRole("switch", { name: "Duyurular bildirimi" }).props.accessibilityState)
+        .toEqual({ checked: false, disabled: false });
+    });
+    expect(screen.getByText("Kaydedilmemiş değişiklikler")).toBeVisible();
+  });
 });
