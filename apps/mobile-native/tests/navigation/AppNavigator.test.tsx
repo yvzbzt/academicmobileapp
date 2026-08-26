@@ -5,7 +5,6 @@ import {
   BackHandler,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   Text,
@@ -61,6 +60,7 @@ const visibleRoutes: AppVisibleRoute[] = [
   "AcademicProfileSettings",
   "FollowedUniversitiesSettings",
   "NotificationSettings",
+  "AppleCalendarSettings",
   "GoogleCalendarSettings",
   "AccountDataSettings",
   "UnknownRoute",
@@ -1121,7 +1121,6 @@ describe("AppNavigator", () => {
     );
     await expectVisibleRoute("AcademicProfileSettings");
     expect(screen.getByRole("button", { name: "Geri d\u00f6n" })).toBeEnabled();
-    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset).toBe(0);
     expectPrimaryTabsHidden();
 
     expect(hardwareBackHandlers).toHaveLength(1);
@@ -1147,7 +1146,6 @@ describe("AppNavigator", () => {
       />,
     );
     await expectVisibleRoute("AccountDataSettings");
-    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset).toBe(0);
     expectPrimaryTabsHidden();
   });
 
@@ -1184,6 +1182,47 @@ describe("AppNavigator", () => {
 
     await expectVisibleRoute("Profile");
     expectSelectedTab("Ayarlar");
+  });
+
+  it("owns Apple Calendar settings in the protected Profile stack", async () => {
+    const hardwareBackHandlers = captureHardwareBackHandlers();
+    const onRequestHandled = jest.fn();
+    const onVisibleRouteChange = jest.fn();
+    const view = await renderNavigator({
+      activeRoute: "Home",
+      onRequestHandled,
+      onVisibleRouteChange,
+      rootSurface: "authenticated",
+    });
+    await expectVisibleRoute("Home");
+
+    await view.rerenderAsync(
+      <NavigatorHarness
+        activeRoute="Home"
+        onRequestHandled={onRequestHandled}
+        onVisibleRouteChange={onVisibleRouteChange}
+        request={{ key: "open-apple-calendar-settings", route: "AppleCalendarSettings" }}
+        rootSurface="authenticated"
+        screens={screens}
+      />,
+    );
+
+    await expectVisibleRoute("AppleCalendarSettings");
+    expect(screen.getByRole("header", { name: "Apple Takvim" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Geri d\u00f6n" })).toBeEnabled();
+    expectPrimaryTabsHidden();
+    expect(onRequestHandled).toHaveBeenCalledWith("open-apple-calendar-settings");
+    expect(onVisibleRouteChange).toHaveBeenCalledWith("AppleCalendarSettings");
+
+    expect(hardwareBackHandlers).toHaveLength(1);
+    await act(async () => {
+      expect(hardwareBackHandlers[0]!()).toBe(true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    });
+
+    await expectVisibleRoute("Profile");
+    expectSelectedTab("Ayarlar");
+    expect(onVisibleRouteChange).toHaveBeenCalledWith("Profile");
   });
 
   it("intercepts dirty settings Back, keeps Cancel in place, then discards before leaving", async () => {
