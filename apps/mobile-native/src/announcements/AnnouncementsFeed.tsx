@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -286,6 +287,7 @@ export function AnnouncementsFeed({
   ]);
 
   const clearFilters = () => {
+    Keyboard.dismiss();
     resultAnnouncementRequestedRef.current = true;
     setSearchText("");
     setDebouncedSearchText("");
@@ -294,6 +296,7 @@ export function AnnouncementsFeed({
   };
 
   const selectContentType = (value: FeedContentTypeFilter) => {
+    Keyboard.dismiss();
     if (contentTypeFilter !== value) {
       resultAnnouncementRequestedRef.current = true;
       setContentTypeFilter(value);
@@ -302,6 +305,7 @@ export function AnnouncementsFeed({
   };
 
   const selectSource = (value: FeedSourceFilter) => {
+    Keyboard.dismiss();
     if (sourceFilter !== value) {
       resultAnnouncementRequestedRef.current = true;
       setSourceFilter(value);
@@ -386,10 +390,10 @@ export function AnnouncementsFeed({
         <View style={styles.heroCopy}>
           <Text
             accessibilityRole="header"
-            adjustsFontSizeToFit
-            maxFontSizeMultiplier={1.3}
-            minimumFontScale={0.8}
-            numberOfLines={1}
+            adjustsFontSizeToFit={!layout.supportsLargeText}
+            maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.3}
+            minimumFontScale={layout.supportsLargeText ? undefined : 0.8}
+            numberOfLines={layout.supportsLargeText ? undefined : 1}
             style={[theme.typography.screenTitle, styles.pageTitle, { color: REFERENCE_COLORS.navy }]}
           >
             Duyurular
@@ -415,11 +419,12 @@ export function AnnouncementsFeed({
           accessibilityRole="search"
           autoCapitalize="none"
           autoCorrect={false}
-          maxFontSizeMultiplier={1.3}
+          maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.3}
           onChangeText={(value) => {
             resultAnnouncementRequestedRef.current = true;
             setSearchText(value);
           }}
+          onSubmitEditing={() => Keyboard.dismiss()}
           placeholder="Duyuru ara..."
           placeholderTextColor={referencePalette.academicPlaceholder}
           returnKeyType="search"
@@ -447,7 +452,10 @@ export function AnnouncementsFeed({
           accessibilityLabel={`İçerik türü filtresi. ${selectedContentLabel}`}
           accessibilityRole="button"
           accessibilityState={{ expanded: filterMenuVisible }}
-          onPress={() => setFilterMenuVisible(true)}
+          onPress={() => {
+            Keyboard.dismiss();
+            setFilterMenuVisible(true);
+          }}
           style={({ pressed }) => [
             styles.filterMenuButton,
             pressed && styles.pressed,
@@ -469,6 +477,7 @@ export function AnnouncementsFeed({
         <ScrollView
           contentContainerStyle={styles.scopeRail}
           horizontal
+          keyboardDismissMode={adaptation.platform === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
           showsHorizontalScrollIndicator={false}
           testID="announcements-source-filter-rail"
@@ -536,6 +545,7 @@ export function AnnouncementsFeed({
         </View>
       ) : null}
       ListHeaderComponent={header}
+      keyboardDismissMode={adaptation.platform === "ios" ? "interactive" : "on-drag"}
       keyboardShouldPersistTaps="handled"
       maxToRenderPerBatch={10}
       onEndReached={() => {
@@ -586,8 +596,8 @@ export function AnnouncementsFeed({
                   size={20}
                 />
                 <Text
-                  maxFontSizeMultiplier={1.35}
-                  numberOfLines={1}
+                  maxFontSizeMultiplier={2}
+                  numberOfLines={2}
                   style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}
                 >
                   {option.label}
@@ -625,7 +635,7 @@ export function AnnouncementsFeed({
                   ]}
                 >
                   <Ionicons color={selected ? REFERENCE_COLORS.blue : REFERENCE_COLORS.secondary} name={option.icon} size={20} />
-                  <Text maxFontSizeMultiplier={1.35} numberOfLines={1} style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}>{option.label}</Text>
+                  <Text maxFontSizeMultiplier={2} numberOfLines={2} style={[theme.typography.body, styles.flexibleText, { color: REFERENCE_COLORS.navy }]}>{option.label}</Text>
                   {selected ? <Ionicons color={REFERENCE_COLORS.blue} name="checkmark" size={20} /> : null}
                 </Pressable>
                 {destinationAction ? (
@@ -668,7 +678,7 @@ function AnnouncementArtwork() {
 
 function FilterGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <View accessibilityLabel={title} style={styles.filterGroup}>
+    <View accessible={false} style={styles.filterGroup}>
       <Text
         accessibilityRole="header"
         style={styles.visuallyHidden}
@@ -790,8 +800,8 @@ function FeedRow({
         </View>
         <View style={[styles.feedCopy, stacked && styles.feedCopyStacked]}>
           <Text
-            maxFontSizeMultiplier={1.35}
-            numberOfLines={2}
+            maxFontSizeMultiplier={stacked ? undefined : 1.35}
+            numberOfLines={stacked ? undefined : 2}
             style={[theme.typography.cardTitle, styles.feedTitle, { color: REFERENCE_COLORS.navy }]}
           >
             {record.title}
@@ -799,8 +809,8 @@ function FeedRow({
           {record.summary ? (
             <Text
               ellipsizeMode="tail"
-              maxFontSizeMultiplier={1.3}
-              numberOfLines={2}
+              maxFontSizeMultiplier={stacked ? undefined : 1.3}
+              numberOfLines={stacked ? undefined : 2}
               style={[theme.typography.meta, styles.feedSummary, { color: REFERENCE_COLORS.secondary }]}
             >
               {record.summary}

@@ -1,4 +1,5 @@
 import { fireEvent, renderAsync, screen } from "@testing-library/react-native";
+import { Keyboard } from "react-native";
 import { ThemeProvider } from "../../src/design-system";
 import { FollowedUniversitiesSettingsScreen } from "../../src/profile/FollowedUniversitiesSettings";
 
@@ -50,5 +51,28 @@ describe("FollowedUniversitiesSettingsScreen", () => {
 
     expect(screen.getByText("Ankara Üniversitesi")).toBeVisible();
     expect(screen.queryByText("Ege Üniversitesi")).toBeNull();
+    expect(screen.getByRole("button", { name: "Aramayı temizle" }))
+      .toHaveStyle({ height: 44, width: 44 });
+  });
+
+  it("dismisses the keyboard for completed searches and keeps one VoiceOver switch per row", async () => {
+    const dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
+    try {
+      await renderAsync(tree());
+
+      const search = screen.getByRole("search", { name: "Üniversite ara" });
+      fireEvent(search, "submitEditing");
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      fireEvent.press(screen.getByRole("switch", { name: "Ankara Üniversitesi. Takip edilmiyor" }));
+      expect(dismiss).toHaveBeenCalledTimes(2);
+
+      expect(screen.getByTestId("followed-universities-list")).toHaveProp("accessible", false);
+      expect(screen.getByTestId("followed-university-switch-visual-uni-3", { includeHiddenElements: true }))
+        .toHaveProp("accessibilityElementsHidden", true);
+      expect(screen.getByTestId("followed-university-switch-visual-uni-3", { includeHiddenElements: true }))
+        .toHaveProp("importantForAccessibility", "no-hide-descendants");
+    } finally {
+      dismiss.mockRestore();
+    }
   });
 });

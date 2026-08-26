@@ -1,9 +1,31 @@
 import { fireEvent, renderAsync, screen } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider } from "../../src/design-system";
 import { AccountDrawer } from "../../src/navigation/AccountDrawer";
 
+const mockWindowDimensions = jest.fn(() => ({
+  fontScale: 1,
+  height: 844,
+  scale: 3,
+  width: 390,
+}));
+
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
+  __esModule: true,
+  default: () => mockWindowDimensions(),
+}));
+
 describe("AccountDrawer", () => {
+  beforeEach(() => {
+    mockWindowDimensions.mockReturnValue({
+      fontScale: 1,
+      height: 844,
+      scale: 3,
+      width: 390,
+    });
+  });
+
   it("owns personal identity, account management, and logout outside the settings tab", async () => {
     const onClose = jest.fn();
     const onLogout = jest.fn();
@@ -40,5 +62,47 @@ describe("AccountDrawer", () => {
 
     fireEvent.press(screen.getByRole("button", { name: "Çıkış yap" }));
     expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps every action scroll-reachable in landscape with accessibility text sizes", async () => {
+    mockWindowDimensions.mockReturnValue({
+      fontScale: 2,
+      height: 320,
+      scale: 2,
+      width: 844,
+    });
+    await renderAsync(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { height: 320, width: 844, x: 0, y: 0 },
+          insets: { bottom: 21, left: 44, right: 44, top: 0 },
+        }}
+      >
+        <ThemeProvider platform="ios" preference="light" reducedMotion windowWidth={844}>
+          <AccountDrawer
+            email="ada.lovelace.with.a.long.address@example.invalid"
+            fullName="Ada Augusta King Lovelace"
+            onClose={jest.fn()}
+            onLogout={jest.fn()}
+            onOpenAccount={jest.fn()}
+            universityName="Çok Uzun Örnek Üniversitesi Mühendislik Yerleşkesi"
+            visible
+          />
+        </ThemeProvider>
+      </SafeAreaProvider>,
+    );
+
+    expect(screen.getByTestId("account-drawer")).toHaveProp("accessible", false);
+    expect(screen.getByTestId("account-drawer")).toHaveStyle({ width: 344 });
+    const scroll = screen.getByTestId("account-drawer-scroll");
+    expect(scroll).toHaveProp("keyboardShouldPersistTaps", "handled");
+    expect(StyleSheet.flatten(scroll.props.contentContainerStyle)).toMatchObject({
+      flexGrow: 1,
+      paddingBottom: 18,
+    });
+    expect(StyleSheet.flatten(screen.getByTestId("account-drawer-identity").props.style))
+      .toMatchObject({ alignItems: "flex-start", flexDirection: "column" });
+    expect(screen.getByText("Ada Augusta King Lovelace").props.numberOfLines).toBeUndefined();
+    expect(screen.getByRole("button", { name: "Çıkış yap" })).toBeOnTheScreen();
   });
 });

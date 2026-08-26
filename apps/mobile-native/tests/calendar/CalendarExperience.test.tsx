@@ -7,7 +7,7 @@ import {
   screen,
   within,
 } from "@testing-library/react-native";
-import { AccessibilityInfo, StyleSheet, Text } from "react-native";
+import { AccessibilityInfo, Keyboard, StyleSheet, Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   CalendarExperience,
@@ -208,6 +208,36 @@ describe("Phase 9 Calendar experience", () => {
     });
   });
 
+  it("uses scrollable 44 point week and month day targets on narrow iOS layouts", async () => {
+    await renderCalendar(props(), "ios");
+
+    const list = screen.getByLabelText("Takvim etkinlikleri");
+    expect(list).toHaveProp("keyboardDismissMode", "interactive");
+    expect(list).toHaveProp("keyboardShouldPersistTaps", "handled");
+
+    const strip = screen.getByTestId("calendar-week-strip");
+    expect(StyleSheet.flatten(strip.props.contentContainerStyle)).toMatchObject({
+      minWidth: 342,
+    });
+    const weekDay = screen.getByTestId("calendar-week-day-2026-08-05");
+    const weekDayStyle = typeof weekDay.props.style === "function"
+      ? weekDay.props.style({ pressed: false })
+      : weekDay.props.style;
+    expect(StyleSheet.flatten(weekDayStyle)).toMatchObject({
+      flexBasis: 44,
+      minWidth: 44,
+    });
+
+    openCalendarOptions();
+    fireEvent.press(screen.getByRole("radio", { name: "Ay" }));
+    expect(screen.getByTestId("calendar-month-grid")).toHaveStyle({ width: 308 });
+    const monthDay = screen.getByTestId("calendar-month-day-2026-08-05");
+    const monthDayStyle = typeof monthDay.props.style === "function"
+      ? monthDay.props.style({ pressed: false })
+      : monthDay.props.style;
+    expect(StyleSheet.flatten(monthDayStyle)).toMatchObject({ minWidth: 44 });
+  });
+
   it("keeps the explicit Agenda view selected when a day in its summary is chosen", async () => {
     await renderCalendar();
 
@@ -275,6 +305,8 @@ describe("Phase 9 Calendar experience", () => {
     openCalendarOptions();
     fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
     fireEvent.changeText(screen.getByLabelText("Takvimde ara"), "Lineer");
+    expect(screen.getByRole("button", { name: "Takvim aramasını temizle" }))
+      .toHaveStyle({ height: 44, width: 44 });
     expect(screen.getByText("Lineer Cebir")).toBeOnTheScreen();
     expect(screen.queryByText("Final sınavı")).not.toBeOnTheScreen();
 
@@ -286,6 +318,21 @@ describe("Phase 9 Calendar experience", () => {
     openCalendarOptions();
     fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
     expect(screen.getByPlaceholderText("Etkinlik, ders veya konum ara")).toHaveDisplayValue("");
+  });
+
+  it("dismisses the keyboard before opening options and when search is submitted", async () => {
+    const dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
+    try {
+      await renderCalendar();
+
+      openCalendarOptions();
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      fireEvent.press(screen.getByRole("button", { name: "Takvimde ara" }));
+      fireEvent(screen.getByLabelText("Takvimde ara"), "submitEditing");
+      expect(dismiss).toHaveBeenCalledTimes(2);
+    } finally {
+      dismiss.mockRestore();
+    }
   });
 
   it("keeps the month heading non-interactive without a misleading down chevron", async () => {
@@ -490,6 +537,8 @@ describe("Phase 9 Calendar experience", () => {
 
   it("uses one compact Google status card and routes sync and lifecycle management", async () => {
     await renderCalendar();
+    expect(screen.getByTestId("calendar-google-sync-card")).toHaveProp("accessible", false);
+    expect(screen.getByTestId("calendar-google-sync-status")).toHaveProp("accessible", true);
     expect(screen.getByLabelText(/Google Takvim durumu.*Bağlı/u)).toBeOnTheScreen();
     expect(screen.getByText("3 uygulama kaydı doğrulandı")).toBeOnTheScreen();
     expect(screen.getByText("Etkinliklerini otomatik olarak senkronize et.")).toBeOnTheScreen();

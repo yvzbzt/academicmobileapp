@@ -10,7 +10,6 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Banner,
   Button,
@@ -91,7 +90,6 @@ export function AnnouncementDetail({
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
   const { fontScale, width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const layout = resolveContentFeedLayout(width, fontScale);
   const [actionFailure, setActionFailure] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
@@ -252,35 +250,38 @@ export function AnnouncementDetail({
           </View>
         ) : null}
 
-        <View style={styles.sourcePill} testID="announcement-detail-source-pill">
+        <View
+          style={[styles.sourcePill, layout.supportsLargeText && styles.sourcePillLargeText]}
+          testID="announcement-detail-source-pill"
+        >
           <View style={styles.sourceSeal}>
             <Ionicons color={REFERENCE_COLORS.blue} name="business" size={25} />
           </View>
-          <View style={styles.sourcePillCopy}>
+          <View style={[styles.sourcePillCopy, layout.supportsLargeText && styles.sourcePillCopyLargeText]}>
             <Text
               accessibilityRole="header"
-              maxFontSizeMultiplier={1.35}
-              numberOfLines={2}
+              maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.35}
+              numberOfLines={layout.supportsLargeText ? undefined : 2}
               style={[theme.typography.bodyStrong, styles.sourcePillName, { color: REFERENCE_COLORS.navy }]}
             >
               {detail.sourceName}
             </Text>
             <View style={styles.sourceMetaRow}>
               <Text
-                maxFontSizeMultiplier={1.35}
+                maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.35}
                 style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.secondary }]}
               >
                 {detail.typeAndScopeLabel}
               </Text>
               <Text
-                maxFontSizeMultiplier={1.35}
+                maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.35}
                 style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
               >
                 · doğrulanmış resmî kaynak
               </Text>
             </View>
           </View>
-          <View style={styles.sourceStatus}>
+          <View style={[styles.sourceStatus, layout.supportsLargeText && styles.sourceStatusLargeText]}>
             <Ionicons color={REFERENCE_COLORS.green} name="checkmark-circle" size={19} />
           </View>
         </View>
@@ -296,7 +297,7 @@ export function AnnouncementDetail({
             </View>
             <Text
               accessibilityRole="header"
-              maxFontSizeMultiplier={1.45}
+              maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.45}
               style={[
                 theme.typography.screenTitle,
                 styles.articleTitle,
@@ -313,7 +314,7 @@ export function AnnouncementDetail({
               <View style={styles.dateLine}>
                 <Ionicons color={REFERENCE_COLORS.blue} name="calendar-outline" size={20} />
                 <Text
-                  maxFontSizeMultiplier={1.35}
+                  maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.35}
                   style={[theme.typography.body, styles.dateText, { color: REFERENCE_COLORS.secondary }]}
                 >
                   {detail.publishedLabel ?? "Yayın tarihi belirtilmemiş"}
@@ -323,7 +324,7 @@ export function AnnouncementDetail({
                 <View style={styles.dateLine}>
                   <Ionicons color={REFERENCE_COLORS.blue} name="time-outline" size={20} />
                   <Text
-                    maxFontSizeMultiplier={1.35}
+                    maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.35}
                     style={[theme.typography.body, styles.dateText, { color: REFERENCE_COLORS.secondary }]}
                   >
                     {detail.updatedLabel}
@@ -335,7 +336,7 @@ export function AnnouncementDetail({
               <View style={styles.deadlineChip}>
                 <Ionicons color={REFERENCE_COLORS.green} name="calendar" size={17} />
                 <Text
-                  maxFontSizeMultiplier={1.25}
+                  maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.25}
                   style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.green }]}
                 >
                   Son gün: {formatKeyDate(deadline.endDate)}
@@ -348,7 +349,7 @@ export function AnnouncementDetail({
 
           {detail.summary ? (
             <Text
-              maxFontSizeMultiplier={1.5}
+              maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.5}
               style={[theme.typography.body, styles.articleSummary, { color: referencePalette.academicTextBody }]}
             >
               {detail.summary}
@@ -408,7 +409,7 @@ export function AnnouncementDetail({
             <View style={styles.officialSourceCopy}>
               <Text style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.navy }]}>Resmî kaynak</Text>
               <Text
-                numberOfLines={2}
+                numberOfLines={layout.supportsLargeText ? undefined : 2}
                 style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
               >
                 {detail.sourceName} · {detail.domain}
@@ -465,7 +466,6 @@ export function AnnouncementDetail({
         style={[
           styles.stickyActions,
           layout.supportsLargeText && styles.stickyActionsStacked,
-          { paddingBottom: Math.max(12, insets.bottom) },
         ]}
         testID="announcement-detail-sticky-actions"
       >
@@ -830,10 +830,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     width: "100%",
   },
+  sourcePillLargeText: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+  },
   sourcePillCopy: {
     flex: 1,
     gap: 4,
     minWidth: 0,
+  },
+  sourcePillCopyLargeText: {
+    flex: 0,
+    width: "100%",
   },
   sourcePillName: {
     minWidth: 0,
@@ -852,6 +860,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 4,
+  },
+  sourceStatusLargeText: {
+    alignSelf: "flex-end",
   },
   stateContainer: {
     backgroundColor: REFERENCE_COLORS.background,

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -31,7 +32,7 @@ export function AccountDrawer({
   onOpenAccount,
 }: AccountDrawerProps) {
   const theme = useTheme();
-  const { width } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [logoutError, setLogoutError] = useState<string | undefined>();
   const normalizedName = fullName.trim() || "Öğrenci hesabı";
@@ -72,7 +73,7 @@ export function AccountDrawer({
     >
       <View style={styles.modalRoot}>
         <SafeAreaView
-          accessibilityLabel="Hesap menüsü"
+          accessible={false}
           accessibilityViewIsModal
           onAccessibilityEscape={onClose}
           style={[
@@ -86,7 +87,7 @@ export function AccountDrawer({
           testID="account-drawer"
         >
           <View style={styles.drawerHeader}>
-            <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Hesabım</Text>
+            <Text accessibilityRole="header" style={[theme.typography.screenTitle, styles.drawerTitle, { color: theme.colors.text.primary }]}>Hesabım</Text>
             <Pressable
               accessibilityLabel="Hesap menüsünü kapat"
               accessibilityRole="button"
@@ -101,57 +102,72 @@ export function AccountDrawer({
             </Pressable>
           </View>
 
-          <View style={[styles.identity, { borderBottomColor: theme.colors.border.subtle }]}>
-            <View style={[styles.avatar, { backgroundColor: theme.colors.action.secondary }]}>
-              <Text style={[theme.typography.sectionTitle, { color: theme.colors.text.link }]}>{initials(normalizedName)}</Text>
-            </View>
-            <View style={styles.identityCopy}>
-              <Text numberOfLines={2} style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>{normalizedName}</Text>
-              <Text ellipsizeMode="middle" numberOfLines={2} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{normalizedEmail}</Text>
-              {universityName ? (
-                <View style={[styles.universityTag, { backgroundColor: referencePalette.academicGreenSoft }]}>
-                  <Ionicons color={referencePalette.academicGreen} name="school-outline" size={15} />
-                  <Text numberOfLines={2} style={[theme.typography.metaStrong, styles.identityCopy, { color: referencePalette.academicTealTitle }]}>{universityName}</Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-
-          {logoutError ? <Banner message={logoutError} title="Çıkış yapılamadı" tone="error" /> : null}
-
-          <View style={styles.menuSection}>
-            <Pressable
-              accessibilityHint="Kişisel hesap ve veri seçeneklerini açar."
-              accessibilityRole="button"
-              onPress={openAccount}
-              style={({ pressed }) => [
-                styles.menuRow,
-                { borderColor: theme.colors.border.subtle },
-                pressed && { backgroundColor: theme.colors.action.ghostPressed },
+          <ScrollView
+            contentContainerStyle={styles.drawerScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            style={styles.drawerScroll}
+            testID="account-drawer-scroll"
+          >
+            <View
+              style={[
+                styles.identity,
+                fontScale >= 1.6 && styles.identityLargeText,
+                { borderBottomColor: theme.colors.border.subtle },
               ]}
+              testID="account-drawer-identity"
             >
-              <View style={[styles.menuIcon, { backgroundColor: theme.colors.action.secondary }]}>
-                <Ionicons color={theme.colors.action.primary} name="person-outline" size={22} />
+              <View style={[styles.avatar, { backgroundColor: theme.colors.action.secondary }]}>
+                <Text style={[theme.typography.sectionTitle, { color: theme.colors.text.link }]}>{initials(normalizedName)}</Text>
               </View>
-              <View style={styles.identityCopy}>
-                <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Kişisel profil ve hesap</Text>
-                <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Hesap bilgileri, gizlilik ve veri yönetimi</Text>
+              <View style={[styles.identityCopy, fontScale >= 1.6 && styles.identityCopyLargeText]}>
+                <Text style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>{normalizedName}</Text>
+                <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{normalizedEmail}</Text>
+                {universityName ? (
+                  <View style={[styles.universityTag, { backgroundColor: referencePalette.academicGreenSoft }]}>
+                    <Ionicons color={referencePalette.academicGreen} name="school-outline" size={15} />
+                    <Text style={[theme.typography.metaStrong, styles.universityName, { color: referencePalette.academicTealTitle }]}>{universityName}</Text>
+                  </View>
+                ) : null}
               </View>
-              <Ionicons color={theme.colors.text.secondary} name="chevron-forward" size={20} />
-            </Pressable>
-          </View>
+            </View>
 
-          <View style={styles.drawerFooter}>
-            <Button
-              disabled={logoutBusy}
-              fullWidth
-              label="Çıkış yap"
-              leadingIcon={<Ionicons color={theme.colors.text.primary} name="log-out-outline" size={20} />}
-              loading={logoutBusy}
-              onPress={() => void submitLogout()}
-              variant="secondary"
-            />
-          </View>
+            {logoutError ? <Banner message={logoutError} title="Çıkış yapılamadı" tone="error" /> : null}
+
+            <View style={styles.menuSection}>
+              <Pressable
+                accessibilityHint="Kişisel hesap ve veri seçeneklerini açar."
+                accessibilityRole="button"
+                onPress={openAccount}
+                style={({ pressed }) => [
+                  styles.menuRow,
+                  { borderColor: theme.colors.border.subtle },
+                  pressed && { backgroundColor: theme.colors.action.ghostPressed },
+                ]}
+              >
+                <View style={[styles.menuIcon, { backgroundColor: theme.colors.action.secondary }]}>
+                  <Ionicons color={theme.colors.action.primary} name="person-outline" size={22} />
+                </View>
+                <View style={styles.identityCopy}>
+                  <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>Kişisel profil ve hesap</Text>
+                  <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Hesap bilgileri, gizlilik ve veri yönetimi</Text>
+                </View>
+                <Ionicons color={theme.colors.text.secondary} name="chevron-forward" size={20} />
+              </Pressable>
+            </View>
+
+            <View style={styles.drawerFooter}>
+              <Button
+                disabled={logoutBusy}
+                fullWidth
+                label="Çıkış yap"
+                leadingIcon={<Ionicons color={theme.colors.text.primary} name="log-out-outline" size={20} />}
+                loading={logoutBusy}
+                onPress={() => void submitLogout()}
+                variant="secondary"
+              />
+            </View>
+          </ScrollView>
         </SafeAreaView>
 
         <Pressable
@@ -178,8 +194,6 @@ const styles = StyleSheet.create({
   },
   panel: {
     borderRightWidth: StyleSheet.hairlineWidth,
-    gap: 18,
-    paddingBottom: 18,
     paddingHorizontal: 18,
     paddingTop: 8,
   },
@@ -191,6 +205,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     minHeight: 48,
+  },
+  drawerTitle: {
+    flex: 1,
+    minWidth: 0,
+  },
+  drawerScroll: {
+    flex: 1,
+  },
+  drawerScrollContent: {
+    flexGrow: 1,
+    gap: 18,
+    paddingBottom: 18,
+    paddingTop: 18,
   },
   iconButton: {
     alignItems: "center",
@@ -206,6 +233,10 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingBottom: 18,
   },
+  identityLargeText: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+  },
   avatar: {
     alignItems: "center",
     borderRadius: 32,
@@ -216,6 +247,10 @@ const styles = StyleSheet.create({
   identityCopy: {
     flex: 1,
     minWidth: 0,
+  },
+  identityCopyLargeText: {
+    flex: 0,
+    width: "100%",
   },
   universityTag: {
     alignItems: "center",
@@ -229,7 +264,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   menuSection: {
-    flex: 1,
+    flexGrow: 1,
   },
   menuRow: {
     alignItems: "center",
@@ -249,5 +284,9 @@ const styles = StyleSheet.create({
   },
   drawerFooter: {
     gap: 10,
+  },
+  universityName: {
+    flex: 1,
+    minWidth: 0,
   },
 });

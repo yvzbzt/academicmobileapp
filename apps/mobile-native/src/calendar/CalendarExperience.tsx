@@ -7,8 +7,10 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -137,6 +139,8 @@ const selectedDayHeadingFormatter = new Intl.DateTimeFormat("tr-TR", {
 });
 const agendaDayHeadingCache = new Map<string, string>();
 const AGENDA_PAGE_SIZE = 12;
+const IOS_MONTH_MIN_WIDTH = 7 * 44;
+const IOS_WEEK_MIN_WIDTH = IOS_MONTH_MIN_WIDTH + (2 * 5) + (6 * 4);
 const academicCalendarLogo = require("../../assets/design-package/academic-calendar-logo.png");
 const PRIMARY_CALENDAR_VIEWS = [
   { value: "agenda", label: "Ajanda" },
@@ -331,6 +335,7 @@ export function CalendarExperience({
 
   const toggleSearch = () => {
     if (searchVisible) {
+      Keyboard.dismiss();
       setSearchQuery("");
       setSearchVisible(false);
       return;
@@ -373,7 +378,10 @@ export function CalendarExperience({
       <CalendarScreenHeader
         compact={width < 375 || fontScale >= 1.6}
         onAccountMenuPress={onOpenAccountMenu}
-        onOptionsPress={() => setOptionsVisible(true)}
+        onOptionsPress={() => {
+          Keyboard.dismiss();
+          setOptionsVisible(true);
+        }}
         optionsButtonRef={optionsButtonRef}
       />
 
@@ -392,6 +400,7 @@ export function CalendarExperience({
             autoCapitalize="none"
             autoCorrect={false}
             onChangeText={setSearchQuery}
+            onSubmitEditing={() => Keyboard.dismiss()}
             placeholder="Etkinlik, ders veya konum ara"
             placeholderTextColor={theme.colors.text.disabled}
             returnKeyType="search"
@@ -405,6 +414,7 @@ export function CalendarExperience({
               accessibilityRole="button"
               hitSlop={8}
               onPress={() => setSearchQuery("")}
+              style={styles.searchClearButton}
             >
               <Ionicons color={theme.colors.text.secondary} name="close-circle" size={22} />
             </Pressable>
@@ -570,6 +580,8 @@ export function CalendarExperience({
           </View>
         )}
         ListHeaderComponent={listHeader}
+        keyboardDismissMode={adaptation.platform === "ios" ? "interactive" : "on-drag"}
+        keyboardShouldPersistTaps="handled"
         maxToRenderPerBatch={4}
         onRefresh={onRefresh}
         removeClippedSubviews={Platform.OS === "android"}
@@ -1187,7 +1199,7 @@ function GoogleSyncBanner({
   const theme = useTheme();
   return (
     <Card
-      accessibilityLabel={`Google Takvim durumu. ${google.stateLabel}. ${google.accountEmail ?? "Hesap seçilmedi"}.`}
+      accessible={false}
       busy={google.busy}
       style={[
         styles.googleBanner,
@@ -1199,17 +1211,28 @@ function GoogleSyncBanner({
           padding: theme.spacing.md,
         },
       ]}
+      testID="calendar-google-sync-card"
       variant="elevated"
     >
       <View style={[styles.googleRow, compact && styles.googleRowCompact, { gap: theme.spacing.sm }]}>
-        <View style={[styles.googleIcon, { backgroundColor: theme.colors.status.successContainer, borderRadius: theme.radii.control }]}>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.googleIcon, { backgroundColor: theme.colors.status.successContainer, borderRadius: theme.radii.control }]}
+        >
           <Ionicons color={theme.colors.action.primary} name="logo-google" size={25} />
         </View>
-        <View style={[styles.flexOne, { gap: 2 }]}>
-          <Text maxFontSizeMultiplier={1.35} style={[theme.typography.label, { color: theme.colors.text.primary }]}>Google Takvim ile senkronize</Text>
-          <Text maxFontSizeMultiplier={1.35} numberOfLines={2} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Etkinliklerini otomatik olarak senkronize et.</Text>
+        <View
+          accessible
+          accessibilityLabel={`Google Takvim durumu. ${google.stateLabel}. ${google.accountEmail ?? "Hesap seçilmedi"}.`}
+          accessibilityState={{ busy: Boolean(google.busy) }}
+          style={[styles.flexOne, { gap: 2 }]}
+          testID="calendar-google-sync-status"
+        >
+          <Text maxFontSizeMultiplier={compact ? undefined : 1.35} style={[theme.typography.label, { color: theme.colors.text.primary }]}>Google Takvim ile senkronize</Text>
+          <Text maxFontSizeMultiplier={compact ? undefined : 1.35} numberOfLines={compact ? undefined : 2} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Etkinliklerini otomatik olarak senkronize et.</Text>
           {typeof google.verifiedCount === "number" ? (
-            <Text maxFontSizeMultiplier={1.3} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{google.verifiedCount} uygulama kaydı doğrulandı</Text>
+            <Text maxFontSizeMultiplier={compact ? undefined : 1.3} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{google.verifiedCount} uygulama kaydı doğrulandı</Text>
           ) : null}
         </View>
         <View style={[styles.googleActions, compact && styles.googleActionsCompact]}>
@@ -1290,53 +1313,79 @@ function WeekSummary({
   selectedDate: string;
 }) {
   const theme = useTheme();
+  const adaptation = usePlatformAdaptation();
+  const dayButtons = days.map((day) => {
+    const date = new Date(`${day.date}T12:00:00Z`);
+    const selected = day.date === selectedDate;
+    return (
+      <Pressable
+        key={day.date}
+        accessibilityLabel={`${formatCalendarCompactDay(day.date)}. ${day.itemCount} kayıt.`}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        onPress={() => onSelectDate(day.date)}
+        testID={`calendar-week-day-${day.date}`}
+        style={({ pressed }) => [
+          styles.weekDay,
+          adaptation.platform === "ios" && styles.weekDayIos,
+          compact && styles.weekDayCompact,
+          {
+            backgroundColor: selected ? theme.colors.action.primary : theme.colors.background.surface,
+            borderColor: selected ? theme.colors.action.primary : theme.colors.border.subtle,
+            borderRadius: theme.radii.card,
+          },
+          pressed ? { opacity: 0.85 } : null,
+        ]}
+      >
+        <Text
+          maxFontSizeMultiplier={1.2}
+          numberOfLines={1}
+          style={[theme.typography.metaStrong, { color: selected ? theme.colors.action.onPrimary : theme.colors.text.secondary }]}
+        >
+          {compactWeekdayFormatter.format(date).replace(/\.$/u, "").toLocaleUpperCase("tr-TR")}
+        </Text>
+        <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[theme.typography.bodyStrong, { color: selected ? theme.colors.action.onPrimary : theme.colors.text.primary }]}>
+          {day.dayNumber}
+        </Text>
+        <View style={[
+          styles.weekDayDot,
+          { backgroundColor: day.itemCount
+            ? selected ? theme.colors.action.onPrimary : theme.colors.action.primary
+            : "transparent" },
+        ]} />
+      </Pressable>
+    );
+  });
+  const stripStyle = [
+    styles.weekSummary,
+    adaptation.platform === "ios" && styles.weekSummaryIos,
+    { gap: theme.spacing.xxs },
+  ];
   return (
-    <View
-      accessibilityLabel="Haftalık takvim özeti"
-      style={[styles.weekSummary, { gap: theme.spacing.xxs }]}
-      testID="calendar-week-strip"
-    >
-      {days.map((day) => {
-        const date = new Date(`${day.date}T12:00:00Z`);
-        const selected = day.date === selectedDate;
-        return (
-          <Pressable
-            key={day.date}
-            accessibilityLabel={`${formatCalendarCompactDay(day.date)}. ${day.itemCount} kayıt.`}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            onPress={() => onSelectDate(day.date)}
-            testID={`calendar-week-day-${day.date}`}
-            style={({ pressed }) => [
-              styles.weekDay,
-              compact && styles.weekDayCompact,
-              {
-                backgroundColor: selected ? theme.colors.action.primary : theme.colors.background.surface,
-                borderColor: selected ? theme.colors.action.primary : theme.colors.border.subtle,
-                borderRadius: theme.radii.card,
-              },
-              pressed ? { opacity: 0.85 } : null,
-            ]}
-          >
-            <Text
-              maxFontSizeMultiplier={1.2}
-              numberOfLines={1}
-              style={[theme.typography.metaStrong, { color: selected ? theme.colors.action.onPrimary : theme.colors.text.secondary }]}
-            >
-              {compactWeekdayFormatter.format(date).replace(/\.$/u, "").toLocaleUpperCase("tr-TR")}
-            </Text>
-            <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[theme.typography.bodyStrong, { color: selected ? theme.colors.action.onPrimary : theme.colors.text.primary }]}>
-              {day.dayNumber}
-            </Text>
-            <View style={[
-              styles.weekDayDot,
-              { backgroundColor: day.itemCount
-                ? selected ? theme.colors.action.onPrimary : theme.colors.action.primary
-                : "transparent" },
-            ]} />
-          </Pressable>
-        );
-      })}
+    <View style={styles.summarySection}>
+      <Text
+        accessibilityLabel="Haftalık takvim özeti"
+        accessibilityRole="header"
+        style={styles.summaryHeading}
+      >
+        Haftalık takvim özeti
+      </Text>
+      {adaptation.platform === "ios" ? (
+        <ScrollView
+          contentContainerStyle={stripStyle}
+          horizontal
+          keyboardShouldPersistTaps="handled"
+          showsHorizontalScrollIndicator={false}
+          style={styles.summaryScroll}
+          testID="calendar-week-strip"
+        >
+          {dayButtons}
+        </ScrollView>
+      ) : (
+        <View style={stripStyle} testID="calendar-week-strip">
+          {dayButtons}
+        </View>
+      )}
     </View>
   );
 }
@@ -1353,18 +1402,23 @@ function MonthSummary({
   selectedDate: string;
 }) {
   const theme = useTheme();
+  const adaptation = usePlatformAdaptation();
+  const { width } = useWindowDimensions();
   const weekdayLabels = ["PZT", "SAL", "ÇAR", "PER", "CUM", "CMT", "PZR"];
-  return (
+  const gutter = width < 375 ? 16 : 20;
+  const monthWidth = Math.max(IOS_MONTH_MIN_WIDTH, Math.min(720, width - (gutter * 2)));
+  const calendar = (
     <View
-      accessibilityLabel="Aylık takvim özeti"
       style={[
         styles.month,
+        adaptation.platform === "ios" ? { width: monthWidth } : null,
         {
           backgroundColor: theme.colors.background.surface,
           borderColor: theme.colors.border.subtle,
           borderRadius: theme.radii.card,
         },
       ]}
+      testID="calendar-month-grid"
     >
       <View style={styles.monthWeekdayRow}>
         {weekdayLabels.map((label) => (
@@ -1386,8 +1440,10 @@ function MonthSummary({
               accessibilityRole="button"
               accessibilityState={{ selected }}
               onPress={() => onSelectDate(day.date)}
+              testID={`calendar-month-day-${day.date}`}
               style={({ pressed }) => [
                 styles.monthCell,
+                adaptation.platform === "ios" && styles.monthCellIos,
                 styles.monthDay,
                 {
                   backgroundColor: pressed ? theme.colors.action.ghostPressed : theme.colors.background.surface,
@@ -1422,6 +1478,27 @@ function MonthSummary({
           );
         })}
       </View>
+    </View>
+  );
+  return (
+    <View style={styles.summarySection}>
+      <Text
+        accessibilityLabel="Aylık takvim özeti"
+        accessibilityRole="header"
+        style={styles.summaryHeading}
+      >
+        Aylık takvim özeti
+      </Text>
+      {adaptation.platform === "ios" ? (
+        <ScrollView
+          horizontal
+          keyboardShouldPersistTaps="handled"
+          showsHorizontalScrollIndicator={false}
+          style={styles.summaryScroll}
+        >
+          {calendar}
+        </ScrollView>
+      ) : calendar}
     </View>
   );
 }
@@ -1686,6 +1763,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     paddingVertical: 8,
   },
+  searchClearButton: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
   viewTabs: {
     alignItems: "stretch",
     flexDirection: "column",
@@ -1906,6 +1989,9 @@ const styles = StyleSheet.create({
     padding: 5,
     width: "100%",
   },
+  weekSummaryIos: {
+    minWidth: IOS_WEEK_MIN_WIDTH,
+  },
   weekDay: {
     alignItems: "center",
     borderWidth: 0,
@@ -1920,6 +2006,10 @@ const styles = StyleSheet.create({
   },
   weekDayCompact: {
     paddingHorizontal: 1,
+  },
+  weekDayIos: {
+    flexBasis: 44,
+    minWidth: 44,
   },
   weekDayDot: {
     height: 4,
@@ -1942,6 +2032,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: "14.285714%",
   },
+  monthCellIos: {
+    minWidth: 44,
+  },
   monthDay: {
     alignItems: "center",
     borderLeftWidth: StyleSheet.hairlineWidth,
@@ -1963,5 +2056,19 @@ const styles = StyleSheet.create({
   },
   centerText: {
     textAlign: "center",
+  },
+  summaryHeading: {
+    height: 1,
+    left: -10000,
+    opacity: 0,
+    position: "absolute",
+    top: 0,
+    width: 1,
+  },
+  summaryScroll: {
+    alignSelf: "stretch",
+  },
+  summarySection: {
+    alignSelf: "stretch",
   },
 });

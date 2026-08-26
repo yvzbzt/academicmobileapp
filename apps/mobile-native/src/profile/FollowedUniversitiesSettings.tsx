@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   StyleSheet,
   Switch,
@@ -92,6 +93,7 @@ export function FollowedUniversitiesSettingsScreen({
           autoCapitalize="none"
           autoCorrect={false}
           onChangeText={setQuery}
+          onSubmitEditing={() => Keyboard.dismiss()}
           placeholder="Üniversite veya şehir ara"
           placeholderTextColor={theme.colors.text.disabled}
           returnKeyType="search"
@@ -100,7 +102,13 @@ export function FollowedUniversitiesSettingsScreen({
           value={query}
         />
         {query ? (
-          <Pressable accessibilityLabel="Aramayı temizle" accessibilityRole="button" hitSlop={8} onPress={() => setQuery("")}>
+          <Pressable
+            accessibilityLabel="Aramayı temizle"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => setQuery("")}
+            style={styles.clearSearchButton}
+          >
             <Ionicons color={theme.colors.text.secondary} name="close-circle" size={21} />
           </Pressable>
         ) : null}
@@ -116,7 +124,11 @@ export function FollowedUniversitiesSettingsScreen({
           <Button compact label="Aramayı temizle" onPress={() => setQuery("")} variant="secondary" />
         </View>
       ) : (
-        <View accessibilityLabel="Üniversite takip listesi" style={[styles.list, { borderColor: theme.colors.border.subtle, borderRadius: theme.radii.card }]}>
+        <View
+          accessible={false}
+          style={[styles.list, { borderColor: theme.colors.border.subtle, borderRadius: theme.radii.card }]}
+          testID="followed-universities-list"
+        >
           {visibleUniversities.map((university) => {
             const selected = followedByUniversityId.has(university.id);
             const busy = busyUniversityId === university.id;
@@ -127,7 +139,10 @@ export function FollowedUniversitiesSettingsScreen({
                 accessibilityRole="switch"
                 accessibilityState={{ busy, checked: selected, disabled: Boolean(busyUniversityId) }}
                 disabled={Boolean(busyUniversityId)}
-                onPress={() => void onToggle(university.id, !selected)}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  void onToggle(university.id, !selected);
+                }}
                 style={({ pressed }) => [
                   styles.row,
                   { borderBottomColor: theme.colors.border.subtle },
@@ -142,7 +157,12 @@ export function FollowedUniversitiesSettingsScreen({
                   {university.city ? <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{university.city}</Text> : null}
                 </View>
                 {busy ? <ActivityIndicator color={theme.colors.action.primary} /> : (
-                  <View pointerEvents="none">
+                  <View
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    pointerEvents="none"
+                    testID={`followed-university-switch-visual-${university.id}`}
+                  >
                     <Switch
                       ios_backgroundColor={theme.colors.action.disabled}
                       thumbColor={selected ? theme.colors.action.primary : theme.colors.text.disabled}
@@ -177,6 +197,12 @@ const styles = StyleSheet.create({
     minHeight: 48,
     minWidth: 0,
     paddingVertical: 8,
+  },
+  clearSearchButton: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    width: 44,
   },
   loading: {
     alignItems: "center",

@@ -4,7 +4,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react-native";
-import { Share } from "react-native";
+import { Share, StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   AnnouncementDetail,
@@ -106,12 +106,13 @@ function detailProps(
 async function renderDetail(
   props: AnnouncementDetailProps,
   platform: "android" | "ios" = "android",
+  safeAreaBottom = 0,
 ) {
   return renderAsync(
     <SafeAreaProvider
       initialMetrics={{
         frame: { x: 0, y: 0, width: 320, height: 640 },
-        insets: { top: 0, right: 0, bottom: 0, left: 0 },
+        insets: { top: 0, right: 0, bottom: safeAreaBottom, left: 0 },
       }}
     >
       <ThemeProvider
@@ -177,6 +178,27 @@ describe("Phase 8 announcement detail", () => {
     })).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Kaydet" })).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Bildirim tercihlerini yönet" })).toBeOnTheScreen();
+  });
+
+  it("lets large text reflow source and article headings instead of truncating them", async () => {
+    await renderDetail(detailProps());
+
+    expect(StyleSheet.flatten(screen.getByTestId("announcement-detail-source-pill").props.style))
+      .toMatchObject({ alignItems: "flex-start", flexDirection: "column" });
+    const sourceName = screen.getByRole("header", {
+      name: "Örnek Üniversitesi Öğrenci İşleri",
+    });
+    expect(sourceName.props.numberOfLines).toBeUndefined();
+    expect(sourceName.props.maxFontSizeMultiplier).toBeUndefined();
+    expect(screen.getByRole("header", { name: "Ders kayıt takvimi açıklandı" })
+      .props.maxFontSizeMultiplier).toBeUndefined();
+  });
+
+  it("does not apply the route-owned iOS bottom inset a second time", async () => {
+    await renderDetail(detailProps(), "ios", 34);
+
+    expect(StyleSheet.flatten(screen.getByTestId("announcement-detail-sticky-actions").props.style))
+      .toMatchObject({ paddingBottom: 12 });
   });
 
   it("renders sanitized rich body blocks and explicit key-date ranges", async () => {

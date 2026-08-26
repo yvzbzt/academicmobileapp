@@ -7,7 +7,7 @@ import {
   screen,
   within,
 } from "@testing-library/react-native";
-import { AccessibilityInfo, FlatList } from "react-native";
+import { AccessibilityInfo, FlatList, Keyboard } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   AnnouncementsFeed,
@@ -283,13 +283,19 @@ describe("Phase 8 Announcements feed", () => {
       "keyboardShouldPersistTaps",
       "handled",
     );
+    expect(screen.getByTestId(/^announcements-feed-/u)).toHaveProp(
+      "keyboardDismissMode",
+      "on-drag",
+    );
     expect(screen.getByTestId("announcements-top-bar")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Duyurular" })).toBeOnTheScreen();
-    expect(screen.getByRole("header", { name: "Duyurular" })).toHaveProp("maxFontSizeMultiplier", 1.3);
-    expect(screen.getByRole("header", { name: "Duyurular" })).toHaveProp("numberOfLines", 1);
+    expect(screen.getByRole("header", { name: "Duyurular" }).props.maxFontSizeMultiplier).toBeUndefined();
+    expect(screen.getByRole("header", { name: "Duyurular" }).props.numberOfLines).toBeUndefined();
     expect(screen.queryByRole("button", { name: "Hesap menüsünü aç" })).not.toBeOnTheScreen();
     expect(screen.getByTestId("announcements-search-frame")).toBeOnTheScreen();
-    expect(screen.getByRole("search", { name: "Duyurularda ara" })).toHaveProp("maxFontSizeMultiplier", 1.3);
+    expect(screen.getByRole("search", { name: "Duyurularda ara" }).props.maxFontSizeMultiplier).toBeUndefined();
+    expect(screen.getByText("Ders kayıt takvimi açıklandı").props.numberOfLines).toBeUndefined();
+    expect(screen.getByText("Güvenilir özet registration").props.numberOfLines).toBeUndefined();
     expect(screen.getByTestId("announcements-reminder-banner")).toBeOnTheScreen();
 
     fireEvent.press(screen.getByRole("button", { name: "Bildirim tercihlerini aç" }));
@@ -299,6 +305,21 @@ describe("Phase 8 Announcements feed", () => {
       name: "Hiçbir duyuruyu kaçırma. Bildirimleri aç.",
     }));
     expect(callbacks.onOpenNotificationSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it("dismisses search before opening filters or submitting the query", async () => {
+    const dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
+    try {
+      await renderFeed(feedProps());
+
+      fireEvent.press(screen.getByTestId("announcements-content-filter"));
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      fireEvent.press(screen.getByLabelText("Alt sayfayı kapat"));
+      fireEvent(screen.getByRole("search", { name: "Duyurularda ara" }), "submitEditing");
+      expect(dismiss).toHaveBeenCalledTimes(2);
+    } finally {
+      dismiss.mockRestore();
+    }
   });
 
   it("uses the compact reference card hierarchy at standard phone width without hiding source context from accessibility", async () => {
@@ -425,6 +446,10 @@ describe("Phase 8 Announcements feed", () => {
     try {
       await renderFeed(feedProps(), "ios");
       expect(announceSpy).not.toHaveBeenCalled();
+      expect(screen.getByTestId(/^announcements-feed-/u)).toHaveProp(
+        "keyboardDismissMode",
+        "interactive",
+      );
 
       fireEvent.press(screen.getByTestId("announcements-content-filter"));
       fireEvent.press(within(screen.getByTestId("bottom-sheet")).getByRole("radio", {
