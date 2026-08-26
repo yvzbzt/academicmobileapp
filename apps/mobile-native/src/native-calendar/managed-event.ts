@@ -42,12 +42,15 @@ export function createManagedEventMarker(
   event: Pick<NativeCalendarSyncEvent, "id" | "sourceId" | "sourceType" | "category">
 ): string {
   const identity = getNativeCalendarEventIdentity(event);
-  return `${NATIVE_CALENDAR_MANAGED_SCHEME}://${NATIVE_CALENDAR_MANAGED_HOST}/${NATIVE_CALENDAR_MANAGED_VERSION}/${createNativeCalendarOwnerHash(userId)}/${encodeURIComponent(identity.sourceType)}/${encodeURIComponent(identity.sourceId)}`;
+  return formatManagedEventMarker({
+    ownerHash: createNativeCalendarOwnerHash(userId),
+    ...identity
+  });
 }
 
 export function parseManagedEventMarker(value: unknown): NativeCalendarManagedIdentity | null {
   if (typeof value !== "string") return null;
-  const match = /^academicpulse:\/\/calendar-managed\/v1\/([a-f0-9]{16})\/([^/?#]+)\/([^/?#]+)$/u.exec(value);
+  const match = /^academicpulse:\/\/calendar-managed\/v1\/([a-f0-9]{16})\/([^/?#]+)\/(.+)$/u.exec(value);
   if (!match) return null;
 
   try {
@@ -58,6 +61,23 @@ export function parseManagedEventMarker(value: unknown): NativeCalendarManagedId
   } catch {
     return null;
   }
+}
+
+export function canonicalizeManagedEventMarker(value: unknown): string | null {
+  const identity = parseManagedEventMarker(value);
+  return identity ? formatManagedEventMarker(identity) : null;
+}
+
+export function managedEventMarkersMatch(left: unknown, right: unknown): boolean {
+  const leftIdentity = parseManagedEventMarker(left);
+  const rightIdentity = parseManagedEventMarker(right);
+  return Boolean(
+    leftIdentity
+    && rightIdentity
+    && leftIdentity.ownerHash === rightIdentity.ownerHash
+    && leftIdentity.sourceType === rightIdentity.sourceType
+    && leftIdentity.sourceId === rightIdentity.sourceId
+  );
 }
 
 export function applyManagedEventMarker(userId: string, event: NativeCalendarSyncEvent): NativeCalendarSyncEvent {
@@ -96,6 +116,7 @@ export function createEventFingerprint(event: NativeCalendarSyncEvent): string {
 /** Fingerprints only fields written to EventKit, allowing safe user-edit conflict detection. */
 export function createManagedPayloadFingerprint(event: NativeCalendarSyncEvent): string {
   const allDay = event.allDay ?? false;
+  const managedMarker = canonicalizeManagedEventMarker(event.url);
   return hashStableValue({
     title: event.title,
     startDate: event.startDate,
@@ -104,10 +125,14 @@ export function createManagedPayloadFingerprint(event: NativeCalendarSyncEvent):
     timezone: allDay ? null : event.timezone ?? null,
     notes: normalizeOptionalText(event.notes),
     location: normalizeOptionalText(event.location),
-    url: parseManagedEventMarker(event.url) ? event.url : null,
+    url: managedMarker,
     recurrenceRule: normalizeRecurrenceRule(event.recurrenceRule),
     reminderMinutesBefore: normalizeReminderOffsets(event.reminderMinutesBefore)
   });
+}
+
+function formatManagedEventMarker(identity: NativeCalendarManagedIdentity): string {
+  return `${NATIVE_CALENDAR_MANAGED_SCHEME}://${NATIVE_CALENDAR_MANAGED_HOST}/${NATIVE_CALENDAR_MANAGED_VERSION}/${identity.ownerHash}/${encodeURIComponent(identity.sourceType)}/${encodeURIComponent(identity.sourceId)}`;
 }
 
 export function normalizeReminderOffsets(value: readonly number[] | undefined): number[] {

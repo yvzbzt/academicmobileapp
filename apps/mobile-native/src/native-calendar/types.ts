@@ -93,6 +93,7 @@ export type NativeCalendarEventMapping = {
   lastKnownEndDate?: string;
   lastKnownAllDay?: boolean;
   lastKnownTimezone?: string;
+  lastKnownModifiedDate?: string;
   lastSyncedAt: string;
   lastError?: string;
 };
@@ -138,6 +139,7 @@ export type NativeCalendarDeviceEventRef = {
   managedMarker?: string;
   eventHash?: string;
   lastModifiedDate?: string;
+  destructiveSafety: "verified" | "uncertain";
 };
 
 export type NativeCalendarEventSearchWindow = {
@@ -160,7 +162,10 @@ export type NativeCalendarDeviceAdapter = {
   createEvent(calendarId: string, event: NativeCalendarSyncEvent): Promise<string>;
   updateEvent(nativeEventId: string, calendarId: string, event: NativeCalendarSyncEvent, expectedMarker?: string): Promise<string | void>;
   deleteEvent(nativeEventId: string, expectedMarker?: string): Promise<void>;
-  findEvent(nativeEventId: string): Promise<NativeCalendarDeviceEventRef | null>;
+  findEvent(
+    nativeEventId: string,
+    expectedWindow?: NativeCalendarEventSearchWindow
+  ): Promise<NativeCalendarDeviceEventRef | null>;
   findManagedEvent?(
     managedMarker: string,
     searchWindow: NativeCalendarEventSearchWindow
@@ -183,4 +188,28 @@ export type NativeCalendarStorage = {
   loadState(key: NativeCalendarStorageKey): Promise<NativeCalendarStoredState>;
   saveState(key: NativeCalendarStorageKey, state: NativeCalendarStoredState): Promise<void>;
   clearState(key: NativeCalendarStorageKey): Promise<void>;
+};
+
+export type NativeCalendarMetadataSource =
+  | "async_storage"
+  | "secure_store_v3"
+  | "secure_store_v2"
+  | "migration_pending"
+  | "recovery_pending";
+
+export type NativeCalendarMetadataRecoveryResult = {
+  quarantineKey: string;
+  quarantinedAt: string;
+  quarantinedSources: NativeCalendarMetadataSource[];
+  resumed: boolean;
+};
+
+export type NativeCalendarRecoverableStorage = NativeCalendarStorage & {
+  /**
+   * Metadata-only escape hatch. It refuses valid state, never touches EventKit,
+   * and preserves every available raw value before installing an empty state.
+   */
+  quarantineAndResetCorruptState(
+    key: NativeCalendarStorageKey
+  ): Promise<NativeCalendarMetadataRecoveryResult>;
 };

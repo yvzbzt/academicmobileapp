@@ -1,4 +1,5 @@
 import { parseManagedEventMarker } from "./managed-event";
+import { NativeCalendarStorageError } from "./native-calendar-error";
 import type {
   NativeCalendarConflictReason,
   NativeCalendarDestination,
@@ -26,17 +27,19 @@ const CONFLICT_REASONS = new Set<NativeCalendarConflictReason>([
 ]);
 
 export function deserializeNativeCalendarStoredState(value: string): NativeCalendarStoredState {
+  let parsed: unknown;
   try {
-    return parseNativeCalendarStoredState(JSON.parse(value));
-  } catch {
-    return { mappings: {} };
+    parsed = JSON.parse(value);
+  } catch (cause) {
+    throw new NativeCalendarStorageError("corrupt", "Native calendar state contains invalid JSON.", { cause });
   }
+  return parseNativeCalendarStoredStateStrict(parsed);
 }
 
 export function serializeNativeCalendarStoredState(state: NativeCalendarStoredState): string {
   const envelope: NativeCalendarStorageEnvelope = {
     version: NATIVE_CALENDAR_STORAGE_VERSION,
-    state: parseNativeCalendarStoredState(state)
+    state: parseNativeCalendarStoredStateStrict(state)
   };
   return JSON.stringify(envelope);
 }
@@ -56,6 +59,53 @@ export function parseNativeCalendarStoredState(value: unknown): NativeCalendarSt
     }
   }
   const integration = parseIntegration(root.integration);
+  return { ...(integration ? { integration } : {}), mappings };
+}
+
+function parseNativeCalendarStoredStateStrict(value: unknown): NativeCalendarStoredState {
+  let root: unknown = value;
+  if (isRecord(value) && "version" in value) {
+    if (value.version !== NATIVE_CALENDAR_STORAGE_VERSION) {
+      throw new NativeCalendarStorageError(
+        "unsupported_version",
+        "Native calendar state uses an unsupported storage version."
+      );
+    }
+    if (!isRecord(value.state)) {
+      throw new NativeCalendarStorageError("corrupt", "Native calendar state envelope is malformed.");
+    }
+    root = value.state;
+  }
+  if (!isRecord(root)) {
+    throw new NativeCalendarStorageError("corrupt", "Native calendar state is not an object.");
+  }
+
+  if (!isRecord(root.mappings)) {
+    throw new NativeCalendarStorageError("corrupt", "Native calendar mappings are malformed.");
+  }
+  const mappings: Record<string, NativeCalendarEventMapping> = {};
+  for (const [key, candidate] of Object.entries(root.mappings)) {
+    const mapping = parseMapping(candidate);
+    if (!mapping) {
+      throw new NativeCalendarStorageError("corrupt", "A native calendar mapping is malformed.");
+    }
+    mappings[key] = mapping;
+  }
+
+  if (
+    isRecord(root.integration)
+    && root.integration.schemaVersion !== undefined
+    && root.integration.schemaVersion !== NATIVE_CALENDAR_STORAGE_VERSION
+  ) {
+    throw new NativeCalendarStorageError(
+      "unsupported_version",
+      "Native calendar integration uses an unsupported schema version."
+    );
+  }
+  const integration = root.integration === undefined ? undefined : parseIntegration(root.integration);
+  if (root.integration !== undefined && !integration) {
+    throw new NativeCalendarStorageError("corrupt", "Native calendar integration metadata is malformed.");
+  }
   return { ...(integration ? { integration } : {}), mappings };
 }
 
@@ -175,6 +225,7 @@ function parseMapping(value: unknown): NativeCalendarEventMapping | undefined {
     ...(boundedString(value.lastKnownEndDate, 64) ? { lastKnownEndDate: boundedString(value.lastKnownEndDate, 64)! } : {}),
     ...(typeof value.lastKnownAllDay === "boolean" ? { lastKnownAllDay: value.lastKnownAllDay } : {}),
     ...(boundedString(value.lastKnownTimezone, 128) ? { lastKnownTimezone: boundedString(value.lastKnownTimezone, 128)! } : {}),
+    ...(isoTimestamp(value.lastKnownModifiedDate) ? { lastKnownModifiedDate: isoTimestamp(value.lastKnownModifiedDate)! } : {}),
     lastSyncedAt,
     ...(boundedString(value.lastError, 512) ? { lastError: boundedString(value.lastError, 512)! } : {})
   };

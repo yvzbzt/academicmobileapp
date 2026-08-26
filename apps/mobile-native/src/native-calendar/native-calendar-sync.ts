@@ -3,7 +3,10 @@ import {
   createEventFingerprint,
   createManagedEventMarker,
   createManagedPayloadFingerprint,
+  createNativeCalendarOwnerHash,
   getNativeCalendarEventIdentity,
+  managedEventMarkersMatch,
+  parseManagedEventMarker,
   normalizeNativeCalendarSourceType
 } from "./managed-event";
 import { isNativeCalendarSafetyError, NativeCalendarSafetyError } from "./native-calendar-error";
@@ -102,6 +105,8 @@ export class NativeCalendarService {
     return this.withOperation(input, async () => {
       const current = await this.storage.loadState(input);
       if (input.platform !== "ios") return current;
+      if (current.integration) assertStateOwner(current.integration, input);
+      assertMappingsOwner(current.mappings, input.userId);
 
       const permission = await this.adapter.requestPermission();
       if (!permission.granted) return current;
@@ -215,6 +220,7 @@ export class NativeCalendarService {
         const existing = existingMatch?.mapping;
 
         try {
+          if (existing) assertMappingOwner(existing, input.userId);
           const resolution = await this.resolveManagedRef(existing, marker, searchWindowForEvent(managedEvent));
           if (!resolution.ref) {
             if (existing) {
@@ -230,12 +236,16 @@ export class NativeCalendarService {
             upsertMapping(mappings, mapping);
             result.created += 1;
             await checkpoint();
-            await this.verifyCreatedOrUpdatedEvent(mapping, marker, appliedHash);
+            const verifiedRef = await this.verifyCreatedOrUpdatedEvent(mapping, marker, appliedHash);
+            upsertMapping(mappings, mappingWithVerifiedRef(mapping, verifiedRef));
+            await checkpoint();
             continue;
           }
 
           const ref = resolution.ref;
-          if (ref.managedMarker !== marker) throw new NativeCalendarSafetyError("marker_mismatch", "Managed event marker mismatch.");
+          if (!managedEventMarkersMatch(ref.managedMarker, marker)) {
+            throw new NativeCalendarSafetyError("marker_mismatch", "Managed event marker mismatch.");
+          }
           if (!ref.calendarId) throw new NativeCalendarSafetyError("moved_calendar", "Managed event calendar could not be verified.");
 
           const recoveredIdentity = resolution.recovered || !existing || existing.nativeEventId !== ref.id;
@@ -246,7 +256,8 @@ export class NativeCalendarService {
             marker,
             sourceHash,
             ref.eventHash ?? appliedHash,
-            timestamp
+            timestamp,
+            ref
           );
 
           if (ref.calendarId !== target.id) {
@@ -257,7 +268,15 @@ export class NativeCalendarService {
           }
 
           const expectedCurrentHash = existing?.appliedEventHash;
-          const userModified = !ref.eventHash
+          const modificationBaselineMissing = Boolean(existing && !existing.lastKnownModifiedDate);
+          const lastModifiedChanged = Boolean(
+            existing?.lastKnownModifiedDate
+            && ref.lastModifiedDate !== existing.lastKnownModifiedDate
+          );
+          const userModified = ref.destructiveSafety !== "verified"
+            || modificationBaselineMissing
+            || lastModifiedChanged
+            || !ref.eventHash
             || (expectedCurrentHash ? ref.eventHash !== expectedCurrentHash : ref.eventHash !== appliedHash);
           if (userModified) {
             upsertMapping(mappings, mappingWithRefConflict(baseline, ref, "user_modified", timestamp));
@@ -275,7 +294,8 @@ export class NativeCalendarService {
               marker,
               sourceHash,
               appliedHash,
-              timestamp
+              timestamp,
+              ref
             ));
             if (!recoveredIdentity) result.skipped += 1;
             await checkpoint();
@@ -295,7 +315,9 @@ export class NativeCalendarService {
           upsertMapping(mappings, updatedMapping);
           result.updated += 1;
           await checkpoint();
-          await this.verifyCreatedOrUpdatedEvent(updatedMapping, marker, appliedHash);
+          const verifiedRef = await this.verifyCreatedOrUpdatedEvent(updatedMapping, marker, appliedHash);
+          upsertMapping(mappings, mappingWithVerifiedRef(updatedMapping, verifiedRef));
+          await checkpoint();
         } catch (error) {
           if (isNativeCalendarSafetyError(error)) {
             // Create/update checkpoints the real native ID before verification. Always
@@ -327,6 +349,7 @@ export class NativeCalendarService {
         if (!deletionEligible.has(sourceType)) continue;
 
         try {
+          assertMappingOwner(mapping, input.userId);
           const deleted = await this.deleteMappingIfUnmodified(mapping);
           if (deleted === "conflict") {
             const reason = mapping.conflictReason ?? "user_modified";
@@ -369,12 +392,14 @@ export class NativeCalendarService {
     await this.withOperation(context, async () => {
       await this.assertMutationAccess(context);
       const state = await this.storage.loadState(context);
+      if (state.integration) assertStateOwner(state.integration, context);
       const mappings = { ...state.mappings };
       const matches = Object.entries(mappings).filter(([, mapping]) => (
         mapping.appEventId === appEventId || mappingSourceId(mapping) === appEventId
       ));
 
       for (const [key, mapping] of matches) {
+        assertMappingOwner(mapping, context.userId);
         const outcome = await this.deleteMappingIfUnmodified(mapping);
         if (outcome === "conflict") throw new NativeCalendarSafetyError(
           mapping.conflictReason ?? "user_modified",
@@ -394,12 +419,14 @@ export class NativeCalendarService {
     if (!this.adapter.openEvent) throw new Error("Opening native calendar events is unavailable.");
     await this.assertMutationAccess(context);
     const state = await this.storage.loadState(context);
+    if (state.integration) assertStateOwner(state.integration, context);
     const mapping = Object.values(state.mappings).find((candidate) => (
       candidate.appEventId === appEventId || mappingSourceId(candidate) === appEventId
     ));
     if (!mapping?.managedMarker) throw new Error("Managed native calendar event was not found.");
+    assertMappingOwner(mapping, context.userId);
     const resolution = await this.resolveManagedRef(mapping, mapping.managedMarker, searchWindowForMapping(mapping));
-    if (!resolution.ref || resolution.ref.managedMarker !== mapping.managedMarker) {
+    if (!resolution.ref || !managedEventMarkersMatch(resolution.ref.managedMarker, mapping.managedMarker)) {
       throw new NativeCalendarSafetyError("user_deleted", "Managed native calendar event was removed.");
     }
     await this.adapter.openEvent(resolution.ref.id, mapping.managedMarker, options);
@@ -413,6 +440,7 @@ export class NativeCalendarService {
         await this.storage.clearState(input);
         return result;
       }
+      if (state.integration) assertStateOwner(state.integration, input);
 
       const mappings = { ...state.mappings };
       try {
@@ -435,6 +463,7 @@ export class NativeCalendarService {
 
       for (const [key, mapping] of Object.entries({ ...mappings })) {
         try {
+          assertMappingOwner(mapping, input.userId);
           const outcome = await this.deleteMappingIfUnmodified(mapping);
           if (outcome === "conflict") {
             const reason = mapping.conflictReason ?? "user_modified";
@@ -490,15 +519,17 @@ export class NativeCalendarService {
   ): Promise<ManagedRefResolution> {
     let markerMismatch = false;
     if (mapping?.nativeEventId) {
-      const direct = await this.adapter.findEvent(mapping.nativeEventId);
-      if (direct?.managedMarker === marker) return { ref: direct, recovered: false, markerMismatch: false };
+      const direct = await this.adapter.findEvent(mapping.nativeEventId, searchWindow ?? undefined);
+      if (direct && managedEventMarkersMatch(direct.managedMarker, marker)) {
+        return { ref: direct, recovered: false, markerMismatch: false };
+      }
       markerMismatch = Boolean(direct);
     }
 
     if (searchWindow && this.adapter.findManagedEvent) {
       const recovered = await this.adapter.findManagedEvent(marker, searchWindow);
       if (recovered) {
-        if (recovered.managedMarker !== marker) {
+        if (!managedEventMarkersMatch(recovered.managedMarker, marker)) {
           throw new NativeCalendarSafetyError("marker_mismatch", "Recovered native event marker mismatch.");
         }
         return { ref: recovered, recovered: true, markerMismatch };
@@ -511,14 +542,20 @@ export class NativeCalendarService {
     mapping: NativeCalendarEventMapping,
     marker: string,
     appliedHash: string
-  ): Promise<void> {
-    const ref = await this.adapter.findEvent(mapping.nativeEventId);
-    if (!ref || ref.managedMarker !== marker) {
+  ): Promise<NativeCalendarDeviceEventRef> {
+    const ref = await this.adapter.findEvent(mapping.nativeEventId, searchWindowForMapping(mapping) ?? undefined);
+    if (!ref || !managedEventMarkersMatch(ref.managedMarker, marker)) {
       throw new NativeCalendarSafetyError("marker_mismatch", "Native calendar mutation could not be verified.");
     }
-    if (!ref.eventHash || ref.eventHash !== appliedHash) {
+    if (
+      ref.destructiveSafety !== "verified"
+      || !ref.lastModifiedDate
+      || !ref.eventHash
+      || ref.eventHash !== appliedHash
+    ) {
       throw new NativeCalendarSafetyError("user_modified", "Native calendar payload could not be verified.");
     }
+    return ref;
   }
 
   private async deleteMappingIfUnmodified(
@@ -541,7 +578,14 @@ export class NativeCalendarService {
       mapping.conflictReason = "moved_calendar";
       return "conflict";
     }
-    if (!resolution.ref.eventHash || resolution.ref.eventHash !== mapping.appliedEventHash) {
+    if (
+      resolution.ref.destructiveSafety !== "verified"
+      || !mapping.lastKnownModifiedDate
+      || !resolution.ref.lastModifiedDate
+      || resolution.ref.lastModifiedDate !== mapping.lastKnownModifiedDate
+      || !resolution.ref.eventHash
+      || resolution.ref.eventHash !== mapping.appliedEventHash
+    ) {
       mapping.conflictReason = "user_modified";
       return "conflict";
     }
@@ -649,6 +693,25 @@ function assertStateOwner(integration: NativeCalendarIntegrationRecord, context:
   ) throw new Error("Native calendar state owner changed.");
 }
 
+function assertMappingsOwner(
+  mappings: Record<string, NativeCalendarEventMapping>,
+  userId: string
+): void {
+  for (const mapping of Object.values(mappings)) assertMappingOwner(mapping, userId);
+}
+
+function assertMappingOwner(mapping: NativeCalendarEventMapping, userId: string): void {
+  const marker = parseManagedEventMarker(mapping.managedMarker);
+  if (
+    !marker
+    || marker.ownerHash !== createNativeCalendarOwnerHash(userId)
+    || marker.sourceType !== mappingSourceType(mapping)
+    || marker.sourceId !== mappingSourceId(mapping)
+  ) {
+    throw new NativeCalendarSafetyError("marker_mismatch", "Native calendar mapping owner could not be verified.");
+  }
+}
+
 function findMapping(
   mappings: Record<string, NativeCalendarEventMapping>,
   event: NativeCalendarSyncEvent,
@@ -705,7 +768,8 @@ function createMapping(
   marker: string,
   sourceHash: string,
   appliedHash: string,
-  timestamp: string
+  timestamp: string,
+  verifiedRef?: NativeCalendarDeviceEventRef
 ): NativeCalendarEventMapping {
   const identity = getNativeCalendarEventIdentity(event);
   return {
@@ -722,7 +786,23 @@ function createMapping(
     ...(event.endDate ? { lastKnownEndDate: event.endDate } : {}),
     lastKnownAllDay: event.allDay ?? false,
     ...(event.timezone ? { lastKnownTimezone: event.timezone } : {}),
+    ...(verifiedRef?.lastModifiedDate ? { lastKnownModifiedDate: verifiedRef.lastModifiedDate } : {}),
     lastSyncedAt: timestamp
+  };
+}
+
+function mappingWithVerifiedRef(
+  mapping: NativeCalendarEventMapping,
+  ref: NativeCalendarDeviceEventRef
+): NativeCalendarEventMapping {
+  return {
+    ...mapping,
+    nativeEventId: ref.id,
+    ...(ref.calendarId ? { deviceCalendarId: ref.calendarId } : {}),
+    ...(ref.lastModifiedDate ? { lastKnownModifiedDate: ref.lastModifiedDate } : {}),
+    status: "managed",
+    conflictReason: undefined,
+    lastError: undefined
   };
 }
 
@@ -760,7 +840,8 @@ function mappingWithRefConflict(
   return mappingWithConflict({
     ...mapping,
     nativeEventId: ref.id,
-    ...(ref.calendarId ? { deviceCalendarId: ref.calendarId } : {})
+    ...(ref.calendarId ? { deviceCalendarId: ref.calendarId } : {}),
+    ...(ref.lastModifiedDate ? { lastKnownModifiedDate: ref.lastModifiedDate } : {})
   }, reason, timestamp);
 }
 

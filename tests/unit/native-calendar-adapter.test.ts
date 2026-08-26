@@ -9,7 +9,10 @@ vi.mock("expo-calendar", () => ({
 
 import type * as ExpoCalendar from "expo-calendar";
 import { createExpoCalendarAdapter } from "../../apps/mobile-native/src/native-calendar/expo-calendar-adapter";
-import { createManagedEventMarker } from "../../apps/mobile-native/src/native-calendar/managed-event";
+import {
+  createManagedEventMarker,
+  createManagedPayloadFingerprint
+} from "../../apps/mobile-native/src/native-calendar/managed-event";
 import type { NativeCalendarSyncEvent } from "../../apps/mobile-native/src/native-calendar/types";
 
 describe("Expo iOS calendar adapter", () => {
@@ -82,6 +85,41 @@ describe("Expo iOS calendar adapter", () => {
     expect((await adapter.findEvent(id))?.managedMarker).toBe(managedEvent.url);
   });
 
+  it("canonicalizes Expo iOS decoded markers and localized timezones", async () => {
+    const fake = new FakeExpoCalendar();
+    fake.decodeUrlsOnRead = true;
+    fake.localizeTimezonesOnRead = true;
+    const adapter = createExpoCalendarAdapter({ platform: "ios", calendarModule: fake.module });
+    const managedEvent = timedEvent("academic-event:record-1");
+
+    const id = await adapter.createEvent("calendar-1", managedEvent);
+    const found = await adapter.findEvent(id, {
+      startDate: managedEvent.startDate,
+      endDate: managedEvent.endDate,
+      allDay: false,
+      timezone: managedEvent.timezone
+    });
+
+    expect(found).toMatchObject({
+      managedMarker: managedEvent.url,
+      eventHash: createManagedPayloadFingerprint(managedEvent),
+      destructiveSafety: "verified"
+    });
+    await expect(adapter.findManagedEvent!(managedEvent.url!, {
+      startDate: managedEvent.startDate,
+      endDate: managedEvent.endDate,
+      allDay: false,
+      timezone: managedEvent.timezone
+    })).resolves.toMatchObject({
+      id,
+      managedMarker: managedEvent.url,
+      eventHash: createManagedPayloadFingerprint(managedEvent)
+    });
+    await adapter.updateEvent(id, "calendar-1", managedEvent, managedEvent.url);
+    await adapter.deleteEvent(id, managedEvent.url);
+    expect(fake.events.has(id)).toBe(false);
+  });
+
   it("requires the exact marker before update, delete, or open", async () => {
     const fake = new FakeExpoCalendar();
     const adapter = createExpoCalendarAdapter({ platform: "ios", calendarModule: fake.module });
@@ -115,12 +153,29 @@ function event(sourceId = "a"): NativeCalendarSyncEvent {
   return { ...base, url: createManagedEventMarker("user-1", base) };
 }
 
+function timedEvent(sourceId: string): NativeCalendarSyncEvent {
+  const base = {
+    id: sourceId,
+    sourceId,
+    sourceType: "academic_event",
+    title: "Midterm",
+    startDate: "2026-08-01T09:00:00.000Z",
+    endDate: "2026-08-01T10:00:00.000Z",
+    allDay: false,
+    timezone: "Europe/Istanbul",
+    reminderMinutesBefore: []
+  } satisfies NativeCalendarSyncEvent;
+  return { ...base, url: createManagedEventMarker("user-1", base) };
+}
+
 class FakeExpoCalendar {
   permission = { status: "granted", granted: true, canAskAgain: true, expires: "never" };
   isAvailableCalls = 0;
   permissionCalls = 0;
   requestCalls = 0;
   createCalendarCalls = 0;
+  decodeUrlsOnRead = false;
+  localizeTimezonesOnRead = false;
   lastCreatedDetails: Record<string, unknown> | undefined;
   openCalls: Array<{ id: string; allowsEditing: boolean }> = [];
   calendars: Array<Record<string, unknown>> = [{
@@ -173,13 +228,13 @@ class FakeExpoCalendar {
     createEventAsync: async (calendarId: string, details: Record<string, unknown>) => {
       this.lastCreatedDetails = details;
       const id = `event-${this.events.size + 1}`;
-      this.events.set(id, expoEvent(id, calendarId, details));
+      this.events.set(id, this.expoEvent(id, calendarId, details));
       return id;
     },
     updateEventAsync: async (id: string, details: Record<string, unknown>) => {
       const current = this.events.get(id);
       if (!current) throw new Error(`Event with id ${id} could not be found`);
-      this.events.set(id, expoEvent(id, current.calendarId as string, details));
+      this.events.set(id, this.expoEvent(id, current.calendarId as string, details));
       return id;
     },
     deleteEventAsync: async (id: string) => {
@@ -199,23 +254,27 @@ class FakeExpoCalendar {
       return { action: "done" };
     }
   } as unknown as typeof ExpoCalendar;
-}
 
-function expoEvent(id: string, calendarId: string, details: Record<string, unknown>): Record<string, unknown> {
-  return {
-    id,
-    calendarId,
-    title: details.title,
-    location: details.location ?? null,
-    timeZone: details.timeZone,
-    url: details.url,
-    notes: details.notes ?? "",
-    alarms: details.alarms ?? [],
-    recurrenceRule: details.recurrenceRule ?? null,
-    startDate: details.startDate,
-    endDate: details.endDate,
-    allDay: details.allDay,
-    availability: details.availability,
-    status: "confirmed"
-  };
+  private expoEvent(id: string, calendarId: string, details: Record<string, unknown>): Record<string, unknown> {
+    const url = typeof details.url === "string" && this.decodeUrlsOnRead
+      ? decodeURIComponent(details.url)
+      : details.url;
+    return {
+      id,
+      calendarId,
+      title: details.title,
+      location: details.location ?? null,
+      timeZone: this.localizeTimezonesOnRead ? "GMT+3" : details.timeZone,
+      url,
+      notes: details.notes ?? "",
+      alarms: details.alarms ?? [],
+      recurrenceRule: details.recurrenceRule ?? null,
+      startDate: details.startDate,
+      endDate: details.endDate,
+      allDay: details.allDay,
+      availability: details.availability,
+      status: "confirmed",
+      lastModifiedDate: "2026-07-07T12:00:00.000Z"
+    };
+  }
 }

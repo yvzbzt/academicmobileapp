@@ -7,6 +7,7 @@ import {
   createManagedPayloadFingerprint,
   parseManagedEventMarker
 } from "../../apps/mobile-native/src/native-calendar/managed-event";
+import { NativeCalendarStorageError } from "../../apps/mobile-native/src/native-calendar/native-calendar-error";
 import { createNativeCalendarStorageKey } from "../../apps/mobile-native/src/native-calendar/storage-key";
 import type {
   NativeCalendarDeviceAdapter,
@@ -40,6 +41,22 @@ describe("NativeCalendarService", () => {
     const state = await createService(adapter, storage).connect({ ...context, platform: "android" });
 
     expect(state).toEqual({ mappings: {} });
+    expect(adapter.permissionRequestCount).toBe(0);
+  });
+
+  it("validates stored marker ownership before requesting permission", async () => {
+    const adapter = new MemoryCalendarAdapter();
+    const storage = new MemoryCalendarStorage();
+    const service = createService(adapter, storage);
+    await service.connect(context);
+    await service.syncEvents({ ...context, events: [event("a")] });
+    const state = await storage.loadState(context);
+    await storage.saveState(context, { mappings: state.mappings });
+    adapter.permissionRequestCount = 0;
+
+    await expect(service.connect({ ...context, userId: "user-2" })).rejects.toMatchObject({
+      reason: "marker_mismatch"
+    });
     expect(adapter.permissionRequestCount).toBe(0);
   });
 
@@ -222,6 +239,77 @@ describe("NativeCalendarService", () => {
     expect(adapter.events.size).toBe(0);
   });
 
+  it("preserves a managed event when its native modification timestamp changes", async () => {
+    const adapter = new MemoryCalendarAdapter();
+    const storage = new MemoryCalendarStorage();
+    const service = createService(adapter, storage);
+    await service.connect(context);
+    await service.syncEvents({ ...context, events: [event("a")] });
+    adapter.touchEvent("native-1");
+
+    const result = await service.disconnect({ ...context, removeNativeEvents: true });
+
+    expect(result.conflicted).toBe(1);
+    expect(adapter.events.has("native-1")).toBe(true);
+    expect(Object.values((await storage.loadState(context)).mappings)[0]?.status).toBe("user_modified");
+  });
+
+  it("preserves events whose destructive safety cannot be verified", async () => {
+    const adapter = new MemoryCalendarAdapter();
+    const storage = new MemoryCalendarStorage();
+    const service = createService(adapter, storage);
+    await service.connect(context);
+    await service.syncEvents({ ...context, events: [event("a")] });
+    adapter.markEventUncertain("native-1");
+
+    const result = await service.disconnect({ ...context, removeNativeEvents: true });
+
+    expect(result.conflicted).toBe(1);
+    expect(adapter.events.has("native-1")).toBe(true);
+  });
+
+  it("does not delete a mapping owned by another account hash", async () => {
+    const adapter = new MemoryCalendarAdapter();
+    const storage = new MemoryCalendarStorage();
+    const service = createService(adapter, storage);
+    await service.connect(context);
+    await service.syncEvents({ ...context, events: [event("a")] });
+    const state = await storage.loadState(context);
+    await storage.saveState(context, { mappings: state.mappings });
+
+    const result = await service.disconnect({
+      ...context,
+      userId: "user-2",
+      removeNativeEvents: true
+    });
+
+    expect(result.conflicted).toBe(1);
+    expect(result.errors[0]?.reason).toBe("marker_mismatch");
+    expect(adapter.events.has("native-1")).toBe(true);
+  });
+
+  it("fails closed when calendar state cannot be read during destructive cleanup", async () => {
+    const adapter = new MemoryCalendarAdapter();
+    const storage = new MemoryCalendarStorage();
+    const service = createService(adapter, storage);
+    await service.connect(context);
+    await service.syncEvents({ ...context, events: [event("a")] });
+    const unreadableStorage: NativeCalendarStorage = {
+      loadState: async () => {
+        throw new NativeCalendarStorageError("read_failed", "Injected read failure.");
+      },
+      saveState: (key, state) => storage.saveState(key, state),
+      clearState: () => storage.clearState()
+    };
+
+    await expect(createService(adapter, unreadableStorage).disconnect({
+      ...context,
+      removeNativeEvents: true
+    })).rejects.toMatchObject({ code: "read_failed" });
+    expect(adapter.events.has("native-1")).toBe(true);
+    expect(adapter.deleteCallCount).toBe(0);
+  });
+
   it("retains failed delete mappings in a disabled integration for retry", async () => {
     const adapter = new MemoryCalendarAdapter();
     const storage = new MemoryCalendarStorage();
@@ -247,7 +335,7 @@ describe("NativeCalendarService", () => {
     );
   });
 
-  it("creates a v3 SecureStore-compatible persistence key", () => {
+  it("creates a v3 storage-safe persistence key", () => {
     const key = createNativeCalendarStorageKey({
       userId: "user:1@example.com",
       platform: "ios",
@@ -301,6 +389,8 @@ type StoredNativeEvent = {
   calendarId: string;
   event: NativeCalendarSyncEvent;
   reportedHash?: string;
+  lastModifiedDate: string;
+  destructiveSafety: "verified" | "uncertain";
 };
 
 class MemoryCalendarAdapter implements NativeCalendarDeviceAdapter {
@@ -311,12 +401,14 @@ class MemoryCalendarAdapter implements NativeCalendarDeviceAdapter {
   ];
   events = new Map<string, StoredNativeEvent>();
   createdEventCount = 0;
+  deleteCallCount = 0;
   permissionRequestCount = 0;
   failDeletes = false;
   corruptHashAfterCreate = false;
   corruptHashAfterUpdate = false;
   replaceIdOnUpdate = false;
   private sequence = 0;
+  private modificationSequence = 0;
 
   async isAvailable(): Promise<boolean> {
     return true;
@@ -346,6 +438,8 @@ class MemoryCalendarAdapter implements NativeCalendarDeviceAdapter {
     this.events.set(nativeEventId, {
       calendarId,
       event: structuredClone(syncEvent),
+      lastModifiedDate: this.nextModifiedDate(),
+      destructiveSafety: "verified",
       ...(this.corruptHashAfterCreate ? { reportedHash: "user-modified" } : {})
     });
     return nativeEventId;
@@ -366,12 +460,15 @@ class MemoryCalendarAdapter implements NativeCalendarDeviceAdapter {
     this.events.set(nextId, {
       calendarId,
       event: structuredClone(syncEvent),
+      lastModifiedDate: this.nextModifiedDate(),
+      destructiveSafety: "verified",
       ...(this.corruptHashAfterUpdate ? { reportedHash: "user-modified" } : {})
     });
     return nextId;
   }
 
   async deleteEvent(nativeEventId: string, expectedMarker?: string): Promise<void> {
+    this.deleteCallCount += 1;
     if (this.failDeletes) throw new Error("Injected delete failure");
     const current = this.events.get(nativeEventId);
     if (current && current.event.url !== expectedMarker) throw new Error("Marker mismatch");
@@ -402,6 +499,20 @@ class MemoryCalendarAdapter implements NativeCalendarDeviceAdapter {
     const current = this.events.get(nativeEventId);
     if (!current) throw new Error("Missing native event");
     current.event = { ...current.event, ...patch };
+    current.lastModifiedDate = this.nextModifiedDate();
+  }
+
+  touchEvent(nativeEventId: string): void {
+    const current = this.events.get(nativeEventId);
+    if (!current) throw new Error("Missing native event");
+    current.lastModifiedDate = this.nextModifiedDate();
+  }
+
+  markEventUncertain(nativeEventId: string): void {
+    const current = this.events.get(nativeEventId);
+    if (!current) throw new Error("Missing native event");
+    current.destructiveSafety = "uncertain";
+    current.lastModifiedDate = this.nextModifiedDate();
   }
 
   moveEvent(nativeEventId: string, calendarId: string): void {
@@ -415,7 +526,14 @@ class MemoryCalendarAdapter implements NativeCalendarDeviceAdapter {
       id: nativeEventId,
       calendarId: current.calendarId,
       ...(current.event.url ? { managedMarker: current.event.url } : {}),
-      eventHash: current.reportedHash ?? createManagedPayloadFingerprint(current.event)
+      eventHash: current.reportedHash ?? createManagedPayloadFingerprint(current.event),
+      lastModifiedDate: current.lastModifiedDate,
+      destructiveSafety: current.destructiveSafety
     };
+  }
+
+  private nextModifiedDate(): string {
+    this.modificationSequence += 1;
+    return new Date(Date.parse("2026-07-07T12:00:00.000Z") + this.modificationSequence * 1_000).toISOString();
   }
 }

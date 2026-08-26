@@ -7,7 +7,9 @@ import {
   normalizeCalendarTimestamp
 } from "./calendar-date";
 import {
+  canonicalizeManagedEventMarker,
   createManagedPayloadFingerprint,
+  managedEventMarkersMatch,
   normalizeReminderOffsets,
   parseManagedEventMarker
 } from "./managed-event";
@@ -114,8 +116,8 @@ export function createExpoCalendarAdapter(options: ExpoCalendarAdapterOptions = 
 
   async function createEvent(calendarId: string, event: NativeCalendarSyncEvent): Promise<string> {
     await assertWritableCalendar(calendarId);
-    requireManagedMarker(event.url);
-    return calendar.createEventAsync(calendarId, toExpoEventData(event, calendar));
+    const marker = requireManagedMarker(event.url);
+    return calendar.createEventAsync(calendarId, toExpoEventData({ ...event, url: marker }, calendar));
   }
 
   async function updateEvent(
@@ -125,14 +127,16 @@ export function createExpoCalendarAdapter(options: ExpoCalendarAdapterOptions = 
     expectedMarker?: string
   ): Promise<string> {
     const marker = requireExpectedMarker(expectedMarker);
-    if (event.url !== marker) throw new NativeCalendarSafetyError("marker_mismatch", "Updated event marker mismatch.");
+    if (!managedEventMarkersMatch(event.url, marker)) {
+      throw new NativeCalendarSafetyError("marker_mismatch", "Updated event marker mismatch.");
+    }
     await assertWritableCalendar(calendarId);
-    const current = await findEvent(nativeEventId);
+    const current = await findEvent(nativeEventId, searchWindowForEvent(event));
     assertOwnedRef(current, marker);
     if (current!.calendarId !== calendarId) {
       throw new NativeCalendarSafetyError("moved_calendar", "The managed event was moved to another calendar.");
     }
-    return calendar.updateEventAsync(nativeEventId, toExpoEventData(event, calendar));
+    return calendar.updateEventAsync(nativeEventId, toExpoEventData({ ...event, url: marker }, calendar));
   }
 
   async function deleteEvent(nativeEventId: string, expectedMarker?: string): Promise<void> {
@@ -143,10 +147,13 @@ export function createExpoCalendarAdapter(options: ExpoCalendarAdapterOptions = 
     await calendar.deleteEventAsync(nativeEventId);
   }
 
-  async function findEvent(nativeEventId: string): Promise<NativeCalendarDeviceEventRef | null> {
+  async function findEvent(
+    nativeEventId: string,
+    expectedWindow?: NativeCalendarEventSearchWindow
+  ): Promise<NativeCalendarDeviceEventRef | null> {
     await assertFullAccess();
     try {
-      return toDeviceEventRef(await calendar.getEventAsync(nativeEventId));
+      return toDeviceEventRef(await calendar.getEventAsync(nativeEventId), expectedWindow);
     } catch (error) {
       if (isEventNotFoundError(error)) return null;
       throw error;
@@ -162,12 +169,12 @@ export function createExpoCalendarAdapter(options: ExpoCalendarAdapterOptions = 
     if (calendars.length === 0) return null;
     const range = recoveryRange(searchWindow);
     const events = await calendar.getEventsAsync(calendars.map((item) => item.id), range.start, range.end);
-    const matches = events.filter((event) => event.url === managedMarker);
+    const matches = events.filter((event) => managedEventMarkersMatch(event.url, managedMarker));
     const uniqueMatches = [...new Map(matches.map((event) => [event.id, event])).values()];
     if (uniqueMatches.length > 1) {
       throw new NativeCalendarSafetyError("ambiguous_marker", "More than one event has the same managed marker.");
     }
-    return uniqueMatches[0] ? toDeviceEventRef(uniqueMatches[0]) : null;
+    return uniqueMatches[0] ? toDeviceEventRef(uniqueMatches[0], searchWindow) : null;
   }
 
   async function openEvent(
@@ -314,39 +321,86 @@ function toExpoRecurrenceRule(
   };
 }
 
-function toDeviceEventRef(event: ExpoCalendar.Event): NativeCalendarDeviceEventRef {
-  const marker = parseManagedEventMarker(event.url) ? event.url : undefined;
-  const timezone = event.timeZone || DEFAULT_NATIVE_CALENDAR_TIMEZONE;
-  const syncEvent: NativeCalendarSyncEvent = {
-    id: parseManagedEventMarker(marker)?.sourceId ?? event.id,
-    ...(parseManagedEventMarker(marker)?.sourceId ? { sourceId: parseManagedEventMarker(marker)!.sourceId } : {}),
-    ...(parseManagedEventMarker(marker)?.sourceType ? { sourceType: parseManagedEventMarker(marker)!.sourceType } : {}),
-    title: event.title,
-    startDate: event.allDay
-      ? instantToCalendarDate(event.startDate, timezone)
-      : new Date(event.startDate).toISOString(),
-    endDate: event.allDay
-      ? instantToCalendarDate(event.endDate, timezone)
-      : new Date(event.endDate).toISOString(),
-    allDay: event.allDay,
-    timezone,
-    ...(event.notes ? { notes: event.notes } : {}),
-    ...(event.location ? { location: event.location } : {}),
-    ...(marker ? { url: marker } : {}),
-    reminderMinutesBefore: normalizeReminderOffsets(
-      event.alarms.map((alarm) => alarm.relativeOffset).filter((offset): offset is number => (
-        typeof offset === "number" && offset <= 0
-      )).map((offset) => Math.abs(offset))
-    ),
-    ...(event.recurrenceRule ? { recurrenceRule: fromExpoRecurrenceRule(event.recurrenceRule) } : {})
-  };
+function toDeviceEventRef(
+  event: ExpoCalendar.Event,
+  expectedWindow?: NativeCalendarEventSearchWindow
+): NativeCalendarDeviceEventRef {
+  const marker = canonicalizeManagedEventMarker(event.url) ?? undefined;
+  const markerIdentity = parseManagedEventMarker(marker);
+  const lastModifiedDate = normalizeOptionalInstant(event.lastModifiedDate);
+  let eventHash: string | undefined;
+
+  if (markerIdentity && expectedWindow) {
+    try {
+      const timezone = expectedWindow.timezone ?? DEFAULT_NATIVE_CALENDAR_TIMEZONE;
+      const syncEvent: NativeCalendarSyncEvent = {
+        id: markerIdentity.sourceId,
+        sourceId: markerIdentity.sourceId,
+        sourceType: markerIdentity.sourceType,
+        title: event.title,
+        startDate: event.allDay
+          ? instantToCalendarDate(event.startDate, timezone)
+          : new Date(event.startDate).toISOString(),
+        endDate: event.allDay
+          ? instantToCalendarDate(event.endDate, timezone)
+          : new Date(event.endDate).toISOString(),
+        allDay: event.allDay,
+        timezone,
+        ...(event.notes ? { notes: event.notes } : {}),
+        ...(event.location ? { location: event.location } : {}),
+        url: marker,
+        reminderMinutesBefore: normalizeReminderOffsets(
+          event.alarms.map((alarm) => alarm.relativeOffset).filter((offset): offset is number => (
+            typeof offset === "number" && offset <= 0
+          )).map((offset) => Math.abs(offset))
+        ),
+        ...(event.recurrenceRule ? { recurrenceRule: fromExpoRecurrenceRule(event.recurrenceRule) } : {})
+      };
+      eventHash = createManagedPayloadFingerprint(syncEvent);
+    } catch {
+      eventHash = undefined;
+    }
+  }
+
+  const destructiveSafety = eventHash
+    && lastModifiedDate
+    && isExpoEventDestructivelyVerifiable(event)
+    ? "verified"
+    : "uncertain";
   return {
     id: event.id,
     calendarId: event.calendarId,
     ...(marker ? { managedMarker: marker } : {}),
-    eventHash: createManagedPayloadFingerprint(syncEvent),
-    ...(event.lastModifiedDate ? { lastModifiedDate: new Date(event.lastModifiedDate).toISOString() } : {})
+    ...(eventHash ? { eventHash } : {}),
+    ...(lastModifiedDate ? { lastModifiedDate } : {}),
+    destructiveSafety
   };
+}
+
+function isExpoEventDestructivelyVerifiable(event: ExpoCalendar.Event): boolean {
+  if (event.organizer || event.isDetached) return false;
+  if (event.status !== "none" && event.status !== "confirmed") return false;
+  if (event.availability !== "free" && event.availability !== "notSupported") return false;
+  if (event.alarms.some((alarm) => (
+    alarm.absoluteDate !== undefined
+    || alarm.structuredLocation !== undefined
+    || typeof alarm.relativeOffset !== "number"
+    || alarm.relativeOffset > 0
+  ))) return false;
+  const recurrence = event.recurrenceRule;
+  if (!recurrence) return true;
+  return !recurrence.daysOfTheWeek?.length
+    && !recurrence.daysOfTheMonth?.length
+    && !recurrence.monthsOfTheYear?.length
+    && !recurrence.weeksOfTheYear?.length
+    && !recurrence.daysOfTheYear?.length
+    && !recurrence.setPositions?.length;
+}
+
+function normalizeOptionalInstant(value: string | Date | undefined): string | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 }
 
 function fromExpoRecurrenceRule(
@@ -380,10 +434,11 @@ function recoveryRange(window: NativeCalendarEventSearchWindow): { start: Date; 
 }
 
 function requireManagedMarker(value: string | undefined): string {
-  if (!parseManagedEventMarker(value)) {
+  const canonical = canonicalizeManagedEventMarker(value);
+  if (!canonical) {
     throw new NativeCalendarSafetyError("marker_mismatch", "A valid managed event marker is required.");
   }
-  return value!;
+  return canonical;
 }
 
 function requireExpectedMarker(value: string | undefined): string {
@@ -392,9 +447,18 @@ function requireExpectedMarker(value: string | undefined): string {
 
 function assertOwnedRef(ref: NativeCalendarDeviceEventRef | null, expectedMarker: string): asserts ref is NativeCalendarDeviceEventRef {
   if (!ref) throw new NativeCalendarSafetyError("user_deleted", "Managed event no longer exists.");
-  if (ref.managedMarker !== expectedMarker) {
+  if (!managedEventMarkersMatch(ref.managedMarker, expectedMarker)) {
     throw new NativeCalendarSafetyError("marker_mismatch", "Managed event ownership could not be verified.");
   }
+}
+
+function searchWindowForEvent(event: NativeCalendarSyncEvent): NativeCalendarEventSearchWindow {
+  return {
+    startDate: event.startDate,
+    ...(event.endDate ? { endDate: event.endDate } : {}),
+    allDay: event.allDay ?? false,
+    ...(event.timezone ? { timezone: event.timezone } : {})
+  };
 }
 
 function isEventNotFoundError(error: unknown): boolean {
