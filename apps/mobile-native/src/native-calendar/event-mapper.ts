@@ -1,4 +1,12 @@
 import type { NativeCalendarSyncEvent } from "./types";
+import {
+  DEFAULT_NATIVE_CALENDAR_TIMEZONE,
+  addCalendarDays,
+  calendarDateToISOString,
+  isExactCalendarDate,
+  normalizeCalendarTimestamp
+} from "./calendar-date";
+import { normalizeReminderOffsets } from "./managed-event";
 
 export type AcademicCalendarEventInput = {
   id: string;
@@ -28,44 +36,45 @@ export type NativeCalendarMappingOptions = {
   categoryLabel?: (category: string) => string;
 };
 
-const DEFAULT_TIMEZONE = "Europe/Istanbul";
-
 export function mapAcademicEventsToNativeCalendarEvents(
   events: AcademicCalendarEventInput[],
   options: NativeCalendarMappingOptions = {}
 ): NativeCalendarSyncEvent[] {
   return events.flatMap((event) => {
+    const timezone = options.timezone ?? event.timezone ?? DEFAULT_NATIVE_CALENDAR_TIMEZONE;
     const startIsDateOnly = event.temporalKind === "date"
-      || (event.temporalKind === undefined && isExactDateOnly(event.startDate));
+      || (event.temporalKind === undefined && isExactCalendarDate(event.startDate));
     const endKind = event.endTemporalKind
-      ?? (event.endDate && isExactDateOnly(event.endDate) ? "date" : "timestamp");
+      ?? (event.endDate && isExactCalendarDate(event.endDate) ? "date" : "timestamp");
     const hasTimestampEnd = endKind === "timestamp" && Boolean(event.endDate);
     const allDay = startIsDateOnly && !hasTimestampEnd;
     const startDate = allDay
-      ? normalizeCalendarDate(event.startDate)
+      ? (isExactCalendarDate(event.startDate) ? event.startDate : null)
       : startIsDateOnly
-        ? normalizeIstanbulCalendarStart(event.startDate)
-        : normalizeTimestamp(event.startDate);
+        ? normalizeCalendarStart(event.startDate, timezone)
+        : normalizeCalendarTimestamp(event.startDate);
     if (!startDate) return [];
 
-    const endDate = normalizeEventEndDate(startDate, event, allDay);
+    const endDate = normalizeEventEndDate(startDate, event, allDay, timezone);
     const category = event.category ?? "academic_event";
     const categoryLabel = options.categoryLabel?.(category) ?? category;
 
     return [
       stripUndefined({
         id: `academic:${event.id}`,
+        sourceId: event.id,
+        sourceType: "academic_event",
         title: event.title,
         startDate,
         endDate,
         allDay,
-        timezone: options.timezone ?? event.timezone ?? DEFAULT_TIMEZONE,
+        timezone,
         notes: event.description ?? `Academic event category: ${categoryLabel}`,
         location: event.location,
-        url: event.url,
+        sourceUrl: event.url,
         category,
         recurrenceRule: event.recurrenceRule,
-        reminderMinutesBefore: options.reminderMinutesBefore ?? []
+        reminderMinutesBefore: normalizeReminderOffsets(options.reminderMinutesBefore)
       })
     ];
   });
@@ -76,21 +85,23 @@ export function mapManualExamsToNativeCalendarEvents(
   options: NativeCalendarMappingOptions = {}
 ): NativeCalendarSyncEvent[] {
   return exams.flatMap((exam) => {
-    const startDate = normalizeTimestamp(exam.examDate);
+    const startDate = normalizeCalendarTimestamp(exam.examDate);
     if (!startDate) return [];
 
     return [
       {
         id: `manual-exam:${exam.id}`,
+        sourceId: exam.id,
+        sourceType: "manual_exam",
         title: exam.title,
         startDate,
         endDate: addMinutes(startDate, 60),
         allDay: false,
-        timezone: options.timezone ?? DEFAULT_TIMEZONE,
+        timezone: options.timezone ?? DEFAULT_NATIVE_CALENDAR_TIMEZONE,
         notes: "Manual exam reminder",
         location: exam.locationNote,
         category: "manual_exam",
-        reminderMinutesBefore: options.reminderMinutesBefore ?? []
+        reminderMinutesBefore: normalizeReminderOffsets(options.reminderMinutesBefore)
       }
     ];
   });
@@ -101,62 +112,45 @@ export function normalizeReminderMinutes(value: number): number[] {
   return [Math.max(0, Math.round(value))];
 }
 
-function normalizeTimestamp(input: string): string | null {
-  if (isExactDateOnly(input)) return null;
-  const parsed = new Date(input);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
-}
-
-function normalizeCalendarDate(input: string): string | null {
-  if (!isExactDateOnly(input)) return null;
-  return `${input}T00:00:00.000Z`;
-}
-
-function normalizeIstanbulCalendarStart(input: string): string | null {
-  if (!isExactDateOnly(input)) return null;
-  return new Date(`${input}T00:00:00.000+03:00`).toISOString();
+function normalizeCalendarStart(input: string, timezone: string): string | null {
+  if (!isExactCalendarDate(input)) return null;
+  try {
+    return calendarDateToISOString(input, timezone);
+  } catch {
+    return null;
+  }
 }
 
 function normalizeEventEndDate(
   startIsoDate: string,
   event: AcademicCalendarEventInput,
-  allDay: boolean
+  allDay: boolean,
+  timezone: string
 ): string {
   const inferredEndKind = event.endTemporalKind
-    ?? (event.endDate && isExactDateOnly(event.endDate) ? "date" : "timestamp");
+    ?? (event.endDate && isExactCalendarDate(event.endDate) ? "date" : "timestamp");
   if (allDay) {
-    const inclusiveEnd = inferredEndKind === "date" && event.endDate
-      ? normalizeCalendarDate(event.endDate)
-      : null;
-    return addDays(inclusiveEnd ?? startIsoDate, 1);
+    const inclusiveEnd = inferredEndKind === "date" && event.endDate && isExactCalendarDate(event.endDate)
+      ? event.endDate
+      : startIsoDate;
+    return addCalendarDays(inclusiveEnd, 1);
   }
   if (inferredEndKind === "date" && event.endDate) {
-    const exclusiveEnd = exclusiveIstanbulEnd(event.endDate);
+    const exclusiveEnd = exclusiveCalendarEnd(event.endDate, timezone);
     if (exclusiveEnd && Date.parse(exclusiveEnd) > Date.parse(startIsoDate)) return exclusiveEnd;
   }
-  const parsedEndDate = event.endDate ? normalizeTimestamp(event.endDate) : null;
+  const parsedEndDate = event.endDate ? normalizeCalendarTimestamp(event.endDate) : null;
   if (parsedEndDate && Date.parse(parsedEndDate) > Date.parse(startIsoDate)) return parsedEndDate;
   return addMinutes(startIsoDate, 60);
 }
 
-function isExactDateOnly(input: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(input)) return false;
-  const parsed = new Date(`${input}T12:00:00.000Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === input;
-}
-
-function exclusiveIstanbulEnd(inclusiveEnd: string): string | null {
-  const normalized = normalizeCalendarDate(inclusiveEnd);
-  if (!normalized) return null;
-  const exclusiveDate = addDays(normalized, 1).slice(0, 10);
-  return new Date(`${exclusiveDate}T00:00:00.000+03:00`).toISOString();
-}
-
-function addDays(isoDate: string, days: number): string {
-  const date = new Date(isoDate);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString();
+function exclusiveCalendarEnd(inclusiveEnd: string, timezone: string): string | null {
+  if (!isExactCalendarDate(inclusiveEnd)) return null;
+  try {
+    return calendarDateToISOString(addCalendarDays(inclusiveEnd, 1), timezone);
+  } catch {
+    return null;
+  }
 }
 
 function addMinutes(isoDate: string, minutes: number): string {

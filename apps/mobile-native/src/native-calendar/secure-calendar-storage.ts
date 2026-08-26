@@ -1,35 +1,39 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
-import type { NativeCalendarStorage, NativeCalendarStorageKey, NativeCalendarStoredState } from "./types";
-import { createNativeCalendarStorageKey } from "./storage-key";
+import type { NativeCalendarStorage } from "./types";
+import { createLegacyNativeCalendarStorageKey, createNativeCalendarStorageKey } from "./storage-key";
+import {
+  deserializeNativeCalendarStoredState,
+  serializeNativeCalendarStoredState
+} from "./storage-schema";
 
 export function createSecureNativeCalendarStorage(): NativeCalendarStorage {
   return {
     async loadState(key) {
-      const stored = await readStorageValue(createStorageKey(key));
-      if (!stored) return { mappings: {} };
+      const storageKey = createNativeCalendarStorageKey(key);
+      const stored = await readStorageValue(storageKey);
+      if (stored) return deserializeNativeCalendarStoredState(stored);
 
+      const legacyKey = createLegacyNativeCalendarStorageKey(key);
+      const legacy = await readStorageValue(legacyKey);
+      if (!legacy) return { mappings: {} };
+      const migrated = deserializeNativeCalendarStoredState(legacy);
       try {
-        const parsed = JSON.parse(stored) as NativeCalendarStoredState;
-        return {
-          integration: parsed.integration,
-          mappings: parsed.mappings ?? {}
-        };
+        await writeStorageValue(storageKey, serializeNativeCalendarStoredState(migrated));
+        await deleteStorageValue(legacyKey);
       } catch {
-        return { mappings: {} };
+        // Keep the validated v2 value available for a later migration attempt.
       }
+      return migrated;
     },
     async saveState(key, state) {
-      await writeStorageValue(createStorageKey(key), JSON.stringify({ integration: state.integration, mappings: state.mappings }));
+      await writeStorageValue(createNativeCalendarStorageKey(key), serializeNativeCalendarStoredState(state));
     },
     async clearState(key) {
-      await deleteStorageValue(createStorageKey(key));
+      await deleteStorageValue(createNativeCalendarStorageKey(key));
+      await deleteStorageValue(createLegacyNativeCalendarStorageKey(key));
     }
   };
-}
-
-function createStorageKey(key: NativeCalendarStorageKey): string {
-  return createNativeCalendarStorageKey(key);
 }
 
 function getWebStorage(): Storage | null {

@@ -3,6 +3,10 @@ import {
   mapAcademicEventsToNativeCalendarEvents,
   mapManualExamsToNativeCalendarEvents
 } from "../../apps/mobile-native/src/native-calendar/event-mapper.js";
+import {
+  calendarDateToISOString,
+  instantToCalendarDate
+} from "../../apps/mobile-native/src/native-calendar/calendar-date.js";
 
 describe("native academic calendar event mapping", () => {
   it("keeps date-only ranges all-day and converts the inclusive end to an exclusive end", () => {
@@ -15,11 +19,29 @@ describe("native academic calendar event mapping", () => {
       startDate: "2026-09-01",
       endDate: "2026-09-03"
     }])).toEqual([expect.objectContaining({
-      startDate: "2026-09-01T00:00:00.000Z",
-      endDate: "2026-09-04T00:00:00.000Z",
+      startDate: "2026-09-01",
+      endDate: "2026-09-04",
       allDay: true,
       timezone: "Europe/Istanbul"
     })]);
+  });
+
+  it("keeps all-day values as calendar-local dates and converts them only at the adapter boundary", () => {
+    const instant = calendarDateToISOString("2026-03-08", "America/New_York");
+
+    expect(instant).toBe("2026-03-08T05:00:00.000Z");
+    expect(instantToCalendarDate(instant, "America/New_York")).toBe("2026-03-08");
+    expect(mapAcademicEventsToNativeCalendarEvents([{
+      id: "local-day",
+      title: "Local day",
+      temporalKind: "date",
+      startDate: "2026-03-08"
+    }], { timezone: "America/New_York" })[0]).toMatchObject({
+      startDate: "2026-03-08",
+      endDate: "2026-03-09",
+      allDay: true,
+      timezone: "America/New_York"
+    });
   });
 
   it("preserves real timestamp instants and real range ends", () => {
