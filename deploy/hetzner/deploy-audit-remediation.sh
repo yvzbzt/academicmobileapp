@@ -12,6 +12,7 @@ release_root="${project_root}/releases/${release_id}"
 source_root="${release_root}/source"
 release_archive="${release_root}/source.tar.gz"
 compose_file="${project_root}/compose.yaml"
+compose_source="${source_root}/deploy/hetzner/compose.yaml"
 env_file="${project_root}/.env"
 api_container="anssoft-backend"
 mongo_container="anssoft-mongodb"
@@ -68,6 +69,7 @@ tar -xzf "${release_archive}" --strip-components=1 -C "${source_root}"
 for required_source in \
   "${source_root}/package-lock.json" \
   "${source_root}/deploy/hetzner/Dockerfile.api" \
+  "${compose_source}" \
   "${route_source}"; do
   [[ -f "${required_source}" ]]
 done
@@ -93,6 +95,7 @@ image_retagged=false
 api_recreated=false
 route_reloaded=false
 source_swapped=false
+compose_installed=false
 
 rollback() {
   local exit_code="${1:-$?}"
@@ -120,6 +123,11 @@ rollback() {
       caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
   fi
 
+  if [[ "${compose_installed}" == "true" ]]; then
+    install -m 600 "${backup_root}/compose.yaml" "${compose_file}.rollback"
+    mv -f "${compose_file}.rollback" "${compose_file}"
+  fi
+
   if [[ "${image_retagged}" == "true" ]]; then
     docker image tag "${old_image_id}" "${live_image}"
   fi
@@ -143,6 +151,9 @@ docker build --pull=false -f "${source_root}/deploy/hetzner/Dockerfile.api" \
   -t "${new_image}" "${source_root}"
 docker image tag "${new_image}" "${live_image}"
 image_retagged=true
+install -m 600 "${compose_source}" "${compose_file}.tmp"
+mv -f "${compose_file}.tmp" "${compose_file}"
+compose_installed=true
 docker compose --env-file "${env_file}" -f "${compose_file}" config --quiet
 
 if docker container inspect "${canary}" >/dev/null 2>&1; then

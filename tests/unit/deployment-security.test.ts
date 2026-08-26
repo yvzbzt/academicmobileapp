@@ -37,6 +37,9 @@ describe("admin deployment security headers", () => {
     expect(script).toContain('caddy_route="/home/ans/docker/caddy/custom-domains/academic-api.anssoft.com.tr.caddy"');
     expect(script).toContain("sha256sum --check --strict source.archive.sha256");
     expect(script).toContain('[[ -z "$(find "${source_root}" -type l -print -quit)" ]]');
+    expect(script).toContain('compose_source="${source_root}/deploy/hetzner/compose.yaml"');
+    expect(script).toContain('install -m 600 "${compose_source}" "${compose_file}.tmp"');
+    expect(script).toContain('install -m 600 "${backup_root}/compose.yaml" "${compose_file}.rollback"');
     expect(script).toContain('up -d --no-deps --force-recreate api');
     expect(script).not.toMatch(/docker\s+(?:compose\s+)?(?:down|system\s+prune|volume\s+rm|network\s+rm)\b/u);
   });
