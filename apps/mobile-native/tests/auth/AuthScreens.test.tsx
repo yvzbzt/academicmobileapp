@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { Alert, Keyboard, Platform } from "react-native";
+import { AccessibilityInfo, Alert, Keyboard, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   act,
@@ -360,6 +360,65 @@ describe("Phase 6 rendered authentication screens", () => {
       dismiss.mockRestore();
     });
 
+    it("uses iOS credential AutoFill and keeps the Apple provider row stable", async () => {
+      const originalPlatform = Platform.OS;
+      Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+      const dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(jest.fn());
+      const onAppleSubmit = jest.fn();
+      const unavailableProps = loginProps({ appleAvailable: false, onAppleSubmit });
+      const view = await renderAuth(
+        <LoginScreen {...unavailableProps} />,
+        { platform: "ios" },
+      );
+
+      try {
+        expect(screen.getByLabelText("E-posta adresi")).toHaveProp("autoComplete", "username");
+        expect(screen.getByLabelText("E-posta adresi")).toHaveProp("textContentType", "username");
+        expect(screen.getByLabelText("Şifre")).toHaveProp("autoComplete", "current-password");
+        expect(screen.getByTestId("apple-sign-in-slot", {
+          includeHiddenElements: true,
+        })).toHaveStyle({ height: 56, width: "100%" });
+        expect(screen.queryByRole("button", { name: "Apple ile devam et" })).toBeNull();
+
+        await view.rerenderAsync(authTestTree(
+          <LoginScreen {...loginProps({ appleAvailable: true, onAppleSubmit })} />,
+          { platform: "ios" },
+        ));
+
+        const apple = screen.getByRole("button", { name: "Apple ile devam et" });
+        expect(apple).toHaveStyle({ height: 56, width: "100%" });
+        expect(apple).toHaveProp("cornerRadius", 28);
+        await userEvent.press(apple);
+        expect(dismiss).toHaveBeenCalledTimes(1);
+        expect(onAppleSubmit).toHaveBeenCalledTimes(1);
+      } finally {
+        await view.unmountAsync();
+        dismiss.mockRestore();
+        Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+      }
+    });
+
+    it("preserves Android email autofill and conditional Apple rendering", async () => {
+      const originalPlatform = Platform.OS;
+      Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+      const view = await renderAuth(
+        <LoginScreen {...loginProps({ appleAvailable: false })} />,
+        { platform: "android" },
+      );
+
+      try {
+        expect(screen.getByLabelText("E-posta adresi")).toHaveProp("autoComplete", "email");
+        expect(screen.getByLabelText("E-posta adresi")).toHaveProp("textContentType", "emailAddress");
+        expect(screen.getByLabelText("Şifre")).toHaveProp("autoComplete", "password");
+        expect(screen.queryByTestId("apple-sign-in-slot", {
+          includeHiddenElements: true,
+        })).toBeNull();
+      } finally {
+        await view.unmountAsync();
+        Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+      }
+    });
+
     it("extends the white Login sheet behind the bottom inset while keeping controls safe", async () => {
       await renderAuth(
         <LoginScreen {...loginProps()} />,
@@ -407,10 +466,13 @@ describe("Phase 6 rendered authentication screens", () => {
       });
       const title = screen.getByTestId("auth-hero-title");
       expect(title).toHaveProp("numberOfLines", 2);
+      expect(title).toHaveProp("maxFontSizeMultiplier", 1.6);
       expect(title).toHaveStyle({ maxWidth: "100%", width: "100%" });
       expect(title).toHaveTextContent(/Akademik\s*Takvim/u);
       expect(screen.getByLabelText("E-posta adresi")).toBeVisible();
+      expect(screen.getByLabelText("E-posta adresi")).toHaveProp("maxFontSizeMultiplier", 2);
       expect(screen.getByLabelText("Şifre")).toBeVisible();
+      expect(screen.getByLabelText("Şifre")).toHaveProp("maxFontSizeMultiplier", 2);
       expect(screen.getByRole("button", { name: "Giriş yap" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Google ile devam et" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Şifremi unuttum" })).toBeVisible();
@@ -495,6 +557,25 @@ describe("Phase 6 rendered authentication screens", () => {
       await userEvent.press(screen.getByRole("button", { name: "Giriş yap" }));
       expect(screen.getByRole("alert", { name: "Şifre zorunludur." })).toBeVisible();
       expect(passwordFocus).toHaveBeenCalledTimes(2);
+    });
+
+    it("announces the first invalid field on iOS before moving focus", async () => {
+      const originalPlatform = Platform.OS;
+      Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+      const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(jest.fn());
+      const view = await renderAuth(
+        <LoginScreen {...loginProps({ email: "invalid", password: "" })} />,
+        { platform: "ios" },
+      );
+
+      try {
+        await userEvent.press(screen.getByRole("button", { name: "Giriş yap" }));
+        expect(announce).toHaveBeenCalledWith("Geçerli bir e-posta adresi gir.");
+      } finally {
+        await view.unmountAsync();
+        announce.mockRestore();
+        Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+      }
     });
 
     it("submits from the password IME only when the form is ready", async () => {
@@ -855,11 +936,63 @@ describe("Phase 6 rendered authentication screens", () => {
       expect(code).toHaveProp("keyboardType", "number-pad");
       expect(code).toHaveProp("inputMode", "numeric");
       expect(code).toHaveProp("maxLength", 6);
+      expect(code).toHaveProp("placeholder", "000000");
       expect(code).toHaveProp("textContentType", "oneTimeCode");
       expect(code).toHaveProp("autoComplete", "one-time-code");
+      expect(screen.getByTestId("auth-form-card")).toHaveProp("accessible", false);
 
       await fireEventAsync.changeText(code, "a1 2-3x4567");
       expect(onCodeChange).toHaveBeenCalledWith("123456");
+    });
+
+    it("adds a dismiss-only accessory to the iOS number pad and submits from the IME safely", async () => {
+      const originalPlatform = Platform.OS;
+      Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
+      const dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(jest.fn());
+      const onSubmit = jest.fn();
+      const view = await renderAuth(
+        <VerificationScreen {...verificationProps({ code: "123456", onSubmit })} />,
+        { platform: "ios" },
+      );
+
+      try {
+        const code = screen.getByLabelText("Doğrulama kodu");
+        expect(code).toHaveProp(
+          "inputAccessoryViewID",
+          "verification-code-keyboard-actions",
+        );
+
+        await userEvent.press(screen.getByRole("button", { name: "Sayısal klavyeyi kapat" }));
+        expect(dismiss).toHaveBeenCalledTimes(1);
+        expect(onSubmit).not.toHaveBeenCalled();
+
+        fireEvent(code, "submitEditing");
+        expect(dismiss).toHaveBeenCalledTimes(2);
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+      } finally {
+        await view.unmountAsync();
+        dismiss.mockRestore();
+        Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+      }
+    });
+
+    it("does not add an iOS number-pad accessory on Android", async () => {
+      const originalPlatform = Platform.OS;
+      Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+      const view = await renderAuth(
+        <VerificationScreen {...verificationProps()} />,
+        { platform: "android" },
+      );
+
+      try {
+        expect(
+          screen.getByLabelText("Doğrulama kodu").props.inputAccessoryViewID,
+        ).toBeUndefined();
+        expect(screen.queryByRole("button", { name: "Sayısal klavyeyi kapat" })).toBeNull();
+      } finally {
+        await view.unmountAsync();
+        Object.defineProperty(Platform, "OS", { configurable: true, value: originalPlatform });
+      }
     });
 
     it("requires exactly six digits and enforces resend cooldown", async () => {

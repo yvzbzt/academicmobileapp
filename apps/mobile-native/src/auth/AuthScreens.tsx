@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  AccessibilityInfo,
   Alert,
   BackHandler,
   Image,
+  InputAccessoryView,
   Keyboard,
   Platform,
   Pressable,
@@ -87,6 +89,59 @@ interface AuthViewportMetrics {
 const SHORT_AUTH_VIEWPORT_HEIGHT = 620;
 const SHORT_LOGIN_CONTENT_MIN_HEIGHT = 620;
 const LARGE_AUTH_FONT_SCALE = 1.3;
+const AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER = 2;
+const AUTH_COMPACT_MAX_FONT_SIZE_MULTIPLIER = 1.6;
+const VERIFICATION_CODE_INPUT_ACCESSORY_ID = "verification-code-keyboard-actions";
+const RECOVERY_CODE_INPUT_ACCESSORY_ID = "recovery-code-keyboard-actions";
+
+function announceAuthError(message?: string) {
+  if (Platform.OS === "ios" && message) {
+    AccessibilityInfo.announceForAccessibility(message);
+  }
+}
+
+function dismissKeyboardAndRun(action: () => void) {
+  Keyboard.dismiss();
+  action();
+}
+
+function NumericKeyboardDoneAccessory({ nativeID }: { nativeID: string }) {
+  const theme = useTheme();
+
+  if (Platform.OS !== "ios") return null;
+
+  return (
+    <InputAccessoryView nativeID={nativeID}>
+      <View
+        style={[
+          styles.keyboardAccessory,
+          {
+            backgroundColor: theme.colors.background.surface,
+            borderTopColor: theme.colors.border.subtle,
+          },
+        ]}
+      >
+        <Pressable
+          accessibilityLabel="Sayısal klavyeyi kapat"
+          accessibilityRole="button"
+          hitSlop={4}
+          onPress={Keyboard.dismiss}
+          style={({ pressed }) => [
+            styles.keyboardAccessoryButton,
+            pressed && { backgroundColor: theme.colors.action.ghostPressed },
+          ]}
+        >
+          <Text
+            maxFontSizeMultiplier={AUTH_COMPACT_MAX_FONT_SIZE_MULTIPLIER}
+            style={[styles.keyboardAccessoryLabel, { color: theme.colors.text.link }]}
+          >
+            Bitti
+          </Text>
+        </Pressable>
+      </View>
+    </InputAccessoryView>
+  );
+}
 
 function useAuthViewportMetrics(): AuthViewportMetrics {
   const window = useWindowDimensions();
@@ -321,6 +376,7 @@ function AuthScaffold({
         ) : null}
 
         <View
+          accessible={false}
           accessibilityLabel={`${title} formu`}
           style={[
             styles.heroSheet,
@@ -391,7 +447,7 @@ function AuthScaffold({
                 <Text
                   accessibilityRole="header"
                   accessibilityLabel={title}
-                  maxFontSizeMultiplier={1.3}
+                  maxFontSizeMultiplier={AUTH_COMPACT_MAX_FONT_SIZE_MULTIPLIER}
                   numberOfLines={2}
                   testID="auth-hero-title"
                   style={[
@@ -416,7 +472,7 @@ function AuthScaffold({
               {showHeroDescription ? (
                 <>
                   <Text
-                    maxFontSizeMultiplier={1.2}
+                    maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
                     style={[
                       theme.typography.body,
                       styles.heroDescription,
@@ -496,8 +552,10 @@ function AuthScaffold({
       ) : null}
 
       <Card
+        accessible={false}
         accessibilityLabel={`${title} formu`}
         style={[styles.authCard, { gap: theme.spacing.md }]}
+        testID="auth-form-card"
         variant="elevated"
       >
         {children}
@@ -544,10 +602,18 @@ export function LoginScreen(props: LoginScreenProps) {
   const passwordRef = useRef<TextInput>(null);
   const validation = validateLoginForm({ email: props.email, password: props.password });
   const interactionBusy = props.busy || props.googleBusy || props.appleBusy;
+  const appleButton = props.appleAvailable ? (
+    <AppleSignInButton
+      busy={interactionBusy}
+      onPress={() => dismissKeyboardAndRun(props.onAppleSubmit)}
+      testID="apple-sign-in-button"
+    />
+  ) : null;
 
   function submit() {
     setAttempted(true);
     if (!validation.valid) {
+      announceAuthError(validation.errors.email ?? validation.errors.password);
       if (validation.errors.email) {
         emailRef.current?.focus();
         return;
@@ -569,7 +635,7 @@ export function LoginScreen(props: LoginScreenProps) {
     >
       <TextField
         autoCapitalize="none"
-        autoComplete="email"
+        autoComplete={Platform.OS === "ios" ? "username" : "email"}
         autoCorrect={false}
         blurOnSubmit={false}
         disabled={interactionBusy}
@@ -579,18 +645,18 @@ export function LoginScreen(props: LoginScreenProps) {
         label="E-posta adresi"
         labelVisuallyHidden
         leadingAccessory={<LoginFieldIcon name="mail-outline" />}
-        maxFontSizeMultiplier={1.2}
+        maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
         onChangeText={props.onEmailChange}
         onSubmitEditing={() => passwordRef.current?.focus()}
         placeholder="E-posta adresiniz"
         ref={emailRef}
         returnKeyType="next"
         submitBehavior="submit"
-        textContentType="emailAddress"
+        textContentType={Platform.OS === "ios" ? "username" : "emailAddress"}
         value={props.email}
       />
       <PasswordField
-        autoComplete="password"
+        autoComplete={Platform.OS === "ios" ? "current-password" : "password"}
         disabled={interactionBusy}
         error={attempted ? validation.errors.password : undefined}
         frameStyle={[styles.loginInputFrame, styles.loginPillField]}
@@ -598,7 +664,7 @@ export function LoginScreen(props: LoginScreenProps) {
         label="Şifre"
         labelVisuallyHidden
         leadingAccessory={<LoginFieldIcon name="lock-closed-outline" />}
-        maxFontSizeMultiplier={1.2}
+        maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
         onChangeText={props.onPasswordChange}
         onSubmitEditing={submit}
         placeholder="Şifreniz"
@@ -611,7 +677,7 @@ export function LoginScreen(props: LoginScreenProps) {
         fullWidth
         label="Giriş yap"
         loading={props.busy}
-        maxFontSizeMultiplier={1.2}
+        maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
         onPress={submit}
         style={[
           styles.loginPillButton,
@@ -619,13 +685,18 @@ export function LoginScreen(props: LoginScreenProps) {
         ]}
         trailingIcon={!interactionBusy ? <Ionicons color={referencePalette.white} name="arrow-forward" size={18} /> : undefined}
       />
-      {props.appleAvailable ? (
-        <AppleSignInButton
-          busy={props.busy || props.googleBusy || props.appleBusy}
-          onPress={props.onAppleSubmit}
-          testID="apple-sign-in-button"
-        />
-      ) : null}
+      {Platform.OS === "ios" ? (
+        <View
+          accessible={false}
+          accessibilityElementsHidden={!props.appleAvailable}
+          importantForAccessibility={props.appleAvailable ? "auto" : "no-hide-descendants"}
+          pointerEvents={props.appleAvailable ? "auto" : "none"}
+          style={styles.appleSignInSlot}
+          testID="apple-sign-in-slot"
+        >
+          {appleButton}
+        </View>
+      ) : appleButton}
       {props.googleAvailable ? (
         <Button
           disabled={props.busy || props.appleBusy}
@@ -633,7 +704,7 @@ export function LoginScreen(props: LoginScreenProps) {
           label="Google ile devam et"
           leadingIcon={<GoogleColorMark />}
           loading={props.googleBusy}
-          maxFontSizeMultiplier={1.2}
+          maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
           onPress={() => {
             Keyboard.dismiss();
             props.onGoogleSubmit();
@@ -663,7 +734,7 @@ export function LoginScreen(props: LoginScreenProps) {
           label="Şifremi unuttum"
           labelStyle={!interactionBusy && styles.loginLinkLabel}
           leadingIcon={!interactionBusy ? <Ionicons color={LOGIN_FORM_COLORS.link} name="lock-closed-outline" size={17} /> : undefined}
-          maxFontSizeMultiplier={1.2}
+          maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
           onPress={() => {
             Keyboard.dismiss();
             props.onForgotPassword();
@@ -677,7 +748,7 @@ export function LoginScreen(props: LoginScreenProps) {
           label="Kayıt ol"
           labelStyle={!interactionBusy && styles.loginLinkLabel}
           leadingIcon={!interactionBusy ? <Ionicons color={LOGIN_FORM_COLORS.link} name="person-add-outline" size={18} /> : undefined}
-          maxFontSizeMultiplier={1.2}
+          maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
           onPress={() => {
             Keyboard.dismiss();
             props.onRegister();
@@ -741,6 +812,12 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
     setAttempted(true);
     setLegalAttempted(true);
     if (!validation.valid) {
+      announceAuthError(
+        validation.errors.fullName
+          ?? validation.errors.email
+          ?? validation.errors.password
+          ?? validation.errors.passwordConfirmation,
+      );
       if (validation.errors.fullName) nameRef.current?.focus();
       else if (validation.errors.email) emailRef.current?.focus();
       else if (validation.errors.password) passwordRef.current?.focus();
@@ -748,6 +825,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
       return;
     }
     if (!legalAccepted) {
+      announceAuthError("Devam etmek için kayıt onaylarını kabul et.");
       Keyboard.dismiss();
       return;
     }
@@ -797,7 +875,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
             ]}
           />
           <Text
-            maxFontSizeMultiplier={1.15}
+            maxFontSizeMultiplier={AUTH_COMPACT_MAX_FONT_SIZE_MULTIPLIER}
             numberOfLines={2}
             style={[theme.typography.bodyStrong, styles.registrationBrandTitle]}
           >
@@ -821,7 +899,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
         </View>
         <Text
           accessibilityRole="header"
-          maxFontSizeMultiplier={1.2}
+          maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
           style={[
             theme.typography.screenTitle,
             styles.registrationTitle,
@@ -831,7 +909,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           Hesabını oluştur
         </Text>
         <Text
-          maxFontSizeMultiplier={1.15}
+          maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
           style={[
             theme.typography.body,
             styles.registrationDescription,
@@ -852,6 +930,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
       ) : null}
 
       <View
+        accessible={false}
         accessibilityLabel="Hesap oluşturma formu"
         style={[
           styles.registrationForm,
@@ -883,7 +962,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
         />
         <TextField
           autoCapitalize="none"
-          autoComplete="email"
+          autoComplete={Platform.OS === "ios" ? "username" : "email"}
           autoCorrect={false}
           blurOnSubmit={false}
           disabled={props.busy}
@@ -899,7 +978,7 @@ export function RegistrationScreen(props: RegistrationScreenProps) {
           placeholder="E-posta adresinizi girin"
           returnKeyType="next"
           submitBehavior="submit"
-          textContentType="emailAddress"
+          textContentType={Platform.OS === "ios" ? "username" : "emailAddress"}
           value={props.email}
         />
         <PasswordField
@@ -1074,7 +1153,7 @@ function PasswordStrengthMeter({
         <View style={styles.passwordStrengthStatus}>
           <Ionicons color={labelColor} name="shield-checkmark" size={17} />
           <Text
-            maxFontSizeMultiplier={1.15}
+            maxFontSizeMultiplier={AUTH_COMPACT_MAX_FONT_SIZE_MULTIPLIER}
             style={[
               theme.typography.label,
               styles.passwordStrengthLabel,
@@ -1086,7 +1165,7 @@ function PasswordStrengthMeter({
         </View>
       </View>
       <Text
-        maxFontSizeMultiplier={1.15}
+        maxFontSizeMultiplier={AUTH_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
         style={[theme.typography.meta, styles.passwordRuleText, { color: theme.colors.text.secondary }]}
       >
         {ruleText}
@@ -1200,6 +1279,13 @@ export interface VerificationScreenProps {
 
 export function VerificationScreen(props: VerificationScreenProps) {
   const complete = isVerificationCodeComplete(props.code);
+  const canSubmit = complete && !props.timing?.expired && !props.busy;
+
+  function submit() {
+    if (!canSubmit) return;
+    dismissKeyboardAndRun(props.onSubmit);
+  }
+
   return (
     <AuthScaffold
       description={`${maskEmail(props.email)} adresine gönderilen ${EMAIL_VERIFICATION_CODE_LENGTH} haneli kodu gir.`}
@@ -1216,31 +1302,39 @@ export function VerificationScreen(props: VerificationScreenProps) {
         disabled={props.busy}
         error={props.timing?.expired ? "Kodun süresi doldu. Yeni bir kod iste." : undefined}
         inputMode="numeric"
+        inputAccessoryViewID={Platform.OS === "ios" ? VERIFICATION_CODE_INPUT_ACCESSORY_ID : undefined}
         keyboardType="number-pad"
         label="Doğrulama kodu"
         maxLength={EMAIL_VERIFICATION_CODE_LENGTH}
         onChangeText={(value) => props.onCodeChange(normalizeNumericCode(value, EMAIL_VERIFICATION_CODE_LENGTH))}
-        onSubmitEditing={() => complete && !props.timing?.expired && props.onSubmit()}
-        placeholder="0000"
+        onSubmitEditing={submit}
+        placeholder={"0".repeat(EMAIL_VERIFICATION_CODE_LENGTH)}
         returnKeyType="done"
         textContentType="oneTimeCode"
         value={props.code}
       />
+      <NumericKeyboardDoneAccessory nativeID={VERIFICATION_CODE_INPUT_ACCESSORY_ID} />
       <Button
-        disabled={props.busy || !complete || props.timing?.expired}
+        disabled={!canSubmit}
         fullWidth
         label="Doğrulamayı tamamla"
         loading={props.busy}
-        onPress={props.onSubmit}
+        onPress={submit}
       />
       <Button
         disabled={props.busy || Boolean(props.timing?.resendInSeconds)}
         fullWidth
         label={props.timing?.resendInSeconds ? `Tekrar gönder (${formatDuration(props.timing.resendInSeconds)})` : "Kodu tekrar gönder"}
-        onPress={props.onResend}
+        onPress={() => dismissKeyboardAndRun(props.onResend)}
         variant="secondary"
       />
-      <Button compact disabled={props.busy} label="E-posta adresini değiştir" onPress={props.onChangeEmail} variant="ghost" />
+      <Button
+        compact
+        disabled={props.busy}
+        label="E-posta adresini değiştir"
+        onPress={() => dismissKeyboardAndRun(props.onChangeEmail)}
+        variant="ghost"
+      />
     </AuthScaffold>
   );
 }
@@ -1262,10 +1356,11 @@ export function PasswordRecoveryRequestScreen(props: PasswordRecoveryRequestScre
   function submit() {
     setAttempted(true);
     if (validation.errors.email) {
+      announceAuthError(validation.errors.email);
       emailRef.current?.focus();
       return;
     }
-    props.onSubmit();
+    dismissKeyboardAndRun(props.onSubmit);
   }
   return (
     <AuthScaffold
@@ -1298,7 +1393,13 @@ export function PasswordRecoveryRequestScreen(props: PasswordRecoveryRequestScre
         loading={props.busy}
         onPress={submit}
       />
-      <Button compact disabled={props.busy} label="Giriş ekranına dön" onPress={props.onCancel} variant="ghost" />
+      <Button
+        compact
+        disabled={props.busy}
+        label="Giriş ekranına dön"
+        onPress={() => dismissKeyboardAndRun(props.onCancel)}
+        variant="ghost"
+      />
     </AuthScaffold>
   );
 }
@@ -1318,6 +1419,13 @@ export interface PasswordRecoveryCodeScreenProps {
 
 export function PasswordRecoveryCodeScreen(props: PasswordRecoveryCodeScreenProps) {
   const complete = isPasswordRecoveryCodeComplete(props.code);
+  const canContinue = complete && !props.timing?.expired && !props.busy;
+
+  function continueToPassword() {
+    if (!canContinue) return;
+    dismissKeyboardAndRun(props.onContinue);
+  }
+
   return (
     <AuthScaffold
       description={`${maskEmail(props.email)} adresine gönderilen altı haneli kodu gir.`}
@@ -1332,33 +1440,35 @@ export function PasswordRecoveryCodeScreen(props: PasswordRecoveryCodeScreenProp
         disabled={props.busy}
         error={props.timing?.expired ? "Kodun süresi doldu. Yeni bir kod iste." : undefined}
         inputMode="numeric"
+        inputAccessoryViewID={Platform.OS === "ios" ? RECOVERY_CODE_INPUT_ACCESSORY_ID : undefined}
         keyboardType="number-pad"
         label="Sıfırlama kodu"
         maxLength={PASSWORD_RECOVERY_CODE_LENGTH}
         onChangeText={(value) => props.onCodeChange(normalizeNumericCode(value, PASSWORD_RECOVERY_CODE_LENGTH))}
-        onSubmitEditing={() => complete && !props.timing?.expired && props.onContinue()}
+        onSubmitEditing={continueToPassword}
         placeholder="000000"
         returnKeyType="next"
         textContentType="oneTimeCode"
         value={props.code}
       />
+      <NumericKeyboardDoneAccessory nativeID={RECOVERY_CODE_INPUT_ACCESSORY_ID} />
       <Button
-        disabled={props.busy || !complete || props.timing?.expired}
+        disabled={!canContinue}
         fullWidth
         label="Yeni şifreye devam et"
-        onPress={props.onContinue}
+        onPress={continueToPassword}
       />
       <Button
         disabled={props.busy || Boolean(props.timing?.resendInSeconds)}
         fullWidth
         label={props.timing?.resendInSeconds ? `Yeni kod iste (${formatDuration(props.timing.resendInSeconds)})` : "Yeni kod iste"}
         loading={props.busy}
-        onPress={props.onResend}
+        onPress={() => dismissKeyboardAndRun(props.onResend)}
         variant="secondary"
       />
       <View style={styles.inlineActions}>
-        <Button compact disabled={props.busy} label="Geri" onPress={props.onBack} variant="ghost" />
-        <Button compact disabled={props.busy} label="İptal et" onPress={props.onCancel} variant="ghost" />
+        <Button compact disabled={props.busy} label="Geri" onPress={() => dismissKeyboardAndRun(props.onBack)} variant="ghost" />
+        <Button compact disabled={props.busy} label="İptal et" onPress={() => dismissKeyboardAndRun(props.onCancel)} variant="ghost" />
       </View>
     </AuthScaffold>
   );
@@ -1401,13 +1511,19 @@ export function PasswordRecoveryConfirmScreen(props: PasswordRecoveryConfirmScre
     setAttempted(true);
     if (!validation.valid) {
       if (!passwordRequirements.minimumLength || !passwordRequirements.characterGroupsComplete) {
+        announceAuthError(
+          !passwordRequirements.minimumLength
+            ? `Şifren en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmalıdır.`
+            : "Şifren büyük harf, küçük harf, rakam ve özel karakter gruplarından en az üçünü içermelidir.",
+        );
         passwordRef.current?.focus();
       } else {
+        announceAuthError("Şifreler eşleşmiyor.");
         confirmationRef.current?.focus();
       }
       return;
     }
-    props.onSubmit();
+    dismissKeyboardAndRun(props.onSubmit);
   }
   return (
     <AuthScaffold
@@ -1446,8 +1562,8 @@ export function PasswordRecoveryConfirmScreen(props: PasswordRecoveryConfirmScre
       />
       <Button fullWidth label="Şifreyi yenile" loading={props.busy} onPress={submit} />
       <View style={styles.inlineActions}>
-        <Button compact disabled={props.busy} label="Koda dön" onPress={props.onBack} variant="ghost" />
-        <Button compact disabled={props.busy} label="İptal et" onPress={props.onCancel} variant="ghost" />
+        <Button compact disabled={props.busy} label="Koda dön" onPress={() => dismissKeyboardAndRun(props.onBack)} variant="ghost" />
+        <Button compact disabled={props.busy} label="İptal et" onPress={() => dismissKeyboardAndRun(props.onCancel)} variant="ghost" />
       </View>
     </AuthScaffold>
   );
@@ -1506,6 +1622,7 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
 
   function requestBack() {
     if (props.busy) return;
+    Keyboard.dismiss();
     if (!dirty) {
       props.onBack();
       return;
@@ -1523,12 +1640,16 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
   function save() {
     setAttempted(true);
     setValidationAttempt((current) => current + 1);
-    if (!props.draft.universityId) return;
+    if (!props.draft.universityId) {
+      announceAuthError("Üniversite seçimi zorunludur.");
+      return;
+    }
     if (props.needsPassword && !props.password) {
+      announceAuthError("Devam etmek için şifreni gir.");
       passwordRef.current?.focus();
       return;
     }
-    props.onSave();
+    dismissKeyboardAndRun(props.onSave);
   }
 
   return (
@@ -1620,7 +1741,7 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
 
       {props.needsPassword ? (
         <PasswordField
-          autoComplete="password"
+          autoComplete={Platform.OS === "ios" ? "current-password" : "password"}
           disabled={props.busy}
           error={attempted && !props.password ? "Devam etmek için şifreni gir." : undefined}
           ref={passwordRef}
@@ -1666,7 +1787,7 @@ export function AcademicOnboardingScreen(props: AcademicOnboardingScreenProps) {
         onPress={save}
       />
       {props.onSkip ? (
-        <Button compact disabled={props.busy} label="Şimdilik geç" onPress={props.onSkip} variant="secondary" />
+        <Button compact disabled={props.busy} label="Şimdilik geç" onPress={() => dismissKeyboardAndRun(props.onSkip!)} variant="secondary" />
       ) : null}
     </View>
   );
@@ -1739,6 +1860,31 @@ export function formatDuration(totalSeconds: number): string {
 const styles = StyleSheet.create({
   authCard: {
     padding: 20,
+  },
+  appleSignInSlot: {
+    height: 56,
+    width: "100%",
+  },
+  keyboardAccessory: {
+    alignItems: "flex-end",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  keyboardAccessoryButton: {
+    alignItems: "center",
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 44,
+    minWidth: 64,
+    paddingHorizontal: 8,
+  },
+  keyboardAccessoryLabel: {
+    fontSize: 17,
+    fontWeight: "600",
+    letterSpacing: 0,
+    lineHeight: 22,
   },
   shortViewportScroll: {
     flex: 1,

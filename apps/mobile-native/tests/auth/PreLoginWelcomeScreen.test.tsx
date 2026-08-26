@@ -1,8 +1,8 @@
 import { FlatList, SectionList } from "react-native";
-import { act, fireEvent, screen } from "@testing-library/react-native";
+import { act, fireEvent, renderAsync, screen } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PreLoginWelcomeScreen } from "../../src/auth/PreLoginWelcomeScreen";
-import { renderWithTheme } from "../design-system/test-utils";
+import { ThemeProvider } from "../../src/design-system/theme";
 
 const mockWindowDimensions = jest.fn(() => ({
   fontScale: 1,
@@ -25,15 +25,35 @@ interface WelcomeViewport {
 
 function renderWelcome(
   onContinue: () => void,
-  {
+  viewport: WelcomeViewport = {},
+) {
+  const {
     bottomInset = 24,
     fontScale = 1,
     height = 844,
     width = 390,
+  } = viewport;
+  mockWindowDimensions.mockReturnValue({ fontScale, height, scale: 3, width });
+  return renderAsync(welcomeTestTree(onContinue, viewport));
+}
+
+function welcomeTestTree(
+  onContinue: () => void,
+  {
+    bottomInset = 24,
+    height = 844,
+    width = 390,
   }: WelcomeViewport = {},
 ) {
-  mockWindowDimensions.mockReturnValue({ fontScale, height, scale: 3, width });
-  return renderWithTheme(
+  return (
+    <ThemeProvider
+      liquidGlassAvailable={false}
+      platform="android"
+      preference="light"
+      reducedMotion
+      reducedTransparency={false}
+      windowWidth={width}
+    >
     <SafeAreaProvider
       initialMetrics={{
         frame: { x: 0, y: 0, width, height },
@@ -41,8 +61,8 @@ function renderWelcome(
       }}
     >
       <PreLoginWelcomeScreen onContinue={onContinue} />
-    </SafeAreaProvider>,
-    { windowWidth: width },
+    </SafeAreaProvider>
+    </ThemeProvider>
   );
 }
 
@@ -60,7 +80,7 @@ describe("PreLoginWelcomeScreen", () => {
 
     expect(screen.getByLabelText("Akademik Takvim logosu")).toBeVisible();
     expect(screen.getByTestId("prelogin-welcome-screen")).toHaveStyle({
-      paddingBottom: 32,
+      paddingBottom: 8,
     });
     expect(screen.getByTestId("prelogin-welcome-slides")).toHaveStyle({
       flexShrink: 1,
@@ -72,24 +92,32 @@ describe("PreLoginWelcomeScreen", () => {
       "accessibilityLabel",
       expect.stringMatching(/1 \/ 3\. Duyuruları tek yerden takip et/u),
     );
-    expect(screen.getByTestId("prelogin-slide-1")).toHaveProp(
-      "accessibilityLabel",
-      expect.stringMatching(/2 \/ 3\. Dönemini rahatça planla/u),
-    );
-    expect(screen.getByTestId("prelogin-slide-2")).toHaveProp(
-      "accessibilityLabel",
-      expect.stringMatching(/3 \/ 3\. Kendi düzenini oluştur/u),
-    );
+    for (const index of [1, 2]) {
+      const offscreenSlide = screen.getByTestId(`prelogin-slide-${index}`, {
+        includeHiddenElements: true,
+      });
+      expect(offscreenSlide).toHaveProp("accessible", false);
+      expect(offscreenSlide).toHaveProp("accessibilityElementsHidden", true);
+      expect(offscreenSlide).toHaveProp("importantForAccessibility", "no-hide-descendants");
+      expect(offscreenSlide.props.accessibilityLabel).toBeUndefined();
+    }
     expect(screen.queryByText("Bugünün planı")).toBeNull();
     expect(screen.queryByText("Ders kaydı son günü")).toBeNull();
     expect(screen.queryByText("Ana Sayfa")).toBeNull();
 
-    for (const index of [1, 2, 3]) {
-      const paginationTarget = screen.getByRole("button", {
-        name: `${index}. tanıtım sayfasına git`,
+    const pagination = screen.getByRole("adjustable", {
+      name: "1. tanıtım sayfası seçili",
+    });
+    expect(pagination).toHaveProp("accessibilityState", { disabled: false });
+    expect(pagination).toHaveAccessibilityValue({ max: 3, min: 1, now: 1, text: "1 / 3" });
+
+    for (const index of [0, 1, 2]) {
+      const paginationTarget = screen.getByTestId(`prelogin-pagination-target-${index}`, {
+        includeHiddenElements: true,
       });
       expect(paginationTarget).toHaveStyle({ height: 48, width: 48 });
       expect(paginationTarget).toHaveProp("hitSlop", 4);
+      expect(paginationTarget).toHaveProp("accessible", false);
     }
 
     const continueButton = screen.getByTestId("prelogin-continue-button");
@@ -102,6 +130,10 @@ describe("PreLoginWelcomeScreen", () => {
 
     fireEvent.press(continueButton);
     expect(onContinue).not.toHaveBeenCalled();
+    expect(screen.getByTestId("prelogin-slide-1")).toHaveProp("accessible", true);
+    expect(screen.getByTestId("prelogin-slide-0", {
+      includeHiddenElements: true,
+    })).toHaveProp("accessibilityElementsHidden", true);
     fireEvent.press(continueButton);
     expect(screen.getByRole("button", { name: "Başlayalım" })).toBeVisible();
     fireEvent.press(continueButton);
@@ -120,16 +152,21 @@ describe("PreLoginWelcomeScreen", () => {
     await settleVirtualizedList();
 
     expect(screen.getByTestId("prelogin-welcome-screen")).toHaveStyle({
-      paddingBottom: 38,
+      paddingBottom: 4,
     });
     expect(screen.getByTestId("prelogin-continue-button")).toBeVisible();
     expect(screen.getByTestId("prelogin-trust-footer")).toBeVisible();
     expect(screen.getByTestId("prelogin-illustration-0", {
       includeHiddenElements: true,
     })).toHaveStyle({
-      height: 242.4,
+      height: 194,
       minHeight: 0,
     });
+    expect(screen.getByText("Atla")).toHaveProp("maxFontSizeMultiplier", 2);
+    expect(screen.getByText("Güvenilir akademik kaynaklar · Kontrol sende")).toHaveProp(
+      "maxFontSizeMultiplier",
+      1.6,
+    );
     await view.unmountAsync();
   });
 
@@ -142,7 +179,7 @@ describe("PreLoginWelcomeScreen", () => {
     await settleVirtualizedList();
 
     expect(screen.getByTestId("prelogin-welcome-screen")).toHaveStyle({
-      paddingBottom: 28,
+      paddingBottom: 4,
     });
     expect(screen.getByTestId("prelogin-illustration-0", {
       includeHiddenElements: true,
@@ -164,7 +201,7 @@ describe("PreLoginWelcomeScreen", () => {
     await settleVirtualizedList();
 
     expect(screen.getByTestId("prelogin-welcome-screen")).toHaveStyle({
-      paddingBottom: 28,
+      paddingBottom: 8,
     });
     expect(screen.getByTestId("prelogin-illustration-0", {
       includeHiddenElements: true,
@@ -173,6 +210,30 @@ describe("PreLoginWelcomeScreen", () => {
       minHeight: 0,
     });
     expect(screen.getByTestId("prelogin-action-area")).toBeVisible();
+    await view.unmountAsync();
+  });
+
+  it("remounts the pager at the active slide after a viewport rotation", async () => {
+    const onContinue = jest.fn();
+    const portrait: WelcomeViewport = { bottomInset: 24, height: 844, width: 390 };
+    const landscape: WelcomeViewport = { bottomInset: 24, height: 390, width: 844 };
+    const view = await renderWelcome(onContinue, portrait);
+    await settleVirtualizedList();
+
+    fireEvent.press(screen.getByTestId("prelogin-continue-button"));
+    const portraitList = view.UNSAFE_getByType(FlatList);
+    expect(portraitList.props.initialScrollIndex).toBe(1);
+
+    mockWindowDimensions.mockReturnValue({ fontScale: 1, height: 390, scale: 3, width: 844 });
+    await view.rerenderAsync(welcomeTestTree(onContinue, landscape));
+
+    const landscapeList = view.UNSAFE_getByType(FlatList);
+    expect(landscapeList).not.toBe(portraitList);
+    expect(landscapeList.props.initialScrollIndex).toBe(1);
+    expect(screen.getByTestId("prelogin-welcome-slides")).toHaveStyle({ width: 680 });
+    expect(screen.getByTestId("prelogin-slide-1")).toHaveProp("accessible", true);
+    expect(screen.getByRole("adjustable")).toHaveAccessibilityValue({ now: 2, text: "2 / 3" });
+
     await view.unmountAsync();
   });
 });

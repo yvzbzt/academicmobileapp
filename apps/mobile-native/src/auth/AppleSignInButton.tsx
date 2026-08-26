@@ -22,7 +22,7 @@ export function AppleSignInButton({ busy, onPress, testID, type = "continue" }: 
         buttonType={type === "continue"
           ? AppleAuthentication.AppleAuthenticationButtonType.CONTINUE
           : AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-        cornerRadius={24}
+        cornerRadius={28}
         onPress={() => {
           if (!busy) onPress();
         }}
@@ -35,14 +35,14 @@ export function AppleSignInButton({ busy, onPress, testID, type = "continue" }: 
 
 const styles = StyleSheet.create({
   button: {
-    height: 48,
+    height: 56,
     width: "100%",
   },
   busy: {
     opacity: 0.55,
   },
   frame: {
-    height: 48,
+    height: 56,
     width: "100%",
   },
 });

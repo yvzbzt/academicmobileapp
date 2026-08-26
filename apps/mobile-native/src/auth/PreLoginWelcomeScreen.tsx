@@ -30,6 +30,8 @@ const BRAND_BLUE = referencePalette.academicBlue;
 const BRAND_BLUE_PRESSED = referencePalette.academicBlueDeep;
 const BRAND_BODY = preLoginWelcomeColors.body;
 const TRUST_BLUE = preLoginWelcomeColors.trust;
+const WELCOME_PRIMARY_MAX_FONT_SIZE_MULTIPLIER = 2;
+const WELCOME_COMPACT_MAX_FONT_SIZE_MULTIPLIER = 1.6;
 
 interface WelcomeSlide {
   artwork: ImageSourcePropType;
@@ -83,23 +85,26 @@ export function PreLoginWelcomeScreen({
   const reducedMotion = useReducedMotion();
   const safeAreaInsets = useSafeAreaInsets();
   const { fontScale, height, width } = useWindowDimensions();
-  const layoutHeight = Math.max(0, height - safeAreaInsets.bottom);
-  const landscape = width > height;
-  const tablet = width >= 700;
-  const compact = layoutHeight < 720 || width < 360 || fontScale > 1.2;
-  const veryCompact = layoutHeight < 610 || width < 330 || fontScale > 1.45;
+  const safeHeight = Math.max(0, height - safeAreaInsets.top - safeAreaInsets.bottom);
+  const safeWidth = Math.max(0, width - safeAreaInsets.left - safeAreaInsets.right);
+  const landscape = safeWidth > safeHeight;
+  const tablet = Math.min(safeWidth, safeHeight) >= 700;
+  const compact = safeHeight < 720 || safeWidth < 360 || fontScale > 1.2;
+  const veryCompact = safeHeight < 610 || safeWidth < 330 || fontScale > 1.45;
   const gutter = veryCompact ? 12 : compact ? 16 : 24;
   const contentWidth = Math.min(
     tablet ? 720 : landscape ? 680 : 560,
-    Math.max(240, width - gutter * 2),
+    Math.max(240, safeWidth - gutter * 2),
   );
   const illustrationHeight = landscape
-    ? Math.max(96, Math.min(210, layoutHeight - (veryCompact ? 184 : 208)))
+    ? Math.max(96, Math.min(210, safeHeight - (veryCompact ? 184 : 208)))
     : veryCompact
-      ? Math.max(190, Math.min(245, layoutHeight * 0.4))
+      ? fontScale > 1.45
+        ? Math.max(150, Math.min(210, Math.round(safeHeight * 0.32)))
+        : Math.max(190, Math.min(245, safeHeight * 0.4))
       : compact
-        ? Math.min(390, contentWidth * 1.28, layoutHeight * 0.49)
-        : Math.min(tablet ? 680 : 520, contentWidth * 1.28, layoutHeight * 0.56);
+        ? Math.min(390, contentWidth * 1.28, safeHeight * 0.49)
+        : Math.min(tablet ? 680 : 520, contentWidth * 1.28, safeHeight * 0.56);
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<FlatList<WelcomeSlide> | null>(null);
   const activeSlide = WELCOME_SLIDES[activeIndex];
@@ -126,7 +131,7 @@ export function PreLoginWelcomeScreen({
         styles.root,
         {
           backgroundColor: activeSlide.background,
-          paddingBottom: safeAreaInsets.bottom + (veryCompact ? 4 : 8),
+          paddingBottom: veryCompact ? 4 : 8,
           paddingHorizontal: gutter,
           paddingTop: compact ? 4 : 8,
         },
@@ -143,7 +148,7 @@ export function PreLoginWelcomeScreen({
         />
         <Text
           accessibilityRole="header"
-          maxFontSizeMultiplier={1.2}
+          maxFontSizeMultiplier={WELCOME_COMPACT_MAX_FONT_SIZE_MULTIPLIER}
           numberOfLines={2}
           style={[styles.brandTitle, compact && styles.brandTitleCompact]}
         >
@@ -161,7 +166,7 @@ export function PreLoginWelcomeScreen({
             pressed && styles.skipButtonPressed,
           ]}
         >
-          <Text maxFontSizeMultiplier={1.2} style={styles.skipText}>Atla</Text>
+          <Text maxFontSizeMultiplier={WELCOME_PRIMARY_MAX_FONT_SIZE_MULTIPLIER} style={styles.skipText}>Atla</Text>
         </Pressable>
       </View>
 
@@ -170,21 +175,28 @@ export function PreLoginWelcomeScreen({
         accessibilityLabel="Uygulama tanıtım sayfaları"
         data={WELCOME_SLIDES}
         decelerationRate="fast"
+        extraData={activeIndex}
         getItemLayout={(_data, index) => ({
           index,
           length: contentWidth,
           offset: contentWidth * index,
         })}
         horizontal
+        initialScrollIndex={activeIndex}
         initialNumToRender={WELCOME_SLIDES.length}
+        key={`prelogin-welcome-slides-${contentWidth}`}
         keyExtractor={(item) => item.id}
         onMomentumScrollEnd={handleScrollEnd}
         pagingEnabled
         removeClippedSubviews={false}
         renderItem={({ item, index }) => (
           <View
-            accessible
-            accessibilityLabel={`${index + 1} / ${WELCOME_SLIDES.length}. ${item.title}. ${item.detail}`}
+            accessible={index === activeIndex}
+            accessibilityElementsHidden={index !== activeIndex}
+            accessibilityLabel={index === activeIndex
+              ? `${index + 1} / ${WELCOME_SLIDES.length}. ${item.title}. ${item.detail}`
+              : undefined}
+            importantForAccessibility={index === activeIndex ? "yes" : "no-hide-descendants"}
             style={[styles.slide, landscape && styles.slideLandscape, { width: contentWidth }]}
             testID={`prelogin-slide-${index}`}
           >
@@ -232,12 +244,14 @@ export function PreLoginWelcomeScreen({
       />
 
       <View
+        accessible
         accessibilityActions={[
           { name: "decrement", label: "Önceki tanıtım sayfası" },
           { name: "increment", label: "Sonraki tanıtım sayfası" },
         ]}
         accessibilityLabel={`${activeIndex + 1}. tanıtım sayfası seçili`}
         accessibilityRole="adjustable"
+        accessibilityState={{ disabled: busy }}
         accessibilityValue={{
           max: WELCOME_SLIDES.length,
           min: 1,
@@ -256,14 +270,15 @@ export function PreLoginWelcomeScreen({
       >
         {WELCOME_SLIDES.map((slide, index) => (
           <Pressable
-            accessibilityLabel={`${index + 1}. tanıtım sayfasına git`}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: busy, selected: index === activeIndex }}
+            accessible={false}
+            accessibilityElementsHidden
             disabled={busy}
             hitSlop={4}
+            importantForAccessibility="no-hide-descendants"
             key={slide.id}
             onPress={() => selectSlide(index)}
             style={styles.paginationTarget}
+            testID={`prelogin-pagination-target-${index}`}
           >
             <View
               style={[
@@ -287,7 +302,7 @@ export function PreLoginWelcomeScreen({
           label={finalSlide ? "Başlayalım" : "Devam et"}
           labelStyle={[styles.actionLabel, compact && styles.actionLabelCompact]}
           loading={busy}
-          maxFontSizeMultiplier={1.2}
+          maxFontSizeMultiplier={WELCOME_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
           onPress={finalSlide ? onContinue : () => selectSlide(activeIndex + 1)}
           style={[
             styles.actionButton,
@@ -302,8 +317,8 @@ export function PreLoginWelcomeScreen({
         <View style={styles.footerTrust} testID="prelogin-trust-footer">
           <Ionicons color={TRUST_BLUE} name="shield-checkmark-outline" size={17} />
           <Text
-            maxFontSizeMultiplier={1.12}
-            numberOfLines={1}
+            maxFontSizeMultiplier={WELCOME_COMPACT_MAX_FONT_SIZE_MULTIPLIER}
+            numberOfLines={2}
             style={[styles.footerText, veryCompact && styles.footerTextVeryCompact]}
           >
             Güvenilir akademik kaynaklar · Kontrol sende
@@ -353,8 +368,8 @@ function WelcomeSlideCopy({
     >
       <Text
         accessibilityRole="header"
-        maxFontSizeMultiplier={1.2}
-        numberOfLines={landscape ? 3 : 2}
+        maxFontSizeMultiplier={WELCOME_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
+        numberOfLines={landscape ? 4 : 3}
         style={[
           styles.slideTitle,
           compact && styles.slideTitleCompact,
@@ -365,8 +380,8 @@ function WelcomeSlideCopy({
         {title}
       </Text>
       <Text
-        maxFontSizeMultiplier={1.18}
-        numberOfLines={veryCompact && !landscape ? 2 : 3}
+        maxFontSizeMultiplier={WELCOME_PRIMARY_MAX_FONT_SIZE_MULTIPLIER}
+        numberOfLines={veryCompact && !landscape ? 3 : 4}
         style={[
           styles.slideDetail,
           compact && styles.slideDetailCompact,

@@ -193,7 +193,7 @@ describe("AuthOnboardingPreview", () => {
 
     expect(screen.getByTestId("prelogin-welcome-screen")).toBeVisible();
     expect(screen.getByTestId("prelogin-welcome-screen")).toHaveStyle({
-      paddingBottom: 42,
+      paddingBottom: 8,
     });
     expect(screen.queryByLabelText("Phase 6 sentetik senaryo kontrolleri")).toBeNull();
     expect(screen.queryByTestId("phase-6-synthetic-evidence")).toBeNull();
@@ -205,16 +205,17 @@ describe("AuthOnboardingPreview", () => {
     fireEvent(slides, "momentumScrollEnd", {
       nativeEvent: { contentOffset: { x: pageWidth, y: 0 } },
     });
-    expect(screen.getByRole("button", {
-      name: "2. tanıtım sayfasına git",
-    })).toBeSelected();
+    const pagination = screen.getByRole("adjustable", {
+      name: "2. tanıtım sayfası seçili",
+    });
+    expect(pagination).toHaveAccessibilityValue({ now: 2, text: "2 / 3" });
 
-    await userEvent.press(screen.getByRole("button", {
-      name: "3. tanıtım sayfasına git",
-    }));
-    expect(screen.getByRole("button", {
-      name: "3. tanıtım sayfasına git",
-    })).toBeSelected();
+    fireEvent(pagination, "accessibilityAction", {
+      nativeEvent: { actionName: "increment" },
+    });
+    expect(screen.getByRole("adjustable", {
+      name: "3. tanıtım sayfası seçili",
+    })).toHaveAccessibilityValue({ now: 3, text: "3 / 3" });
     expect(screen.getByRole("button", { name: "Başlayalım" })).toBeVisible();
   });
 });
