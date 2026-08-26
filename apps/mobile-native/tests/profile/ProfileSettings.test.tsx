@@ -110,8 +110,8 @@ describe("Phase 10 profile and settings presentation", () => {
     ));
 
     expect(screen.getByRole("header", { name: "Profil" })).toBeVisible();
-    expect(screen.getByRole("header", { name: "Profil" })).toHaveProp("maxFontSizeMultiplier", 1.35);
-    expect(screen.getByRole("header", { name: "Profil" })).toHaveProp("numberOfLines", 1);
+    expect(screen.getByRole("header", { name: "Profil" })).not.toHaveProp("maxFontSizeMultiplier");
+    expect(screen.getByRole("header", { name: "Profil" })).not.toHaveProp("numberOfLines");
     expect(screen.getByText("Ada Lovelace")).toBeVisible();
     expect(screen.getByText("ada@example.invalid")).toBeVisible();
     expect(screen.getByLabelText("AL baş harfli profil avatarı")).toBeVisible();
@@ -674,7 +674,9 @@ describe("Phase 10 profile and settings presentation", () => {
     fireEvent.press(screen.getByRole("button", { name: /kal\u0131c\u0131 olarak sil$/u }));
     sheet = screen.getByTestId("bottom-sheet");
     expect(within(sheet).getByText(/bu hesapla yeniden giriş yapılamaz/iu)).toBeVisible();
-    expect(within(sheet).getByText(/Kişisel Google Takvim etkinliklerin korunur/u)).toBeVisible();
+    expect(
+      within(sheet).getByText(/Kişisel etkinliklerin korunur/u),
+    ).toBeVisible();
     fireEvent.press(within(sheet).getByRole("button", { name: "Hesabı silmeye devam et" }));
     await waitFor(() => expect(onDeleteAccount).toHaveBeenCalledTimes(1));
   });

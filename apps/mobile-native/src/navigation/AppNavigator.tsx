@@ -99,6 +99,7 @@ export type AppVisibleRoute =
   | "AcademicProfileSettings"
   | "FollowedUniversitiesSettings"
   | "NotificationSettings"
+  | "AppleCalendarSettings"
   | "GoogleCalendarSettings"
   | "AccountDataSettings"
   | "UnknownRoute";
@@ -171,6 +172,7 @@ type SettingsStackParamList = {
   AcademicProfileSettings: undefined;
   FollowedUniversitiesSettings: undefined;
   NotificationSettings: undefined;
+  AppleCalendarSettings: undefined;
   GoogleCalendarSettings: undefined;
   AccountDataSettings: undefined;
 };
@@ -261,7 +263,9 @@ function RoutedScreen({ route }: { route: AppVisibleRoute }) {
     || route === "AccountDataSettings";
   const authenticatedContentOwnsBottomChrome = hasAuthenticatedShell
     && !isPrimaryTabRootRoute(route);
-  const authenticatedEdges = adaptation.navigationLayout === "navigation-rail"
+  const navigationRailIsVisible = adaptation.navigationLayout === "navigation-rail"
+    && isPrimaryTabRootRoute(route);
+  const authenticatedEdges = navigationRailIsVisible
     ? ["right", "bottom"] as const
     : authenticatedContentOwnsBottomChrome
       ? ["left", "right", "bottom"] as const
@@ -400,6 +404,7 @@ const ProfileScreen = routeComponent("Profile");
 const AcademicProfileSettingsScreen = routeComponent("AcademicProfileSettings");
 const FollowedUniversitiesSettingsScreen = routeComponent("FollowedUniversitiesSettings");
 const NotificationSettingsScreen = routeComponent("NotificationSettings");
+const AppleCalendarSettingsScreen = routeComponent("AppleCalendarSettings");
 const GoogleCalendarSettingsScreen = routeComponent("GoogleCalendarSettings");
 const AccountDataSettingsScreen = routeComponent("AccountDataSettings");
 const UnknownRouteScreen = routeComponent("UnknownRoute");
@@ -612,6 +617,7 @@ function SettingsNavigator() {
         component={NotificationSettingsScreen}
         options={{ headerShown: false, title: "Bildirim tercihleri" }}
       />
+      <SettingsStack.Screen name="AppleCalendarSettings" component={AppleCalendarSettingsScreen} options={{ title: "Apple Takvim" }} />
       <SettingsStack.Screen name="GoogleCalendarSettings" component={GoogleCalendarSettingsScreen} options={{ title: "Google Takvim" }} />
       <SettingsStack.Screen name="AccountDataSettings" component={AccountDataSettingsScreen} options={{ title: "Hesap ve veri" }} />
     </SettingsStack.Navigator>
@@ -868,6 +874,7 @@ function isSettingsStackRoute(route: AppVisibleRoute): route is keyof SettingsSt
     || route === "AcademicProfileSettings"
     || route === "FollowedUniversitiesSettings"
     || route === "NotificationSettings"
+    || route === "AppleCalendarSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
 }
@@ -1044,6 +1051,7 @@ function requestAction(request: AppNavigationRequest) {
     case "AcademicProfileSettings":
     case "FollowedUniversitiesSettings":
     case "NotificationSettings":
+    case "AppleCalendarSettings":
     case "GoogleCalendarSettings":
     case "AccountDataSettings":
       return CommonActions.navigate("Authenticated", {
@@ -1236,6 +1244,7 @@ function isNestedProfileSettingsRoute(route: string | undefined): boolean {
   return route === "AcademicProfileSettings"
     || route === "FollowedUniversitiesSettings"
     || route === "NotificationSettings"
+    || route === "AppleCalendarSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
 }
@@ -1264,7 +1273,7 @@ function isVisibleRoute(value: string): value is AppVisibleRoute {
     "AcademicOnboarding",
     "Home", "Announcements", "SummerSchool", "YokAnnouncements", "AnnouncementDetail",
     "Calendar", "CalendarEventDetail", "Profile", "AcademicProfileSettings", "FollowedUniversitiesSettings",
-    "NotificationSettings", "GoogleCalendarSettings", "AccountDataSettings", "UnknownRoute"
+    "NotificationSettings", "AppleCalendarSettings", "GoogleCalendarSettings", "AccountDataSettings", "UnknownRoute"
   ].includes(value);
 }
 
@@ -1290,6 +1299,7 @@ function isAuthenticatedRoute(route: AppVisibleRoute): boolean {
     || route === "AcademicProfileSettings"
     || route === "FollowedUniversitiesSettings"
     || route === "NotificationSettings"
+    || route === "AppleCalendarSettings"
     || route === "GoogleCalendarSettings"
     || route === "AccountDataSettings";
 }
@@ -1327,6 +1337,7 @@ const ROUTE_ACCESSIBILITY_TITLES: Readonly<Record<AppVisibleRoute, string>> = {
   AcademicProfileSettings: "Akademik Profil",
   FollowedUniversitiesSettings: "Üniversite Takipleri",
   NotificationSettings: "Bildirim tercihleri",
+  AppleCalendarSettings: "Apple Takvim",
   GoogleCalendarSettings: "Google Takvim",
   AccountDataSettings: "Hesap ve Veri",
   UnknownRoute: "Sayfa bulunamadı",

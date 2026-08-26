@@ -15,6 +15,7 @@ export type MotionPolicy = "system" | "reduced";
 export interface PlatformResolutionInput {
   platform: string;
   windowWidth: number;
+  isTablet: boolean;
   reducedMotion: boolean;
   reducedTransparency: boolean;
   liquidGlassAvailable: boolean;
@@ -64,7 +65,7 @@ export function resolvePlatformAdaptation(
     input.liquidGlassAvailable &&
     !input.reducedTransparency;
   const useNavigationRail =
-    platform === "android" &&
+    (platform === "android" || (platform === "ios" && input.isTablet)) &&
     input.windowWidth >= readableWidths.navigationRailBreakpoint;
 
   return {

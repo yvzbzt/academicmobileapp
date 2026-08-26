@@ -17,6 +17,7 @@ import {
   isLiquidGlassAvailable,
 } from "expo-glass-effect";
 import {
+  readableWidths,
   resolveTheme,
   type SemanticTheme,
   type ThemeMode,
@@ -42,6 +43,7 @@ export interface ThemeProviderProps {
   preference?: ThemePreference;
   systemMode?: ThemeMode | null;
   platform?: string;
+  isTablet?: boolean;
   windowWidth?: number;
   reducedMotion?: boolean;
   reducedTransparency?: boolean;
@@ -65,6 +67,7 @@ export function ThemeProvider({
   preference = "system",
   systemMode,
   platform,
+  isTablet,
   windowWidth,
   reducedMotion,
   reducedTransparency,
@@ -140,11 +143,18 @@ export function ThemeProvider({
     systemMode ?? (detectedSystemMode === "dark" ? "dark" : "light"),
   );
   const resolvedWindowWidth = windowWidth ?? dimensions.width;
+  const platformIsPad = (Platform as typeof Platform & { isPad?: boolean }).isPad === true;
+  const resolvedIsTablet = isTablet ?? (
+    platformName === "ios"
+      ? platformIsPad
+      : resolvedWindowWidth >= readableWidths.tabletBreakpoint
+  );
   const resolvedLiquidGlassAvailability =
     liquidGlassAvailable ?? safelyResolveLiquidGlassAvailability(platformName);
   const adaptation = resolvePlatformAdaptation({
     platform: platformName,
     windowWidth: resolvedWindowWidth,
+    isTablet: resolvedIsTablet,
     reducedMotion: resolvedReducedMotion,
     reducedTransparency: resolvedReducedTransparency,
     liquidGlassAvailable: resolvedLiquidGlassAvailability,

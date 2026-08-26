@@ -258,6 +258,7 @@ export type AccountCleanupTarget =
   | "google_managed_events"
   | "google_access"
   | "google_sign_in"
+  | "apple_managed_events"
   | "in_memory_state";
 
 export type AccountCleanupTask = {

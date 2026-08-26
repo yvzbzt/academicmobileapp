@@ -32,7 +32,7 @@ describe("accessible feedback and state primitives", () => {
         name: "Duyurular yüklenemedi. Bağlantıyı kontrol edip yeniden deneyin.",
       }),
     ).toHaveProp("accessibilityLiveRegion", "assertive");
-    expect(screen.getByText("Duyurular yüklenemedi")).toHaveProp("maxFontSizeMultiplier", 1.35);
+    expect(screen.getByText("Duyurular yüklenemedi")).toHaveProp("maxFontSizeMultiplier", 2);
     await userEvent.press(screen.getByRole("button", { name: "Tekrar dene" }));
     await userEvent.press(screen.getByRole("button", { name: "Bildirimi kapat" }));
     expect(onAction).toHaveBeenCalledTimes(1);
@@ -94,8 +94,8 @@ describe("accessible feedback and state primitives", () => {
       }),
     ).toBeVisible();
     expect(screen.getByText("Hata kodu: CONTENT_REFRESH_FAILED")).toBeVisible();
-    expect(screen.getByRole("header", { name: "Sonuç bulunamadı" })).toHaveProp("maxFontSizeMultiplier", 1.4);
-    expect(screen.getByRole("header", { name: "Yenileme başarısız" })).toHaveProp("numberOfLines", 3);
+    expect(screen.getByRole("header", { name: "Sonuç bulunamadı" })).not.toHaveProp("maxFontSizeMultiplier");
+    expect(screen.getByRole("header", { name: "Yenileme başarısız" })).not.toHaveProp("numberOfLines");
 
     await userEvent.press(screen.getByRole("button", { name: "Filtreleri temizle" }));
     await userEvent.press(screen.getByRole("button", { name: "Yeniden yükle" }));

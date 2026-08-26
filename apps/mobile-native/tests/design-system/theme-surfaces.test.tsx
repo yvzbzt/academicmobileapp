@@ -61,6 +61,27 @@ describe("theme provider and adaptive surfaces", () => {
     );
   });
 
+  it("keeps wide iPhones on bottom tabs while allowing iPads to use a rail", async () => {
+    const phone = await renderWithTheme(<EnvironmentProbe />, {
+      isTablet: false,
+      platform: "ios",
+      windowWidth: 932,
+    });
+    expect(screen.getByRole("summary", { name: "Tema ortamı" })).toHaveTextContent(
+      "light|ios|opaque-tonal|bottom-tabs|24|reduced-motion|system-transparency",
+    );
+    await phone.unmountAsync();
+
+    await renderWithTheme(<EnvironmentProbe />, {
+      isTablet: true,
+      platform: "ios",
+      windowWidth: 932,
+    });
+    expect(screen.getByRole("summary", { name: "Tema ortamı" })).toHaveTextContent(
+      "light|ios|opaque-tonal|navigation-rail|24|reduced-motion|system-transparency",
+    );
+  });
+
   it("renders readable screen content through a semantic screen boundary", async () => {
     await renderWithTheme(
       <Screen accessibilityLabel="Duyuru ekranı" readableWidth="form" scroll>
@@ -77,8 +98,8 @@ describe("theme provider and adaptive surfaces", () => {
     ).toBeVisible();
   });
 
-  it("opts into keyboard avoidance and automatic scroll keyboard insets", async () => {
-    await renderWithTheme(
+  it("uses native scroll insets without stacking keyboard avoidance", async () => {
+    const scrollScreen = await renderWithTheme(
       <Screen
         accessibilityLabel="Klavye güvenli form"
         keyboardSafe
@@ -90,12 +111,20 @@ describe("theme provider and adaptive surfaces", () => {
       </Screen>,
     );
 
-    expect(
-      screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset,
-    ).toBe(12);
+    expect(screen.UNSAFE_queryByType(KeyboardAvoidingView)).toBeNull();
     expect(
       screen.UNSAFE_getByType(ScrollView).props.automaticallyAdjustKeyboardInsets,
     ).toBe(true);
+
+    await scrollScreen.unmountAsync();
+    await renderWithTheme(
+      <Screen keyboardSafe keyboardVerticalOffset={12}>
+        <Text>Kaydırmasız form içeriği</Text>
+      </Screen>,
+    );
+    expect(
+      screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset,
+    ).toBe(12);
   });
 
   it("uses Liquid Glass only for eligible iOS chrome", async () => {

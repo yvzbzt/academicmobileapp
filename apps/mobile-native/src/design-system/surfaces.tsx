@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from "react";
 import {
   KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   View,
@@ -73,7 +74,9 @@ export function Screen({
       keyboardShouldPersistTaps="handled"
       {...scrollViewProps}
       automaticallyAdjustKeyboardInsets={
-        keyboardSafe ? true : scrollViewProps?.automaticallyAdjustKeyboardInsets
+        keyboardSafe && Platform.OS === "ios"
+          ? true
+          : scrollViewProps?.automaticallyAdjustKeyboardInsets
       }
       contentContainerStyle={styles.scrollContent}
     >
@@ -89,9 +92,9 @@ export function Screen({
       edges={edges}
       style={[styles.screen, { backgroundColor: theme.colors.background.canvas }, style]}
     >
-      {keyboardSafe ? (
+      {keyboardSafe && !scroll ? (
         <KeyboardAvoidingView
-          behavior="padding"
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.keyboardSafe}
         >

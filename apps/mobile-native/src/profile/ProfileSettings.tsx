@@ -48,12 +48,23 @@ import {
 
 export type ProfileMutationState = "idle" | "dirty" | "saving" | "saved" | "error";
 
+export interface AppleCalendarPresentation {
+  state: "unavailable" | "disconnected" | "checking" | "connected" | "syncing" | "partial" | "denied" | "error";
+  label: string;
+  title: string;
+  detail: string;
+  tone: GoogleCalendarPresentation["tone"];
+  busy: boolean;
+  connected: boolean;
+}
+
 export interface ProfileOverviewScreenProps {
   fullName: string;
   email: string;
   academicSummary: AcademicProfileSummary;
   notificationTruth: NotificationTruth;
   googleCalendar: GoogleCalendarPresentation;
+  appleCalendar?: AppleCalendarPresentation;
   googleAccountEmail?: string;
   appVersion: string;
   avatarUri?: string;
@@ -64,17 +75,11 @@ export interface ProfileOverviewScreenProps {
   onOpenAcademicProfile: () => void;
   onOpenFollowedUniversities: () => void;
   onOpenNotifications: () => void;
+  onOpenAppleCalendar?: () => void;
   onOpenGoogleCalendar: () => void;
   onOpenAccountManagement: () => void;
   onLogout: () => void | Promise<void>;
   onOpenAccountMenu?: () => void;
-}
-
-const PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER = 1.35;
-
-function boundedTextLineHeight(baseLineHeight: number, fontScale: number, maximumMultiplier: number): number {
-  if (!Number.isFinite(fontScale) || fontScale <= maximumMultiplier) return baseLineHeight;
-  return (baseLineHeight * maximumMultiplier) / fontScale;
 }
 
 /** The profile root is an ordered settings index, not a second dashboard. */
@@ -84,6 +89,7 @@ export function ProfileOverviewScreen({
   academicSummary,
   notificationTruth,
   googleCalendar,
+  appleCalendar,
   appVersion,
   error,
   followedUniversityCount = 0,
@@ -92,6 +98,7 @@ export function ProfileOverviewScreen({
   onOpenAcademicProfile,
   onOpenFollowedUniversities,
   onOpenNotifications,
+  onOpenAppleCalendar,
   onOpenGoogleCalendar,
   onOpenAccountManagement,
 }: ProfileOverviewScreenProps) {
@@ -109,17 +116,10 @@ export function ProfileOverviewScreen({
       <View style={styles.profileTopBar}>
         <Text
           accessibilityRole="header"
-          adjustsFontSizeToFit
-          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
-          minimumFontScale={0.85}
-          numberOfLines={1}
           style={[
             theme.typography.screenTitle,
             styles.profileOverviewTitle,
-            {
-              color: theme.colors.text.primary,
-              lineHeight: boundedTextLineHeight(47, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
-            },
+            { color: theme.colors.text.primary },
           ]}
         >
           Profil
@@ -187,15 +187,11 @@ export function ProfileOverviewScreen({
           </View>
           <View style={[styles.profileHeroCopy, { gap: theme.spacing.xxs }]}>
             <Text
-              maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
-              numberOfLines={2}
               style={[theme.typography.screenTitle, { color: referencePalette.navy }]}
             >
               {fullName.trim() || "Öğrenci"}
             </Text>
             <Text
-              maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
-              numberOfLines={2}
               style={[theme.typography.meta, { color: referencePalette.academicTextSecondary }]}
             >
               {email.trim() || "E-posta bilgisi yok"}
@@ -213,7 +209,6 @@ export function ProfileOverviewScreen({
           testID="profile-completion-header"
         >
           <Text
-            maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
             style={[theme.typography.body, styles.profileProgressCopy, { color: theme.colors.text.secondary }]}
           >
             Akademik profil <Text style={[theme.typography.bodyStrong, { color: referencePalette.academicBlueDeep }]}>%{completionPercent}</Text> tamamlandı
@@ -221,8 +216,6 @@ export function ProfileOverviewScreen({
           <View style={[styles.profileProgressBadge, { backgroundColor: referencePalette.academicBlueTint }]}>
             <Ionicons color={referencePalette.academicBlue} name="stats-chart" size={16} />
             <Text
-              maxFontSizeMultiplier={1.3}
-              numberOfLines={2}
               style={[theme.typography.metaStrong, styles.profileProgressBadgeText, { color: referencePalette.academicBlueDeep }]}
             >
               {academicSummary.complete ? "Harika gidiyorsun!" : "Profilini tamamla"}
@@ -271,10 +264,10 @@ export function ProfileOverviewScreen({
             <Ionicons color={referencePalette.academicOrange} name="notifications-outline" size={28} />
           </View>
           <View style={[styles.profileOverviewItemCopy, { gap: theme.spacing.xxs }]}>
-            <Text maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER} style={[theme.typography.bodyStrong, { color: referencePalette.amberStrong }]}>
+            <Text style={[theme.typography.bodyStrong, { color: referencePalette.amberStrong }]}>
               {notificationTruth.title}
             </Text>
-            <Text maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER} numberOfLines={3} style={[theme.typography.meta, { color: referencePalette.academicTextBody }]}>
+            <Text style={[theme.typography.meta, { color: referencePalette.academicTextBody }]}>
               {notificationTruth.detail}
             </Text>
           </View>
@@ -329,6 +322,27 @@ export function ProfileOverviewScreen({
           title="Bildirim tercihleri"
           trailing={<Chevron />}
         />
+        {appleCalendar && onOpenAppleCalendar ? (
+          <ProfileOverviewItem
+            accessibilityLabel={`Apple Takvim bağlantısı. ${appleCalendar.label}. ${appleCalendar.detail}`}
+            accessibilityHint="Apple Takvim bağlantı yönetimini açar."
+            leading={<SettingsIcon name="calendar" tone="primary" />}
+            onPress={onOpenAppleCalendar}
+            stackTrailingAtLargeText
+            supportingText="Akademik kayıtlarını cihazındaki Apple Takvim ile eşitle"
+            title="Apple Takvim bağlantısı"
+            trailing={(
+              <View style={[styles.profileTrailingStatus, { gap: theme.spacing.sm }]}>
+                <Text
+                  style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}
+                >
+                  {appleCalendar.label}
+                </Text>
+                <Chevron />
+              </View>
+            )}
+          />
+        ) : null}
         <ProfileOverviewItem
           accessibilityLabel={`Google Takvim bağlantısı. ${googleCalendar.label}. ${googleCalendar.detail}`}
           accessibilityHint="Google Takvim bağlantı yönetimini açar."
@@ -340,15 +354,7 @@ export function ProfileOverviewScreen({
           trailing={(
             <View style={[styles.profileTrailingStatus, { gap: theme.spacing.sm }]}>
               <Text
-                maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
-                numberOfLines={1}
-                style={[
-                  theme.typography.metaStrong,
-                  {
-                    color: theme.colors.text.link,
-                    lineHeight: boundedTextLineHeight(theme.typography.metaStrong.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
-                  },
-                ]}
+                style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}
               >
                 {googleCalendar.label === "Bağlı" ? "Bağlı" : googleCalendar.label}
               </Text>
@@ -361,14 +367,10 @@ export function ProfileOverviewScreen({
       </View>
 
       <Text
-        maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
         style={[
           theme.typography.navLabel,
           styles.profileVersion,
-          {
-            color: theme.colors.text.secondary,
-            lineHeight: boundedTextLineHeight(theme.typography.navLabel.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
-          },
+          { color: theme.colors.text.secondary },
         ]}
       >
         Sürüm {appVersion}
@@ -389,8 +391,6 @@ function ProfileIdentityLine({
     <View style={styles.profileIdentityLine}>
       <Ionicons color={referencePalette.academicTextSecondary} name={icon} size={18} />
       <Text
-        maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
-        numberOfLines={2}
         style={[theme.typography.meta, styles.profileOverviewItemCopy, { color: referencePalette.academicTextSecondary }]}
       >
         {text}
@@ -447,28 +447,12 @@ function ProfileOverviewItem({
       <View importantForAccessibility="no">{leading}</View>
       <View style={[styles.profileOverviewItemCopy, { gap: theme.spacing.xxs }]}>
         <Text
-          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
-          numberOfLines={fontScale > 1.45 ? 2 : undefined}
-          style={[
-            theme.typography.bodyStrong,
-            {
-              color: theme.colors.text.primary,
-              lineHeight: boundedTextLineHeight(theme.typography.bodyStrong.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
-            },
-          ]}
+          style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}
         >
           {title}
         </Text>
         <Text
-          maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
-          numberOfLines={fontScale > 1.45 ? 3 : undefined}
-          style={[
-            theme.typography.meta,
-            {
-              color: theme.colors.text.secondary,
-              lineHeight: boundedTextLineHeight(theme.typography.meta.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
-            },
-          ]}
+          style={[theme.typography.meta, { color: theme.colors.text.secondary }]}
         >
           {supportingText}
         </Text>
@@ -904,6 +888,199 @@ export function NotificationSettingsScreen({
         }}
         status={saveState === "error" ? "error" : "idle"}
       />
+    </SettingsBody>
+  );
+}
+
+export interface AppleCalendarSettingsScreenProps {
+  presentation: AppleCalendarPresentation;
+  calendarTitle?: string;
+  lastSyncedLabel?: string;
+  managedEventCount?: number;
+  warnings?: readonly string[];
+  error?: string;
+  permissionDetail?: string;
+  onEnable: () => void | Promise<void>;
+  onSync: () => void | Promise<void>;
+  onOpenSettings: () => void | Promise<void>;
+  onDisconnect: () => void | Promise<void>;
+  onRemoveManagedEvents: () => void | Promise<void>;
+  onOpenCalendar?: () => void | Promise<void>;
+}
+
+type AppleCalendarConfirmation = "disconnect" | "remove";
+
+export function AppleCalendarSettingsScreen({
+  presentation,
+  calendarTitle,
+  lastSyncedLabel,
+  managedEventCount,
+  warnings = [],
+  error,
+  permissionDetail,
+  onEnable,
+  onSync,
+  onOpenSettings,
+  onDisconnect,
+  onRemoveManagedEvents,
+  onOpenCalendar,
+}: AppleCalendarSettingsScreenProps) {
+  const theme = useTheme();
+  const layout = useProfileLayout();
+  const [confirmation, setConfirmation] = useState<AppleCalendarConfirmation | null>(null);
+  const [confirmationBusy, setConfirmationBusy] = useState(false);
+  const [confirmationError, setConfirmationError] = useState<string>();
+  const confirmationPendingRef = useRef(false);
+  const disconnectRef = useRef<NativeView | null>(null);
+  const removeRef = useRef<NativeView | null>(null);
+  const busy = presentation.busy || confirmationBusy;
+
+  const closeConfirmation = () => {
+    const current = confirmation;
+    setConfirmation(null);
+    setConfirmationError(undefined);
+    if (current) restoreFocus(current === "disconnect" ? disconnectRef : removeRef);
+  };
+
+  const confirm = async () => {
+    if (!confirmation || confirmationPendingRef.current) return;
+    confirmationPendingRef.current = true;
+    setConfirmationBusy(true);
+    setConfirmationError(undefined);
+    try {
+      if (confirmation === "disconnect") await onDisconnect();
+      else await onRemoveManagedEvents();
+      closeConfirmation();
+    } catch {
+      setConfirmationError("İşlem tamamlanamadı. Takvim izinlerini ve bağlantı durumunu kontrol edip tekrar dene.");
+    } finally {
+      confirmationPendingRef.current = false;
+      setConfirmationBusy(false);
+    }
+  };
+
+  const confirmationCopy = appleCalendarConfirmationCopy(confirmation, managedEventCount);
+
+  return (
+    <SettingsBody gap={theme.spacing.lg}>
+      <ScreenHeading
+        description="Akademik kayıtların cihazındaki Apple Takvim'e eklenir. Uygulama yalnızca kendi oluşturduğu işaretli kayıtları günceller veya kaldırır; kişisel etkinliklerine dokunmaz."
+        title="Apple Takvim"
+      />
+
+      <LifecycleStatusCard
+        busy={presentation.busy}
+        detail={error || presentation.detail}
+        error={Boolean(error) || presentation.tone === "error"}
+        label={presentation.title}
+        tone={error ? "error" : presentation.tone}
+      />
+
+      <Card
+        accessibilityLabel={`Apple Takvim bağlantı özeti. ${presentation.label}.`}
+        style={[
+          styles.summaryCard,
+          {
+            backgroundColor: theme.colors.background.surface,
+            borderColor: theme.colors.border.subtle,
+            gap: theme.spacing.sm,
+          },
+        ]}
+        variant="elevated"
+      >
+        <View style={[styles.summaryHeading, { gap: theme.spacing.sm }]}>
+          <SettingsIcon name="logo-apple" tone="primary" />
+          <View style={[styles.flexOne, { gap: theme.spacing.xxs }]}>
+            <Text style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>Bağlantı özeti</Text>
+            <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Bu cihazdaki uygulama yönetimli akademik kayıtlar</Text>
+          </View>
+        </View>
+        <LabeledValue label="Bağlantı" value={presentation.label} />
+        {calendarTitle ? <LabeledValue label="Takvim" value={calendarTitle} /> : null}
+        {lastSyncedLabel ? <LabeledValue label="Son eşitleme" value={lastSyncedLabel} /> : null}
+        {typeof managedEventCount === "number" ? <LabeledValue label="Yönetilen kayıt" value={String(managedEventCount)} /> : null}
+      </Card>
+
+      {permissionDetail ? <Banner message={permissionDetail} title="Takvim izni gerekli" tone="warning" /> : null}
+      {warnings.map((warning, index) => (
+        <Banner key={`${index}-${warning}`} message={warning} title="Eşitleme uyarısı" tone="warning" />
+      ))}
+
+      <Card
+        style={[
+          styles.protectionCard,
+          {
+            backgroundColor: theme.colors.status.successContainer,
+            borderColor: theme.colors.status.success,
+            gap: theme.spacing.sm,
+          },
+        ]}
+        variant="tonal"
+      >
+        <StatusLine icon="shield-checkmark-outline" label="Kişisel etkinliklerin korunur" onContainer tone="success" />
+        <Text style={[theme.typography.body, { color: theme.colors.status.onSuccessContainer }]}>Silme ve eşitleme işlemleri yalnızca Akademik Takvim uygulamasının doğrulanmış yönetim işaretini taşıyan kayıtlara uygulanır.</Text>
+      </Card>
+
+      {presentation.state === "denied" ? (
+        <Button disabled={busy} fullWidth label="Takvim ayarlarını aç" onPress={() => void onOpenSettings()} />
+      ) : !presentation.connected ? (
+        <Button
+          disabled={busy || presentation.state === "unavailable"}
+          fullWidth
+          label="Apple Takvim'i etkinleştir"
+          loading={presentation.state === "checking"}
+          onPress={() => void onEnable()}
+        />
+      ) : (
+        <View style={{ gap: theme.spacing.md }}>
+          <Button
+            disabled={busy}
+            fullWidth
+            label="Şimdi eşitle"
+            loading={presentation.state === "syncing"}
+            onPress={() => void onSync()}
+          />
+          {onOpenCalendar ? (
+            <Button disabled={busy} fullWidth label="Apple Takvim'de aç" onPress={() => void onOpenCalendar()} variant="secondary" />
+          ) : null}
+          <View style={[styles.actionRow, layout.stackActions && styles.actionColumn, { gap: theme.spacing.sm }]}>
+            <Button
+              ref={disconnectRef}
+              disabled={busy}
+              fullWidth={layout.stackActions}
+              label="Bağlantıyı kes"
+              onPress={() => setConfirmation("disconnect")}
+              variant="secondary"
+            />
+            <Button
+              ref={removeRef}
+              disabled={busy}
+              fullWidth={layout.stackActions}
+              label="Yönetilen kayıtları kaldır"
+              onPress={() => setConfirmation("remove")}
+              variant="danger"
+            />
+          </View>
+        </View>
+      )}
+
+      <BottomSheet
+        dismissible={!confirmationBusy}
+        loading={confirmationBusy}
+        onDismiss={closeConfirmation}
+        scrollable
+        title={confirmationCopy.title}
+        visible={confirmation !== null}
+      >
+        <View style={{ gap: theme.spacing.md }}>
+          <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>{confirmationCopy.description}</Text>
+          {confirmationError ? <Banner message={confirmationError} title="İşlem tamamlanamadı" tone="error" /> : null}
+          <View style={[styles.actionRow, layout.stackActions && styles.actionColumn, { gap: theme.spacing.sm }]}>
+            <Button disabled={confirmationBusy} fullWidth={layout.stackActions} label="Vazgeç" onPress={closeConfirmation} variant="secondary" />
+            <Button disabled={confirmationBusy} fullWidth={layout.stackActions} label={confirmationCopy.actionLabel} loading={confirmationBusy} onPress={() => void confirm()} variant={confirmation === "remove" ? "danger" : "primary"} />
+          </View>
+        </View>
+      </BottomSheet>
     </SettingsBody>
   );
 }
@@ -1414,20 +1591,14 @@ function ScreenHeading({
 
 function ProfileReferenceSection({ title, children }: { title: string; children: ReactNode }) {
   const theme = useTheme();
-  const { fontScale } = useWindowDimensions();
   return (
     <View style={{ gap: theme.spacing.xs }}>
       <Text
         accessibilityRole="header"
-        maxFontSizeMultiplier={PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER}
-        numberOfLines={1}
         style={[
           theme.typography.label,
           styles.profileSectionLabel,
-          {
-            color: theme.colors.text.secondary,
-            lineHeight: boundedTextLineHeight(theme.typography.label.lineHeight, fontScale, PROFILE_OVERVIEW_TEXT_MAX_MULTIPLIER),
-          },
+          { color: theme.colors.text.secondary },
         ]}
       >
         {title}
@@ -1794,6 +1965,9 @@ function screenHeadingPresentation(title: string): {
   if (title === "Google Takvim") {
     return { icon: "logo-google", tone: "success" };
   }
+  if (title === "Apple Takvim") {
+    return { icon: "logo-apple", tone: "primary" };
+  }
   if (title === "Veri ve hesap silme") {
     return { icon: "shield-outline", tone: "error" };
   }
@@ -1822,19 +1996,34 @@ function googleConfirmationCopy(confirmation: GoogleConfirmation | null, managed
   };
 }
 
+function appleCalendarConfirmationCopy(confirmation: AppleCalendarConfirmation | null, managedEventCount?: number) {
+  if (confirmation === "remove") {
+    return {
+      title: "Yönetilen kayıtlar kaldırılsın mı?",
+      description: `${typeof managedEventCount === "number" ? `${managedEventCount} yönetilen kayıt hedeflenecek. ` : ""}Yalnızca bu uygulamanın doğrulanmış yönetim işaretini taşıyan akademik kayıtlar Apple Takvim'den kaldırılır. Kişisel etkinliklerin korunur.`,
+      actionLabel: "Yönetilen kayıtları kaldır",
+    };
+  }
+  return {
+    title: "Apple Takvim bağlantısı kesilsin mi?",
+    description: "Bağlantı bilgisi bu cihazdan kaldırılır; daha önce oluşturulan uygulama yönetimli kayıtlar Apple Takvim'de kalır. Kişisel etkinliklerin değiştirilmez.",
+    actionLabel: "Bağlantıyı kes",
+  };
+}
+
 function accountConfirmationCopy(confirmation: AccountConfirmation | null, email: string) {
   if (confirmation === "account") {
     return {
       title: "Hesap kalıcı olarak silinsin mi?",
-      description: `${email.trim() || "Bu hesap"} için sunucu hesabı ve uygulama verileri kalıcı olarak silinir; bu hesapla yeniden giriş yapılamaz. Mevcut bağlantı kaydında bilinen, yalnızca uygulamanın yönettiği Google Takvim kayıtlarının kaldırılması ve Google erişiminin iptali denenir. Kişisel Google Takvim etkinliklerin korunur.`,
-      warning: "Hesap silme geri alınamaz. Tamamlanamayan Google veya cihaz temizliği güvenli hedef adıyla bildirilir; kişisel etkinlik silinmez. Devam etmeden önce yalnızca hesap silme amacı için geçerli, tek kullanımlık yakın zamanda kimlik doğrulaması istenir.",
+      description: `${email.trim() || "Bu hesap"} için sunucu hesabı ve uygulama verileri kalıcı olarak silinir; bu hesapla yeniden giriş yapılamaz. Yalnızca uygulamanın yönettiği Google ve Apple Takvim kayıtlarının kaldırılması ile Google erişiminin iptali denenir. Kişisel etkinliklerin korunur.`,
+      warning: "Hesap silme geri alınamaz. Tamamlanamayan takvim veya cihaz temizliği güvenli hedef adıyla bildirilir; kişisel etkinlik silinmez. Devam etmeden önce yalnızca hesap silme amacı için geçerli, tek kullanımlık yakın zamanda kimlik doğrulaması istenir.",
       actionLabel: "Hesabı silmeye devam et",
     };
   }
   return {
     title: "Uygulama verileri silinsin mi?",
-    description: "Hesabın ve giriş bilgilerin açık kalır; uygulamadaki kişisel takvim, tercih ve kişiselleştirme verilerin silinir. Mevcut bağlantı kaydında bilinen, yalnızca uygulamanın yönettiği Google Takvim kayıtlarının kaldırılması ve Google erişiminin iptali denenir. Kişisel Google Takvim etkinliklerin korunur.",
-    warning: "Veri silme geri alınamaz. Tamamlanamayan Google veya cihaz temizliği güvenli hedef adıyla bildirilir; hesabın ve kişisel Google etkinliklerin kalır. Devam etmeden önce yalnızca veri silme amacı için geçerli, tek kullanımlık yakın zamanda kimlik doğrulaması istenir.",
+    description: "Hesabın ve giriş bilgilerin açık kalır; uygulamadaki kişisel takvim, tercih ve kişiselleştirme verilerin silinir. Yalnızca uygulamanın yönettiği Google ve Apple Takvim kayıtlarının kaldırılması ile Google erişiminin iptali denenir. Kişisel etkinliklerin korunur.",
+    warning: "Veri silme geri alınamaz. Tamamlanamayan takvim veya cihaz temizliği güvenli hedef adıyla bildirilir; hesabın ve kişisel etkinliklerin kalır. Devam etmeden önce yalnızca veri silme amacı için geçerli, tek kullanımlık yakın zamanda kimlik doğrulaması istenir.",
     actionLabel: "Verileri silmeye devam et",
   };
 }

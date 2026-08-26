@@ -27,6 +27,7 @@ export const SETTINGS_ROUTE_NAMES = [
   "AcademicProfileSettings",
   "FollowedUniversitiesSettings",
   "NotificationSettings",
+  "AppleCalendarSettings",
   "GoogleCalendarSettings",
   "AccountDataSettings"
 ] as const;
@@ -77,6 +78,7 @@ export type ProfileStackParamList = {
   AcademicProfileSettings: undefined;
   FollowedUniversitiesSettings: undefined;
   NotificationSettings: undefined;
+  AppleCalendarSettings: undefined;
   GoogleCalendarSettings: undefined;
   AccountDataSettings: undefined;
 };
@@ -221,6 +223,7 @@ export const appRoutes = {
   academicProfileSettings: (): ProfileRoute => ({ name: "AcademicProfileSettings" }),
   followedUniversitiesSettings: (): ProfileRoute => ({ name: "FollowedUniversitiesSettings" }),
   notificationSettings: (): ProfileRoute => ({ name: "NotificationSettings" }),
+  appleCalendarSettings: (): ProfileRoute => ({ name: "AppleCalendarSettings" }),
   googleCalendarSettings: (): ProfileRoute => ({ name: "GoogleCalendarSettings" }),
   accountDataSettings: (): ProfileRoute => ({ name: "AccountDataSettings" }),
   unknown: (): UnknownRoute => ({ name: "Unknown" })
@@ -279,6 +282,7 @@ export function tabForRoute(route: ProtectedAppRoute): MainTabRouteName {
     case "AcademicProfileSettings":
     case "FollowedUniversitiesSettings":
     case "NotificationSettings":
+    case "AppleCalendarSettings":
     case "GoogleCalendarSettings":
     case "AccountDataSettings":
       return "ProfileTab";
@@ -318,6 +322,7 @@ export function parentRouteFor(route: AppRoute): AppRoute | null {
     case "AcademicProfileSettings":
     case "FollowedUniversitiesSettings":
     case "NotificationSettings":
+    case "AppleCalendarSettings":
     case "GoogleCalendarSettings":
     case "AccountDataSettings":
       return appRoutes.profile();

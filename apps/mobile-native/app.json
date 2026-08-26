@@ -45,7 +45,11 @@
         "backgroundColor": "#EEF5FF"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR"
+      ]
     },
     "androidNavigationBar": {
       "barStyle": "dark-content",
@@ -58,6 +62,21 @@
       "expo-font",
       "expo-system-ui",
       "expo-apple-authentication",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Akademik tarihleri Apple Takvim'e eklemek, güncellemek ve uygulamanın oluşturduğu kayıtları kaldırmak için takvim erişimi gerekir.",
+          "remindersPermission": "Akademik etkinlik hatırlatmalarını cihazında gösterebilmek için anımsatıcı erişimi gerekir. Bu izin yalnızca ilgili özelliği kullanırsan istenir."
+        }
+      ],
       [
         "expo-secure-store",
         {

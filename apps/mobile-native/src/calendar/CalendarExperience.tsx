@@ -75,6 +75,17 @@ export interface CalendarGoogleStatus {
   connected?: boolean;
 }
 
+export interface CalendarAppleStatus {
+  state: string;
+  stateLabel: string;
+  managedCount?: number;
+  lastSyncedLabel?: string;
+  error?: string;
+  warnings?: readonly string[];
+  busy?: boolean;
+  connected?: boolean;
+}
+
 export interface CalendarExperienceProps {
   academicEvents: readonly CalendarAcademicEvent[];
   personalExams: readonly CalendarPersonalExam[];
@@ -89,6 +100,7 @@ export interface CalendarExperienceProps {
   partial?: boolean;
   offline?: boolean;
   google: CalendarGoogleStatus;
+  apple?: CalendarAppleStatus;
   feedback?: ReactNode;
   initialView?: CalendarViewMode;
   initialAnchorDate?: string;
@@ -106,6 +118,8 @@ export interface CalendarExperienceProps {
   ) => PersonalExamMutationResult;
   onSyncGoogle: () => void;
   onManageGoogle: () => void;
+  onSyncApple?: () => void;
+  onManageApple?: () => void;
 }
 
 type CalendarListEntry = {
@@ -165,6 +179,7 @@ export function CalendarExperience({
   partial = false,
   offline,
   google,
+  apple,
   feedback,
   initialView = "agenda",
   initialAnchorDate,
@@ -178,6 +193,8 @@ export function CalendarExperience({
   onUpdatePersonalExam,
   onSyncGoogle,
   onManageGoogle,
+  onSyncApple,
+  onManageApple,
 }: CalendarExperienceProps) {
   const theme = useTheme();
   const adaptation = usePlatformAdaptation();
@@ -560,6 +577,14 @@ export function CalendarExperience({
                   variant="secondary"
                 />
               </View>
+            ) : null}
+            {Platform.OS === "ios" && apple && onSyncApple && onManageApple ? (
+              <AppleSyncBanner
+                apple={apple}
+                compact={width < 430 || fontScale >= 1.45}
+                onManage={onManageApple}
+                onSync={onSyncApple}
+              />
             ) : null}
             <GoogleSyncBanner
               compact={width < 430 || fontScale >= 1.45}
@@ -1185,6 +1210,78 @@ function CalendarItemCard({ item, onPress }: { item: CalendarItem; onPress: () =
   );
 }
 
+function AppleSyncBanner({
+  compact,
+  apple,
+  onSync,
+  onManage,
+}: {
+  compact: boolean;
+  apple: CalendarAppleStatus;
+  onSync: () => void;
+  onManage: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Card
+      accessible={false}
+      busy={apple.busy}
+      style={[
+        styles.googleBanner,
+        {
+          backgroundColor: theme.colors.background.surface,
+          borderColor: theme.colors.border.subtle,
+          borderRadius: 22,
+          gap: theme.spacing.sm,
+          padding: theme.spacing.md,
+        },
+      ]}
+      testID="calendar-apple-sync-card"
+      variant="elevated"
+    >
+      <View style={[styles.googleRow, compact && styles.googleRowCompact, { gap: theme.spacing.sm }]}>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.googleIcon, { backgroundColor: theme.colors.background.subtle, borderRadius: theme.radii.control }]}
+        >
+          <Ionicons color={theme.colors.text.primary} name="logo-apple" size={25} />
+        </View>
+        <View
+          accessible
+          accessibilityLabel={`Apple Takvim durumu. ${apple.stateLabel}.`}
+          accessibilityState={{ busy: Boolean(apple.busy) }}
+          style={[styles.flexOne, { gap: 2 }]}
+          testID="calendar-apple-sync-status"
+        >
+          <Text style={[theme.typography.label, { color: theme.colors.text.primary }]}>Apple Takvim ile eşitle</Text>
+          <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Akademik kayıtlarını bu cihazdaki takvime ekle.</Text>
+          {typeof apple.managedCount === "number" ? (
+            <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{apple.managedCount} uygulama kaydı yönetiliyor</Text>
+          ) : null}
+        </View>
+        <View style={[styles.googleActions, compact && styles.googleActionsCompact]}>
+          <Button compact label="Eşitle" loading={apple.busy} onPress={onSync} variant="secondary" />
+          {apple.connected ? <Ionicons color={theme.colors.status.success} name="checkmark-circle" size={24} /> : null}
+          <Pressable
+            accessibilityLabel="Apple Takvim'i yönet"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onManage}
+            style={styles.googleManageButton}
+          >
+            <Ionicons color={theme.colors.text.secondary} name="settings-outline" size={20} />
+          </Pressable>
+        </View>
+      </View>
+      {apple.error ? <Banner message={apple.error} title="Apple Takvim işlemi tamamlanamadı" tone="error" /> : null}
+      {apple.warnings?.length ? (
+        <Banner message={`${apple.warnings.length} eşitleme uyarısı var.`} title="Kısmi eşitleme" tone="warning" />
+      ) : null}
+    </Card>
+  );
+}
+
 function GoogleSyncBanner({
   compact,
   google,
@@ -1229,10 +1326,10 @@ function GoogleSyncBanner({
           style={[styles.flexOne, { gap: 2 }]}
           testID="calendar-google-sync-status"
         >
-          <Text maxFontSizeMultiplier={compact ? undefined : 1.35} style={[theme.typography.label, { color: theme.colors.text.primary }]}>Google Takvim ile senkronize</Text>
-          <Text maxFontSizeMultiplier={compact ? undefined : 1.35} numberOfLines={compact ? undefined : 2} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Etkinliklerini otomatik olarak senkronize et.</Text>
+          <Text style={[theme.typography.label, { color: theme.colors.text.primary }]}>Google Takvim ile senkronize</Text>
+          <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Etkinliklerini otomatik olarak senkronize et.</Text>
           {typeof google.verifiedCount === "number" ? (
-            <Text maxFontSizeMultiplier={compact ? undefined : 1.3} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{google.verifiedCount} uygulama kaydı doğrulandı</Text>
+            <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{google.verifiedCount} uygulama kaydı doğrulandı</Text>
           ) : null}
         </View>
         <View style={[styles.googleActions, compact && styles.googleActionsCompact]}>

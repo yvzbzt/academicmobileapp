@@ -198,6 +198,9 @@ export function AppShellPreview() {
       <EvidenceDetail routeLabel="Üniversite takipleri iç rota kanıtı" />
     ),
     NotificationSettings: <EvidenceDetail routeLabel="Bildirim ayarları iç rota kanıtı" />,
+    AppleCalendarSettings: (
+      <EvidenceDetail routeLabel="Apple Takvim ayarları iç rota kanıtı" />
+    ),
     GoogleCalendarSettings: (
       <EvidenceDetail routeLabel="Google Takvim ayarları iç rota kanıtı" />
     ),

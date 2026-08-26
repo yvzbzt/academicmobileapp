@@ -36,10 +36,12 @@ jest.mock("@react-navigation/native", () => {
 const callbacks = {
   onCreatePersonalExam: jest.fn((_input: PersonalExamMutationInput) => ({ ok: true as const })),
   onConsumeCreatePersonalExamRequest: jest.fn(),
+  onManageApple: jest.fn(),
   onManageGoogle: jest.fn(),
   onOpenAccountMenu: jest.fn(),
   onOpenItem: jest.fn(),
   onRefresh: jest.fn(),
+  onSyncApple: jest.fn(),
   onSyncGoogle: jest.fn(),
   onUpdatePersonalExam: jest.fn((_id: string, _input: PersonalExamMutationInput) => ({ ok: true as const })),
 };
@@ -548,6 +550,25 @@ describe("Phase 9 Calendar experience", () => {
     fireEvent.press(screen.getByRole("button", { name: "Google Takvim'i yönet" }));
     expect(callbacks.onSyncGoogle).toHaveBeenCalledTimes(1);
     expect(callbacks.onManageGoogle).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the device Apple Calendar lifecycle only when the iOS host supplies it", async () => {
+    await renderCalendar(props({
+      apple: {
+        state: "connected",
+        stateLabel: "Bağlı",
+        managedCount: 4,
+        connected: true,
+      },
+    }), "ios");
+
+    expect(screen.getByTestId("calendar-apple-sync-card")).toHaveProp("accessible", false);
+    expect(screen.getByLabelText(/Apple Takvim durumu.*Bağlı/u)).toBeOnTheScreen();
+    expect(screen.getByText("4 uygulama kaydı yönetiliyor")).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Eşitle" }));
+    fireEvent.press(screen.getByRole("button", { name: "Apple Takvim'i yönet" }));
+    expect(callbacks.onSyncApple).toHaveBeenCalledTimes(1);
+    expect(callbacks.onManageApple).toHaveBeenCalledTimes(1);
   });
 
   it("consumes a Home create intent once when personal exams become ready", async () => {
