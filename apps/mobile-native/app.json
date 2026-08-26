@@ -80,7 +80,7 @@
       [
         "expo-secure-store",
         {
-          "configureAndroidBackup": true,
+          "configureAndroidBackup": false,
           "faceIDPermission": false
         }
       ],
@@ -89,6 +89,7 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/adaptive-icon.png",
           "color": "#1463F3",
           "defaultChannel": "academic-updates",
           "enableBackgroundRemoteNotifications": false
