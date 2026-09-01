@@ -622,7 +622,8 @@ describe("CalendarService", () => {
       sourceUrl: "https://ornek.edu.tr/duyurular",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const ownSecondarySource = await announcementRepository.upsertSource({
       scopeType: "university",
@@ -631,7 +632,8 @@ describe("CalendarService", () => {
       sourceUrl: "https://ornek.edu.tr/haberler",
       parser: "auto",
       priority: 10,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const otherSource = await announcementRepository.upsertSource({
       scopeType: "university",
@@ -640,7 +642,8 @@ describe("CalendarService", () => {
       sourceUrl: "https://teknik.example.edu.tr/duyurular",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     await announcementRepository.replaceItemsForSource(ownSource, [
       {

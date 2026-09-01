@@ -4,7 +4,7 @@ import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import type { UserDataRepository } from "../users/user-data.types.js";
 import { AnnouncementIngestionService, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
-import { academicContentLogicalIdentityKey, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
+import { academicContentLogicalIdentityKey, canonicalContentKey, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
 import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, SavedAnnouncementStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
@@ -14,7 +14,7 @@ export class AnnouncementsService {
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
     @Optional() @Inject("CatalogRepository") _catalogRepository?: CatalogRepository,
-    @Optional() @Inject(AnnouncementIngestionService) private readonly announcementIngestionService?: AnnouncementIngestionService,
+    @Optional() @Inject(AnnouncementIngestionService) _announcementIngestionService?: AnnouncementIngestionService,
     @Optional() @Inject(NotificationSchedulingService) _notificationSchedulingService?: NotificationSchedulingService,
     @Optional() @Inject("UserDataRepository") private readonly userDataRepository?: Pick<UserDataRepository, "listFollowedAcademicScopesByUserId">
   ) {}
@@ -29,7 +29,6 @@ export class AnnouncementsService {
     const scopes = await this.academicScopesForUser(userId, user);
     if (scopes.length === 0) throw new BadRequestException("User must select a university first.");
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
-    await this.announcementIngestionService?.ensureStaticAnnouncementSources();
     const scopeResults = await Promise.all(scopes.map(async (scope) => {
       const sources = await this.announcementRepository.listSourcesByScope(scope);
       const items = sources.length === 0
@@ -122,19 +121,11 @@ export class AnnouncementsService {
   }
 
   async getYokAnnouncementsCollection(limit = 60): Promise<TrustedAcademicContentCollectionDto> {
-    const source = await this.announcementRepository.upsertSource({
-      scopeType: "university",
-      scopeId: YOK_ANNOUNCEMENT_SCOPE_ID,
-      sourceName: "YÖK Duyuruları",
-      sourceUrl: YOK_ANNOUNCEMENT_SOURCE_URL,
-      contentType: "announcement",
-      parser: "auto",
-      priority: 100,
-      status: "active",
-      homepageUrl: "https://www.yok.gov.tr/tr",
-      discoveryMethod: "manual"
-    });
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
+    const yokSourceKey = canonicalContentKey(YOK_ANNOUNCEMENT_SOURCE_URL);
+    const source = (await this.announcementRepository.listSourcesByScope({ universityId: YOK_ANNOUNCEMENT_SCOPE_ID }))
+      .find((candidate) => canonicalContentKey(candidate.canonicalUrl ?? candidate.sourceUrl) === yokSourceKey);
+    if (!source) return toContentCollection([], 0, 0);
     const cachedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
     const presentedItems = markExpiredAnnouncementItems(cachedItems);
     return toContentCollection(
@@ -252,9 +243,17 @@ function persistedFailedSourceCount(sources: AnnouncementSourceRecord[]): number
 }
 
 function contentTimestamp(item: TrustedAcademicContentDto): number {
-  return Math.max(...[item.publishedAt, item.sourceUpdatedAt, item.discoveredAt, item.publishedDate ? `${item.publishedDate}T12:00:00+03:00` : undefined]
-    .map((value) => value ? Date.parse(value) : 0)
-    .filter(Number.isFinite), 0);
+  const sourceTimestamp = Math.max(...[
+    item.publishedAt,
+    item.sourceUpdatedAt,
+    item.publishedDate ? `${item.publishedDate}T12:00:00+03:00` : undefined
+  ].map(parseContentTimestamp), 0);
+  return sourceTimestamp > 0 ? sourceTimestamp : parseContentTimestamp(item.discoveredAt);
+}
+
+function parseContentTimestamp(value: string | undefined): number {
+  const parsed = value ? Date.parse(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function mergeSourceRelationships(

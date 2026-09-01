@@ -23,7 +23,8 @@ describe("trusted announcement API contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const fetchedAt = new Date().toISOString();
     const base: Omit<AnnouncementItem, "id" | "title" | "link"> = {
@@ -147,7 +148,8 @@ describe("trusted announcement API contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const fetchedAt = new Date().toISOString();
     await repository.replaceItemsForSource(source, Array.from({ length: 130 }, (_, index) => ({
@@ -172,7 +174,8 @@ describe("trusted announcement API contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 10,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(otherFacultySource, [{
       id: "out-of-scope",
@@ -259,7 +262,8 @@ describe("trusted announcement API contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 100,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const fetchedAt = new Date().toISOString();
     await repository.replaceItemsForSource(source, [
@@ -320,7 +324,7 @@ describe("trusted announcement API contract", () => {
     expect(body).toEqual({
       items: [],
       state: "fresh",
-      sourceCount: 1,
+      sourceCount: 0,
       failedSourceCount: 0
     });
     expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -337,7 +341,8 @@ describe("trusted announcement API contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(source, [cachedItem(source, "fresh-cached-item", new Date().toISOString())]);
     await repository.recordSourceCheck(source.id, {
@@ -392,7 +397,8 @@ describe("trusted announcement API contract", () => {
       discoveryMethod: "manual",
       healthStatus: "failed",
       consecutiveFailures: 0,
-      itemCount: 7
+      itemCount: 7,
+      trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(source, [cachedItem(source, "yok-fresh-cached-item", new Date().toISOString())]);
     const fetchSpy = vi.spyOn(globalThis, "fetch");
@@ -419,7 +425,8 @@ describe("trusted announcement API contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const staleSource = await repository.upsertSource({
       scopeType: "university",
@@ -430,7 +437,8 @@ describe("trusted announcement API contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 10,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(freshSource, [cachedItem(freshSource, "fresh-item", new Date().toISOString())]);
     await repository.replaceItemsForSource(staleSource, [cachedItem(staleSource, "stale-item", "2026-07-01T00:00:00.000Z")]);

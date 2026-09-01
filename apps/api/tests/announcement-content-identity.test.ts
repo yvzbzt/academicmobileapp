@@ -222,7 +222,8 @@ async function createSource(
     contentType,
     parser: "auto",
     priority: 20,
-    status: "active"
+    status: "active",
+    trustStatus: "trusted"
   });
 }
 

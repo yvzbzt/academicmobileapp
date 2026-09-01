@@ -3,9 +3,9 @@ import { isValidObjectId } from "mongoose";
 import { announcementItemSchema, announcementSourceSchema, savedAnnouncementSchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
-import { canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
+import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, createAnnouncementSourceCandidateId, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class MongoAnnouncementRepository implements AnnouncementRepository {
@@ -77,11 +77,69 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
     if (!existing && input.sourceUrl !== canonicalUrl) {
       existing = await model.findOne({ scopeType: input.scopeType, scopeId: input.scopeId, sourceUrl: input.sourceUrl });
     }
+    if (!existing) {
+      const identityKey = canonicalAnnouncementSourceIdentityKey(canonicalUrl);
+      const scopedDocuments = await model.find({ scopeType: input.scopeType, scopeId: input.scopeId });
+      existing = scopedDocuments.find((candidate) => {
+        const record = toDomainRecord<AnnouncementSourceRecord>(candidate);
+        return canonicalAnnouncementSourceIdentityKey(record.canonicalUrl ?? record.sourceUrl) === identityKey;
+      }) ?? null;
+    }
     const document = existing
       ? await model.findByIdAndUpdate(existing.id, omitUndefined(normalizedInput as unknown as Record<string, unknown>), { new: true })
-      : await model.create({ ...normalizedInput, trustStatus: input.trustStatus ?? "trusted", discoveredAt: input.discoveredAt ?? new Date() });
+      : await model.create({ ...normalizedInput, trustStatus: input.trustStatus ?? "quarantined", discoveredAt: input.discoveredAt ?? new Date() });
     if (!document) throw new Error("ANNOUNCEMENT_SOURCE_UPSERT_FAILED");
     return toDomainRecord<AnnouncementSourceRecord>(document);
+  }
+
+  async insertQuarantinedSourceCandidate(input: AnnouncementSourceCandidateInput): Promise<AnnouncementSourceRecord> {
+    const model = await this.model("AnnouncementSource", announcementSourceSchema);
+    const canonicalUrl = canonicalizeContentUrl(input.sourceUrl);
+    if (!canonicalUrl || !officialDomainForUrl(canonicalUrl)) throw new Error("ANNOUNCEMENT_SOURCE_URL_NOT_OFFICIAL");
+    const homepageUrl = input.homepageUrl ? canonicalizeContentUrl(input.homepageUrl) : undefined;
+    if (input.homepageUrl && (!homepageUrl || !isOfficialContentUrl(canonicalUrl, homepageUrl))) throw new Error("ANNOUNCEMENT_SOURCE_DOMAIN_MISMATCH");
+    const identityKey = canonicalAnnouncementSourceIdentityKey(canonicalUrl);
+    const candidateId = createAnnouncementSourceCandidateId({
+      scopeType: input.scopeType,
+      scopeId: input.scopeId,
+      sourceUrl: canonicalUrl
+    });
+    if (!identityKey || !candidateId) throw new Error("ANNOUNCEMENT_SOURCE_CANDIDATE_ID_INVALID");
+    const scopedDocuments = await model.find({ scopeType: input.scopeType, scopeId: input.scopeId });
+    const aliasMatch = scopedDocuments.find((candidate) => {
+      const record = toDomainRecord<AnnouncementSourceRecord>(candidate);
+      return canonicalAnnouncementSourceIdentityKey(record.canonicalUrl ?? record.sourceUrl) === identityKey;
+    });
+    if (aliasMatch) return toDomainRecord<AnnouncementSourceRecord>(aliasMatch);
+
+    const now = new Date();
+    const candidate = omitUndefined({
+      ...input,
+      sourceName: normalizeDisplayText(input.sourceName, 160) || "Resmî akademik kaynak",
+      sourceUrl: canonicalUrl,
+      canonicalUrl,
+      ...(homepageUrl ? { homepageUrl } : {}),
+      status: "inactive",
+      trustStatus: "quarantined",
+      discoveredAt: input.discoveredAt ?? now,
+      createdAt: now,
+      updatedAt: now
+    } as unknown as Record<string, unknown>);
+    const document = await model.findOneAndUpdate(
+      { _id: candidateId },
+      { $setOnInsert: candidate },
+      { new: true, upsert: true, setDefaultsOnInsert: false, timestamps: false }
+    );
+    if (!document) throw new Error("ANNOUNCEMENT_SOURCE_CANDIDATE_INSERT_FAILED");
+    const persisted = toDomainRecord<AnnouncementSourceRecord>(document);
+    if (
+      persisted.scopeType !== input.scopeType
+      || persisted.scopeId !== input.scopeId
+      || canonicalAnnouncementSourceIdentityKey(persisted.canonicalUrl ?? persisted.sourceUrl) !== identityKey
+    ) {
+      throw new Error("ANNOUNCEMENT_SOURCE_CANDIDATE_ID_COLLISION");
+    }
+    return persisted;
   }
 
   async recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null> {

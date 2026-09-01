@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { listVerifiedAcademicUnitSources, listVerifiedUniversitySources } from "../src/bootstrap/verified-source-registry.js";
 import {
   setSafeOutboundRequestDependenciesForTesting,
   type ResolvedOutboundAddress,
@@ -39,11 +40,12 @@ const sampleUniversity: UniversityRecord = {
 
 afterEach(() => {
   setSafeOutboundRequestDependenciesForTesting(undefined);
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
 describe("announcement discovery and ingestion", () => {
-  it("does not bootstrap the known Tekirdağ-to-YÖK anomaly or unrelated academic-unit scopes", async () => {
+  it("provisions registry candidates as inactive quarantine without mutating an explicitly approved source", async () => {
     const tekirdag: UniversityRecord = {
       id: "tekirdag-namik-kemal-universitesi",
       name: "TEKİRDAĞ NAMIK KEMAL ÜNİVERSİTESİ",
@@ -58,11 +60,137 @@ describe("announcement discovery and ingestion", () => {
     const repository = new InMemoryAnnouncementRepository();
     const service = new AnnouncementIngestionService(catalog, repository);
 
-    await service.ensureStaticAnnouncementSources();
-    const sources = await repository.listAllSources({ status: "active", limit: 5_000 });
+    const approved = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: tekirdag.id,
+      sourceName: "Approved source",
+      sourceUrl: "https://nku.edu.tr/duyurular",
+      parser: "auto",
+      priority: 100,
+      status: "active",
+      trustStatus: "trusted"
+    });
+    const approvedBefore = JSON.stringify(approved);
+
+    await service.provisionStaticAnnouncementSources();
+    const sources = await repository.listAllSources({ limit: 5_000 });
+    const approvedAfter = await repository.findSourceById(approved.id);
 
     expect(sources.some((source) => source.scopeId === tekirdag.id && new URL(source.sourceUrl).hostname.endsWith("yok.gov.tr"))).toBe(false);
     expect(sources.every((source) => source.scopeId === YOK_ANNOUNCEMENT_SCOPE_ID || source.scopeId === tekirdag.id)).toBe(true);
+    expect(sources.filter((source) => source.id !== approved.id)).not.toEqual([]);
+    expect(sources.filter((source) => source.id !== approved.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "inactive", trustStatus: "quarantined" })
+    ]));
+    expect(JSON.stringify(approvedAfter)).toBe(approvedBefore);
+    expect(await repository.listSourcesByScope({ universityId: YOK_ANNOUNCEMENT_SCOPE_ID })).toEqual([]);
+  });
+
+  it("does not add a registry duplicate when a validated legacy GTU URL already exists", async () => {
+    const gtu: UniversityRecord = {
+      id: "gebze-teknik-universitesi",
+      name: "GEBZE TEKNÄ°K ÃœNÄ°VERSÄ°TESÄ°",
+      slug: "gebze-teknik-universitesi",
+      city: "KOCAELÄ°",
+      type: "state",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    const repository = new InMemoryAnnouncementRepository();
+    const legacy = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: gtu.id,
+      sourceName: "Approved legacy GTU source",
+      sourceUrl: "https://www.gtu.edu.tr/tr/icerik/9/30904/display.aspx",
+      homepageUrl: "https://www.gtu.edu.tr/",
+      contentType: "announcement",
+      parser: "auto",
+      priority: 30,
+      status: "active",
+      trustStatus: "trusted"
+    });
+    const before = JSON.stringify(legacy);
+
+    await new AnnouncementIngestionService(createCatalogRepository([gtu]), repository)
+      .provisionStaticAnnouncementSources();
+
+    const gtuSources = (await repository.listAllSources({ limit: 5_000 }))
+      .filter((source) => source.scopeId === gtu.id);
+    expect(gtuSources).toHaveLength(1);
+    expect(JSON.stringify(gtuSources[0])).toBe(before);
+  });
+
+  it("keeps every independently approved source upgrade in the static registries", async () => {
+    const universities = await listVerifiedUniversitySources();
+    const academicUnits = await listVerifiedAcademicUnitSources();
+    const universitySource = (id: string) => universities.find((source) => source.universityId === id);
+
+    expect(universitySource("gebze-teknik-universitesi")?.announcementUrl)
+      .toBe("https://www.gtu.edu.tr/icerik/9/30904/display.aspx");
+    expect(universitySource("ihsan-dogramaci-bilkent-universitesi-ankara")?.announcementUrl)
+      .toBe("https://bilkentnews.bilkent.edu.tr/");
+    expect(universitySource("istanbul-beykent-universitesi")?.announcementUrl)
+      .toBe("https://www.beykent.edu.tr/duyurular");
+    expect(universitySource("istanbul-teknik-universitesi")?.announcementUrl)
+      .toBe("https://haberler.itu.edu.tr/");
+    expect(universitySource("kahramanmaras-sutcu-imam-universitesi")?.announcementUrl)
+      .toBe("https://www.ksu.edu.tr/default?DId=103100");
+    expect(academicUnits.find((source) => source.departmentId === "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__elektrik-elektronik-muhendisligi")?.newsUrl)
+      .toBe("https://eee.agu.edu.tr/haberler");
+  });
+
+  it("keeps bootstrap, source lists, ingestion, student feeds, and YÖK reads free of implicit source writes", async () => {
+    vi.stubEnv("ANNOUNCEMENT_AUTO_INGEST_ENABLED", "false");
+    const repository = new InMemoryAnnouncementRepository();
+    const ingestion = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
+    const announcements = new AnnouncementsService(createAuthRepository(), repository, undefined, ingestion);
+
+    ingestion.onApplicationBootstrap();
+    await expect(ingestion.listSources()).resolves.toEqual([]);
+    await expect(ingestion.runIngestion()).resolves.toEqual({
+      summary: { checkedSources: 0, healthy: 0, degraded: 0, failed: 0, totalParsedItems: 0 },
+      results: []
+    });
+    await expect(announcements.getMyAnnouncementsCollection("student-1", 20)).resolves.toEqual({
+      items: [], state: "fresh", sourceCount: 0, failedSourceCount: 0
+    });
+    await expect(announcements.getYokAnnouncementsCollection(20)).resolves.toEqual({
+      items: [], state: "fresh", sourceCount: 0, failedSourceCount: 0
+    });
+    expect(await repository.listAllSources({ limit: 5_000 })).toEqual([]);
+  });
+
+  it("keeps an existing rejected source byte-for-byte stable across repeated startup and read operations", async () => {
+    vi.stubEnv("ANNOUNCEMENT_AUTO_INGEST_ENABLED", "false");
+    const repository = new InMemoryAnnouncementRepository();
+    await repository.upsertSource({
+      scopeType: "university",
+      scopeId: YOK_ANNOUNCEMENT_SCOPE_ID,
+      sourceName: "Rejected YÖK candidate",
+      sourceUrl: "http://www.yok.gov.tr/tr/announcements/",
+      homepageUrl: "https://www.yok.gov.tr/tr",
+      parser: "rss",
+      priority: 3,
+      status: "inactive",
+      trustStatus: "rejected",
+      trustReasonCodes: ["unofficial_source"],
+      healthStatus: "failed",
+      lastError: "manual rejection"
+    });
+    const before = JSON.stringify(await repository.listAllSources({ limit: 100 }));
+    const ingestion = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
+    const announcements = new AnnouncementsService(createAuthRepository(), repository, undefined, ingestion);
+
+    ingestion.onApplicationBootstrap();
+    ingestion.onApplicationBootstrap();
+    await ingestion.listSources();
+    await ingestion.listSources({ status: "active" });
+    await ingestion.runIngestion();
+    await announcements.getMyAnnouncementsCollection("student-1", 20);
+    await announcements.getYokAnnouncementsCollection(20);
+
+    expect(JSON.stringify(await repository.listAllSources({ limit: 100 }))).toBe(before);
   });
 
   it("discovers a university announcement page and parses items", async () => {
@@ -78,6 +206,46 @@ describe("announcement discovery and ingestion", () => {
     expect(result.itemCount).toBe(2);
   });
 
+  it("inserts discovered sources once as quarantined candidates and leaves every existing trust decision byte-for-byte unchanged", async () => {
+    stubFetch({
+      "https://agu.edu.tr": `<html><title>Abdullah Gül Üniversitesi</title><body><a href="/duyurular">Duyurular</a></body></html>`,
+      "https://agu.edu.tr/duyurular": `<html><body><a href="/duyuru/1">Yeni öğrenci duyurusu</a><a href="/duyuru/2">Akademik takvim duyurusu</a></body></html>`
+    });
+
+    for (const trustStatus of ["trusted", "rejected", "quarantined"] as const) {
+      const repository = new InMemoryAnnouncementRepository();
+      const existing = await repository.upsertSource({
+        scopeType: "university",
+        scopeId: sampleUniversity.id,
+        sourceName: `Existing ${trustStatus}`,
+        sourceUrl: "http://www.agu.edu.tr/duyurular/",
+        parser: "rss",
+        priority: 77,
+        status: trustStatus === "trusted" ? "active" : "inactive",
+        trustStatus,
+        trustReasonCodes: trustStatus === "trusted" ? [] : ["unofficial_source"]
+      });
+      const before = JSON.stringify(existing);
+
+      await new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository)
+        .runSourceDiscovery({ concurrency: 1 });
+
+      expect(JSON.stringify(await repository.findSourceById(existing.id))).toBe(before);
+      expect(await repository.listAllSources({ limit: 100 })).toHaveLength(1);
+    }
+
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
+    await Promise.all([
+      service.runSourceDiscovery({ concurrency: 1 }),
+      service.runSourceDiscovery({ concurrency: 1 })
+    ]);
+    expect(await repository.listAllSources({ limit: 100 })).toEqual([
+      expect.objectContaining({ status: "inactive", trustStatus: "quarantined" })
+    ]);
+    expect(await repository.listAllSources({ status: "active", limit: 100 })).toEqual([]);
+  });
+
   it("stores fetched announcement items in the repository cache", async () => {
     stubFetch({
       "https://agu.edu.tr/duyurular": `<html><body><a href="/duyuru/1">Yeni öğrenci duyurusu</a></body></html>`
@@ -90,7 +258,8 @@ describe("announcement discovery and ingestion", () => {
       sourceUrl: "https://agu.edu.tr/duyurular",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const service = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
 
@@ -144,7 +313,8 @@ describe("announcement discovery and ingestion", () => {
       sourceUrl: "https://agu.edu.tr/duyurular",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const facultySource = await repository.upsertSource({
       scopeType: "faculty",
@@ -153,7 +323,8 @@ describe("announcement discovery and ingestion", () => {
       sourceUrl: "https://faculty.agu.edu.tr/duyurular",
       parser: "auto",
       priority: 30,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const departmentSource = await repository.upsertSource({
       scopeType: "department",
@@ -162,7 +333,8 @@ describe("announcement discovery and ingestion", () => {
       sourceUrl: "https://department.agu.edu.tr/duyurular",
       parser: "auto",
       priority: 40,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
 
     await repository.replaceItemsForSource(universitySource, [{
@@ -220,6 +392,22 @@ describe("announcement discovery and ingestion", () => {
     ]));
   });
 
+  it("refuses direct ingestion of a source until it is both active and explicitly trusted", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const candidate = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: sampleUniversity.id,
+      sourceName: "Unreviewed source",
+      sourceUrl: "https://agu.edu.tr/duyurular",
+      parser: "auto",
+      priority: 20,
+      status: "active"
+    });
+    const service = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
+
+    await expect(service.ingestSource(candidate)).rejects.toThrow("Only active, trusted announcement sources can be ingested.");
+  });
+
   it("merges announcements from additional followed universities without duplicating the primary scope", async () => {
     const repository = new InMemoryAnnouncementRepository();
     const fetchedAt = new Date().toISOString();
@@ -230,7 +418,8 @@ describe("announcement discovery and ingestion", () => {
       sourceUrl: "https://agu.edu.tr/duyurular",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const followedSource = await repository.upsertSource({
       scopeType: "university",
@@ -239,7 +428,8 @@ describe("announcement discovery and ingestion", () => {
       sourceUrl: "https://followed.edu.tr/duyurular",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(primarySource, [{
       id: "primary-item",
@@ -421,6 +611,17 @@ describe("announcement discovery and ingestion", () => {
       `
     });
     const repository = new InMemoryAnnouncementRepository();
+    await repository.upsertSource({
+      scopeType: "university",
+      scopeId: YOK_ANNOUNCEMENT_SCOPE_ID,
+      sourceName: "YÖK Duyuruları",
+      sourceUrl: "https://www.yok.gov.tr/tr/announcements",
+      homepageUrl: "https://www.yok.gov.tr/tr",
+      parser: "auto",
+      priority: 100,
+      status: "active",
+      trustStatus: "trusted"
+    });
     const service = new AnnouncementIngestionService(createCatalogRepository([]), repository);
 
     const result = await service.runIngestion({ concurrency: 1 });

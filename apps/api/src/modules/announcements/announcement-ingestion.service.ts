@@ -3,7 +3,7 @@ import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerif
 import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchSourceItems, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
-import { canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
+import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
 import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
@@ -47,7 +47,6 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
   ) {}
 
   onApplicationBootstrap() {
-    void this.ensureStaticAnnouncementSources();
     if (process.env.ANNOUNCEMENT_AUTO_INGEST_ENABLED !== "true") return;
     const initialDelayMs = readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_INITIAL_DELAY_MS, 5000);
     const schedulerTickMs = Math.max(30_000, readPositiveInteger(process.env.ANNOUNCEMENT_SCHEDULER_TICK_MS, 60_000));
@@ -89,14 +88,12 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
   }
 
   async runIngestion(input: { limit?: number; offset?: number; concurrency?: number } = {}) {
-    await this.ensureStaticAnnouncementSources();
     const sources = await this.announcementRepository.listAllSources({ status: "active", limit: input.limit ?? 1000, offset: input.offset ?? 0 });
     const results = await runWithConcurrency(sources, input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6), (source) => this.ingestSource(source));
     return { summary: summarizeIngestion(results), results };
   }
 
   async listSources(input: { status?: "active" | "inactive"; limit?: number; offset?: number } = {}) {
-    await this.ensureStaticAnnouncementSources();
     return this.announcementRepository.listAllSources(input);
   }
 
@@ -105,7 +102,6 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     input: { status?: "active" | "inactive"; limit?: number; offset?: number } = {}
   ) {
     if (access.kind === "global") return this.listSources(input);
-    await this.ensureStaticAnnouncementSources();
     return this.announcementRepository.listSourcesByScopeSet({
       scopes: await this.listAnnouncementScopesForUniversity(access.universityId),
       ...(input.status ? { status: input.status } : {}),
@@ -208,6 +204,8 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       consecutiveFailures: 0,
       itemCount: 0,
       fetchIntervalMinutes: input.fetchIntervalMinutes,
+      // This admin-only command is the explicit approval boundary. Automated
+      // discovery and registry provisioning use insertQuarantinedSourceCandidate.
       trustStatus: "trusted"
     });
     const ingestion = await this.ingestSource(source);
@@ -255,13 +253,32 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     return this.ingestSource(source);
   }
 
-  async ensureStaticAnnouncementSources(): Promise<void> {
+  /**
+   * Explicitly provisions registry candidates for later review. Runtime startup,
+   * ingestion, and read paths must never call this method.
+   */
+  async provisionStaticAnnouncementSources(): Promise<void> {
     this.staticSourcesPromise ??= this.upsertStaticAnnouncementSources();
     return this.staticSourcesPromise;
   }
 
   private async upsertStaticAnnouncementSources(): Promise<void> {
-    await this.announcementRepository.upsertSource({
+    const existingSourceKeys = new Set((await this.announcementRepository.listAllSources({ limit: 5_000, offset: 0 }))
+      .map((source) => staticSourceIdentityKey(source.scopeType, source.scopeId, source.canonicalUrl ?? source.sourceUrl))
+      .filter((key): key is string => Boolean(key)));
+    const provisionIfMissing = async (input: Parameters<AnnouncementRepository["insertQuarantinedSourceCandidate"]>[0]): Promise<void> => {
+      const key = staticSourceIdentityKey(input.scopeType, input.scopeId, input.sourceUrl);
+      if (!key || existingSourceKeys.has(key)) return;
+      existingSourceKeys.add(key);
+      try {
+        await this.announcementRepository.insertQuarantinedSourceCandidate(input);
+      } catch (error) {
+        existingSourceKeys.delete(key);
+        throw error;
+      }
+    };
+
+    await provisionIfMissing({
       scopeType: "university",
       scopeId: YOK_ANNOUNCEMENT_SCOPE_ID,
       sourceName: "YÖK Duyuruları",
@@ -269,7 +286,6 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       contentType: "announcement",
       parser: "auto",
       priority: 100,
-      status: "active",
       homepageUrl: "https://www.yok.gov.tr/tr",
       discoveryMethod: "manual"
     });
@@ -283,7 +299,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       if (!officialHomepage) return;
       await Promise.all(definitions
         .filter((definition) => isOfficialContentUrl(definition.url, officialHomepage))
-        .map((definition) => this.announcementRepository.upsertSource({
+        .map((definition) => provisionIfMissing({
           scopeType: "university",
           scopeId: source.universityId,
           sourceName: `${source.universityName} ${definition.label}`,
@@ -291,7 +307,6 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
           contentType: definition.contentType,
           parser: "auto",
           priority: definition.priority,
-          status: "active",
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: "manual"
         })));
@@ -331,7 +346,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
         .map((definition) => {
         const unitName = source.scopeType === "department" ? source.departmentName ?? "Bölüm" : source.facultyName ?? "Fakülte";
         const sourceName = `${source.universityName ?? source.universityId} ${unitName} ${definition.label}`;
-        return this.announcementRepository.upsertSource({
+        return provisionIfMissing({
           scopeType: source.scopeType,
           scopeId,
           sourceName,
@@ -339,7 +354,6 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
           contentType: definition.contentType,
           parser: "auto",
           priority: definition.priority + (source.scopeType === "department" ? 15 : 10),
-          status: "active",
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: "manual"
         });
@@ -370,6 +384,9 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
   }
 
   async ingestSource(source: AnnouncementSourceRecord): Promise<AnnouncementIngestionResult> {
+    if (source.status !== "active" || source.trustStatus !== "trusted") {
+      throw new BadRequestException("Only active, trusted announcement sources can be ingested.");
+    }
     const checkedAt = new Date();
     try {
       const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000));
@@ -431,7 +448,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       };
     }
 
-    await this.announcementRepository.upsertSource({
+    await this.announcementRepository.insertQuarantinedSourceCandidate({
       scopeType: "university",
       scopeId: university.id,
       sourceName: `${university.name} Duyurular`,
@@ -439,7 +456,6 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       contentType: "announcement",
       parser: result.parser ?? "auto",
       priority: 20,
-      status: "active",
       homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
       discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
       healthStatus: result.itemCount > 0 ? "healthy" : "degraded",
@@ -1076,6 +1092,11 @@ function sourceInputFromRecord(source: AnnouncementSourceRecord) {
   void _createdAt;
   void _updatedAt;
   return input;
+}
+
+function staticSourceIdentityKey(scopeType: AnnouncementSourceScope["scopeType"], scopeId: string, sourceUrl: string): string | null {
+  const contentKey = canonicalAnnouncementSourceIdentityKey(sourceUrl);
+  return contentKey ? `${scopeType}\u0000${scopeId}\u0000${contentKey}` : null;
 }
 
 function parseDailyScheduleTimes(value: string): number[] {

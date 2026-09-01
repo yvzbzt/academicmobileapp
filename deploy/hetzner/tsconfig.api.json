@@ -9,7 +9,8 @@
   },
   "include": [
     "../../apps/api/**/*.ts",
-    "../../packages/**/*.ts"
+    "../../packages/**/*.ts",
+    "../../scripts/reconcile-announcement-content.ts"
   ],
   "exclude": [
     "../../apps/api/tests/**",

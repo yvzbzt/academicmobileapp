@@ -22,7 +22,8 @@ describe("saved announcement contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 10,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(source, [{
       id: "announcement-1",
@@ -67,7 +68,8 @@ describe("saved announcement contract", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 10,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(source, [{
       id: "other-announcement",

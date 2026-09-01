@@ -106,6 +106,10 @@ export interface AnnouncementItem {
 export type MobileAnnouncementItem = TrustedAcademicContentDto;
 
 export type UpsertAnnouncementSourceInput = Omit<AnnouncementSourceRecord, "id" | "createdAt" | "updatedAt"> & { id?: string };
+export type AnnouncementSourceCandidateInput = Omit<
+  UpsertAnnouncementSourceInput,
+  "id" | "status" | "trustStatus" | "trustReasonCodes" | "duplicateOfId"
+>;
 export type SourceCheckInput = Pick<AnnouncementSourceRecord, "healthStatus" | "lastCheckedAt" | "lastSuccessAt" | "lastError" | "consecutiveFailures" | "itemCount">;
 
 export interface AnnouncementPersistenceReference {
@@ -155,6 +159,7 @@ export interface AnnouncementRepository {
   listAllSources(input?: { status?: AnnouncementSourceStatus; limit?: number; offset?: number }): Promise<AnnouncementSourceRecord[]>;
   findSourceById(id: string): Promise<AnnouncementSourceRecord | null>;
   upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord>;
+  insertQuarantinedSourceCandidate(input: AnnouncementSourceCandidateInput): Promise<AnnouncementSourceRecord>;
   deactivateSource(id: string): Promise<AnnouncementSourceRecord | null>;
   recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null>;
   replaceItemsForSource(

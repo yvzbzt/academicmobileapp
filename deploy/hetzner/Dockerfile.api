@@ -9,6 +9,7 @@ COPY tsconfig.json ./
 COPY deploy/hetzner/tsconfig.api.json ./deploy/hetzner/tsconfig.api.json
 COPY apps/api ./apps/api
 COPY packages ./packages
+COPY scripts/reconcile-announcement-content.ts ./scripts/reconcile-announcement-content.ts
 
 RUN npx --no-install tsc -p deploy/hetzner/tsconfig.api.json \
     && mkdir -p dist/apps/api/src/bootstrap \

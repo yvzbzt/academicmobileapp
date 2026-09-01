@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  canonicalAnnouncementSourceIdentityKey,
   canonicalContentKey,
   canonicalizeContentUrl,
+  createAnnouncementSourceCandidateId,
   decodeHtmlEntities,
   evaluateContentTrust,
   isNavigationOrChromeTitle,
@@ -111,6 +113,27 @@ describe("academic content trust primitives", () => {
     expect(canonicalizeContentUrl("http://[::ffff:7f00:1]/internal")).toBeNull();
     expect(canonicalizeContentUrl("https://user:secret@ankara.edu.tr/duyuru")).toBeNull();
   });
+
+  it.each([
+    ["https://www.gtu.edu.tr/tr/icerik/9/30904/display.aspx", "https://www.gtu.edu.tr/icerik/9/30904/display.aspx"],
+    ["http://bilnews.bilkent.edu.tr/", "https://bilkentnews.bilkent.edu.tr/"],
+    ["https://beykent.edu.tr/duyurular", "https://www.beykent.edu.tr/duyurular"],
+    ["http://haberler.itu.edu.tr/", "https://haberler.itu.edu.tr/"],
+    ["https://www.ksu.edu.tr/default.aspx?DId=103100", "https://www.ksu.edu.tr/default?DId=103100"],
+    ["http://eee.agu.edu.tr/haberler", "https://eee.agu.edu.tr/haberler"]
+  ])("keeps the validated registry URL upgrade %s on one candidate identity", (legacyUrl, approvedUrl) => {
+    expect(canonicalAnnouncementSourceIdentityKey(legacyUrl))
+      .toBe(canonicalAnnouncementSourceIdentityKey(approvedUrl));
+    expect(createAnnouncementSourceCandidateId({
+      scopeType: "university",
+      scopeId: "scope-1",
+      sourceUrl: legacyUrl
+    })).toBe(createAnnouncementSourceCandidateId({
+      scopeType: "university",
+      scopeId: "scope-1",
+      sourceUrl: approvedUrl
+    }));
+  });
 });
 
 describe("mobile announcement API presentation", () => {
@@ -124,7 +147,8 @@ describe("mobile announcement API presentation", () => {
       contentType: "announcement",
       parser: "auto",
       priority: 20,
-      status: "active"
+      status: "active",
+      trustStatus: "trusted"
     });
     const fetchedAt = new Date().toISOString();
     const items: AnnouncementItem[] = [

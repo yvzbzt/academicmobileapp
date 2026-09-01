@@ -435,6 +435,60 @@ export function canonicalContentKey(input: string): string | null {
   return `${hostname.toLocaleLowerCase("en-US")}${url.port ? `:${url.port}` : ""}${url.pathname}${url.search}${url.hash}`;
 }
 
+/**
+ * Explicit, independently validated source URL upgrades. These aliases are
+ * intentionally narrower than general URL canonicalization: changing a host
+ * or a path is not safe unless the registry review proved both endpoints are
+ * the same official source.
+ */
+const approvedAnnouncementSourceUrlUpgrades = [
+  [
+    "https://www.gtu.edu.tr/tr/icerik/9/30904/display.aspx",
+    "https://www.gtu.edu.tr/icerik/9/30904/display.aspx"
+  ],
+  [
+    "http://bilnews.bilkent.edu.tr/",
+    "https://bilkentnews.bilkent.edu.tr/"
+  ],
+  [
+    "https://www.ksu.edu.tr/default.aspx?DId=103100",
+    "https://www.ksu.edu.tr/default?DId=103100"
+  ]
+] as const;
+
+const approvedAnnouncementSourceIdentityAliases = new Map<string, string>();
+for (const [legacyUrl, approvedUrl] of approvedAnnouncementSourceUrlUpgrades) {
+  const legacyKey = canonicalContentKey(legacyUrl);
+  const approvedKey = canonicalContentKey(approvedUrl);
+  if (!legacyKey || !approvedKey) continue;
+  approvedAnnouncementSourceIdentityAliases.set(legacyKey, approvedKey);
+  approvedAnnouncementSourceIdentityAliases.set(approvedKey, approvedKey);
+}
+
+export function canonicalAnnouncementSourceIdentityKey(input: string): string | null {
+  const contentKey = canonicalContentKey(input);
+  return contentKey ? approvedAnnouncementSourceIdentityAliases.get(contentKey) ?? contentKey : null;
+}
+
+/**
+ * Stable ObjectId-shaped fence for an unreviewed source candidate. The hash is
+ * scoped so the same official URL may intentionally belong to different units.
+ * Mongo's built-in unique `_id` index makes scheme/www aliases converge without
+ * requiring a production index migration over legacy source rows.
+ */
+export function createAnnouncementSourceCandidateId(input: {
+  scopeType: AnnouncementSourceRecord["scopeType"];
+  scopeId: string;
+  sourceUrl: string;
+}): string | null {
+  const contentKey = canonicalAnnouncementSourceIdentityKey(input.sourceUrl);
+  if (!contentKey) return null;
+  return createHash("sha256")
+    .update(`${input.scopeType}\u0000${input.scopeId}\u0000${contentKey}`)
+    .digest("hex")
+    .slice(0, 24);
+}
+
 export function compareAcademicContentDuplicateRecency(
   candidate: Pick<AnnouncementItem, "publishedAt" | "publishedDate" | "sourceUpdatedAt" | "discoveredAt" | "fetchedAt"> & Partial<Pick<AnnouncementItem, "id">>,
   current: Pick<AnnouncementItem, "publishedAt" | "publishedDate" | "sourceUpdatedAt" | "discoveredAt" | "fetchedAt"> & Partial<Pick<AnnouncementItem, "id">>

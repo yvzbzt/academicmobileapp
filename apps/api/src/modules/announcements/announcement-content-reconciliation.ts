@@ -82,8 +82,16 @@ export interface ContentReconciliationPlan {
 
 export interface ReconciliationCliOptions {
   apply: boolean;
+  verifyPostApply?: true;
   confirmDatabase?: string;
+  verificationReport?: string;
+  confirmVerificationSha256?: string;
   batchSize: number;
+}
+
+export interface ReconciliationSourceTrustOverride {
+  trustStatus: "rejected" | "quarantined";
+  trustReasonCodes: AnnouncementTrustReason[];
 }
 
 export const BUILT_IN_OFFICIAL_SCOPE_URLS: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -93,11 +101,18 @@ export const BUILT_IN_OFFICIAL_SCOPE_URLS: Readonly<Record<string, readonly stri
 
 export function parseReconciliationCliOptions(arguments_: string[]): ReconciliationCliOptions {
   let apply = false;
+  let verifyPostApply = false;
   let confirmDatabase: string | undefined;
+  let verificationReport: string | undefined;
+  let confirmVerificationSha256: string | undefined;
   let batchSize = 250;
   for (const argument of arguments_) {
     if (argument === "--apply") {
       apply = true;
+      continue;
+    }
+    if (argument === "--verify-post-apply") {
+      verifyPostApply = true;
       continue;
     }
     if (argument.startsWith("--confirm-database=")) {
@@ -110,10 +125,33 @@ export function parseReconciliationCliOptions(arguments_: string[]): Reconciliat
       batchSize = parsed;
       continue;
     }
+    if (argument.startsWith("--verification-report=")) {
+      verificationReport = argument.slice("--verification-report=".length).trim() || undefined;
+      continue;
+    }
+    if (argument.startsWith("--confirm-verification-sha256=")) {
+      const value = argument.slice("--confirm-verification-sha256=".length).trim().toLocaleLowerCase("en-US");
+      if (value && !/^[a-f\d]{64}$/u.test(value)) throw new Error("CONTENT_RECONCILIATION_VERIFICATION_HASH_INVALID");
+      confirmVerificationSha256 = value || undefined;
+      continue;
+    }
     throw new Error("CONTENT_RECONCILIATION_ARGUMENT_INVALID");
   }
-  if (apply && !confirmDatabase) throw new Error("CONTENT_RECONCILIATION_DATABASE_CONFIRMATION_REQUIRED");
-  return { apply, ...(confirmDatabase ? { confirmDatabase } : {}), batchSize };
+  if (apply && verifyPostApply) throw new Error("CONTENT_RECONCILIATION_MODE_CONFLICT");
+  if ((apply || verifyPostApply) && !confirmDatabase) throw new Error("CONTENT_RECONCILIATION_DATABASE_CONFIRMATION_REQUIRED");
+  if ((apply || verifyPostApply) && !verificationReport) throw new Error("CONTENT_RECONCILIATION_VERIFICATION_REPORT_REQUIRED");
+  if ((apply || verifyPostApply) && !confirmVerificationSha256) throw new Error("CONTENT_RECONCILIATION_VERIFICATION_HASH_REQUIRED");
+  if (confirmVerificationSha256 && !verificationReport) {
+    throw new Error("CONTENT_RECONCILIATION_VERIFICATION_REPORT_REQUIRED");
+  }
+  return {
+    apply,
+    ...(verifyPostApply ? { verifyPostApply: true as const } : {}),
+    ...(confirmDatabase ? { confirmDatabase } : {}),
+    ...(verificationReport ? { verificationReport } : {}),
+    ...(confirmVerificationSha256 ? { confirmVerificationSha256 } : {}),
+    batchSize
+  };
 }
 
 export function databaseNameFromMongoUri(uri: string): string | null {
@@ -129,6 +167,8 @@ export function planAnnouncementContentReconciliation(input: {
   sources: ReconciliationSourceDocument[];
   items: ReconciliationItemDocument[];
   officialScopeUrls?: Readonly<Record<string, readonly string[]>>;
+  verifiedSourceUrlOverrides?: Readonly<Record<string, string>>;
+  verifiedSourceTrustOverrides?: Readonly<Record<string, ReconciliationSourceTrustOverride>>;
 }): ContentReconciliationPlan {
   const sourceMutations: ReconciliationMutation[] = [];
   const sourceState = new Map<string, ReconciliationSourceDocument>();
@@ -136,7 +176,8 @@ export function planAnnouncementContentReconciliation(input: {
   const hasScopeAuthority = input.officialScopeUrls !== undefined;
 
   for (const source of [...input.sources].sort(byId)) {
-    const canonicalUrl = source.sourceUrl ? canonicalizeContentUrl(source.sourceUrl) : null;
+    const sourceUrlOverride = input.verifiedSourceUrlOverrides?.[source.id];
+    const canonicalUrl = canonicalVerifiedSourceUrlOverride(source.sourceUrl, sourceUrlOverride);
     const homepageUrl = source.homepageUrl ? canonicalizeContentUrl(source.homepageUrl) : null;
     const sourceDiscoveredAt = toIsoString(source.discoveredAt) ?? toIsoString(source.createdAt);
     const officialScopeUrls = input.officialScopeUrls?.[`${source.scopeType ?? "university"}:${source.scopeId ?? ""}`] ?? [];
@@ -150,12 +191,18 @@ export function planAnnouncementContentReconciliation(input: {
       && matchesOfficialScope
     );
     const automatedTrustStatus: AnnouncementTrustStatus = scopeAuthorityMissing ? "quarantined" : trustedSource ? "trusted" : "rejected";
-    const preservedTrustStatus = source.trustStatus === "rejected" || source.trustStatus === "quarantined" ? source.trustStatus : undefined;
+    const verifiedTrustOverride = input.verifiedSourceTrustOverrides?.[source.id];
+    const preservedTrustStatus = verifiedTrustOverride?.trustStatus
+      ?? (source.trustStatus === "rejected" || source.trustStatus === "quarantined" ? source.trustStatus : undefined);
     const trustStatus = preservedTrustStatus ?? automatedTrustStatus;
     const automatedReasons: AnnouncementTrustReason[] = scopeAuthorityMissing
       ? ["missing_source"]
       : trustedSource ? [] : [canonicalUrl ? "unofficial_source" : "unsafe_url"];
-    const reasons = mergeReasons(preservedTrustStatus ? source.trustReasonCodes : undefined, automatedReasons);
+    const reasons = mergeReasons(
+      verifiedTrustOverride?.trustReasonCodes,
+      preservedTrustStatus && !verifiedTrustOverride ? source.trustReasonCodes : undefined,
+      automatedReasons
+    );
     const next: ReconciliationSourceDocument = {
       ...source,
       sourceName: normalizeDisplayText(source.sourceName, 160) || "Resmî akademik kaynak",
@@ -257,16 +304,44 @@ export function planAnnouncementContentReconciliation(input: {
   };
 }
 
+function canonicalVerifiedSourceUrlOverride(sourceUrl: string | undefined, override: string | undefined): string | null {
+  const current = sourceUrl ? canonicalizeContentUrl(sourceUrl) : null;
+  if (override === undefined) return current;
+  const canonicalOverride = canonicalizeContentUrl(override);
+  if (!current
+    || !canonicalOverride
+    || new URL(canonicalOverride).protocol !== "https:"
+    || !isOfficialContentUrl(canonicalOverride, current)) {
+    throw new Error("CONTENT_RECONCILIATION_VERIFIED_SOURCE_URL_OVERRIDE_INVALID");
+  }
+  return canonicalOverride;
+}
+
 export function reconciliationPreimageHash(document: Record<string, unknown>): string {
   return createHash("sha256").update(stableStringify(document)).digest("hex");
 }
 
 export function sourceReconciliationPreimageHash(document: Record<string, unknown>): string {
-  return reconciliationPreimageHash(pickFields(document, sourceFields));
+  return reconciliationPreimageHash(pickFields(document, SOURCE_RECONCILIATION_PREIMAGE_FIELDS));
 }
 
 export function itemReconciliationPreimageHash(document: Record<string, unknown>): string {
-  return reconciliationPreimageHash(pickFields(document, itemFields));
+  return reconciliationPreimageHash(pickFields(document, ITEM_RECONCILIATION_PREIMAGE_FIELDS));
+}
+
+export function reconciliationPreimageFilter(
+  document: Record<string, unknown>,
+  documentType: "source" | "item"
+): Record<string, unknown> {
+  const fields = documentType === "source"
+    ? SOURCE_RECONCILIATION_PREIMAGE_FIELDS
+    : ITEM_RECONCILIATION_PREIMAGE_FIELDS;
+  return Object.fromEntries(fields.map((field) => [
+    field,
+    document[field] === undefined
+      ? { $exists: false }
+      : { $exists: true, $eq: document[field] }
+  ]));
 }
 
 export function toMongoReconciliationSet(
@@ -520,8 +595,22 @@ function byId<T extends { id: string }>(left: T, right: T): number {
   return left.id.localeCompare(right.id, "en-US");
 }
 
-const sourceFields = ["sourceName", "sourceUrl", "canonicalUrl", "homepageUrl", "status", "trustStatus", "trustReasonCodes", "duplicateOfId", "discoveredAt"] as const;
-const itemFields = [
+export const SOURCE_RECONCILIATION_PREIMAGE_FIELDS = [
+  "scopeType",
+  "scopeId",
+  "contentType",
+  "sourceName",
+  "sourceUrl",
+  "canonicalUrl",
+  "homepageUrl",
+  "status",
+  "trustStatus",
+  "trustReasonCodes",
+  "duplicateOfId",
+  "discoveredAt"
+] as const;
+export const ITEM_RECONCILIATION_PREIMAGE_FIELDS = [
+  "sourceId",
   "sourceName",
   "contentType",
   "scopeType",
@@ -544,3 +633,5 @@ const itemFields = [
   "dedupeKey",
   "duplicateOfId"
 ] as const;
+const sourceFields = SOURCE_RECONCILIATION_PREIMAGE_FIELDS;
+const itemFields = ITEM_RECONCILIATION_PREIMAGE_FIELDS;

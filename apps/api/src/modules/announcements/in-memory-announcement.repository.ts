@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { canonicalContentKey, canonicalizeContentUrl, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
+import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, createAnnouncementSourceCandidateId, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class InMemoryAnnouncementRepository implements AnnouncementRepository {
@@ -56,7 +56,10 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
     if (!canonicalUrl || !officialDomainForUrl(canonicalUrl)) throw new Error("ANNOUNCEMENT_SOURCE_URL_NOT_OFFICIAL");
     const homepageUrl = input.homepageUrl ? canonicalizeContentUrl(input.homepageUrl) : undefined;
     if (input.homepageUrl && (!homepageUrl || !isOfficialContentUrl(canonicalUrl, homepageUrl))) throw new Error("ANNOUNCEMENT_SOURCE_DOMAIN_MISMATCH");
-    const duplicate = [...this.sources.values()].find((source) => source.scopeType === input.scopeType && source.scopeId === input.scopeId && canonicalContentKey(source.canonicalUrl ?? source.sourceUrl) === canonicalContentKey(canonicalUrl));
+    const identityKey = canonicalAnnouncementSourceIdentityKey(canonicalUrl);
+    const duplicate = [...this.sources.values()].find((source) => source.scopeType === input.scopeType
+      && source.scopeId === input.scopeId
+      && canonicalAnnouncementSourceIdentityKey(source.canonicalUrl ?? source.sourceUrl) === identityKey);
     const id = input.id ?? duplicate?.id ?? randomUUID();
     const now = new Date();
     const existing = this.sources.get(id);
@@ -68,13 +71,40 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
       canonicalUrl,
       ...(homepageUrl ? { homepageUrl } : {}),
       discoveredAt: existing?.discoveredAt ?? input.discoveredAt ?? existing?.createdAt ?? now,
-      trustStatus: input.trustStatus ?? existing?.trustStatus ?? "trusted",
+      trustStatus: input.trustStatus ?? existing?.trustStatus ?? "quarantined",
       id,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
     this.sources.set(id, source);
     return source;
+  }
+
+  async insertQuarantinedSourceCandidate(input: AnnouncementSourceCandidateInput): Promise<AnnouncementSourceRecord> {
+    const canonicalUrl = canonicalizeContentUrl(input.sourceUrl);
+    if (!canonicalUrl || !officialDomainForUrl(canonicalUrl)) throw new Error("ANNOUNCEMENT_SOURCE_URL_NOT_OFFICIAL");
+    const homepageUrl = input.homepageUrl ? canonicalizeContentUrl(input.homepageUrl) : undefined;
+    if (input.homepageUrl && (!homepageUrl || !isOfficialContentUrl(canonicalUrl, homepageUrl))) throw new Error("ANNOUNCEMENT_SOURCE_DOMAIN_MISMATCH");
+    const identityKey = canonicalAnnouncementSourceIdentityKey(canonicalUrl);
+    const candidateId = createAnnouncementSourceCandidateId({
+      scopeType: input.scopeType,
+      scopeId: input.scopeId,
+      sourceUrl: canonicalUrl
+    });
+    if (!identityKey || !candidateId) throw new Error("ANNOUNCEMENT_SOURCE_CANDIDATE_ID_INVALID");
+    const existing = [...this.sources.values()].find((source) =>
+      source.scopeType === input.scopeType
+      && source.scopeId === input.scopeId
+      && canonicalAnnouncementSourceIdentityKey(source.canonicalUrl ?? source.sourceUrl) === identityKey);
+    if (existing) return existing;
+    return this.upsertSource({
+      ...input,
+      id: candidateId,
+      sourceUrl: canonicalUrl,
+      ...(homepageUrl ? { homepageUrl } : {}),
+      status: "inactive",
+      trustStatus: "quarantined"
+    });
   }
 
   async recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null> {

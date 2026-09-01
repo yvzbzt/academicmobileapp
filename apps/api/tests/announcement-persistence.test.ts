@@ -3,6 +3,158 @@ import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-
 import { MongoAnnouncementRepository } from "../src/modules/announcements/mongo-announcement.repository.js";
 import type { AnnouncementItem, AnnouncementSourceRecord } from "../src/modules/announcements/announcements.types.js";
 
+describe("announcement source trust persistence", () => {
+  it("quarantines new in-memory sources unless trust is explicit and preserves existing decisions on omitted updates", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const created = await repository.upsertSource(sourceInputWithoutTrust());
+
+    expect(created.trustStatus).toBe("quarantined");
+    expect(await repository.listAllSources({ status: "active" })).toEqual([]);
+
+    const rejected = await repository.upsertSource({
+      ...sourceInputWithoutTrust(),
+      id: created.id,
+      trustStatus: "rejected"
+    });
+    const updatedWithoutTrust = await repository.upsertSource({
+      ...sourceInputWithoutTrust(),
+      id: created.id,
+      sourceName: "Updated source name"
+    });
+
+    expect(rejected.trustStatus).toBe("rejected");
+    expect(updatedWithoutTrust).toEqual(expect.objectContaining({
+      id: created.id,
+      sourceName: "Updated source name",
+      trustStatus: "rejected"
+    }));
+
+    const beforeCandidateInsert = JSON.stringify(updatedWithoutTrust);
+    const existingCandidate = await repository.insertQuarantinedSourceCandidate(sourceCandidateInput());
+    const missingCandidate = await repository.insertQuarantinedSourceCandidate(sourceCandidateInput("https://www.example.edu.tr/haberler"));
+    expect(JSON.stringify(existingCandidate)).toBe(beforeCandidateInsert);
+    expect(missingCandidate).toEqual(expect.objectContaining({ status: "inactive", trustStatus: "quarantined" }));
+  });
+
+  it("quarantines new Mongo sources and does not overwrite an existing trust decision when omitted", async () => {
+    const store = new FakeAnnouncementSourceModel();
+    const repository = new MongoAnnouncementRepository({} as never);
+    Object.defineProperty(repository, "model", { value: async () => store });
+
+    const created = await repository.upsertSource(sourceInputWithoutTrust());
+    expect(created.trustStatus).toBe("quarantined");
+    expect(store.records[0]?.trustStatus).toBe("quarantined");
+
+    const rejected = await repository.upsertSource({
+      ...sourceInputWithoutTrust(),
+      id: created.id,
+      trustStatus: "rejected"
+    });
+    const updatedWithoutTrust = await repository.upsertSource({
+      ...sourceInputWithoutTrust(),
+      id: created.id,
+      sourceName: "Updated source name"
+    });
+
+    expect(rejected.trustStatus).toBe("rejected");
+    expect(updatedWithoutTrust.trustStatus).toBe("rejected");
+    expect(store.records[0]).toEqual(expect.objectContaining({
+      sourceName: "Updated source name",
+      trustStatus: "rejected"
+    }));
+
+    const beforeCandidateInsert = JSON.stringify(updatedWithoutTrust);
+    const existingCandidate = await repository.insertQuarantinedSourceCandidate(sourceCandidateInput());
+    const missingCandidate = await repository.insertQuarantinedSourceCandidate(sourceCandidateInput("https://www.example.edu.tr/haberler"));
+    expect(JSON.stringify(existingCandidate)).toBe(beforeCandidateInsert);
+    expect(missingCandidate).toEqual(expect.objectContaining({ status: "inactive", trustStatus: "quarantined" }));
+    expect(store.records).toHaveLength(2);
+
+    const [concurrentLeft, concurrentRight] = await Promise.all([
+      repository.insertQuarantinedSourceCandidate(sourceCandidateInput("http://www.example.edu.tr/etkinlikler/")),
+      repository.insertQuarantinedSourceCandidate(sourceCandidateInput("https://example.edu.tr/etkinlikler"))
+    ]);
+    expect(concurrentLeft.id).toBe(concurrentRight.id);
+    expect(store.records).toHaveLength(3);
+
+    const [legacyRegistryCandidate, approvedRegistryCandidate] = await Promise.all([
+      repository.insertQuarantinedSourceCandidate(sourceCandidateInput("https://www.gtu.edu.tr/tr/icerik/9/30904/display.aspx")),
+      repository.insertQuarantinedSourceCandidate(sourceCandidateInput("https://www.gtu.edu.tr/icerik/9/30904/display.aspx"))
+    ]);
+    expect(legacyRegistryCandidate.id).toBe(approvedRegistryCandidate.id);
+    expect(store.records).toHaveLength(4);
+  });
+
+  it.each(["trusted", "rejected", "quarantined"] as const)(
+    "leaves an existing Mongo %s source byte-for-byte unchanged when inserting its alias as a candidate",
+    async (trustStatus) => {
+      const store = new FakeAnnouncementSourceModel();
+      const repository = new MongoAnnouncementRepository({} as never);
+      Object.defineProperty(repository, "model", { value: async () => store });
+      const existing = await repository.upsertSource({
+        ...sourceInputWithoutTrust(),
+        sourceUrl: "https://www.gtu.edu.tr/tr/icerik/9/30904/display.aspx",
+        homepageUrl: "https://www.gtu.edu.tr/",
+        status: trustStatus === "trusted" ? "active" : "inactive",
+        trustStatus,
+        ...(trustStatus === "trusted" ? {} : { trustReasonCodes: ["unofficial_source" as const] })
+      });
+      const before = JSON.stringify(existing);
+
+      const returned = await repository.insertQuarantinedSourceCandidate(
+        sourceCandidateInput("https://www.gtu.edu.tr/icerik/9/30904/display.aspx")
+      );
+
+      expect(JSON.stringify(returned)).toBe(before);
+      expect(JSON.stringify(await repository.findSourceById(existing.id))).toBe(before);
+      expect(store.records).toHaveLength(1);
+    }
+  );
+
+  it("matches a validated source URL upgrade during generic upsert without resetting trust", async () => {
+    const inMemory = new InMemoryAnnouncementRepository();
+    const inMemoryLegacy = await inMemory.upsertSource({
+      ...sourceInputWithoutTrust(),
+      sourceUrl: "https://www.gtu.edu.tr/tr/icerik/9/30904/display.aspx",
+      homepageUrl: "https://www.gtu.edu.tr/",
+      status: "inactive",
+      trustStatus: "rejected"
+    });
+    const inMemoryUpgrade = await inMemory.upsertSource({
+      ...sourceInputWithoutTrust(),
+      sourceUrl: "https://www.gtu.edu.tr/icerik/9/30904/display.aspx",
+      homepageUrl: "https://www.gtu.edu.tr/",
+      status: "inactive"
+    });
+    expect(inMemoryUpgrade).toEqual(expect.objectContaining({
+      id: inMemoryLegacy.id,
+      trustStatus: "rejected"
+    }));
+
+    const store = new FakeAnnouncementSourceModel();
+    const mongo = new MongoAnnouncementRepository({} as never);
+    Object.defineProperty(mongo, "model", { value: async () => store });
+    const mongoLegacy = await mongo.upsertSource({
+      ...sourceInputWithoutTrust(),
+      sourceUrl: "https://www.gtu.edu.tr/tr/icerik/9/30904/display.aspx",
+      homepageUrl: "https://www.gtu.edu.tr/",
+      status: "inactive",
+      trustStatus: "rejected"
+    });
+    const mongoUpgrade = await mongo.upsertSource({
+      ...sourceInputWithoutTrust(),
+      sourceUrl: "https://www.gtu.edu.tr/icerik/9/30904/display.aspx",
+      homepageUrl: "https://www.gtu.edu.tr/",
+      status: "inactive"
+    });
+    expect(mongoUpgrade).toEqual(expect.objectContaining({
+      id: mongoLegacy.id,
+      trustStatus: "rejected"
+    }));
+    expect(store.records).toHaveLength(1);
+  });
+});
+
 describe("announcement normalized persistence identity", () => {
   it("keeps a real in-memory ID across URL aliases and reports material and authoritative-empty deltas", async () => {
     const repository = new InMemoryAnnouncementRepository();
@@ -107,8 +259,21 @@ function sourceInput() {
     contentType: "announcement" as const,
     parser: "auto" as const,
     priority: 20,
-    status: "active" as const
+    status: "active" as const,
+    trustStatus: "trusted" as const
   };
+}
+
+function sourceInputWithoutTrust() {
+  const { trustStatus: _trustStatus, ...input } = sourceInput();
+  void _trustStatus;
+  return input;
+}
+
+function sourceCandidateInput(sourceUrl = "https://www.example.edu.tr/duyurular") {
+  const { status: _status, ...input } = sourceInputWithoutTrust();
+  void _status;
+  return { ...input, sourceUrl, homepageUrl: new URL(sourceUrl).origin };
 }
 
 function mongoSource(): AnnouncementSourceRecord {
@@ -152,6 +317,61 @@ class FakeDocument {
 
   toObject(): Record<string, unknown> {
     return { _id: this.id, ...this.record };
+  }
+}
+
+class FakeAnnouncementSourceModel {
+  records: Array<Record<string, unknown> & { _id: string }> = [];
+  private nextId = 1;
+
+  async findById(id: string): Promise<FakeDocument | null> {
+    const record = this.records.find((candidate) => candidate._id === id);
+    return record ? new FakeDocument(record._id, record) : null;
+  }
+
+  async findOne(filter: Record<string, unknown>): Promise<FakeDocument | null> {
+    const record = this.records.find((candidate) => Object.entries(filter).every(([key, value]) => candidate[key] === value));
+    return record ? new FakeDocument(record._id, record) : null;
+  }
+
+  async find(filter: Record<string, unknown>): Promise<FakeDocument[]> {
+    return this.records
+      .filter((candidate) => Object.entries(filter).every(([key, value]) => candidate[key] === value))
+      .map((candidate) => new FakeDocument(candidate._id, candidate));
+  }
+
+  async create(value: Record<string, unknown>, forcedId?: string): Promise<FakeDocument> {
+    const _id = forcedId ?? `64e${String(this.nextId++).padStart(21, "0")}`;
+    const now = new Date("2026-08-27T00:00:00.000Z");
+    const stored = { ...value, _id, createdAt: now, updatedAt: now };
+    this.records.push(stored);
+    return new FakeDocument(_id, stored);
+  }
+
+  async findByIdAndUpdate(id: string, value: Record<string, unknown>): Promise<FakeDocument | null> {
+    const index = this.records.findIndex((record) => record._id === id);
+    if (index < 0) return null;
+    const stored = { ...this.records[index]!, ...value, _id: id, updatedAt: new Date("2026-08-27T00:01:00.000Z") };
+    this.records[index] = stored;
+    return new FakeDocument(id, stored);
+  }
+
+  async findOneAndUpdate(
+    filter: Record<string, unknown>,
+    update: { $setOnInsert?: Record<string, unknown> },
+    options: { upsert?: boolean }
+  ): Promise<FakeDocument | null> {
+    const matches = (record: Record<string, unknown>) => Object.entries(filter).every(([key, value]) => {
+      if (key === "$or") {
+        return (value as Array<Record<string, unknown>>).some((branch) =>
+          Object.entries(branch).every(([branchKey, branchValue]) => record[branchKey] === branchValue));
+      }
+      return record[key] === value;
+    });
+    const existing = this.records.find(matches);
+    if (existing) return new FakeDocument(existing._id, existing);
+    if (!options.upsert || !update.$setOnInsert) return null;
+    return this.create(update.$setOnInsert, typeof filter._id === "string" ? filter._id : undefined);
   }
 }
 
