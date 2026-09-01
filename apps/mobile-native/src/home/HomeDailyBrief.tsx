@@ -54,6 +54,11 @@ import {
   formatCalendarTemporal,
 } from "../calendar/calendar-time";
 import { academicCalendarDayNumber } from "../temporal/academic-temporal";
+import {
+  officialContentDomain,
+  shortContentCardExcerpt,
+  trustedContentDestinationUrl,
+} from "../announcements/content-card";
 
 export interface HomeDailyBriefProps {
   fullName: string;
@@ -1341,9 +1346,13 @@ function AnnouncementCard({
 }) {
   const theme = useTheme();
   const palette = homeAnnouncementPalette(item);
+  const excerpt = shortContentCardExcerpt(item);
+  const destinationUrl = trustedContentDestinationUrl(item);
+  const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
   return (
     <Card
-      accessibilityLabel={`${item.sourceName}. ${item.title}. ${contentTimestampLabel(item)}. Ayrıntıyı aç.`}
+      accessibilityLabel={`${item.sourceName}. ${homeScopeLabel(item.scopeType)}. ${item.title}. ${contentTimestampLabel(item)}. Resmî duyuruyu aç.`}
+      accessibilityRole="link"
       onPress={() => onPress(item)}
       style={[
         styles.announcementCard,
@@ -1374,17 +1383,23 @@ function AnnouncementCard({
             Güvenilir kaynak
           </Text>
           <Text
+            numberOfLines={2}
+            style={[theme.typography.meta, styles.announcementSourceName, { color: REFERENCE_COLORS.secondary }]}
+          >
+            {item.sourceName}
+          </Text>
+          <Text
             style={[theme.typography.bodyStrong, styles.announcementTitle, { color: REFERENCE_COLORS.navy }]}
           >
             {item.title}
           </Text>
-          {item.summary ? (
+          {excerpt ? (
             <Text
               ellipsizeMode="tail"
-              numberOfLines={2}
+              numberOfLines={3}
               style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
             >
-              {item.summary}
+              {excerpt}
             </Text>
           ) : null}
           <View style={styles.announcementMetaRow}>
@@ -1401,6 +1416,9 @@ function AnnouncementCard({
               {homeScopeLabel(item.scopeType)}
             </Text>
           </View>
+          {destinationDomain ? (
+            <Text numberOfLines={1} style={[theme.typography.navLabel, { color: REFERENCE_COLORS.blue }]}>Resmî kaynak · {destinationDomain}</Text>
+          ) : null}
         </View>
         <Ionicons
           accessibilityElementsHidden
@@ -1776,6 +1794,9 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: "center",
     width: 44,
+  },
+  announcementSourceName: {
+    lineHeight: 17,
   },
   announcementTimestamp: {
     flex: 1,

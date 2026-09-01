@@ -41,6 +41,9 @@ export interface CalendarAcademicEvent {
   location?: string;
   personalKind?: PersonalCalendarKind;
   reminderMinutesBefore?: number;
+  /** Parent calendar or schedule page, validated before it reaches this model. */
+  sourceUrl?: string;
+  sourceLabel?: string;
 }
 
 export interface CalendarPersonalExam {
@@ -80,6 +83,7 @@ export interface CalendarItem {
   location?: string;
   personalKind?: PersonalCalendarKind;
   reminderMinutesBefore?: number;
+  sourceUrl?: string;
 }
 
 export type CalendarPresentationState =
@@ -232,7 +236,9 @@ export function buildCalendarItems(input: {
       classificationLabel: classificationLabel(classification),
       icon: classificationIcon(classification),
       source: "academic",
-      sourceLabel: cleanText(input.academicSourceLabel) ?? "Resmî akademik takvim",
+      sourceLabel: (event.sourceLabel ? cleanText(event.sourceLabel) : null)
+        ?? cleanText(input.academicSourceLabel)
+        ?? "Resmî akademik takvim",
       startDate: event.startDate,
       ...(event.endDate ? { endDate: event.endDate } : {}),
       temporalKind,
@@ -243,6 +249,7 @@ export function buildCalendarItems(input: {
       ...(event.departmentId ? { departmentId: event.departmentId } : {}),
       ...(description ? { description } : {}),
       ...(location ? { location } : {}),
+      ...(event.sourceUrl ? { sourceUrl: event.sourceUrl } : {}),
     }];
   });
 

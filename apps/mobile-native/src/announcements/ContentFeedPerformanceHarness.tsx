@@ -83,7 +83,7 @@ function PerformanceFeed() {
         notificationPreferenceEnabled
         notificationActive
         serverLimit={CONTENT_FEED_PERFORMANCE_RECORD_COUNT}
-        onOpenItem={() => undefined}
+        onOpenOfficialSource={() => undefined}
       />
     </View>
   );

@@ -181,7 +181,7 @@ describe("semantic Summer School and YÖK destinations", () => {
     });
     expect(screen.getByText("Bazı YÖK kaynaklarına ulaşılamadı")).toBeVisible();
 
-    fireEvent.press(screen.getByRole("button", { name: /Yükseköğretim Kurulu.*YÖK öğrenci bilgilendirmesi.*Ayrıntıyı aç/u }));
+    fireEvent.press(screen.getByRole("link", { name: /Yükseköğretim Kurulu.*YÖK öğrenci bilgilendirmesi.*Resmî duyuruyu aç/u }));
     expect(yokCallbacks.onOpenItem).toHaveBeenCalledWith(yokRecord);
     fireEvent.press(screen.getByRole("button", { name: "YÖK duyurularını yenile" }));
     expect(yokCallbacks.onRefresh).toHaveBeenCalledTimes(1);
@@ -235,7 +235,7 @@ describe("semantic Summer School and YÖK destinations", () => {
 
     fireEvent.press(screen.getByRole("link", { name: /Başvuru koşulu.*Not dökümünü.*Resmî kaynağı aç/u }));
     expect(summerCallbacks.onOpenOfficialSource).toHaveBeenCalledWith("https://example.edu.tr/yaz-okulu/basvuru");
-    fireEvent.press(screen.getByRole("button", { name: /Yaz okulu duyurusu.*Yaz okulu başvuruları.*Ayrıntıyı aç/u }));
+    fireEvent.press(screen.getByRole("link", { name: /Yaz okulu duyurusu.*Yaz okulu başvuruları.*Resmî duyuruyu aç/u }));
     expect(summerCallbacks.onOpenAnnouncement).toHaveBeenCalledWith(expect.objectContaining({ id: "summer" }));
     fireEvent.press(screen.getByRole("link", { name: /Başka Üniversite.*Resmî kaynağı aç/u }));
     expect(summerCallbacks.onOpenOfficialSource).toHaveBeenCalledWith("https://other.edu.tr/yaz-okulu");

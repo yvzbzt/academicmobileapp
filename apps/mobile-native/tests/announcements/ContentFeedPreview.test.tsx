@@ -4,12 +4,14 @@ import {
   renderAsync,
   screen,
 } from "@testing-library/react-native";
-import { Linking } from "react-native";
+import { Alert, Linking } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   CONTENT_FEED_PREVIEW_LONG_FEED_SIZE,
   CONTENT_FEED_PREVIEW_SCENARIOS,
   ContentFeedPreview,
   createContentFeedPreviewFixture,
+  resolveContentFeedPreviewSafeAreaMetrics,
   type ContentFeedPreviewScenario,
 } from "../../src/announcements/ContentFeedPreview";
 import {
@@ -30,6 +32,20 @@ async function settleVirtualizedList(): Promise<void> {
 
 describe("Phase 8 synthetic content-feed preview", () => {
   beforeEach(() => jest.clearAllMocks());
+
+  it("uses native capture insets and a conservative deterministic fallback", () => {
+    const threeButtonAndroidMetrics = {
+      frame: { x: 0, y: 0, width: 360, height: 800 },
+      insets: { top: 24, right: 0, bottom: 48, left: 0 },
+    };
+
+    expect(resolveContentFeedPreviewSafeAreaMetrics(threeButtonAndroidMetrics))
+      .toBe(threeButtonAndroidMetrics);
+    expect(resolveContentFeedPreviewSafeAreaMetrics(null)).toEqual({
+      frame: { x: 0, y: 0, width: 390, height: 844 },
+      insets: { top: 47, right: 0, bottom: 34, left: 0 },
+    });
+  });
 
   it("publishes the complete stable scenario inventory", () => {
     expect(CONTENT_FEED_PREVIEW_SCENARIOS).toEqual([
@@ -141,7 +157,14 @@ describe("Phase 8 synthetic content-feed preview", () => {
 
   it("renders the reference detail without inventing unsupported attachments", async () => {
     const view = await renderAsync(
-      <ContentFeedPreview preference="light" scenario="reference-detail" />,
+      <ContentFeedPreview
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 360, height: 800 },
+          insets: { top: 24, right: 0, bottom: 48, left: 0 },
+        }}
+        preference="light"
+        scenario="reference-detail"
+      />,
     );
     await settleVirtualizedList();
 
@@ -152,9 +175,16 @@ describe("Phase 8 synthetic content-feed preview", () => {
     expect(screen.getByLabelText(
       "Ders kayıtları: 27 Ağustos 2026 – 04 Eylül 2026",
     )).toBeVisible();
-    expect(screen.getByText(/Son gün: 0?4 Eylül 2026/iu)).toBeVisible();
+    expect(screen.queryByText(/Son gün:/iu)).not.toBeOnTheScreen();
     expect(screen.getByText("Önemli Bilgiler")).toBeVisible();
     expect(screen.queryByText(/Ekler\s*\(/iu)).not.toBeOnTheScreen();
+    expect(screen.UNSAFE_getByType(SafeAreaView).props.edges).toEqual([
+      "left",
+      "right",
+      "bottom",
+    ]);
+    expect(screen.getByTestId("phase8-announcement-detail-safe-area"))
+      .toHaveStyle({ flex: 1 });
     await view.unmountAsync();
   });
 
@@ -206,25 +236,25 @@ describe("Phase 8 synthetic content-feed preview", () => {
     },
   );
 
-  it("opens detail and returns to the mounted feed with search state retained", async () => {
+  it("keeps the feed mounted while explaining the production direct handoff", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     const view = await renderAsync(
       <ContentFeedPreview preference="light" scenario="search-results" />,
     );
 
     expect(screen.getByDisplayValue("burs")).toBeOnTheScreen();
     await settleVirtualizedList();
-    fireEvent.press(
-      screen.getByRole("button", {
-        name: /Burs başvuruları için güncel belge listesi yayımlandı/iu,
-      }),
-    );
-    expect(
-      screen.getByRole("header", {
-        name: "Burs başvuruları için güncel belge listesi yayımlandı",
-      }),
-    ).toBeOnTheScreen();
-    fireEvent.press(
-      screen.getByRole("button", { name: "Duyurulara geri dön" }),
+    await act(async () => {
+      fireEvent.press(
+        screen.getByRole("link", {
+          name: /Burs başvuruları için güncel belge listesi yayımlandı/iu,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(alert).toHaveBeenCalledWith(
+      "Resmî kaynak",
+      expect.stringMatching(/gerçek uygulamada.*doğrudan resmî bağlantıyı açar/iu),
     );
     expect(screen.getByDisplayValue("burs")).toBeOnTheScreen();
     await view.unmountAsync();

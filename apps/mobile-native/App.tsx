@@ -197,6 +197,7 @@ import {
 } from "./src/profile/ProfileSettings";
 import {
   FollowedUniversitiesSettingsScreen,
+  selectAdditionalUniversityFollows,
   type FollowedUniversityRecord,
 } from "./src/profile/FollowedUniversitiesSettings";
 import {
@@ -225,6 +226,7 @@ import {
   type TrustedMobileContentRecord
 } from "./src/content/content-trust";
 import { HomeDailyBrief } from "./src/home/HomeDailyBrief";
+import { shortContentCardExcerpt } from "./src/announcements/content-card";
 import { selectExamCountdownItems } from "./src/home/home-model";
 import { CalendarExperience } from "./src/calendar/CalendarExperience";
 import { CalendarEventDetail } from "./src/calendar/CalendarEventDetail";
@@ -502,6 +504,7 @@ type CalendarRecord = {
   title: string;
   academicYear: string;
   status: string;
+  sourceUrl?: string;
 };
 
 type EventRecord = {
@@ -519,6 +522,8 @@ type EventRecord = {
   universityId?: string;
   facultyId?: string;
   departmentId?: string;
+  sourceUrl?: string;
+  sourceLabel?: string;
 };
 
 type CalendarPayload = {
@@ -645,7 +650,7 @@ const LEGACY_GOOGLE_CALENDAR_STORAGE_KEY = "native_google_calendar_connection";
 const GOOGLE_CALENDAR_V2_STORAGE_PREFIX = "native_google_calendar_connection_v2";
 const GOOGLE_CALENDAR_STORAGE_PREFIX = "native_google_calendar_connection_v3";
 // Sourced from app.json; kept visible here so Profile never reports a package-only placeholder.
-const NATIVE_APP_VERSION = "0.1.2";
+const NATIVE_APP_VERSION = "0.1.4";
 const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 const DEFAULT_REMINDER_RULES: NonNullable<NotificationPreferencePayload["reminderRules"]> = [
   { trigger: "before", amount: 7, unit: "days", enabled: true },
@@ -1032,11 +1037,14 @@ function normalizeEventRecordsForDisplay(events: EventRecord[]): EventRecord[] {
 }
 
 function normalizeCalendarPayloadForDisplay(payload: CalendarPayload): CalendarPayload {
+  const { sourceUrl: rawSourceUrl, ...calendarRecord } = payload.calendar;
+  const sourceUrl = canonicalizeOfficialAcademicUrl(rawSourceUrl);
   return {
     ...payload,
     calendar: {
-      ...payload.calendar,
-      title: normalizeDisplayText(payload.calendar.title) || "Akademik takvim"
+      ...calendarRecord,
+      title: normalizeDisplayText(payload.calendar.title) || "Akademik takvim",
+      ...(sourceUrl ? { sourceUrl } : {})
     },
     events: normalizeEventRecordsForDisplay(payload.events)
   };
@@ -1667,10 +1675,19 @@ function MainApplication() {
   );
   const universityAcademicCalendarEvents = useMemo(
     () => [
-      ...selectUniversityAcademicCalendarEvents(calendar.data?.events ?? []),
-      ...(courseSchedule.data?.events ?? [])
+      ...selectUniversityAcademicCalendarEvents(calendar.data?.events ?? []).map((event) => ({
+        ...event,
+        ...(calendar.data?.calendar.sourceUrl ? { sourceUrl: calendar.data.calendar.sourceUrl } : {})
+      })),
+      ...(courseSchedule.data?.events ?? []).map((event) => ({
+        ...event,
+        sourceLabel: "Bölüm ders programı",
+        ...(courseSchedule.data?.profile.facultyId ? { facultyId: courseSchedule.data.profile.facultyId } : {}),
+        ...(courseSchedule.data?.profile.departmentId ? { departmentId: courseSchedule.data.profile.departmentId } : {}),
+        ...(courseSchedule.data?.sourceUrl ? { sourceUrl: courseSchedule.data.sourceUrl } : {})
+      }))
     ],
-    [calendar.data?.events, courseSchedule.data?.events]
+    [calendar.data, courseSchedule.data]
   );
   const summerSchoolAnnouncements = useMemo(
     () => normalizeTrustedContentCollection([
@@ -1746,6 +1763,14 @@ function MainApplication() {
   const selectedUniversity = useMemo(
     () => (universities.data ?? []).find((item) => item.id === registerUniversityId),
     [universities.data, registerUniversityId]
+  );
+
+  const additionalFollowedUniversities = useMemo(
+    () => selectAdditionalUniversityFollows(
+      followedUniversities.data ?? [],
+      selectedUniversityId || registerUniversityId,
+    ),
+    [followedUniversities.data, registerUniversityId, selectedUniversityId],
   );
 
   const selectedFaculty = useMemo(
@@ -2240,7 +2265,17 @@ function MainApplication() {
             })[0]
           : destinationCalendarEvent
           ? buildCalendarItems({
-            academicEvents: [destinationCalendarEvent],
+            academicEvents: [{
+              ...destinationCalendarEvent,
+              ...(destinationCalendarEvent.category === "course_schedule"
+                ? { sourceLabel: "Bölüm ders programı" }
+                : {}),
+              ...(destinationCalendarEvent.category === "course_schedule" && courseSchedule.data?.sourceUrl
+                ? { sourceUrl: courseSchedule.data.sourceUrl }
+                : calendar.data?.calendar.sourceUrl
+                  ? { sourceUrl: calendar.data.calendar.sourceUrl }
+                  : {})
+            }],
             personalExams: [],
             academicSourceLabel: calendar.data?.calendar.title
               ?? selectedUniversity?.name
@@ -5844,7 +5879,15 @@ function MainApplication() {
     await withLoadable(
       setCourseSchedule,
       () => apiRequest<DepartmentSchedulePayload>("/calendar/my/course-schedules", {}, token, { ownerSnapshot })
-        .then((payload) => ({ ...payload, events: normalizeEventRecordsForDisplay(payload.events) })),
+        .then((payload) => {
+          const { sourceUrl: rawSourceUrl, ...safePayload } = payload;
+          const sourceUrl = canonicalizeOfficialAcademicUrl(rawSourceUrl);
+          return {
+            ...safePayload,
+            events: normalizeEventRecordsForDisplay(payload.events),
+            ...(sourceUrl ? { sourceUrl } : {})
+          };
+        }),
       ownerSnapshot,
       preserveDataOnRefresh
     );
@@ -6220,10 +6263,10 @@ function MainApplication() {
     const ownerSnapshot = accountGuardRef.current.capture();
     if (!currentSession || !ownerSnapshot || followedUniversityBusyId) return;
 
-    const existing = (followedUniversities.data ?? []).find(
+    const existingUniversityLevelFollows = (followedUniversities.data ?? []).filter(
       (scope) => scope.universityId === universityId && !scope.facultyId && !scope.departmentId
     );
-    if (shouldFollow === Boolean(existing)) return;
+    if (shouldFollow === (existingUniversityLevelFollows.length > 0)) return;
 
     setFollowedUniversityBusyId(universityId);
     try {
@@ -6241,19 +6284,31 @@ function MainApplication() {
           stale: false,
           data: [...(previous.data ?? []).filter((scope) => scope.id !== created.id), created]
         }));
-      } else if (existing) {
-        await trackAuthenticatedMutation(() => apiRequest<{ id: string; removed: true }>(
-          `/me/follows/${encodeURIComponent(existing.id)}`,
-          { method: "DELETE" },
-          currentSession.accessToken,
-          { ownerSnapshot }
-        ));
+      } else if (existingUniversityLevelFollows.length > 0) {
+        const followIds = [...new Set(existingUniversityLevelFollows.map((scope) => scope.id))];
+        await trackAuthenticatedMutation(() => Promise.all(followIds.map(async (followId) => {
+          try {
+            return await apiRequest<{ id: string; removed: true }>(
+              `/me/follows/${encodeURIComponent(followId)}`,
+              { method: "DELETE" },
+              currentSession.accessToken,
+              { ownerSnapshot }
+            );
+          } catch (error) {
+            if (error instanceof ApiRequestError && error.status === 404) {
+              return { id: followId, removed: true as const };
+            }
+            throw error;
+          }
+        })));
         if (!accountGuardRef.current.isCurrent(ownerSnapshot)) return;
         setFollowedUniversities((previous) => ({
           loading: false,
           attempted: true,
           stale: false,
-          data: (previous.data ?? []).filter((scope) => scope.id !== existing.id)
+          data: (previous.data ?? []).filter((scope) => !(
+            scope.universityId === universityId && !scope.facultyId && !scope.departmentId
+          ))
         }));
       }
 
@@ -7378,34 +7433,25 @@ function MainApplication() {
     }
   }
 
-  function renderAnnouncementCard(
-    item: AnnouncementRecord,
-    origin: "academic" | "yok" | "summer-school"
-  ) {
+  function renderAnnouncementCard(item: AnnouncementRecord) {
+    const excerpt = shortContentCardExcerpt(item);
     return (
       <Pressable
         key={item.canonicalUrl}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.sourceName}. ${item.title}. ${contentTimestampLabel(item)}. Ayrıntıyı aç.`}
+        accessibilityRole="link"
+        accessibilityLabel={`${item.sourceName}. ${item.title}. ${contentTimestampLabel(item)}. Resmî duyuruyu aç.`}
         style={styles.announcementCard}
-        onPress={() => {
-          const detailItem = contentFeedDetailItem(item, origin);
-          if (!detailItem) {
-            setMessage({ text: "Bu içerik güvenilir ayrıntı sınırında doğrulanamadı.", tone: "error" });
-            return;
-          }
-          openContentFeedItem(detailItem);
-        }}
+        onPress={() => void openAnnouncement(item.canonicalUrl)}
       >
         <View style={styles.announcementTopRow}>
           <Text style={styles.announcementSourcePill}>{item.sourceName}</Text>
           <Text style={styles.announcementDate}>{contentTimestampLabel(item)}</Text>
         </View>
         <Text style={styles.announcementTitle}>{item.title}</Text>
-        {item.summary && <Text style={styles.announcementSummary}>{item.summary}</Text>}
+        {excerpt && <Text style={styles.announcementSummary}>{excerpt}</Text>}
         <View style={styles.announcementActionRow}>
-          <Text style={styles.linkText}>Ayrıntıyı aç</Text>
-          <Ionicons name="chevron-forward" size={16} color="#2563eb" />
+          <Text style={styles.linkText}>Resmî kaynağa git</Text>
+          <Ionicons name="open-outline" size={16} color="#2563eb" />
         </View>
       </Pressable>
     );
@@ -8892,7 +8938,7 @@ function MainApplication() {
                         </View>
                       );
                     })}
-                    {summerSchoolAnnouncements.map((item) => renderAnnouncementCard(item, "summer-school"))}
+                    {summerSchoolAnnouncements.map((item) => renderAnnouncementCard(item))}
 
                     {summerSchool.attempted && !summerSchool.loading && !summerSchool.error && (summerSchool.data?.requirements ?? []).length === 0 && summerSchoolAnnouncements.length === 0 && (
                       <View style={styles.emptyStatePanel}>
@@ -8972,7 +9018,7 @@ function MainApplication() {
               {yokAnnouncements.loading && <ActivityIndicator color="#0f5f80" style={styles.loader} />}
               {yokAnnouncements.error && <Text style={styles.errorText}>{yokAnnouncements.error}</Text>}
               {yokAvailabilityMessage && <Text style={styles.caption}>{yokAvailabilityMessage}</Text>}
-              {yokAnnouncementItems.map((item) => renderAnnouncementCard(item, "yok"))}
+              {yokAnnouncementItems.map((item) => renderAnnouncementCard(item))}
 
               {yokAnnouncements.attempted && !yokAnnouncements.loading && !yokAnnouncements.error && yokAnnouncementItems.length === 0 && (
                 <View style={styles.emptyStatePanel}>
@@ -9358,9 +9404,7 @@ function MainApplication() {
       onOpenAccountMenu={() => setAccountDrawerVisible(true)}
       onCompleteProfile={() => requestAppRoute("AcademicProfileSettings")}
       onOpenAnnouncement={(item) => {
-        const detailItem = contentFeedDetailItem(item, "academic");
-        if (!detailItem) return;
-        openContentFeedItem(detailItem);
+        void openAnnouncement(item.canonicalUrl);
       }}
       onOpenAnnouncements={() => requestAppRoute("Announcements")}
       onOpenCalendar={() => requestAppRoute("Calendar")}
@@ -9401,7 +9445,7 @@ function MainApplication() {
       onRetry={() => void refreshContentFeed()}
       onLoadMore={() => void loadMoreContentFeed()}
       onRetryPagination={() => void loadMoreContentFeed()}
-      onOpenItem={openContentFeedItem}
+      onOpenOfficialSource={openAnnouncement}
       onOpenAccountMenu={() => setAccountDrawerVisible(true)}
       onOpenNotificationSettings={() => requestAppRoute("NotificationSettings")}
       onOpenYok={() => requestAppRoute("YokAnnouncements")}
@@ -9465,12 +9509,7 @@ function MainApplication() {
       events={summerSchoolEvents}
       feedback={announcementDestinationFeedback}
       onOpenAnnouncement={(item) => {
-        const detailItem = contentFeedDetailItem(item, "summer-school");
-        if (!detailItem) {
-          setMessage({ text: "Bu içerik güvenilir ayrıntı sınırında doğrulanamadı.", tone: "error" });
-          return;
-        }
-        openContentFeedItem(detailItem);
+        void openAnnouncement(item.canonicalUrl);
       }}
       onOpenOfficialSource={(url) => openAnnouncement(url)}
       onRefresh={() => void refreshSummerSchool()}
@@ -9490,12 +9529,7 @@ function MainApplication() {
       items={yokAnnouncementItems}
       loading={yokAnnouncements.loading}
       onOpenItem={(item) => {
-        const detailItem = contentFeedDetailItem(item, "yok");
-        if (!detailItem) {
-          setMessage({ text: "Bu içerik güvenilir ayrıntı sınırında doğrulanamadı.", tone: "error" });
-          return;
-        }
-        openContentFeedItem(detailItem);
+        void openAnnouncement(item.canonicalUrl);
       }}
       onRefresh={() => void refreshContentFeed()}
       refreshDisabled={busy}
@@ -9622,6 +9656,7 @@ function MainApplication() {
       universityName={selectedUniversity?.name}
       facultyName={selectedFaculty?.name}
       departmentName={selectedDepartment?.name}
+      onOpenOfficialSource={openAnnouncement}
       onUpdatePersonalExam={updatePersonalExam}
       onDeletePersonalExam={deletePersonalExam}
     />
@@ -9701,9 +9736,7 @@ function MainApplication() {
         email={email}
         error={academicProfileSummary.nameResolutionPending ? universities.error : undefined}
         fullName={fullName}
-        followedUniversityCount={(followedUniversities.data ?? []).filter(
-          (scope) => !scope.facultyId && !scope.departmentId
-        ).length}
+        followedUniversityCount={additionalFollowedUniversities.length}
         googleAccountEmail={googleCalendarIntegration?.accountEmail}
         googleCalendar={googleCalendarPresentation}
         appleCalendar={Platform.OS === "ios" ? appleCalendarPresentation : undefined}
@@ -9773,9 +9806,7 @@ function MainApplication() {
     <FollowedUniversitiesSettingsScreen
       busyUniversityId={followedUniversityBusyId}
       error={followedUniversities.error ?? universities.error}
-      followed={(followedUniversities.data ?? []).filter(
-        (scope) => !scope.facultyId && !scope.departmentId
-      )}
+      followed={additionalFollowedUniversities}
       loading={followedUniversities.loading || universities.loading}
       onRetry={() => {
         void loadUniversities();

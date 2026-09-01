@@ -51,6 +51,12 @@ import {
   type FeedContentTypeFilter,
   type FeedSourceFilter,
 } from "./feed-model";
+import {
+  officialContentDomain,
+  primaryContentKeyDate,
+  shortContentCardExcerpt,
+  trustedContentDestinationUrl,
+} from "./content-card";
 
 const CONTENT_FILTERS: ReadonlyArray<{
   value: FeedContentTypeFilter;
@@ -136,7 +142,7 @@ export interface AnnouncementsFeedProps {
   onRetry?: () => void;
   onLoadMore?: () => void;
   onRetryPagination?: () => void;
-  onOpenItem: (item: ContentFeedItem) => void;
+  onOpenOfficialSource: (url: string) => void | Promise<unknown>;
   onOpenYok?: () => void;
   onOpenSummerSchool?: () => void;
   onOpenNotificationSettings?: () => void;
@@ -171,7 +177,7 @@ export function AnnouncementsFeed({
   onRetry,
   onLoadMore,
   onRetryPagination,
-  onOpenItem,
+  onOpenOfficialSource,
   onOpenYok,
   onOpenSummerSchool,
   onOpenNotificationSettings,
@@ -316,7 +322,7 @@ export function AnnouncementsFeed({
   const renderItem: ListRenderItem<ContentFeedItem> = ({ item }) => (
     <FeedRow
       item={item}
-      onPress={onOpenItem}
+      onOpenOfficialSource={onOpenOfficialSource}
       stacked={layout.supportsLargeText}
     />
   );
@@ -753,97 +759,142 @@ function SourceDestinationButton({
 
 function FeedRow({
   item,
-  onPress,
+  onOpenOfficialSource,
   stacked,
 }: {
   item: ContentFeedItem;
-  onPress: (item: ContentFeedItem) => void;
+  onOpenOfficialSource: (url: string) => void | Promise<unknown>;
   stacked: boolean;
 }) {
   const theme = useTheme();
   const record = item.record;
   const scopeLabel = scopeAndSourceLabel(item);
-  const categoryLabel = feedRowCategoryLabel(item);
   const typeLabel = CONTENT_TYPE_LABELS[item.contentType];
   const timeLabel = contentTimestampLabel(record);
+  const keyDate = primaryContentKeyDate(record);
   const palette = feedItemPalette(item);
+  const excerpt = shortContentCardExcerpt(record);
+  const destinationUrl = trustedContentDestinationUrl(record);
+  const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
   const rowLabel = [
     record.sourceName,
     scopeLabel,
     typeLabel,
+    keyDate?.text,
     timeLabel,
     record.title,
-    record.summary,
-    "Ayrıntıyı aç",
+    excerpt,
+    destinationDomain,
+    destinationUrl ? "Resmî duyuruyu aç" : "Resmî bağlantı kullanılamıyor",
   ].filter(Boolean).join(". ");
 
   return (
     <Pressable
       accessibilityLabel={rowLabel}
-      accessibilityRole="button"
-      onPress={() => onPress(item)}
+      accessibilityRole={destinationUrl ? "link" : undefined}
+      disabled={!destinationUrl}
+      onPress={destinationUrl ? () => void onOpenOfficialSource(destinationUrl) : undefined}
       style={({ pressed }) => [styles.feedRow, pressed && styles.feedRowPressed]}
       testID={`announcement-feed-item-${item.key}`}
     >
       <View style={[styles.feedAccent, { backgroundColor: palette.accent }]} />
-      <View style={[styles.feedBodyRow, stacked && styles.feedBodyRowStacked]}>
+      <View style={styles.feedSourceRow}>
         <View
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
           style={[
             styles.feedIconTile,
-            stacked && styles.feedIconTileLargeText,
             { backgroundColor: palette.soft },
           ]}
         >
-          <Ionicons color={palette.accent} name={palette.icon} size={36} />
+          <Ionicons color={palette.accent} name={palette.icon} size={22} />
         </View>
-        <View style={[styles.feedCopy, stacked && styles.feedCopyStacked]}>
+        <View style={styles.feedSourceCopy}>
           <Text
-            maxFontSizeMultiplier={stacked ? undefined : 1.35}
+            maxFontSizeMultiplier={stacked ? undefined : 1.25}
             numberOfLines={stacked ? undefined : 2}
-            style={[theme.typography.cardTitle, styles.feedTitle, { color: REFERENCE_COLORS.navy }]}
+            style={[theme.typography.metaStrong, styles.feedSourceName, { color: REFERENCE_COLORS.navy }]}
           >
-            {record.title}
+            {record.sourceName}
           </Text>
-          {record.summary ? (
-            <Text
-              ellipsizeMode="tail"
-              maxFontSizeMultiplier={stacked ? undefined : 1.3}
-              numberOfLines={stacked ? undefined : 2}
-              style={[theme.typography.meta, styles.feedSummary, { color: REFERENCE_COLORS.secondary }]}
-            >
-              {record.summary}
-            </Text>
+          <Text style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}>
+            {typeLabel} · {scopeLabel}
+          </Text>
+        </View>
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <Ionicons color={palette.accent} name="shield-checkmark-outline" size={21} />
+        </View>
+      </View>
+
+      <View style={styles.feedCopy}>
+        <Text
+          maxFontSizeMultiplier={stacked ? undefined : 1.35}
+          numberOfLines={stacked ? undefined : 3}
+          style={[theme.typography.cardTitle, styles.feedTitle, { color: REFERENCE_COLORS.navy }]}
+        >
+          {record.title}
+        </Text>
+        {excerpt ? (
+          <Text
+            ellipsizeMode="tail"
+            maxFontSizeMultiplier={stacked ? undefined : 1.3}
+            numberOfLines={stacked ? undefined : 3}
+            style={[theme.typography.meta, styles.feedSummary, { color: REFERENCE_COLORS.secondary }]}
+          >
+            {excerpt}
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={[styles.feedFooterRow, stacked && styles.feedFooterRowStacked]}>
+        <View style={styles.feedMetaColumn}>
+          {keyDate ? (
+            <View style={styles.feedMetaRow}>
+              <Ionicons
+                color={keyDate.kind === "deadline" ? palette.accent : REFERENCE_COLORS.secondary}
+                name={contentKeyDateIcon(keyDate.kind)}
+                size={15}
+              />
+              <Text
+                maxFontSizeMultiplier={1.2}
+                style={[
+                  keyDate.kind === "deadline" ? theme.typography.metaStrong : theme.typography.meta,
+                  styles.timestamp,
+                  { color: keyDate.kind === "deadline" ? palette.accent : REFERENCE_COLORS.secondary },
+                ]}
+              >
+                {keyDate.text}
+              </Text>
+            </View>
           ) : null}
           <View style={styles.feedMetaRow}>
             <Ionicons color={REFERENCE_COLORS.secondary} name="calendar-outline" size={15} />
             <Text
               maxFontSizeMultiplier={1.2}
-              numberOfLines={1}
               style={[theme.typography.meta, styles.timestamp, { color: REFERENCE_COLORS.secondary }]}
             >
               {timeLabel}
             </Text>
           </View>
         </View>
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={[styles.feedActions, stacked && styles.feedActionsStacked]}
-        >
-          <View style={[styles.categoryBadge, { backgroundColor: palette.soft }]}>
+        {destinationDomain ? (
+          <View style={styles.feedLinkAction}>
             <Text
-              maxFontSizeMultiplier={1.15}
+              maxFontSizeMultiplier={1.2}
               numberOfLines={1}
-              style={[theme.typography.navLabel, styles.categoryBadgeLabel, { color: palette.accent }]}
+              style={[theme.typography.metaStrong, styles.feedLinkLabel, { color: palette.accent }]}
             >
-              {categoryLabel}
+              {destinationDomain}
             </Text>
+            <Ionicons color={palette.accent} name="open-outline" size={17} />
           </View>
-          <Ionicons color={REFERENCE_COLORS.secondary} name="chevron-forward" size={22} />
-        </View>
+        ) : null}
       </View>
+      {destinationDomain ? (
+        <Text style={[theme.typography.navLabel, styles.feedLinkPrompt, { color: palette.accent }]}>Resmî kaynağa git</Text>
+      ) : (
+        <Text style={[theme.typography.meta, styles.feedLinkPrompt, { color: REFERENCE_COLORS.secondary }]}>Resmî bağlantı kullanılamıyor</Text>
+      )}
     </Pressable>
   );
 }
@@ -868,6 +919,15 @@ function feedItemPalette(item: ContentFeedItem): {
   return { accent: REFERENCE_COLORS.blue, soft: REFERENCE_COLORS.blueSoft, icon: "megaphone" };
 }
 
+function contentKeyDateIcon(
+  kind: NonNullable<ReturnType<typeof primaryContentKeyDate>>["kind"],
+): keyof typeof Ionicons.glyphMap {
+  if (kind === "deadline") return "hourglass-outline";
+  if (kind === "range") return "calendar-number-outline";
+  if (kind === "start") return "play-circle-outline";
+  return "calendar-outline";
+}
+
 function scopeAndSourceLabel(item: ContentFeedItem): string {
   const familyLabels = [
     item.sourceFamilies.includes("yok") ? "YÖK" : null,
@@ -875,12 +935,6 @@ function scopeAndSourceLabel(item: ContentFeedItem): string {
   ].filter((value): value is string => Boolean(value));
   const scopeLabel = SCOPE_LABELS[item.record.scopeType];
   return [...familyLabels, scopeLabel].join(" · ");
-}
-
-function feedRowCategoryLabel(item: ContentFeedItem): string {
-  if (item.sourceFamilies.includes("summer-school")) return "Yaz Okulu";
-  if (item.sourceFamilies.includes("yok")) return "YÖK";
-  return SCOPE_LABELS[item.record.scopeType];
 }
 
 function AnnouncementReminderBanner({
@@ -1214,53 +1268,53 @@ const styles = StyleSheet.create({
     top: 0,
     width: 5,
   },
-  feedActions: {
-    alignItems: "center",
-    gap: 12,
-    justifyContent: "center",
-    width: 82,
-  },
-  feedActionsStacked: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "flex-end",
-    paddingLeft: 74,
-    width: "100%",
-  },
-  feedBodyRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 11,
-    minWidth: 0,
-  },
-  feedBodyRowStacked: {
-    alignItems: "flex-start",
-    flexWrap: "wrap",
-  },
   feedCopy: {
-    flex: 1,
-    gap: 3,
+    gap: 5,
     minWidth: 0,
-  },
-  feedCopyStacked: {
-    flexBasis: 165,
   },
   feedFooter: {
     gap: 14,
     paddingTop: 14,
   },
+  feedFooterRow: {
+    alignItems: "center",
+    borderTopColor: REFERENCE_COLORS.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    minWidth: 0,
+    paddingTop: 9,
+  },
+  feedFooterRowStacked: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+  },
   feedIconTile: {
     alignItems: "center",
-    borderRadius: 34,
-    height: 68,
+    borderRadius: 20,
+    height: 40,
     justifyContent: "center",
-    width: 68,
+    width: 40,
   },
-  feedIconTileLargeText: {
-    borderRadius: 32,
-    height: 64,
-    width: 64,
+  feedLinkAction: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 5,
+    justifyContent: "flex-end",
+    minWidth: 0,
+  },
+  feedLinkLabel: {
+    flexShrink: 1,
+  },
+  feedLinkPrompt: {
+    alignSelf: "flex-end",
+  },
+  feedMetaColumn: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
   },
   feedMetaRow: {
     alignItems: "center",
@@ -1274,12 +1328,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     elevation: 3,
+    gap: 9,
     marginBottom: 10,
-    minHeight: 112,
-    paddingBottom: 11,
-    paddingLeft: 14,
-    paddingRight: 10,
-    paddingTop: 11,
+    minHeight: 148,
+    paddingBottom: 13,
+    paddingLeft: 16,
+    paddingRight: 14,
+    paddingTop: 13,
     position: "relative",
     shadowColor: REFERENCE_COLORS.navy,
     shadowOffset: { height: 5, width: 0 },
@@ -1290,7 +1345,21 @@ const styles = StyleSheet.create({
     backgroundColor: REFERENCE_COLORS.blueSoft,
   },
   feedSummary: {
-    lineHeight: 17,
+    lineHeight: 18,
+  },
+  feedSourceCopy: {
+    flex: 1,
+    gap: 1,
+    minWidth: 0,
+  },
+  feedSourceName: {
+    lineHeight: 18,
+  },
+  feedSourceRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    minWidth: 0,
   },
   feedTitle: {
     fontSize: 16,
@@ -1498,18 +1567,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     minWidth: 0,
-  },
-  categoryBadge: {
-    alignItems: "center",
-    borderRadius: 14,
-    justifyContent: "center",
-    maxWidth: 82,
-    minHeight: 28,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  categoryBadgeLabel: {
-    flexShrink: 1,
   },
   visuallyHidden: {
     height: 1,

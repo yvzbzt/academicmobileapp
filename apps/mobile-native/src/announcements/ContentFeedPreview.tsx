@@ -4,8 +4,13 @@ import {
   type NativeStackScreenProps,
 } from "@react-navigation/native-stack";
 import { useEffect, useRef, useState } from "react";
-import { View } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { Alert, View } from "react-native";
+import {
+  initialWindowMetrics,
+  SafeAreaProvider,
+  SafeAreaView,
+  type Metrics,
+} from "react-native-safe-area-context";
 import {
   ThemeProvider,
   type ThemePreference,
@@ -39,6 +44,17 @@ export const CONTENT_FEED_PREVIEW_SCENARIOS = [
 ] as const;
 
 export const CONTENT_FEED_PREVIEW_LONG_FEED_SIZE = 100;
+
+const CONTENT_FEED_PREVIEW_SAFE_AREA_FALLBACK: Metrics = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 47, right: 0, bottom: 34, left: 0 },
+};
+
+export function resolveContentFeedPreviewSafeAreaMetrics(
+  metrics: Metrics | null,
+): Metrics {
+  return metrics ?? CONTENT_FEED_PREVIEW_SAFE_AREA_FALLBACK;
+}
 
 export type ContentFeedPreviewScenario =
   (typeof CONTENT_FEED_PREVIEW_SCENARIOS)[number];
@@ -162,6 +178,7 @@ const referenceFacultyAnnouncement = previewRecord({
   scopeId: "reference-ankara-engineering",
   title: "Mühendislik Fakültesi Danışmanlık Toplantısı",
   summary: "Akademik danışmanlık toplantıları 2 Haziran itibarıyla başlayacaktır.",
+  keyDates: [{ label: "Toplantı başlangıcı", startDate: "2026-06-02" }],
   publicationKind: "date",
   publishedDate: "2026-05-21",
   path: "muhendislik/duyurular/danismanlik-toplantisi",
@@ -175,6 +192,10 @@ const referenceDepartmentAnnouncement = previewRecord({
   scopeId: "reference-ankara-computer-engineering",
   title: "Bilgisayar Mühendisliği Bitirme Projesi Teslim Tarihleri",
   summary: "Bitirme projelerinin ön teslimi 10 Haziran’da, son teslimi 24 Haziran’da yapılacaktır.",
+  keyDates: [
+    { label: "Ön teslim son tarihi", startDate: "2026-06-10" },
+    { label: "Son teslim tarihi", startDate: "2026-06-24" },
+  ],
   publicationKind: "date",
   publishedDate: "2026-05-20",
   path: "bilgisayar-muhendisligi/duyurular/bitirme-projesi-teslim-tarihleri",
@@ -187,6 +208,7 @@ const referenceYokAnnouncement = previewRecord({
   scopeId: "yok-council-of-higher-education",
   title: "YÖK: Ulusal Staj Programı Duyurusu",
   summary: "2026 dönemi başvuruları başladı. Son başvuru tarihi 31 Mayıs 2026’dır.",
+  keyDates: [{ label: "Son başvuru tarihi", startDate: "2026-05-31" }],
   publicationKind: "date",
   publishedDate: "2026-05-19",
   origin: "https://www.yok.gov.tr",
@@ -199,6 +221,7 @@ const referenceSummerAnnouncement = previewRecord({
   sourceName: "Ankara Üniversitesi Yaz Okulu Koordinatörlüğü",
   title: "Yaz Okulu Ders Kayıtları Başladı",
   summary: "Yaz okulu ders kayıtları 18 Mayıs – 30 Mayıs 2026 tarihleri arasında alınacaktır.",
+  keyDates: [{ label: "Ders kayıtları", startDate: "2026-05-18", endDate: "2026-05-30" }],
   publicationKind: "date",
   publishedDate: "2026-05-18",
   path: "yaz-okulu/duyurular/ders-kayitlari-2026",
@@ -375,9 +398,11 @@ export function createContentFeedPreviewFixture(
 }
 
 export function ContentFeedPreview({
+  initialMetrics = initialWindowMetrics,
   scenario = "populated",
   preference = "light",
 }: {
+  initialMetrics?: Metrics | null;
   scenario?: ContentFeedPreviewScenario;
   preference?: ThemePreference;
 }) {
@@ -396,17 +421,12 @@ export function ContentFeedPreview({
     yok: [],
     summerSchool: [],
   })[0]!;
-  const [selectedItem, setSelectedItem] = useState<ContentFeedItem>(
-    initialDetail,
-  );
+  const selectedItem: ContentFeedItem = initialDetail;
   const [saved, setSaved] = useState(false);
 
   return (
     <SafeAreaProvider
-      initialMetrics={{
-        frame: { x: 0, y: 0, width: 360, height: 640 },
-        insets: { top: 0, right: 0, bottom: 0, left: 0 },
-      }}
+      initialMetrics={resolveContentFeedPreviewSafeAreaMetrics(initialMetrics)}
     >
       <ThemeProvider preference={preference} reducedMotion>
         <View
@@ -424,20 +444,28 @@ export function ContentFeedPreview({
                   <PreviewFeedRoute
                     fixture={fixture}
                     navigation={navigation}
-                    onSelectItem={setSelectedItem}
                   />
                 )}
               </PreviewStack.Screen>
               <PreviewStack.Screen name="Detail">
                 {({ navigation }) => (
-                  <AnnouncementDetail
-                    item={selectedItem}
-                    onBack={() => navigation.goBack()}
-                    onOpenNotificationSettings={() => undefined}
-                    onOpenOfficialSource={() => Promise.resolve(fixture.officialHandoffResult)}
-                    onToggleSaved={() => setSaved((current) => !current)}
-                    saved={saved}
-                  />
+                  <SafeAreaView
+                    edges={["left", "right", "bottom"]}
+                    style={{ flex: 1 }}
+                    testID="phase8-announcement-detail-safe-area"
+                  >
+                    <AnnouncementDetail
+                      item={selectedItem}
+                      onBack={() => {
+                        if (navigation.canGoBack()) navigation.goBack();
+                        else navigation.replace("Feed");
+                      }}
+                      onOpenNotificationSettings={() => undefined}
+                      onOpenOfficialSource={() => Promise.resolve(fixture.officialHandoffResult)}
+                      onToggleSaved={() => setSaved((current) => !current)}
+                      saved={saved}
+                    />
+                  </SafeAreaView>
                 )}
               </PreviewStack.Screen>
             </PreviewStack.Navigator>
@@ -451,11 +479,9 @@ export function ContentFeedPreview({
 function PreviewFeedRoute({
   fixture,
   navigation,
-  onSelectItem,
 }: {
   fixture: ContentFeedPreviewFixture;
   navigation: NativeStackScreenProps<PreviewStackParamList, "Feed">["navigation"];
-  onSelectItem: (item: ContentFeedItem) => void;
 }) {
   const openedInitialDetail = useRef(false);
 
@@ -490,9 +516,11 @@ function PreviewFeedRoute({
       onRetry={() => undefined}
       onLoadMore={() => undefined}
       onRetryPagination={() => undefined}
-      onOpenItem={(item) => {
-        onSelectItem(item);
-        navigation.navigate("Detail");
+      onOpenOfficialSource={() => {
+        Alert.alert(
+          "Resmî kaynak",
+          "Sentetik önizleme dış uygulama açmaz. Gerçek uygulamada bu kart doğrudan resmî bağlantıyı açar.",
+        );
       }}
       onOpenYok={() => undefined}
       onOpenSummerSchool={() => undefined}

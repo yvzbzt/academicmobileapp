@@ -8,6 +8,7 @@ import {
   ErrorState,
   useTheme,
 } from "../design-system";
+import { canonicalizeOfficialAcademicUrl } from "../content/content-trust";
 import { isDateOnlyValue } from "../temporal/academic-temporal";
 import type { CalendarClassification, CalendarItem } from "./calendar-model";
 import { formatCalendarTemporal } from "./calendar-time";
@@ -26,6 +27,7 @@ export interface CalendarEventDetailProps {
   departmentName?: string;
   /** Used by headerless preview or host stacks that delegate chrome to this screen. */
   onBack?: () => void;
+  onOpenOfficialSource?: (url: string) => void | Promise<unknown>;
   onUpdatePersonalExam: (
     id: string,
     input: PersonalExamMutationInput,
@@ -41,6 +43,7 @@ export function CalendarEventDetail({
   facultyName,
   departmentName,
   onBack,
+  onOpenOfficialSource,
   onUpdatePersonalExam,
   onDeletePersonalExam,
 }: CalendarEventDetailProps) {
@@ -63,11 +66,19 @@ export function CalendarEventDetail({
   const dateOnly = item.temporalKind === "date" || isDateOnlyValue(item.startDate);
   const semanticTime = dateOnly
     ? item.endDate && item.endDate !== item.startDate
-      ? "Tüm gün süren tarih aralığı · son gün dahildir · saat bilgisi verilmemiştir"
-      : "Tüm gün · kaynakta saat bilgisi verilmemiştir"
-    : "Saat, kaynakta belirtilen gerçek zaman bilgisidir";
-  const academicContext = [universityName, facultyName, departmentName].filter(Boolean).join(" · ");
+      ? "Tüm gün · Bitiş günü dâhil · Saat belirtilmemiş"
+      : "Tüm gün · Saat belirtilmemiş"
+    : "Kaynakta belirtilen saat";
   const accentColor = classificationColor(item.classification, theme.colors);
+  const scopeLabel = calendarScopeLabel(item, {
+    universityName,
+    facultyName,
+    departmentName,
+  });
+  const officialSourceUrl = item.source === "academic"
+    ? canonicalizeOfficialAcademicUrl(item.sourceUrl)
+    : null;
+  const officialSourceDomain = officialSourceUrl ? sourceDomain(officialSourceUrl) : null;
 
   const confirmDelete = () => {
     Alert.alert(
@@ -171,61 +182,56 @@ export function CalendarEventDetail({
         </Card>
 
         <Card style={[styles.detailCard, { gap: theme.spacing.sm }]} variant="elevated">
-          <View style={[styles.cardHeading, { gap: theme.spacing.sm }]}>
-            <View
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              style={[
-                styles.cardIcon,
-                {
-                  backgroundColor: theme.colors.action.secondary,
-                  borderRadius: theme.radii.control,
-                },
-              ]}
-            >
-              <Ionicons color={accentColor} name={dateOnly ? "calendar-outline" : "time-outline"} size={21} />
-            </View>
-            <View style={[styles.flexOne, { gap: theme.spacing.xxs }]}>
-              <Text accessibilityRole="header" style={[theme.typography.sectionTitle, { color: theme.colors.text.primary }]}>Tarih ve zaman</Text>
-              <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{formatCalendarTemporal(item)}</Text>
-            </View>
-          </View>
-          <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>{semanticTime}</Text>
-        </Card>
-
-        <Card style={[styles.detailCard, { gap: theme.spacing.sm }]} variant="elevated">
-          <View style={[styles.cardHeading, { gap: theme.spacing.sm }]}>
-            <View
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              style={[
-                styles.cardIcon,
-                {
-                  backgroundColor: theme.colors.action.secondary,
-                  borderRadius: theme.radii.control,
-                },
-              ]}
-            >
-              <Ionicons color={accentColor} name="school-outline" size={21} />
-            </View>
-            <Text accessibilityRole="header" style={[theme.typography.sectionTitle, styles.flexOne, { color: theme.colors.text.primary }]}>Kaynak ve kapsam</Text>
-          </View>
-          <View style={{ gap: theme.spacing.xs }}>
-            <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{item.sourceLabel}</Text>
-            <Text style={[theme.typography.body, { color: theme.colors.text.secondary }]}>
-              {item.source === "personal"
-                ? "Bu kayıt yalnızca açık hesabın cihaz planında saklanır."
-                : academicContext || "Üniversite akademik kapsamı"}
-            </Text>
+          <View style={[styles.infoHeading, { gap: theme.spacing.sm }]}>
+            <Text accessibilityRole="header" style={[theme.typography.sectionTitle, styles.flexOne, { color: theme.colors.text.primary }]}>Etkinlik bilgileri</Text>
             {academicYear && item.source === "academic" ? (
-              <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Akademik yıl: {academicYear}</Text>
+              <View style={[styles.yearBadge, { backgroundColor: theme.colors.background.subtle, borderRadius: theme.radii.pill }]}>
+                <Text style={[theme.typography.metaStrong, { color: theme.colors.text.secondary }]}>{academicYear}</Text>
+              </View>
             ) : null}
-            <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Tür: {item.classificationLabel}</Text>
-            {item.location ? (
-              <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Konum / not: {item.location}</Text>
-            ) : null}
-            <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>Kayıt kimliği: {item.id}</Text>
           </View>
+
+          <CalendarInfoRow
+            accentColor={accentColor}
+            detail={semanticTime}
+            icon={dateOnly ? "calendar-outline" : "time-outline"}
+            label="Tarih ve saat"
+            value={formatCalendarTemporal(item)}
+          />
+          <View style={[styles.infoDivider, { backgroundColor: theme.colors.border.subtle }]} />
+          <CalendarInfoRow
+            accentColor={accentColor}
+            icon="layers-outline"
+            label="Kapsam"
+            value={scopeLabel}
+          />
+          <View style={[styles.infoDivider, { backgroundColor: theme.colors.border.subtle }]} />
+          <CalendarInfoRow
+            accentColor={accentColor}
+            accessibilityLabel={officialSourceUrl
+              ? `${item.sourceLabel}. ${officialSourceDomain}. Resmî takvim kaynağını aç.`
+              : undefined}
+            detail={item.source === "personal"
+              ? "Yalnızca bu hesaptaki kişisel planda saklanır"
+              : officialSourceDomain ?? "Bağlantı paylaşılmamış"}
+            icon="school-outline"
+            label="Kaynak"
+            onPress={officialSourceUrl && onOpenOfficialSource
+              ? () => void onOpenOfficialSource(officialSourceUrl)
+              : undefined}
+            value={item.sourceLabel}
+          />
+          {item.location ? (
+            <>
+              <View style={[styles.infoDivider, { backgroundColor: theme.colors.border.subtle }]} />
+              <CalendarInfoRow
+                accentColor={accentColor}
+                icon="location-outline"
+                label="Konum / not"
+                value={item.location}
+              />
+            </>
+          ) : null}
         </Card>
 
         {item.source === "personal" ? (
@@ -276,6 +282,101 @@ export function CalendarEventDetail({
       ) : null}
     </>
   );
+}
+
+function CalendarInfoRow({
+  accentColor,
+  accessibilityLabel,
+  detail,
+  icon,
+  label,
+  onPress,
+  value,
+}: {
+  accentColor: string;
+  accessibilityLabel?: string;
+  detail?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress?: () => void;
+  value: string;
+}) {
+  const theme = useTheme();
+  const content = (
+    <>
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[
+          styles.infoIcon,
+          {
+            backgroundColor: theme.colors.action.secondary,
+            borderRadius: theme.radii.control,
+          },
+        ]}
+      >
+        <Ionicons color={accentColor} name={icon} size={20} />
+      </View>
+      <View style={[styles.flexOne, { gap: theme.spacing.xxs }]}>
+        <Text style={[theme.typography.metaStrong, { color: theme.colors.text.secondary }]}>{label}</Text>
+        <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{value}</Text>
+        {detail ? (
+          <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{detail}</Text>
+        ) : null}
+      </View>
+      {onPress ? (
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <Ionicons color={theme.colors.text.link} name="open-outline" size={20} />
+        </View>
+      ) : null}
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="link"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.infoRow,
+          pressed && { backgroundColor: theme.colors.action.ghostPressed },
+        ]}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.infoRow}>{content}</View>;
+}
+
+function calendarScopeLabel(
+  item: CalendarItem,
+  context: {
+    universityName?: string;
+    facultyName?: string;
+    departmentName?: string;
+  },
+): string {
+  if (item.source === "personal") return "Kişisel plan";
+  if (item.departmentId) return context.departmentName
+    ? `Bölüm · ${context.departmentName}`
+    : "Bölüm";
+  if (item.facultyId) return context.facultyName
+    ? `Fakülte · ${context.facultyName}`
+    : "Fakülte";
+  return context.universityName
+    ? `${context.universityName} · Üniversite geneli`
+    : "Üniversite geneli";
+}
+
+function sourceDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./u, "");
+  } catch {
+    return "Resmî kaynak";
+  }
 }
 
 function classificationColor(
@@ -351,15 +452,28 @@ const styles = StyleSheet.create({
   detailCard: {
     alignSelf: "stretch",
   },
-  cardHeading: {
+  infoHeading: {
     alignItems: "center",
     flexDirection: "row",
+    flexWrap: "wrap",
   },
-  cardIcon: {
+  infoDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 52,
+  },
+  infoIcon: {
     alignItems: "center",
-    height: 42,
+    height: 40,
     justifyContent: "center",
-    width: 42,
+    width: 40,
+  },
+  infoRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 56,
+    minWidth: 0,
+    paddingVertical: 5,
   },
   flexOne: {
     flex: 1,
@@ -368,5 +482,9 @@ const styles = StyleSheet.create({
   actions: {
     alignSelf: "stretch",
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  yearBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
 });

@@ -86,6 +86,7 @@ const academicEvents = [
     endDate: "2026-08-07",
     temporalKind: "date" as const,
     endTemporalKind: "date" as const,
+    sourceUrl: "https://kampus.edu.tr/akademik-takvim/2026-2027.pdf",
   },
   {
     id: "preview-final",
@@ -314,12 +315,19 @@ function CalendarPreviewExperience({
                   departmentName="Bilgisayar Mühendisliği"
                   facultyName="Mühendislik Fakültesi"
                   item={selectedItem}
-                  onBack={() => navigation.goBack()}
+                  onBack={() => {
+                    if (navigation.canGoBack()) navigation.goBack();
+                    else navigation.replace("Calendar");
+                  }}
                   onDeletePersonalExam={(id) => {
                     const result = deleteExam(id);
-                    if (result.ok) navigation.goBack();
+                    if (result.ok) {
+                      if (navigation.canGoBack()) navigation.goBack();
+                      else navigation.replace("Calendar");
+                    }
                     return result;
                   }}
+                  onOpenOfficialSource={() => undefined}
                   onUpdatePersonalExam={updateExam}
                   universityName="Kampüs Üniversitesi"
                 />

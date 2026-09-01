@@ -81,7 +81,10 @@ export function HomeDailyBriefPreview({
               {({ navigation }) => (
                 <PreviewDetail
                   title={selectedAnnouncement?.title ?? "Güvenilir duyuru"}
-                  onBack={() => navigation.goBack()}
+                  onBack={() => {
+                    if (navigation.canGoBack()) navigation.goBack();
+                    else navigation.replace("Home");
+                  }}
                 />
               )}
             </PreviewStack.Screen>

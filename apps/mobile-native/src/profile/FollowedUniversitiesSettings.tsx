@@ -38,6 +38,28 @@ export interface FollowedUniversitiesSettingsProps {
   onToggle: (universityId: string, followed: boolean) => void | Promise<void>;
 }
 
+/**
+ * Keeps the settings surface aligned with its "additional universities" contract.
+ * Historical data may contain the current primary scope or repeated rows, while
+ * faculty/department follows are managed outside this university-only screen.
+ */
+export function selectAdditionalUniversityFollows(
+  followed: readonly FollowedUniversityRecord[],
+  primaryUniversityId?: string,
+): FollowedUniversityRecord[] {
+  const additionalByUniversityId = new Map<string, FollowedUniversityRecord>();
+  for (const scope of followed) {
+    if (
+      scope.universityId === primaryUniversityId
+      || scope.facultyId
+      || scope.departmentId
+      || additionalByUniversityId.has(scope.universityId)
+    ) continue;
+    additionalByUniversityId.set(scope.universityId, scope);
+  }
+  return [...additionalByUniversityId.values()];
+}
+
 export function FollowedUniversitiesSettingsScreen({
   universities,
   followed,
@@ -50,9 +72,13 @@ export function FollowedUniversitiesSettingsScreen({
 }: FollowedUniversitiesSettingsProps) {
   const theme = useTheme();
   const [query, setQuery] = useState("");
+  const additionalFollows = useMemo(
+    () => selectAdditionalUniversityFollows(followed, primaryUniversityId),
+    [followed, primaryUniversityId],
+  );
   const followedByUniversityId = useMemo(
-    () => new Map(followed.map((scope) => [scope.universityId, scope])),
-    [followed],
+    () => new Map(additionalFollows.map((scope) => [scope.universityId, scope])),
+    [additionalFollows],
   );
   const visibleUniversities = useMemo(() => {
     const normalized = query.normalize("NFKC").trim().toLocaleLowerCase("tr-TR");
@@ -80,7 +106,10 @@ export function FollowedUniversitiesSettingsScreen({
     <View style={[styles.screen, { gap: theme.spacing.md }]}>
       <View style={{ gap: theme.spacing.xxs }}>
         <Text accessibilityRole="header" style={[theme.typography.screenTitle, { color: theme.colors.text.primary }]}>Takip edilen üniversiteler</Text>
-        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{followed.length} ek üniversite</Text>
+        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{additionalFollows.length} ek üniversite</Text>
+        <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
+          Bu seçimler Duyurular ve ana sayfadaki duyuru özetini genişletir. Takvim birincil üniversitene bağlı kalır.
+        </Text>
       </View>
 
       {error ? <Banner actionLabel="Tekrar dene" message={error} onAction={onRetry} title="Takipler yüklenemedi" tone="error" /> : null}
@@ -114,7 +143,7 @@ export function FollowedUniversitiesSettingsScreen({
         ) : null}
       </View>
 
-      {loading && followed.length === 0 ? (
+      {loading && additionalFollows.length === 0 ? (
         <View accessibilityLabel="Üniversite takipleri yükleniyor" accessibilityRole="progressbar" accessibilityState={{ busy: true }} style={styles.loading}>
           <ActivityIndicator color={theme.colors.action.primary} />
         </View>

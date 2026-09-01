@@ -32,7 +32,7 @@ jest.mock("@react-navigation/native", () => ({ useScrollToTop: jest.fn() }));
 
 const callbacks = {
   onLoadMore: jest.fn(),
-  onOpenItem: jest.fn(),
+  onOpenOfficialSource: jest.fn(),
   onOpenNotificationSettings: jest.fn(),
   onOpenSummerSchool: jest.fn(),
   onOpenYok: jest.fn(),
@@ -335,21 +335,62 @@ describe("Phase 8 Announcements feed", () => {
       .toBeOnTheScreen();
     expect(screen.getByTestId("announcements-search-frame")).toHaveStyle({ minHeight: 52 });
 
-    const row = screen.getAllByRole("button", {
-      name: /Örnek Üniversitesi Öğrenci İşleri.*Ders kayıt takvimi açıklandı.*Ayrıntıyı aç/iu,
+    const row = screen.getAllByRole("link", {
+      name: /Örnek Üniversitesi Öğrenci İşleri.*Ders kayıt takvimi açıklandı.*example\.edu\.tr.*Resmî duyuruyu aç/iu,
     })[0]!;
-    expect(row).toHaveStyle({ minHeight: 112 });
+    expect(row).toHaveStyle({ minHeight: 148 });
     expect(within(row).getByText("Ders kayıt takvimi açıklandı"))
-      .toHaveProp("numberOfLines", 2);
+      .toHaveProp("numberOfLines", 3);
     expect(within(row).getByText("Güvenilir özet registration"))
-      .toHaveProp("numberOfLines", 2);
-    expect(within(row).getByText("Üniversite", { includeHiddenElements: true }))
+      .toHaveProp("numberOfLines", 3);
+    expect(within(row).getByText(/Duyuru.*Üniversite/u, { includeHiddenElements: true }))
       .toBeOnTheScreen();
-    expect(within(row).queryByText("Duyuru", { includeHiddenElements: true }))
-      .not.toBeOnTheScreen();
-    expect(within(row).queryByText("Örnek Üniversitesi Öğrenci İşleri"))
-      .not.toBeOnTheScreen();
+    expect(within(row).getByText("Örnek Üniversitesi Öğrenci İşleri"))
+      .toBeOnTheScreen();
     expect(row.props.accessibilityLabel).toContain("Örnek Üniversitesi Öğrenci İşleri");
+  });
+
+  it("shows only genuinely short source text and omits long or missing copy", async () => {
+    const shortSummary = "K".repeat(280);
+    const longSummary = "U".repeat(281);
+    await renderFeed(feedProps({
+      academicItems: [
+        record("short-copy", { summary: shortSummary }),
+        record("long-copy", { summary: longSummary }),
+        record("missing-copy", { summary: undefined }),
+      ],
+      yokItems: [],
+      summerItems: [],
+    }));
+
+    expect(screen.getByText(shortSummary)).toBeOnTheScreen();
+    expect(screen.queryByText(longSummary)).not.toBeOnTheScreen();
+    expect(screen.getAllByText("Resmî kaynağa git")).toHaveLength(3);
+  });
+
+  it("classifies card dates without inventing an end date or a deadline", async () => {
+    await renderFeed(feedProps({
+      academicItems: [
+        record("date-range", {
+          keyDates: [{ label: "Final Sınavları", startDate: "2026-06-23", endDate: "2026-07-04" }],
+        }),
+        record("single-deadline", {
+          keyDates: [{ label: "Başvuru son tarihi", startDate: "2026-05-24" }],
+        }),
+        record("single-date", {
+          keyDates: [{ label: "Tanıtım toplantısı", startDate: "2026-08-11" }],
+        }),
+      ],
+      yokItems: [],
+      summerItems: [],
+    }));
+
+    expect(screen.getByText("Final Sınavları · 23 Haziran 2026 – 04 Temmuz 2026"))
+      .toBeOnTheScreen();
+    expect(screen.getByText("Başvuru son tarihi · 24 Mayıs 2026")).toBeOnTheScreen();
+    expect(screen.getByText("Tanıtım toplantısı · 11 Ağustos 2026")).toBeOnTheScreen();
+    expect(screen.queryByText(/Son gün:/iu)).not.toBeOnTheScreen();
+    expect(screen.getAllByText(/Yayınlandı/iu)).toHaveLength(3);
   });
 
   it("shows the reminder only for an actionable notification state that needs attention", async () => {
@@ -478,7 +519,7 @@ describe("Phase 8 Announcements feed", () => {
     }
   });
 
-  it("keeps YÖK and Summer School reachable and uses full-row in-app navigation", async () => {
+  it("keeps YÖK and Summer School reachable and opens the exact official item URL", async () => {
     await renderFeed(feedProps());
 
     fireEvent.press(screen.getByTestId("announcements-content-filter"));
@@ -490,14 +531,11 @@ describe("Phase 8 Announcements feed", () => {
     expect(callbacks.onOpenYok).toHaveBeenCalledTimes(1);
     expect(callbacks.onOpenSummerSchool).toHaveBeenCalledTimes(1);
 
-    fireEvent.press(screen.getByRole("button", {
-      name: /Ders kayıt takvimi açıklandı.*Ayrıntıyı aç/iu,
+    fireEvent.press(screen.getByRole("link", {
+      name: /Ders kayıt takvimi açıklandı.*Resmî duyuruyu aç/iu,
     }));
-    expect(callbacks.onOpenItem).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contentType: "announcement",
-        record: expect.objectContaining({ id: "registration" }),
-      }),
+    expect(callbacks.onOpenOfficialSource).toHaveBeenCalledWith(
+      "https://example.edu.tr/duyurular/registration",
     );
 
     fireEvent.press(screen.getByRole("button", { name: "YÖK kaynak filtresi" }));

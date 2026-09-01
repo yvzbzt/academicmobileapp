@@ -716,9 +716,9 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getByText("Kampüs yaşamından haftalık haberler")).toBeOnTheScreen();
   });
 
-  it("uses full-row announcement navigation and the existing Announcements destination", async () => {
+  it("exposes the announcement card as an official-source link and keeps the list destination", async () => {
     await renderHome(props());
-    fireEvent.press(screen.getAllByLabelText(/Öğrenci İşleri Daire Başkanlığı.*Ayrıntıyı aç/)[0]);
+    fireEvent.press(screen.getAllByRole("link", { name: /Öğrenci İşleri Daire Başkanlığı.*Resmî duyuruyu aç/ })[0]);
     expect(callbacks.onOpenAnnouncement).toHaveBeenCalledWith(expect.objectContaining({ id: "announcement-1" }));
     fireEvent.press(screen.getByRole("button", { name: "Tümünü aç" }));
     expect(callbacks.onOpenAnnouncements).toHaveBeenCalledTimes(1);

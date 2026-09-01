@@ -24,6 +24,7 @@ const academicItem: CalendarItem = {
   endDate: "2026-08-07",
   temporalKind: "date",
   endTemporalKind: "date",
+  sourceUrl: "https://example.edu.tr/akademik-takvim/2026-2027.pdf",
 };
 
 const personalItem: CalendarItem = {
@@ -43,6 +44,7 @@ const personalItem: CalendarItem = {
 
 const onUpdate = jest.fn(() => ({ ok: true as const }));
 const onDelete = jest.fn(() => ({ ok: true as const }));
+const onOpenOfficialSource = jest.fn();
 
 async function renderDetail(item: CalendarItem | null, feedback?: React.ReactNode) {
   return renderAsync(
@@ -55,6 +57,7 @@ async function renderDetail(item: CalendarItem | null, feedback?: React.ReactNod
           item={item}
           feedback={feedback}
           onDeletePersonalExam={onDelete}
+          onOpenOfficialSource={onOpenOfficialSource}
           onUpdatePersonalExam={onUpdate}
           universityName="Örnek Üniversitesi"
         />
@@ -71,12 +74,39 @@ describe("Phase 9 Calendar detail", () => {
   it("shows trusted academic source context and inclusive date-only semantics", async () => {
     await renderDetail(academicItem);
     expect(screen.getByRole("header", { name: "Ders kayıt dönemi" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Etkinlik bilgileri" })).toBeOnTheScreen();
     expect(screen.getByText("3 Ağustos 2026 – 7 Ağustos 2026")).toBeOnTheScreen();
-    expect(screen.getByText(/son gün dahildir.*saat bilgisi verilmemiştir/u)).toBeOnTheScreen();
+    expect(screen.getByText(/Bitiş günü dâhil.*Saat belirtilmemiş/u)).toBeOnTheScreen();
     expect(screen.getByText("Örnek Üniversitesi Akademik Takvimi")).toBeOnTheScreen();
-    expect(screen.getByText("Örnek Üniversitesi · Mühendislik Fakültesi · Bilgisayar Mühendisliği")).toBeOnTheScreen();
+    expect(screen.getByText("Örnek Üniversitesi · Üniversite geneli")).toBeOnTheScreen();
+    expect(screen.queryByText(/Mühendislik Fakültesi.*Bilgisayar Mühendisliği/u)).not.toBeOnTheScreen();
+    expect(screen.queryByText(/Kayıt kimliği/u)).not.toBeOnTheScreen();
     expect(screen.queryByText(/00:00/u)).not.toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Kişisel etkinliği düzenle" })).not.toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("link", { name: /example\.edu\.tr.*Resmî takvim kaynağını aç/u }));
+    expect(onOpenOfficialSource).toHaveBeenCalledWith(
+      "https://example.edu.tr/akademik-takvim/2026-2027.pdf",
+    );
+  });
+
+  it("derives faculty and department scope only from the event itself", async () => {
+    await renderDetail({
+      ...academicItem,
+      id: "department-event",
+      key: "academic:department-event",
+      routeId: "department-event",
+      departmentId: "department-1",
+    });
+
+    expect(screen.getByText("Bölüm · Bilgisayar Mühendisliği")).toBeOnTheScreen();
+    expect(screen.queryByText("Örnek Üniversitesi · Üniversite geneli")).not.toBeOnTheScreen();
+  });
+
+  it("fails closed instead of exposing an unsafe calendar source", async () => {
+    await renderDetail({ ...academicItem, sourceUrl: "javascript:alert(1)" });
+    expect(screen.queryByRole("link", { name: /Resmî takvim kaynağını aç/u })).not.toBeOnTheScreen();
+    expect(screen.getByText("Bağlantı paylaşılmamış")).toBeOnTheScreen();
   });
 
   it("renders trusted timestamp details in the event timezone", async () => {
@@ -103,6 +133,8 @@ describe("Phase 9 Calendar detail", () => {
 
   it("edits an owner-scoped personal exam through the same native picker form", async () => {
     await renderDetail(personalItem);
+    expect(screen.getByText("Kişisel plan")).toBeOnTheScreen();
+    expect(screen.queryByRole("link", { name: /Resmî takvim kaynağını aç/u })).not.toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "Kişisel etkinliği düzenle" }));
     expect(screen.getByTestId("bottom-sheet").props.accessibilityLabel).toBe(
       "Kişisel etkinlik düzenleme alt sayfası",

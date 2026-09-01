@@ -32,6 +32,7 @@ import {
   type ContentFeedItem,
   type FeedContentTypeFilter,
 } from "./feed-model";
+import { classifyContentKeyDate } from "./content-card";
 
 const CONTENT_TYPE_LABELS: Record<Exclude<FeedContentTypeFilter, "all">, string> = {
   announcement: "Duyuru",
@@ -209,7 +210,8 @@ export function AnnouncementDetail({
     }
   };
 
-  const deadline = detail.keyDates.find((keyDate) => Boolean(keyDate.endDate));
+  const deadline = detail.keyDates.find((keyDate) => classifyContentKeyDate(keyDate) === "deadline");
+  const deadlineDate = deadline?.endDate ?? deadline?.startDate;
 
   return (
     <View
@@ -332,14 +334,14 @@ export function AnnouncementDetail({
                 </View>
               ) : null}
             </View>
-            {deadline?.endDate ? (
+            {deadlineDate ? (
               <View style={styles.deadlineChip}>
                 <Ionicons color={REFERENCE_COLORS.green} name="calendar" size={17} />
                 <Text
                   maxFontSizeMultiplier={layout.supportsLargeText ? undefined : 1.25}
                   style={[theme.typography.metaStrong, { color: REFERENCE_COLORS.green }]}
                 >
-                  Son gün: {formatKeyDate(deadline.endDate)}
+                  Son gün: {formatKeyDate(deadlineDate)}
                 </Text>
               </View>
             ) : null}

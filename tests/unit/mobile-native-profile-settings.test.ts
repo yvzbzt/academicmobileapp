@@ -358,6 +358,38 @@ describe("Phase 10 Profile and Settings contracts", () => {
     expect(appSource).not.toContain("EXPO_PUBLIC_PHASE11");
   });
 
+  it("keeps additional-university follows deduplicated, owner-scoped, and limited to announcement refresh", () => {
+    const appSource = readFileSync(
+      new URL("../../apps/mobile-native/App.tsx", import.meta.url),
+      "utf8",
+    ).replaceAll("\r\n", "\n");
+    const toggleFollow = appSource.slice(
+      appSource.indexOf("async function toggleFollowedUniversity"),
+      appSource.indexOf("function disableNotificationDeliveryFailClosed"),
+    );
+    const resetUserState = appSource.slice(
+      appSource.indexOf("function resetUserScopedState"),
+      appSource.indexOf("function clearAuthenticatedMemory"),
+    );
+
+    expect(appSource).toContain("selectAdditionalUniversityFollows(");
+    expect(appSource).toContain("followedUniversityCount={additionalFollowedUniversities.length}");
+    expect(appSource).toContain("followed={additionalFollowedUniversities}");
+    expect(toggleFollow).toContain("const ownerSnapshot = accountGuardRef.current.capture()");
+    expect(toggleFollow).toContain('{ method: "POST", body: JSON.stringify({ universityId }) }');
+    expect(toggleFollow).toContain('{ method: "DELETE" }');
+    expect(toggleFollow).toContain("existingUniversityLevelFollows");
+    expect(toggleFollow).toContain("Promise.all(followIds.map");
+    expect(toggleFollow).toContain("scope.universityId === universityId && !scope.facultyId && !scope.departmentId");
+    expect(toggleFollow).toContain("accountGuardRef.current.isCurrent(ownerSnapshot)");
+    expect(toggleFollow).toContain("invalidateContentFeedOwnership();");
+    expect(toggleFollow).toContain("void refreshContentFeed();");
+    expect(toggleFollow).not.toContain("loadMyCalendar");
+    expect(toggleFollow).not.toContain("loadUpcoming");
+    expect(resetUserState).toContain("setFollowedUniversities({ loading: false });");
+    expect(resetUserState).toContain("setFollowedUniversityBusyId(undefined);");
+  });
+
   it("reports package metadata from the real native app configuration", () => {
     const appConfig = JSON.parse(readFileSync(
       new URL("../../apps/mobile-native/app.json", import.meta.url),
@@ -372,8 +404,8 @@ describe("Phase 10 Profile and Settings contracts", () => {
       };
     };
     expect(appConfig.expo.name).toBe("Akademik Takvim");
-    expect(appConfig.expo.version).toBe("0.1.2");
-    expect(appConfig.expo.android.versionCode).toBe(18);
+    expect(appConfig.expo.version).toBe("0.1.4");
+    expect(appConfig.expo.android.versionCode).toBe(16);
     expect(appConfig.expo.userInterfaceStyle).toBe("light");
     expect(appConfig.expo.splash.backgroundColor).toBe("#ffffff");
     expect(appConfig.expo.splash.dark.backgroundColor).toBe("#ffffff");
@@ -382,8 +414,8 @@ describe("Phase 10 Profile and Settings contracts", () => {
       new URL("../../apps/mobile-native/android/app/build.gradle", import.meta.url),
       "utf8",
     );
-    expect(androidBuild).toContain("versionCode 18");
-    expect(androidBuild).toContain('versionName "0.1.2"');
+    expect(androidBuild).toContain("versionCode 16");
+    expect(androidBuild).toContain('versionName "0.1.4"');
 
     const androidStrings = readFileSync(
       new URL("../../apps/mobile-native/android/app/src/main/res/values/strings.xml", import.meta.url),

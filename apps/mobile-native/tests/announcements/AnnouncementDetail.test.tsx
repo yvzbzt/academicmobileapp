@@ -222,6 +222,21 @@ describe("Phase 8 announcement detail", () => {
     expect(screen.getByText("Kayıt Yenileme")).toBeOnTheScreen();
     expect(screen.getByText("20 Mayıs 2026 – 24 Mayıs 2026")).toBeOnTheScreen();
     expect(screen.getByText("23 Haziran 2026 – 04 Temmuz 2026")).toBeOnTheScreen();
+    expect(screen.queryByText(/Son gün:/iu)).not.toBeOnTheScreen();
+  });
+
+  it("classifies only an explicit deadline and does not require an end date", async () => {
+    await renderDetail(detailProps({
+      item: item({
+        keyDates: [
+          { label: "Final Sınavları", startDate: "2026-06-23", endDate: "2026-07-04" },
+          { label: "Başvuru son tarihi", startDate: "2026-05-24" },
+        ],
+      }),
+    }));
+
+    expect(screen.getByText("23 Haziran 2026 – 04 Temmuz 2026")).toBeOnTheScreen();
+    expect(screen.getByText(/Son gün: 24 Mayıs 2026/iu)).toBeOnTheScreen();
   });
 
   it("renders an Istanbul source date without inventing midnight or a clock", async () => {

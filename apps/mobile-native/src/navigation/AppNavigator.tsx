@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   CommonActions,
   NavigationContainer,
+  StackActions,
   TabActions,
   createNavigationContainerRef,
   getFocusedRouteNameFromRoute,
@@ -423,6 +424,8 @@ function ShellStackHeader({
   const titleTargetRef = useRef<number | null>(null);
   const focusedRef = useRef(false);
   const routeFocusedRef = useRef(false);
+  const fallbackRoute = stackHeaderFallbackRoute(route.name);
+  const showsLeadingAction = Boolean(back || fallbackRoute);
   const focusTitle = useCallback((layoutTarget?: number) => {
     const target = layoutTarget
       ?? titleTargetRef.current
@@ -454,8 +457,8 @@ function ShellStackHeader({
         titleTargetRef.current = target;
         if (routeFocusedRef.current && !focusedRef.current) focusTitle(target);
       }}
-      leadingAction={back ? {
-        accessibilityHint: back.title
+      leadingAction={showsLeadingAction ? {
+        accessibilityHint: back?.title
           ? `${back.title} ekran\u0131na d\u00f6ner.`
           : "\u00d6nceki ekrana d\u00f6ner.",
         accessibilityLabel: "Geri d\u00f6n",
@@ -467,10 +470,25 @@ function ShellStackHeader({
             size={22}
           />
         ),
-        onPress: () => navigation.goBack(),
+        onPress: () => {
+          if (back && navigation.canGoBack()) {
+            navigation.goBack();
+            return;
+          }
+          if (fallbackRoute) navigation.dispatch(StackActions.replace(fallbackRoute));
+        },
       } : undefined}
     />
   );
+}
+
+function stackHeaderFallbackRoute(route: string): string | undefined {
+  if (route === "SummerSchool" || route === "YokAnnouncements" || route === "AnnouncementDetail") {
+    return "Announcements";
+  }
+  if (route === "CalendarEventDetail") return "Calendar";
+  if (isNestedProfileSettingsRoute(route)) return "Profile";
+  return undefined;
 }
 
 function renderShellStackHeader(props: NativeStackHeaderProps) {
@@ -1159,7 +1177,8 @@ export function AppNavigator({
     pendingRequestRef.current = { key: request.key, expectedLeaf };
     const visibleRoute = getLeafRouteName(navigationRef.getRootState());
     if (request.route === "Profile" && isNestedProfileSettingsRoute(visibleRoute)) {
-      navigationRef.goBack();
+      if (navigationRef.canGoBack()) navigationRef.goBack();
+      else navigationRef.dispatch(requestAction(request));
     } else if (
       !isControlledBaseRoute(request.route)
       || visibleRoute !== request.route

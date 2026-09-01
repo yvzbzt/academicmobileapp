@@ -31,6 +31,11 @@ import {
   type AcademicTemporalKind,
 } from "../temporal/academic-temporal";
 import { resolveContentFeedLayout } from "./feed-model";
+import {
+  officialContentDomain,
+  shortContentCardExcerpt,
+  trustedContentDestinationUrl,
+} from "./content-card";
 
 export interface YokAnnouncementsScreenProps {
   feedback?: ReactNode;
@@ -513,9 +518,13 @@ function TrustedDestinationCard({
 }) {
   const theme = useTheme();
   const timestamp = contentTimestampLabel(item);
+  const excerpt = shortContentCardExcerpt(item);
+  const destinationUrl = trustedContentDestinationUrl(item);
+  const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
   return (
     <Card
-      accessibilityLabel={`${item.sourceName}. ${scopeLabel}. ${timestamp}. ${item.title}. Ayrıntıyı aç.`}
+      accessibilityLabel={`${item.sourceName}. ${scopeLabel}. ${timestamp}. ${item.title}. Resmî duyuruyu aç.`}
+      accessibilityRole="link"
       onPress={onPress}
       style={[
         styles.compactCard,
@@ -554,10 +563,16 @@ function TrustedDestinationCard({
       </View>
       <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{item.sourceName}</Text>
       <Text style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>{item.title}</Text>
-      {item.summary ? (
-        <Text ellipsizeMode="tail" numberOfLines={2} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
-          {item.summary}
+      {excerpt ? (
+        <Text ellipsizeMode="tail" numberOfLines={3} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
+          {excerpt}
         </Text>
+      ) : null}
+      {destinationDomain ? (
+        <View style={[styles.metadataRow, { gap: theme.spacing.xs }]}>
+          <Text numberOfLines={1} style={[theme.typography.metaStrong, styles.flexOne, { color: theme.colors.text.link }]}>Resmî kaynak · {destinationDomain}</Text>
+          <Ionicons color={theme.colors.text.link} name="open-outline" size={18} />
+        </View>
       ) : null}
     </Card>
   );

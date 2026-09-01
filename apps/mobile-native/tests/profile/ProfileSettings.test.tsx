@@ -126,11 +126,37 @@ describe("Phase 10 profile and settings presentation", () => {
     });
     expect(screen.getByRole("button", { name: "Akademik profil" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Bildirim tercihleri" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Takip edilen üniversiteler" })).toBeVisible();
+    const followedUniversities = screen.getByRole("button", { name: "Takip edilen üniversiteler" });
+    expect(followedUniversities).toBeVisible();
+    expect(followedUniversities).toHaveStyle({
+      alignItems: "stretch",
+      flexDirection: "column",
+      minHeight: 48,
+    });
+    expect(within(followedUniversities).getByTestId("profile-overview-item-controls")).toHaveStyle({
+      minHeight: 48,
+      width: "100%",
+    });
+    expect(within(followedUniversities).getByText("Takip edilen üniversiteler")).toHaveProp(
+      "android_hyphenationFrequency",
+      "none",
+    );
+    expect(within(followedUniversities).getByText("Takip edilen üniversiteler")).toHaveProp(
+      "textBreakStrategy",
+      "balanced",
+    );
+    expect(within(followedUniversities).getByText("Takip edilen üniversiteler")).toHaveStyle({
+      alignSelf: "stretch",
+      width: "100%",
+    });
+    expect(within(followedUniversities).getByText("2 ek üniversite")).toHaveStyle({
+      alignSelf: "stretch",
+      width: "100%",
+    });
     expect(screen.getByRole("button", { name: "Hesap ve güvenlik" })).toBeVisible();
     expect(screen.getByRole("button", {
       name: "Google Takvim bağlantısı. Bağlı. Yalnızca uygulamanın yönettiği akademik kayıtlar eşitlenir.",
-    })).toHaveStyle({ alignItems: "flex-start", flexWrap: "wrap" });
+    })).toHaveStyle({ alignItems: "stretch", flexDirection: "column" });
     expect(screen.getByTestId("profile-settings-group")).toBeVisible();
     expect(screen.queryByText("Gözden geçir")).toBeNull();
     expect(screen.queryByRole("button", { name: "Çıkış yap" })).toBeNull();
@@ -139,6 +165,54 @@ describe("Phase 10 profile and settings presentation", () => {
     expect(screen.getByText("Sürüm 0.1.2")).toBeVisible();
     expect(screen.queryByText(/Derleme/u)).toBeNull();
     expect(screen.queryByText(/tema|görünüm|takipçi|öğrenci kimliği/iu)).toBeNull();
+  });
+
+  it("moves a long calendar status below the controls at compact large text", async () => {
+    await renderAsync(tree(
+      <ProfileOverviewScreen
+        academicSummary={resolveAcademicProfileSummary(
+          { universityId: "uni" },
+          { universityName: "Ankara Üniversitesi" },
+        )}
+        appVersion="0.1.2"
+        email="ada@example.invalid"
+        fullName="Ada Lovelace"
+        googleCalendar={resolveGoogleCalendarPresentation("expired")}
+        notificationTruth={resolveNotificationTruth({
+          permission: "granted",
+          preferenceEnabled: true,
+          registration: "registered",
+          saveState: "saved",
+        })}
+        onOpenAcademicProfile={jest.fn()}
+        onOpenFollowedUniversities={jest.fn()}
+        onOpenAccountManagement={jest.fn()}
+        onOpenGoogleCalendar={jest.fn()}
+        onOpenNotifications={jest.fn()}
+        onLogout={jest.fn()}
+      />,
+    ));
+
+    const googleRow = screen.getByRole("button", {
+      name: "Google Takvim bağlantısı. İzin süresi doldu. Yeniden bağlanmadan yeni bir eşitleme yapılamaz.",
+    });
+    expect(googleRow).toHaveStyle({
+      alignItems: "stretch",
+      flexDirection: "column",
+      minHeight: 48,
+    });
+    const controls = within(googleRow).getByTestId("profile-overview-item-controls");
+    expect(within(controls).queryByText("İzin süresi doldu")).toBeNull();
+    const trailing = within(googleRow).getByTestId("profile-overview-item-trailing-reflow");
+    expect(trailing).toHaveStyle({
+      alignItems: "flex-end",
+      minHeight: 48,
+      minWidth: 0,
+      width: "100%",
+    });
+    const longStatus = within(trailing).getByText("İzin süresi doldu");
+    expect(longStatus).toHaveStyle({ flexShrink: 1, minWidth: 0 });
+    expect(longStatus).not.toHaveProp("numberOfLines");
   });
 
   it("stacks profile completion at phone widths and keeps the reference-width row", async () => {
@@ -172,6 +246,13 @@ describe("Phase 10 profile and settings presentation", () => {
       flexDirection: "column",
     });
     expect(screen.getByText("Harika gidiyorsun!")).toHaveStyle({ flexShrink: 1, minWidth: 0 });
+    const referenceWidthRow = screen.getByRole("button", { name: "Takip edilen üniversiteler" });
+    expect(referenceWidthRow).toHaveStyle({
+      alignItems: "center",
+      flexDirection: "row",
+      minHeight: 48,
+    });
+    expect(within(referenceWidthRow).queryByTestId("profile-overview-item-controls")).toBeNull();
 
     mockWindowDimensions.mockReturnValue({ fontScale: 1, height: 836, scale: 2, width: 471 });
     await view.rerenderAsync(tree(<ProfileOverviewScreen {...props} />));
@@ -179,6 +260,16 @@ describe("Phase 10 profile and settings presentation", () => {
       alignItems: "center",
       flexDirection: "row",
     });
+
+    mockWindowDimensions.mockReturnValue({ fontScale: 1, height: 1366, scale: 2, width: 1024 });
+    await view.rerenderAsync(tree(<ProfileOverviewScreen {...props} />));
+    const tabletRow = screen.getByRole("button", { name: "Takip edilen üniversiteler" });
+    expect(tabletRow).toHaveStyle({
+      alignItems: "center",
+      flexDirection: "row",
+      minHeight: 48,
+    });
+    expect(within(tabletRow).queryByTestId("profile-overview-item-controls")).toBeNull();
   });
 
   it("shows the yellow notification callout only for a real delivery mismatch", async () => {

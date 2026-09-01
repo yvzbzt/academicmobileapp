@@ -1097,6 +1097,32 @@ describe("AppNavigator", () => {
     expectSelectedTab("Takvim");
   });
 
+  it.each([
+    { directRoute: "AnnouncementDetail", fallbackRoute: "Announcements" },
+    { directRoute: "CalendarEventDetail", fallbackRoute: "Calendar" },
+  ] as const)(
+    "uses the $fallbackRoute fallback when $directRoute is the initial stack route",
+    async ({ directRoute, fallbackRoute }) => {
+      const onVisibleRouteChange = jest.fn();
+      await renderNavigator({
+        activeRoute: directRoute,
+        onVisibleRouteChange,
+        rootSurface: "authenticated",
+      });
+      await expectVisibleRoute(directRoute);
+
+      const back = screen.getByRole("button", { name: "Geri d\u00f6n" });
+      expect(back).toBeEnabled();
+      await act(async () => {
+        fireEvent.press(back);
+        await new Promise<void>((resolve) => setTimeout(resolve, 40));
+      });
+
+      await expectVisibleRoute(fallbackRoute);
+      expect(onVisibleRouteChange).toHaveBeenCalledWith(fallbackRoute);
+    },
+  );
+
   it("returns from a clean settings destination to Profile with accessible Android Back", async () => {
     const hardwareBackHandlers = captureHardwareBackHandlers();
     const onRequestHandled = jest.fn();

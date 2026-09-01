@@ -137,7 +137,9 @@ describe("Phase 9 Calendar synthetic preview", () => {
 
     const academicDetail = await renderAsync(<CalendarPreview scenario="detail-academic" />);
     await settleVirtualizedList();
-    expect(screen.getByText("Kaynak ve kapsam")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Etkinlik bilgileri" })).toBeOnTheScreen();
+    expect(screen.getByText("Kapsam")).toBeOnTheScreen();
+    expect(screen.getByRole("link", { name: /kampus\.edu\.tr.*Resmî takvim kaynağını aç/u })).toBeOnTheScreen();
     await academicDetail.unmountAsync();
 
     const personalDetail = await renderAsync(<CalendarPreview scenario="detail-personal" />);
@@ -148,6 +150,20 @@ describe("Phase 9 Calendar synthetic preview", () => {
       "Kişisel etkinlik düzenleme alt sayfası",
     );
     await personalDetail.unmountAsync();
+  });
+
+  it("returns to Calendar when a detail preview is mounted without back history", async () => {
+    const view = await renderAsync(<CalendarPreview scenario="detail-academic" />);
+    await settleVirtualizedList();
+    expect(screen.getByRole("header", { name: "Etkinlik bilgileri" })).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Geri" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("header", { name: "Takvim" })).toBeOnTheScreen();
+    });
+    expect(screen.queryByRole("header", { name: "Etkinlik bilgileri" })).not.toBeOnTheScreen();
+    await view.unmountAsync();
   });
 
   it("remounts scenario-owned calendar state after an accepted preview deep link", async () => {

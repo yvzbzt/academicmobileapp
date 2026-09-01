@@ -334,7 +334,11 @@ export function ProfileOverviewScreen({
             trailing={(
               <View style={[styles.profileTrailingStatus, { gap: theme.spacing.sm }]}>
                 <Text
-                  style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}
+                  style={[
+                    theme.typography.metaStrong,
+                    styles.profileTrailingStatusText,
+                    { color: theme.colors.text.link },
+                  ]}
                 >
                   {appleCalendar.label}
                 </Text>
@@ -354,7 +358,11 @@ export function ProfileOverviewScreen({
           trailing={(
             <View style={[styles.profileTrailingStatus, { gap: theme.spacing.sm }]}>
               <Text
-                style={[theme.typography.metaStrong, { color: theme.colors.text.link }]}
+                style={[
+                  theme.typography.metaStrong,
+                  styles.profileTrailingStatusText,
+                  { color: theme.colors.text.link },
+                ]}
               >
                 {googleCalendar.label === "Bağlı" ? "Bağlı" : googleCalendar.label}
               </Text>
@@ -421,8 +429,59 @@ function ProfileOverviewItem({
   last?: boolean;
 }) {
   const theme = useTheme();
-  const { fontScale } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
   const stackTrailing = stackTrailingAtLargeText && fontScale >= 1.8;
+  const reflowForCompactLargeText = width < 375 && fontScale >= 1.8;
+  const reflowTrailingBelowCopy = reflowForCompactLargeText && stackTrailingAtLargeText;
+
+  const leadingControl = (
+    <View importantForAccessibility="no">{leading}</View>
+  );
+  const trailingControl = (
+    <View
+      importantForAccessibility="no"
+      style={reflowTrailingBelowCopy
+        ? styles.profileOverviewTrailingReflowed
+        : !reflowForCompactLargeText && stackTrailing
+          ? styles.profileOverviewTrailingStacked
+          : undefined}
+      testID={reflowTrailingBelowCopy ? "profile-overview-item-trailing-reflow" : undefined}
+    >
+      {trailing}
+    </View>
+  );
+  const copy = (
+    <View
+      style={[
+        styles.profileOverviewItemCopy,
+        reflowForCompactLargeText && styles.profileOverviewItemCopyReflowed,
+        { gap: theme.spacing.xxs },
+      ]}
+    >
+      <Text
+        android_hyphenationFrequency={reflowForCompactLargeText ? "none" : undefined}
+        style={[
+          theme.typography.bodyStrong,
+          reflowForCompactLargeText && styles.profileOverviewItemTextReflowed,
+          { color: theme.colors.text.primary },
+        ]}
+        textBreakStrategy={reflowForCompactLargeText ? "balanced" : undefined}
+      >
+        {title}
+      </Text>
+      <Text
+        android_hyphenationFrequency={reflowForCompactLargeText ? "none" : undefined}
+        style={[
+          theme.typography.meta,
+          reflowForCompactLargeText && styles.profileOverviewItemTextReflowed,
+          { color: theme.colors.text.secondary },
+        ]}
+        textBreakStrategy={reflowForCompactLargeText ? "balanced" : undefined}
+      >
+        {supportingText}
+      </Text>
+    </View>
+  );
 
   return (
     <Pressable
@@ -433,7 +492,8 @@ function ProfileOverviewItem({
       style={({ pressed }) => [
         styles.profileMenuRow,
         styles.profileOverviewItem,
-        stackTrailing && styles.profileOverviewItemStacked,
+        !reflowForCompactLargeText && stackTrailing && styles.profileOverviewItemStacked,
+        reflowForCompactLargeText && styles.profileOverviewItemReflowed,
         last && styles.profileOverviewItemLast,
         {
           backgroundColor: pressed ? theme.colors.action.ghostPressed : theme.colors.background.surface,
@@ -444,25 +504,20 @@ function ProfileOverviewItem({
         },
       ]}
     >
-      <View importantForAccessibility="no">{leading}</View>
-      <View style={[styles.profileOverviewItemCopy, { gap: theme.spacing.xxs }]}>
-        <Text
-          style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}
-        >
-          {title}
-        </Text>
-        <Text
-          style={[theme.typography.meta, { color: theme.colors.text.secondary }]}
-        >
-          {supportingText}
-        </Text>
-      </View>
-      <View
-        importantForAccessibility="no"
-        style={stackTrailing ? styles.profileOverviewTrailingStacked : undefined}
-      >
-        {trailing}
-      </View>
+      {reflowForCompactLargeText ? (
+        <>
+          <View
+            style={styles.profileOverviewItemControls}
+            testID="profile-overview-item-controls"
+          >
+            {leadingControl}{reflowTrailingBelowCopy ? null : trailingControl}
+          </View>
+          {copy}
+          {reflowTrailingBelowCopy ? trailingControl : null}
+        </>
+      ) : (
+        <>{leadingControl}{copy}{trailingControl}</>
+      )}
     </Pressable>
   );
 }
@@ -2079,6 +2134,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     minWidth: 0,
   },
+  profileOverviewItemReflowed: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
+  profileOverviewItemControls: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 48,
+    width: "100%",
+  },
   profileOverviewItemLast: {
     borderBottomWidth: 0,
   },
@@ -2090,9 +2156,24 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  profileOverviewItemCopyReflowed: {
+    flex: 0,
+    width: "100%",
+  },
+  profileOverviewItemTextReflowed: {
+    alignSelf: "stretch",
+    width: "100%",
+  },
   profileOverviewTrailingStacked: {
     alignItems: "flex-end",
     paddingLeft: 52,
+    width: "100%",
+  },
+  profileOverviewTrailingReflowed: {
+    alignItems: "flex-end",
+    justifyContent: "center",
+    minHeight: 48,
+    minWidth: 0,
     width: "100%",
   },
   profileBellButton: {
@@ -2235,6 +2316,12 @@ const styles = StyleSheet.create({
   profileTrailingStatus: {
     alignItems: "center",
     flexDirection: "row",
+    maxWidth: "100%",
+    minWidth: 0,
+  },
+  profileTrailingStatusText: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   profileSecurityBanner: {
     alignItems: "center",

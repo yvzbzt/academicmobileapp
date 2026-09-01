@@ -35,6 +35,10 @@ import {
   type ProfileMutationState,
 } from "./ProfileSettings";
 import {
+  FollowedUniversitiesSettingsScreen,
+  type FollowedUniversityRecord,
+} from "./FollowedUniversitiesSettings";
+import {
   resolveAcademicProfileSummary,
   resolveGoogleCalendarPresentation,
   resolveNotificationTruth,
@@ -51,6 +55,7 @@ export const PROFILE_SETTINGS_PREVIEW_SCENARIOS = [
   "reference-profile",
   "profile-incomplete",
   "academic-editor",
+  "followed-universities",
   "notifications-active",
   "notifications-denied",
   "notifications-settings-required",
@@ -136,9 +141,39 @@ const DEFAULT_CATEGORIES: readonly NotificationCategoryOption[] = [
   { key: "holiday", label: "Tatil ve ara günleri", enabled: false },
 ];
 
+const PRIMARY_UNIVERSITY_ID = "preview-agu";
+
+const FOLLOWED_UNIVERSITIES_PROFILE_DRAFT: AcademicOnboardingDraft = {
+  ...COMPLETE_DRAFT,
+  universityId: PRIMARY_UNIVERSITY_ID,
+};
+
+const FOLLOWED_UNIVERSITY_OPTIONS = [
+  { id: PRIMARY_UNIVERSITY_ID, name: "Abdullah Gül Üniversitesi", city: "Kayseri" },
+  { id: "preview-ankara", name: "Ankara Üniversitesi", city: "Ankara" },
+  { id: "preview-tarsus", name: "Tarsus Üniversitesi", city: "Mersin" },
+  { id: "preview-ege", name: "Ege Üniversitesi", city: "İzmir" },
+  { id: "preview-hacettepe", name: "Hacettepe Üniversitesi", city: "Ankara" },
+  { id: "preview-bogazici", name: "Boğaziçi Üniversitesi", city: "İstanbul" },
+] as const;
+
+const DEFAULT_FOLLOWED_UNIVERSITIES: readonly FollowedUniversityRecord[] = [
+  {
+    id: "preview-follow-ankara",
+    universityId: "preview-ankara",
+    createdAt: "2026-08-27T09:00:00.000Z",
+  },
+  {
+    id: "preview-follow-tarsus",
+    universityId: "preview-tarsus",
+    createdAt: "2026-08-27T09:01:00.000Z",
+  },
+];
+
 type ProfilePreviewStackParamList = {
   Profile: undefined;
   AcademicProfileSettings: undefined;
+  FollowedUniversitiesSettings: undefined;
   NotificationSettings: undefined;
   GoogleCalendarSettings: undefined;
   AccountDataSettings: undefined;
@@ -154,6 +189,7 @@ const PROFILE_ROUTE_BY_SCENARIO: Record<ProfileSettingsPreviewScenario, ProfileP
   "reference-profile": "Profile",
   "profile-incomplete": "Profile",
   "academic-editor": "AcademicProfileSettings",
+  "followed-universities": "FollowedUniversitiesSettings",
   "notifications-active": "NotificationSettings",
   "notifications-denied": "NotificationSettings",
   "notifications-settings-required": "NotificationSettings",
@@ -222,10 +258,18 @@ function ProfileSettingsPreviewExperience({
   const theme = useTheme();
   const reducedMotion = useReducedMotion();
   const referenceProfile = scenario === "reference-profile";
-  const completeDraft = referenceProfile ? REFERENCE_PROFILE_DRAFT : COMPLETE_DRAFT;
+  const followedUniversitiesPreview = scenario === "followed-universities";
+  const completeDraft = referenceProfile
+    ? REFERENCE_PROFILE_DRAFT
+    : followedUniversitiesPreview
+      ? FOLLOWED_UNIVERSITIES_PROFILE_DRAFT
+      : COMPLETE_DRAFT;
   const [navigationReady, setNavigationReady] = useState(false);
   const [academicDraft, setAcademicDraft] = useState<AcademicOnboardingDraft>(completeDraft);
   const [academicSaveState, setAcademicSaveState] = useState<ProfileMutationState>("dirty");
+  const [followedUniversities, setFollowedUniversities] = useState<readonly FollowedUniversityRecord[]>(
+    () => scenario === "followed-universities" ? [] : DEFAULT_FOLLOWED_UNIVERSITIES,
+  );
   const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [notificationMode, setNotificationMode] = useState<NotificationPreferenceMode>("all_calendar");
   const [notificationCategories, setNotificationCategories] = useState(DEFAULT_CATEGORIES);
@@ -239,6 +283,9 @@ function ProfileSettingsPreviewExperience({
   useEffect(() => {
     setAcademicDraft(completeDraft);
     setAcademicSaveState("dirty");
+    setFollowedUniversities(
+      scenario === "followed-universities" ? [] : DEFAULT_FOLLOWED_UNIVERSITIES,
+    );
     setNotificationEnabled(true);
     setNotificationMode("all_calendar");
     setNotificationCategories(DEFAULT_CATEGORIES);
@@ -274,7 +321,11 @@ function ProfileSettingsPreviewExperience({
     incomplete
       ? {}
       : {
-        universityName: referenceProfile ? "Ankara Üniversitesi" : "Kampüs Üniversitesi",
+        universityName: referenceProfile
+          ? "Ankara Üniversitesi"
+          : followedUniversitiesPreview
+            ? "Abdullah Gül Üniversitesi"
+            : "Kampüs Üniversitesi",
         facultyName: "Mühendislik Fakültesi",
         departmentName: "Bilgisayar Mühendisliği",
       },
@@ -309,15 +360,15 @@ function ProfileSettingsPreviewExperience({
       Profile: (
         <ProfileOverviewScreen
           academicSummary={academicSummary}
-          appVersion="0.1.2"
+          appVersion="0.1.4"
           email={profileEmail}
           fullName={profileFullName}
           googleAccountEmail={incomplete ? undefined : profileEmail}
           googleCalendar={resolveGoogleCalendarPresentation(incomplete ? "disconnected" : "connected")}
           notificationTruth={profileNotificationTruth}
-          followedUniversityCount={2}
+          followedUniversityCount={followedUniversities.length}
           onOpenAcademicProfile={() => openRoute("AcademicProfileSettings")}
-          onOpenFollowedUniversities={() => undefined}
+          onOpenFollowedUniversities={() => openRoute("FollowedUniversitiesSettings")}
           onOpenNotifications={() => openRoute("NotificationSettings")}
           onOpenGoogleCalendar={() => openRoute("GoogleCalendarSettings")}
           onOpenAccountManagement={() => openRoute("AccountDataSettings")}
@@ -364,6 +415,30 @@ function ProfileSettingsPreviewExperience({
           saveState={academicSaveState}
           universities={UNIVERSITIES}
           universitiesLoading={false}
+        />
+      ),
+      FollowedUniversitiesSettings: (
+        <FollowedUniversitiesSettingsScreen
+          followed={followedUniversities}
+          onRetry={() => undefined}
+          onToggle={(universityId, shouldFollow) => {
+            setFollowedUniversities((current) => {
+              if (!shouldFollow) {
+                return current.filter((record) => record.universityId !== universityId);
+              }
+              if (current.some((record) => record.universityId === universityId)) return current;
+              return [
+                ...current,
+                {
+                  id: `preview-follow-${universityId}`,
+                  universityId,
+                  createdAt: "2026-08-27T10:00:00.000Z",
+                },
+              ];
+            });
+          }}
+          primaryUniversityId={PRIMARY_UNIVERSITY_ID}
+          universities={FOLLOWED_UNIVERSITY_OPTIONS}
         />
       ),
       NotificationSettings: (
@@ -446,6 +521,7 @@ function ProfileSettingsPreviewExperience({
     accountScenarioError,
     googlePresentation,
     googleState,
+    followedUniversities,
     incomplete,
     notificationCategories,
     notificationEnabled,
@@ -480,6 +556,9 @@ function ProfileSettingsPreviewExperience({
         </ProfilePreviewStack.Screen>
         <ProfilePreviewStack.Screen name="AcademicProfileSettings" options={{ title: "Akademik Profil" }}>
           {() => <PreviewScreen>{screens.AcademicProfileSettings}</PreviewScreen>}
+        </ProfilePreviewStack.Screen>
+        <ProfilePreviewStack.Screen name="FollowedUniversitiesSettings" options={{ title: "Üniversite Takipleri" }}>
+          {() => <PreviewScreen>{screens.FollowedUniversitiesSettings}</PreviewScreen>}
         </ProfilePreviewStack.Screen>
         <ProfilePreviewStack.Screen name="NotificationSettings" options={{ headerShown: false, title: "Bildirim tercihleri" }}>
           {() => <PreviewScreen headerless>{screens.NotificationSettings}</PreviewScreen>}

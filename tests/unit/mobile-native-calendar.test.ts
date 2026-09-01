@@ -32,6 +32,7 @@ const academicEvents = [
     endDate: "2026-08-07",
     temporalKind: "date" as const,
     endTemporalKind: "date" as const,
+    sourceUrl: "https://example.edu.tr/akademik-takvim.pdf",
   },
   {
     id: "final-exam",
@@ -74,6 +75,7 @@ describe("Phase 9 calendar and personal-exam model", () => {
       endDate: "2026-08-07",
       temporalKind: "date",
       endTemporalKind: "date",
+      sourceUrl: "https://example.edu.tr/akademik-takvim.pdf",
     });
   });
 

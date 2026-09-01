@@ -17,6 +17,7 @@ describe("Phase 10 profile/settings synthetic preview", () => {
       "reference-profile",
       "profile-incomplete",
       "academic-editor",
+      "followed-universities",
       "notifications-active",
       "notifications-denied",
       "notifications-settings-required",
@@ -142,6 +143,39 @@ describe("Phase 10 profile/settings synthetic preview", () => {
     const confirmation = screen.getByTestId("bottom-sheet");
     expect(confirmation).toHaveProp("accessibilityLabel", "Uygulama verileri silinsin mi?");
     expect(within(confirmation).getAllByText(/geri alınamaz/iu).length).toBeGreaterThan(0);
+  });
+
+  it("runs the real additional-university flow from zero through three and back to two", async () => {
+    await renderAsync(<ProfileSettingsPreview scenario="followed-universities" />);
+
+    expect(await screen.findByRole("header", { name: "Takip edilen üniversiteler" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Geri dön" })).toBeEnabled();
+    expect(screen.queryByText("Abdullah Gül Üniversitesi")).toBeNull();
+    expect(screen.getByText("0 ek üniversite")).toBeVisible();
+    expect(screen.getByText(/Bu seçimler Duyurular ve ana sayfadaki duyuru özetini genişletir/u))
+      .toBeVisible();
+
+    fireEvent.press(screen.getByRole("switch", { name: "Ankara Üniversitesi. Takip edilmiyor" }));
+    await waitFor(() => expect(screen.getByText("1 ek üniversite")).toBeVisible());
+
+    fireEvent.press(screen.getByRole("switch", { name: "Tarsus Üniversitesi. Takip edilmiyor" }));
+    await waitFor(() => expect(screen.getByText("2 ek üniversite")).toBeVisible());
+
+    fireEvent.press(screen.getByRole("switch", { name: "Ege Üniversitesi. Takip edilmiyor" }));
+    await waitFor(() => expect(screen.getByText("3 ek üniversite")).toBeVisible());
+    expect(screen.getAllByRole("switch").filter(
+      (row) => row.props.accessibilityState?.checked === true,
+    )).toHaveLength(3);
+
+    fireEvent.press(screen.getByRole("switch", { name: "Ankara Üniversitesi. Takip ediliyor" }));
+    await waitFor(() => expect(screen.getByText("2 ek üniversite")).toBeVisible());
+    expect(screen.getByRole("switch", { name: "Ankara Üniversitesi. Takip edilmiyor" }))
+      .toBeVisible();
+
+    fireEvent.press(screen.getByRole("button", { name: "Geri dön" }));
+    await waitFor(() => expect(screen.getByRole("header", { name: "Profil" })).toBeVisible());
+    expect(screen.getByText("Abdullah Gül Üniversitesi")).toBeVisible();
+    expect(screen.getByText("2 ek üniversite")).toBeVisible();
   });
 
   it("keeps every visible notification group backed by a mutable preview category", async () => {
