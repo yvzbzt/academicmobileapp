@@ -98,6 +98,23 @@ test("release Gradle policy requires an explicit signed or unsigned identity mod
   assert.match(hardened, /Signed release credentials are required/u);
   assert.match(hardened, /debug signing identity cannot be used/u);
   assert.match(hardened, /Unsigned release unexpectedly has a signing configuration/u);
+  assert.match(hardened, /AKADEMIK_GOOGLE_AUTH_RELEASE_GUARD/u);
+  assert.match(hardened, /verify-android-google-auth-config\.mjs/u);
+  assert.match(hardened, /verifyAkademikGoogleAuthRelease\(\)/u);
+  assert.match(hardened, /verifyAkademikUploadSigningIdentity\(akademikReleaseMode, uploadSigning\)/u);
+  assert.match(hardened, /pinned upload certificate/u);
+  assert.match(hardened, /AKADEMIK_GOOGLE_AUTH_RELEASE_GUARD_END/u);
+  assert.match(hardened, /createBundleReleaseJsAndAssets/u);
+  assert.match(hardened, /outputs\.upToDateWhen \{ false \}/u);
+  assert.match(hardened, /verifyAkademikReleaseJsBundle\(task\)/u);
+  assert.match(hardened, /pinned Web OAuth audience/u);
+  assert.match(hardened, /incorrectly embeds a native OAuth client/u);
+  assert.match(hardened, /packageReleaseBundle/u);
+  assert.match(hardened, /signReleaseBundle/u);
+  assert.match(hardened, /generateAutolinkingNewArchitectureFiles/u);
+  assert.match(hardened, /AKADEMIK_WINDOWS_SHORT_MOBILE_ROOT/u);
+  assert.match(hardened, /Windows release autolinking paths could not be shortened/u);
+  assert.match(hardened, /Variant-specific google-services\.json files are forbidden/u);
   assert.doesNotMatch(
     hardened,
     /release \{\s*signingConfig signingConfigs\.debug/u
@@ -105,6 +122,57 @@ test("release Gradle policy requires an explicit signed or unsigned identity mod
 
   const hardenedAgain = security.applyReleaseSigningPolicy(hardened);
   assert.equal(hardenedAgain, hardened);
+
+  const legacyGuard = hardened.replace("\n// AKADEMIK_GOOGLE_AUTH_RELEASE_GUARD_END", "");
+  const migratedGuard = security.applyReleaseSigningPolicy(legacyGuard);
+  assert.match(migratedGuard, /AKADEMIK_GOOGLE_AUTH_RELEASE_GUARD_END/u);
+  assert.match(migratedGuard, /verifyAkademikUploadSigningIdentity/u);
+});
+
+test("Windows releases can consume a prewritten short-path autolinking config", () => {
+  const fixture = `extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
+  if (System.getenv('EXPO_USE_COMMUNITY_AUTOLINKING') == '1') {
+    ex.autolinkLibrariesFromCommand()
+  } else {
+    ex.autolinkLibrariesFromCommand(expoAutolinking.rnConfigCommand)
+  }
+}
+`;
+  const hardened = security.applyWindowsAutolinkingSettingsPolicy(fixture);
+  assert.match(hardened, /AKADEMIK_WINDOWS_AUTOLINKING_CONFIG/u);
+  assert.match(hardened, /autolinkLibrariesFromConfigFile/u);
+  assert.match(hardened, /Windows release autolinking config is missing/u);
+  assert.match(hardened, /else if \(System\.getenv\('EXPO_USE_COMMUNITY_AUTOLINKING'/u);
+  assert.match(hardened, /autolinkLibrariesFromCommand\(expoAutolinking\.rnConfigCommand\)/u);
+  assert.equal(security.applyWindowsAutolinkingSettingsPolicy(hardened), hardened);
+});
+
+test("Windows release orchestration refreshes only release-native and requested outputs", () => {
+  const releaseScript = readFileSync(
+    path.join(repoRoot, "scripts/build-android-release.mjs"),
+    "utf8"
+  );
+  assert.match(releaseScript, /AKADEMIK_WINDOWS_AUTOLINKING_CONFIG/u);
+  assert.match(releaseScript, /react-native-config[\s\S]*--platform[\s\S]*android[\s\S]*--json/u);
+  assert.match(releaseScript, /remapMobileRootPaths/u);
+  assert.match(releaseScript, /GRADLE_USER_HOME/u);
+  assert.match(releaseScript, /refreshWindowsReleaseNativeCaches/u);
+  assert.match(releaseScript, /join\(cxxDirectory, "RelWithDebInfo"\)/u);
+  assert.match(releaseScript, /join\(cxxDirectory, "tools", "release"\)/u);
+  assert.match(releaseScript, /"build", "intermediates", "cxx", "RelWithDebInfo"/u);
+  assert.match(releaseScript, /removeRequestedReleaseOutputs\(artifactFormat\)/u);
+  assert.equal(releaseScript.match(/removeRequestedReleaseOutputs\(artifactFormat\)/gu)?.length, 1);
+  assert.ok(
+    releaseScript.indexOf("removeRequestedReleaseOutputs(artifactFormat)")
+      < releaseScript.indexOf("runWindowsGradle(gradleArguments, releaseEnvironment)")
+  );
+  assert.match(releaseScript, /resolveWindowsJavaHome/u);
+  assert.match(releaseScript, /generatedAutolinkingCmake/u);
+  assert.match(releaseScript, /verifyPackagedOAuthAudience\(label, artifact, identity\)/u);
+  assert.match(releaseScript, /base\/assets\/index\.android\.bundle/u);
+  assert.match(releaseScript, /verifySignedAabIdentity\(artifact, identity\)/u);
+  assert.match(releaseScript, /the signed AAB certificate does not match the pinned upload identity/u);
+  assert.doesNotMatch(releaseScript, /\["Debug"\]/u);
 });
 
 test("Gradle wrapper and app config retain the production policy across prebuild", () => {

@@ -32,6 +32,7 @@ FIREBASE_LIVE_APP_VISUAL_REPORT.md
 NATIVE_CALENDAR_INTEGRATION_PREVIEW.png
 firebase-live-app-visuals/
 artifacts/
+/release-artifacts/
 docs/university-source-coverage-report.md
 docs/native-calendar-device-test-checklist.md
 docs/vps-web-login-and-smtp.md

@@ -46,7 +46,7 @@ Fallbacks are `http://10.0.2.2:3000` for the Android emulator, `http://localhost
 
 Provider integrations require environment-specific configuration:
 
-- Android Google Sign-In requires an Android OAuth client for package `com.anssoft.akademiktakvim` and the signing certificate SHA-1.
+- Android Google Sign-In requires separate OAuth registrations for package `com.anssoft.akademiktakvim` with the upload and Play App Signing certificates. The public production identities are pinned in [`android-release-identity.json`](./android-release-identity.json).
 - Backend Google authentication requires a Web OAuth client ID in `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`; the API must allow the corresponding client IDs.
 - Sign in with Apple is enabled for iOS bundle ID `com.anssoft.akademiktakvim` and team `VMGJVLFX95`. Enable the **Sign in with Apple** capability on the matching App ID in Apple Developer, then let Xcode refresh its automatically managed provisioning profile.
 - The API must set `APPLE_SIGN_IN_CLIENT_IDS=com.anssoft.akademiktakvim`. Apple identity tokens are verified against Apple's public JWKS; this native flow does not require a committed `.p8` key or client secret.
@@ -86,13 +86,21 @@ From the repository root, use `npm run typecheck:mobile:native` and `npm run tes
 
 ## Android Release Build
 
-The generated `android/` project and release-signing configuration are local build inputs and remain ignored. Generate or synchronize the native project, configure an authorized release keystore outside version control, and then build from `apps/mobile-native/android`:
+The generated `android/` project and release-signing configuration are local build inputs and remain ignored. Materialize a current Firebase `google-services.json`, set the four `AKADEMIK_UPLOAD_*` signing variables, and use the repository release command from the root:
 
 ```powershell
-.\gradlew.bat assembleRelease
+npm run release:android -- signed aab
 ```
 
-On macOS or Linux, run `./gradlew assembleRelease`. The default APK output is `app/build/outputs/apk/release/app-release.apk`. Verify the package name, version code, signature, and checksum before distribution; do not commit the resulting APK or AAB.
+Use an absolute path for `AKADEMIK_UPLOAD_STORE_FILE`. The command forces the production Expo environment, validates the source Firebase config, runs Expo prebuild, proves the generated config is byte-for-byte identical, refreshes the JavaScript bundle, validates the embedded Web OAuth audience, verifies the exact upload signer, and only then runs `bundleRelease`. On Windows it uses and removes a temporary short drive mapping to avoid native-tool path-length failures. It also checks that the resulting package, version, non-debuggable manifest, and artifact are fresh and prints the artifact path and SHA-256.
+
+Exercise the entire release task graph without producing an artifact with:
+
+```powershell
+npm run release:android -- unsigned aab --dry-run
+```
+
+Direct Gradle commands remain fail-closed, but the orchestrator above is the supported release entry point because it also synchronizes the ignored native project and rejects stale outputs. The AAB is signed by the upload certificate; Google Play re-signs distributed APKs with the pinned Play App Signing certificate. After an intentional key/package/Firebase-app rotation, update Firebase, download a new `google-services.json`, and review the tracked identity in the same change. The provider snapshot cannot detect a later remote deletion, so perform one real Google login from a Play internal/closed-track install before production promotion. Do not commit APKs, AABs, Firebase files, or signing material.
 
 ## Data and Integration Boundaries
 

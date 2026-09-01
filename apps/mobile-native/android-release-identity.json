@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "applicationId": "com.anssoft.akademiktakvim",
+  "firebaseProjectId": "academic-mobile-app-7629",
+  "firebaseAppId": "1:315186329318:android:c9cd57db109204bc79ad27",
+  "webOauthClientId": "315186329318-911ks4c825vjrd5lpk608ugie7m8lujj.apps.googleusercontent.com",
+  "androidOauthClients": {
+    "upload": {
+      "certificateSha1": "31:4F:1B:3B:67:BA:6F:DC:B1:07:FC:93:CD:FC:2F:9C:BD:F2:03:DE",
+      "certificateSha256": "8C:B2:E0:FC:E2:F8:50:15:E3:A8:D1:65:30:06:F2:E8:86:B1:88:BD:F3:1E:EC:5A:F0:9E:BA:83:B0:0E:AB:7C",
+      "clientId": "315186329318-pp8i1nhk46ikeenh2aic5quaj2tu0bj8.apps.googleusercontent.com"
+    },
+    "playAppSigning": {
+      "certificateSha1": "4E:A7:78:FE:CF:6E:1A:16:40:52:E7:73:DD:B4:74:6B:05:43:B0:32",
+      "certificateSha256": "01:B8:1D:43:F2:BC:BA:8D:1F:E5:30:B6:68:C6:47:28:98:A6:80:68:72:52:15:EE:22:58:78:0A:48:61:20:04",
+      "clientId": "315186329318-ep9vdfh16kc6fbl4s7s3sr3ceu79fnti.apps.googleusercontent.com"
+    }
+  }
+}

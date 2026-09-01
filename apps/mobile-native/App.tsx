@@ -745,21 +745,20 @@ const UNIVERSITY_TYPE_LABELS: Record<string, string> = {
 
 const PRODUCTION_API_BASE_URL = "https://academic-api.anssoft.com.tr";
 const DEFAULT_GOOGLE_WEB_CLIENT_ID = "315186329318-911ks4c825vjrd5lpk608ugie7m8lujj.apps.googleusercontent.com";
-const DEFAULT_GOOGLE_ANDROID_CLIENT_ID = "315186329318-u6gd6lklnfkddc6kmsq7qvls8vgoei1k.apps.googleusercontent.com";
 
 const GOOGLE_EXPO_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID);
 const GOOGLE_WEB_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) ?? GOOGLE_EXPO_CLIENT_ID ?? DEFAULT_GOOGLE_WEB_CLIENT_ID;
 const GOOGLE_IOS_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID)
   ?? resolveFirebaseIosClientId();
-const GOOGLE_ANDROID_CLIENT_ID = cleanEnvValue(process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID) ?? DEFAULT_GOOGLE_ANDROID_CLIENT_ID;
-const GOOGLE_PLATFORM_CLIENT_ID = Platform.select({
-  android: GOOGLE_ANDROID_CLIENT_ID,
-  ios: GOOGLE_IOS_CLIENT_ID,
-  default: GOOGLE_WEB_CLIENT_ID
-});
-const GOOGLE_AUTH_CONFIGURED = Boolean(GOOGLE_PLATFORM_CLIENT_ID);
+// Android OAuth identity is selected remotely from the package name and signing
+// certificate. Release builds verify both upload and Play identities before Gradle runs.
+const GOOGLE_AUTH_CONFIGURED = Platform.select({
+  android: Boolean(GOOGLE_WEB_CLIENT_ID),
+  ios: Boolean(GOOGLE_WEB_CLIENT_ID && GOOGLE_IOS_CLIENT_ID),
+  default: Boolean(GOOGLE_WEB_CLIENT_ID)
+}) ?? false;
 const GOOGLE_AUTH_CONFIGURATION_MESSAGE = Platform.select({
-  android: "Bu APK Google Android OAuth Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.",
+  android: "Bu APK Google Web OAuth Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.",
   ios: "Bu iOS derlemesi Google iOS Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.",
   default: "Bu derleme Google Web Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin."
 }) ?? "Bu derleme Google Client ID olmadan oluşturulmuş. Şimdilik e-posta ve şifre ile devam edebilirsin.";
