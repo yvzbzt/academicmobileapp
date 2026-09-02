@@ -1,0 +1,3511 @@
+{
+  "schemaVersion": 1,
+  "authorities": [
+    {
+      "universityId": "abdullah-gul-universitesi-kayseri",
+      "status": "verified",
+      "authorityDomains": [
+        "agu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.agu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.agu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "acibadem-mehmet-ali-aydinlar-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "acibadem.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.acibadem.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.acibadem.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "atu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.atu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.atu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "adiyaman-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "adiyaman.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.adiyaman.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.adiyaman.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "afyon-kocatepe-universitesi-afyonkarahisar",
+      "status": "verified",
+      "authorityDomains": [
+        "aku.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.aku.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.aku.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "afyonkarahisar-saglik-bilimleri-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "afsu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.afsu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.afsu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "agri-ibrahim-cecen-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "agri.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.agri.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.agri.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "akdeniz-universitesi-antalya",
+      "status": "verified",
+      "authorityDomains": [
+        "akdeniz.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.akdeniz.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.akdeniz.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "aksaray-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "aksaray.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.aksaray.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.aksaray.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "alanya-alaaddin-keykubat-universitesi-antalya",
+      "status": "verified",
+      "authorityDomains": [
+        "alanya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.alanya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.alanya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "alanya-universitesi-antalya",
+      "status": "verified",
+      "authorityDomains": [
+        "alanyauniversity.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.alanyauniversity.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.alanyauniversity.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "altinbas-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "altinbas.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.altinbas.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.altinbas.edu.tr/tr"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "amasya-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "amasya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.amasya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.amasya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "anadolu-universitesi-eskisehir",
+      "status": "verified",
+      "authorityDomains": [
+        "anadolu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.anadolu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.anadolu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ankara-bilim-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ankarabilim.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ankarabilim.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ankarabilim.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ankara-haci-bayram-veli-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "hacibayram.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://hacibayram.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://hacibayram.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ankara-medipol-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ankaramedipol.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ankaramedipol.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ankaramedipol.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ankara-muzik-ve-guzel-sanatlar-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "mgu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.mgu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.mgu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ankara-sosyal-bilimler-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "asbu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.asbu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.asbu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ankara-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ankara.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ankara.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ankara.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ankara-yildirim-beyazit-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "aybu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.aybu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.aybu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "antalya-belek-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "belek.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.belek.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.belek.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "antalya-bilim-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "antalya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.antalya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.antalya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ardahan-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ardahan.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ardahan.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ardahan.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "artvin-coruh-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "artvin.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.artvin.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.artvin.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "atasehir-adiguzel-meslek-yuksekokulu-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "adiguzel.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.adiguzel.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.adiguzel.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ataturk-universitesi-erzurum",
+      "status": "verified",
+      "authorityDomains": [
+        "atauni.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.atauni.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.atauni.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "atilim-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "atilim.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.atilim.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.atilim.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "avrasya-universitesi-trabzon",
+      "status": "verified",
+      "authorityDomains": [
+        "avrasya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.avrasya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.avrasya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "aydin-adnan-menderes-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "adu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.adu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.adu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bahcesehir-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "bahcesehir.edu.tr",
+        "bau.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://bau.edu.tr/",
+        "https://www.bahcesehir.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "CHECKED_IN_AUTHORITY_ALIAS",
+          "url": "https://bau.edu.tr/"
+        },
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bahcesehir.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "balikesir-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "balikesir.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.balikesir.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.balikesir.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bandirma-onyedi-eylul-universitesi-balikesir",
+      "status": "verified",
+      "authorityDomains": [
+        "bandirma.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bandirma.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bandirma.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bartin-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "bartin.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bartin.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bartin.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "baskent-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "baskent.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.baskent.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.baskent.edu.tr/tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "batman-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "batman.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://batman.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://batman.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bayburt-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "bayburt.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://bayburt.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://bayburt.edu.tr/tr"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "beykoz-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "beykoz.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.beykoz.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.beykoz.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bezm-i-lem-vakif-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "bezmialem.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bezmialem.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bezmialem.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bilecik-seyh-edebali-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "bilecik.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bilecik.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bilecik.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bingol-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "bingol.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bingol.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bingol.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "biruni-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "biruni.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.biruni.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.biruni.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bitlis-eren-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "beu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.beu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.beu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bogazici-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "bogazici.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bogazici.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bogazici.edu.tr/tr"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bolu-abant-izzet-baysal-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ibu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ibu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ibu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "burdur-mehmet-akif-ersoy-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "mehmetakif.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.mehmetakif.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.mehmetakif.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bursa-teknik-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "btu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://btu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://btu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "bursa-uludag-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "uludag.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.uludag.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.uludag.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "cag-universitesi-mersin",
+      "status": "verified",
+      "authorityDomains": [
+        "cag.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.cag.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.cag.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "canakkale-onsekiz-mart-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "comu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.comu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.comu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "cankaya-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "cankaya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.cankaya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.cankaya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "cankiri-karatekin-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "karatekin.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.karatekin.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.karatekin.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "cukurova-universitesi-adana",
+      "status": "verified",
+      "authorityDomains": [
+        "cu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.cu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.cu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "demiroglu-bilim-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "bilim.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.demiroglu.bilim.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.demiroglu.bilim.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "dicle-universitesi-diyarbakir",
+      "status": "verified",
+      "authorityDomains": [
+        "dicle.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.dicle.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.dicle.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "dogus-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "dogus.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.dogus.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.dogus.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "dokuz-eylul-universitesi-izmir",
+      "status": "verified",
+      "authorityDomains": [
+        "deu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.deu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.deu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "duzce-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "duzce.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.duzce.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.duzce.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ege-universitesi-izmir",
+      "status": "verified",
+      "authorityDomains": [
+        "ege.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ege.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ege.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "erciyes-universitesi-kayseri",
+      "status": "verified",
+      "authorityDomains": [
+        "erciyes.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.erciyes.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.erciyes.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "erzincan-binali-yildirim-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ebyu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ebyu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ebyu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "erzurum-teknik-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "erzurum.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.erzurum.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.erzurum.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "eskisehir-osmangazi-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ogu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ogu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ogu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "eskisehir-teknik-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "eskisehir.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.eskisehir.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.eskisehir.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "fatih-sultan-mehmet-vakif-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "fsm.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.fsm.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.fsm.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "fenerbahce-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "fbu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.fbu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.fbu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "firat-universitesi-elazig",
+      "status": "verified",
+      "authorityDomains": [
+        "firat.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.firat.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.firat.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "galatasaray-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "gsu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gsu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gsu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "gazi-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "gazi.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://gazi.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://gazi.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "gaziantep-islam-bilim-ve-teknoloji-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "gibtu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gibtu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gibtu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "gaziantep-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "gantep.edu.tr",
+        "gaziantep.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gantep.edu.tr/",
+        "https://www.gaziantep.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "OBSERVED_OFFICIAL_REDIRECT",
+          "url": "https://www.gaziantep.edu.tr/"
+        },
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gantep.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "gebze-teknik-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "gtu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gtu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gtu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "giresun-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "giresun.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.giresun.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.giresun.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "gumushane-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "gumushane.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gumushane.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gumushane.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "hacettepe-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "hacettepe.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://hacettepe.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://hacettepe.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "hakkari-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "hakkari.edu.tr",
+        "hu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.hakkari.edu.tr/",
+        "https://www.hu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.hakkari.edu.tr/"
+        },
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.hu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "halic-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "halic.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.halic.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.halic.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "harran-universitesi-sanliurfa",
+      "status": "verified",
+      "authorityDomains": [
+        "harran.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.harran.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.harran.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "hasan-kalyoncu-universitesi-gaziantep",
+      "status": "verified",
+      "authorityDomains": [
+        "hku.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.hku.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.hku.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "hatay-mustafa-kemal-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "mku.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.mku.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.mku.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "hitit-universitesi-corum",
+      "status": "verified",
+      "authorityDomains": [
+        "hitit.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.hitit.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.hitit.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ibn-haldun-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "ihu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ihu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ihu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "igdir-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "igdir.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.igdir.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.igdir.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ihsan-dogramaci-bilkent-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "bilkent.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bilkent.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bilkent.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "inonu-universitesi-malatya",
+      "status": "verified",
+      "authorityDomains": [
+        "inonu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.inonu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.inonu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "isik-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "isikun.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.isikun.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.isikun.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "iskenderun-teknik-universitesi-hatay",
+      "status": "verified",
+      "authorityDomains": [
+        "iste.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.iste.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.iste.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "isparta-uygulamali-bilimler-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "isparta.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://isparta.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://isparta.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-29-mayis-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "29mayis.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.29mayis.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.29mayis.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-arel-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "arel.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.arel.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.arel.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-atlas-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "atlas.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.atlas.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.atlas.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-aydin-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "aydin.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.aydin.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.aydin.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-beykent-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "beykent.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.beykent.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.beykent.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-bilgi-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "bilgi.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bilgi.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bilgi.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-esenyurt-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "esenyurt.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.esenyurt.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.esenyurt.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-galata-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "galata.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.galata.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.galata.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-gedik-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "gedik.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gedik.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gedik.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-gelisim-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "gelisim.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gelisim.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gelisim.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-kent-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "kent.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kent.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kent.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-kultur-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "iku.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.iku.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.iku.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-medeniyet-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "medeniyet.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.medeniyet.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.medeniyet.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-medipol-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "medipol.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.medipol.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.medipol.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-nisantasi-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "nisantasi.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.nisantasi.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.nisantasi.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-okan-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "okan.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.okan.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.okan.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-rumeli-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "rumeli.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.rumeli.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.rumeli.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-sabahattin-zaim-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "izu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.izu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.izu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-saglik-ve-sosyal-bilimler-meslek-yuksekokulu",
+      "status": "verified",
+      "authorityDomains": [
+        "issb.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.issb.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.issb.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-saglik-ve-teknoloji-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "istun.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.istun.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.istun.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-sisli-meslek-yuksekokulu",
+      "status": "verified",
+      "authorityDomains": [
+        "sisli.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.sisli.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sisli.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-teknik-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "itu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.itu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.itu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-ticaret-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ticaret.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ticaret.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ticaret.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-topkapi-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "topkapi.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.topkapi.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.topkapi.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "istanbul.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.istanbul.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.istanbul.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-universitesi-cerrahpasa",
+      "status": "verified",
+      "authorityDomains": [
+        "iuc.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://iuc.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://iuc.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istanbul-yeni-yuzyil-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "yeniyuzyil.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.yeniyuzyil.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.yeniyuzyil.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "istinye-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "istinye.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.istinye.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.istinye.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "izmir-bakircay-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "bakircay.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://bakircay.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://bakircay.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "izmir-demokrasi-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "idu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.idu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.idu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "izmir-ekonomi-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ieu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ieu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ieu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "izmir-katip-celebi-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ikc.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ikc.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ikc.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "izmir-kavram-meslek-yuksekokulu",
+      "status": "quarantined",
+      "authorityDomains": [],
+      "authorityUrls": [],
+      "evidence": [],
+      "reasonCodes": [
+        "owner_evidence_missing"
+      ]
+    },
+    {
+      "universityId": "izmir-tinaztepe-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "tinaztepe.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.tinaztepe.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.tinaztepe.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "izmir-yuksek-teknoloji-enstitusu",
+      "status": "verified",
+      "authorityDomains": [
+        "iyte.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.iyte.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "CURATED_CATALOG_BINDING",
+          "url": "https://www.iyte.edu.tr/"
+        },
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.iyte.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kadir-has-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "khas.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.khas.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.khas.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kafkas-universitesi-kars",
+      "status": "verified",
+      "authorityDomains": [
+        "kafkas.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kafkas.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kafkas.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kahramanmaras-istiklal-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "istiklal.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.istiklal.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.istiklal.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kahramanmaras-sutcu-imam-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ksu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ksu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ksu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kapadokya-universitesi-nevsehir",
+      "status": "verified",
+      "authorityDomains": [
+        "kapadokya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kapadokya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kapadokya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "karabuk-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "karabuk.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.karabuk.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.karabuk.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "karadeniz-teknik-universitesi-trabzon",
+      "status": "verified",
+      "authorityDomains": [
+        "ktu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ktu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ktu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "karamanoglu-mehmetbey-universitesi-karaman",
+      "status": "verified",
+      "authorityDomains": [
+        "kmu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kmu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kmu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kastamonu-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "kastamonu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kastamonu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kastamonu.edu.tr/index.php/tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kayseri-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "kayseri.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kayseri.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kayseri.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kilis-7-aralik-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "kilis.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kilis.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kilis.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kirikkale-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "kku.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://kku.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://kku.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kirklareli-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "klu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.klu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.klu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kirsehir-ahi-evran-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ahievran.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ahievran.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ahievran.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "koc-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "ku.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ku.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ku.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kocaeli-saglik-ve-teknoloji-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "kocaelisaglik.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kocaelisaglik.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kocaelisaglik.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kocaeli-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "kocaeli.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.kocaeli.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.kocaeli.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "konya-gida-ve-tarim-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "gidatarim.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gidatarim.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gidatarim.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "konya-teknik-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ktun.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ktun.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ktun.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kto-karatay-universitesi-konya",
+      "status": "verified",
+      "authorityDomains": [
+        "karatay.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.karatay.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.karatay.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kutahya-dumlupinar-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "dpu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://dpu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://dpu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "kutahya-saglik-bilimleri-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ksbu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ksbu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ksbu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "lokman-hekim-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "lokmanhekim.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.lokmanhekim.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.lokmanhekim.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "malatya-turgut-ozal-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ozal.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ozal.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ozal.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "maltepe-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "maltepe.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.maltepe.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.maltepe.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "manisa-cel-l-bayar-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "cbu.edu.tr",
+        "mcbu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.cbu.edu.tr/",
+        "https://www.mcbu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "CURATED_CATALOG_BINDING",
+          "url": "https://www.mcbu.edu.tr/"
+        },
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.cbu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "mardin-artuklu-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "artuklu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.artuklu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.artuklu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "marmara-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "marmara.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.marmara.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.marmara.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "mef-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "mef.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.mef.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.mef.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "mersin-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "mersin.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.mersin.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.mersin.edu.tr/idari/genel-sekreterlik"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "mimar-sinan-guzel-sanatlar-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "msgsu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.msgsu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.msgsu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "mudanya-universitesi-bursa",
+      "status": "verified",
+      "authorityDomains": [
+        "mudanya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://mudanya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://mudanya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "mugla-sitki-kocman-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "mu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.mu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.mu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "munzur-universitesi-tunceli",
+      "status": "verified",
+      "authorityDomains": [
+        "munzur.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.munzur.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.munzur.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "mus-alparslan-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "alparslan.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.alparslan.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.alparslan.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "necmettin-erbakan-universitesi-konya",
+      "status": "verified",
+      "authorityDomains": [
+        "erbakan.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.erbakan.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.erbakan.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "nevsehir-haci-bektas-veli-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "nevsehir.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.nevsehir.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.nevsehir.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "nigde-omer-halisdemir-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "ohu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ohu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ohu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "nuh-naci-yazgan-universitesi-kayseri",
+      "status": "verified",
+      "authorityDomains": [
+        "nny.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.nny.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.nny.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ondokuz-mayis-universitesi-samsun",
+      "status": "verified",
+      "authorityDomains": [
+        "omu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.omu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.omu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ordu-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "odu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.odu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.odu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "orta-dogu-teknik-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "metu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.metu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.metu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "osmaniye-korkut-ata-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "osmaniye.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.osmaniye.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.osmaniye.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ostim-teknik-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "ostimteknik.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ostimteknik.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ostimteknik.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ozyegin-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "ozyegin.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ozyegin.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ozyegin.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "pamukkale-universitesi-denizli",
+      "status": "verified",
+      "authorityDomains": [
+        "pau.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.pau.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.pau.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "piri-reis-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "pirireis.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.pirireis.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.pirireis.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "recep-tayyip-erdogan-universitesi-rize",
+      "status": "verified",
+      "authorityDomains": [
+        "erdogan.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://erdogan.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://erdogan.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "sabanci-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "sabanciuniv.edu"
+      ],
+      "authorityUrls": [
+        "https://www.sabanciuniv.edu/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sabanciuniv.edu/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "saglik-bilimleri-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "sbu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.sbu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sbu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "sakarya-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "sakarya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.sakarya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sakarya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "sakarya-uygulamali-bilimler-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "subu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.subu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.subu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "samsun-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "samsun.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.samsun.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.samsun.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "sanko-universitesi-gaziantep",
+      "status": "verified",
+      "authorityDomains": [
+        "sanko.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.sanko.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sanko.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "selcuk-universitesi-konya",
+      "status": "verified",
+      "authorityDomains": [
+        "selcuk.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://selcuk.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://selcuk.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "siirt-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "siirt.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://siirt.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://siirt.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "sinop-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "sinop.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.sinop.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sinop.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "sirnak-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "sirnak.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.sirnak.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sirnak.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "sivas-bilim-ve-teknoloji-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "sivas.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.sivas.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sivas.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "sivas-cumhuriyet-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "cumhuriyet.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.cumhuriyet.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.cumhuriyet.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "suleyman-demirel-universitesi-isparta",
+      "status": "verified",
+      "authorityDomains": [
+        "sdu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.sdu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.sdu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "tarsus-universitesi-mersin",
+      "status": "verified",
+      "authorityDomains": [
+        "tarsus.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.tarsus.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.tarsus.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ted-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "tedu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.tedu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.tedu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "tekirdag-namik-kemal-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "nku.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.nku.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.nku.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "tobb-ekonomi-ve-teknoloji-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "etu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.etu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.etu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "tokat-gaziosmanpasa-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "gop.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.gop.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.gop.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "toros-universitesi-mersin",
+      "status": "verified",
+      "authorityDomains": [
+        "toros.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.toros.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.toros.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "trabzon-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "trabzon.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.trabzon.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.trabzon.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "trakya-universitesi-edirne",
+      "status": "verified",
+      "authorityDomains": [
+        "trakya.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.trakya.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.trakya.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "turk-alman-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "tau.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.tau.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.tau.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "turk-hava-kurumu-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "thk.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.thk.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.thk.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "ufuk-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "ufuk.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.ufuk.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.ufuk.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "usak-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "usak.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.usak.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.usak.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "uskudar-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "uskudar.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.uskudar.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.uskudar.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "van-yuzuncu-yil-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "yyu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.yyu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.yyu.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "yalova-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "yalova.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.yalova.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.yalova.edu.tr/rektorluk"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "yasar-universitesi-izmir",
+      "status": "verified",
+      "authorityDomains": [
+        "yasar.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.yasar.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.yasar.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "yeditepe-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "yeditepe.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.yeditepe.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.yeditepe.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "yildiz-teknik-universitesi-istanbul",
+      "status": "verified",
+      "authorityDomains": [
+        "yildiz.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.yildiz.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.yildiz.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "yozgat-bozok-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "bozok.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.bozok.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.bozok.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "yuksek-ihtisas-universitesi-ankara",
+      "status": "verified",
+      "authorityDomains": [
+        "yuksekihtisasuniversitesi.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.yuksekihtisasuniversitesi.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.yuksekihtisasuniversitesi.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "zonguldak-bulent-ecevit-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "beun.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.beun.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.beun.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    }
+  ]
+}

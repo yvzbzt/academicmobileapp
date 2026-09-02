@@ -1,10 +1,13 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
+import { resolveSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { assertUniversityOwnedRecord, assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import { mapAcademicEventCategory } from "../../domain/category-mapper.js";
 import { calculateConfidenceScore } from "../../domain/confidence-score.js";
 import { normalizeAcademicDate } from "../../domain/date-normalizer.js";
+import { requireSourceAuthority, type SourceAuthorityContext } from "../../domain/source-authority-enforcement.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
+import type { CatalogRepository } from "../catalog/catalog.types.js";
 import { academicTemporalFields, academicTemporalFieldsFromRecord, istanbulTimestamp, storedAcademicTemporalEndValue, storedAcademicTemporalStartValue } from "../calendars/calendar-temporal.js";
 import type { CreatePdfSourceInput, ExtractedEventRecord, ExtractedEventStatus, PdfRepository, PdfSourceRecord } from "./pdf.types.js";
 import { PdfOcrService } from "./pdf-ocr.service.js";
@@ -38,7 +41,8 @@ export class PdfProcessingService {
 
   constructor(
     @Inject("PdfRepository") private readonly pdfRepository: PdfRepository,
-    @Inject(PdfOcrService) private readonly ocrService: Pick<PdfOcrService, "extractText">
+    @Inject(PdfOcrService) private readonly ocrService: Pick<PdfOcrService, "extractText">,
+    @Optional() @Inject("CatalogRepository") _catalogRepository?: Pick<CatalogRepository, "findUniversityById">
   ) {}
 
   async createPdfSourceForAdmin(access: AdminUniversityAccess, input: CreatePdfSourceInput): Promise<PdfSourceRecord> {
@@ -104,50 +108,60 @@ export class PdfProcessingService {
 
   async createPdfSource(input: CreatePdfSourceInput): Promise<PdfSourceRecord> {
     this.validatePdfSource(input);
-    const fileHash = this.createFileHash(input);
-    const duplicate = await this.pdfRepository.findPdfSourceByHash(input.universityId, fileHash);
+    const registeredInput = await this.authorizePdfSource(input, "registration");
+    const fileHash = this.createFileHash(registeredInput);
+    const duplicate = await this.pdfRepository.findPdfSourceByHash(registeredInput.universityId, fileHash);
     if (duplicate) throw new ConflictException("PDF source already exists for this university.");
 
-    return this.createPdfSourceWithHash(input, fileHash);
+    return this.createPdfSourceWithHash(registeredInput, fileHash);
   }
 
   async createOrReusePdfSource(input: CreatePdfSourceInput): Promise<PdfSourceRecord> {
     this.validatePdfSource(input);
-    const fileHash = this.createFileHash(input);
-    const duplicate = await this.pdfRepository.findPdfSourceByHash(input.universityId, fileHash);
+    const registeredInput = await this.authorizePdfSource(input, "registration");
+    const fileHash = this.createFileHash(registeredInput);
+    const duplicate = await this.pdfRepository.findPdfSourceByHash(registeredInput.universityId, fileHash);
     if (duplicate) return duplicate;
-    return this.createPdfSourceWithHash(input, fileHash);
+    return this.createPdfSourceWithHash(registeredInput, fileHash);
   }
 
-  private createPdfSourceWithHash(input: CreatePdfSourceInput, fileHash: string): Promise<PdfSourceRecord> {
+  private async createPdfSourceWithHash(input: CreatePdfSourceInput, fileHash: string): Promise<PdfSourceRecord> {
+    const authorizedInput = await this.authorizePdfSource(input, "publication");
     return this.pdfRepository.createPdfSource({
-      universityId: input.universityId,
-      ...(input.url ? { url: input.url } : {}),
-      fileName: input.fileName,
-      filePath: `private/pdf-sources/${input.universityId}/${fileHash}.pdf`,
+      universityId: authorizedInput.universityId,
+      ...(authorizedInput.url ? { url: authorizedInput.url } : {}),
+      fileName: authorizedInput.fileName,
+      filePath: `private/pdf-sources/${authorizedInput.universityId}/${fileHash}.pdf`,
       fileHash,
-      fileSize: input.fileSize,
-      mimeType: input.mimeType,
-      magicBytesHex: input.magicBytesHex.toLocaleLowerCase("tr-TR"),
-      pageCount: input.pageCount,
-      academicYear: input.academicYear,
+      fileSize: authorizedInput.fileSize,
+      mimeType: authorizedInput.mimeType,
+      magicBytesHex: authorizedInput.magicBytesHex.toLocaleLowerCase("tr-TR"),
+      pageCount: authorizedInput.pageCount,
+      academicYear: authorizedInput.academicYear,
       version: 1,
       status: "uploaded",
       parseStatus: "pending",
-      uploadedBy: input.uploadedBy,
-      ...(input.rawText ? { rawText: input.rawText } : {})
+      uploadedBy: authorizedInput.uploadedBy,
+      ...(authorizedInput.rawText ? { rawText: authorizedInput.rawText } : {})
     });
   }
 
   async processPdfSource(pdfSourceId: string, input: { pdfData?: Buffer } = {}): Promise<{ pdfSource: PdfSourceRecord; extractedEvents: ExtractedEventRecord[] }> {
     const source = await this.pdfRepository.findPdfSourceById(pdfSourceId);
     if (!source) throw new NotFoundException("PDF source not found.");
+    const sourceAuthority = source.url
+      ? await this.authorizeStoredPdfSource(source, "publication")
+      : undefined;
 
     await this.pdfRepository.updatePdfSource(pdfSourceId, { parseStatus: "processing" });
 
     let processableSource = source;
     if (!hasUsefulPdfTextLayer(processableSource.rawText)) {
-      const ocr = await this.ocrService.extractText({ pdfSource: source, ...(input.pdfData ? { pdfData: input.pdfData } : {}) });
+      const ocr = await this.ocrService.extractText({
+        pdfSource: source,
+        ...(input.pdfData ? { pdfData: input.pdfData } : {}),
+        ...(!input.pdfData && sourceAuthority ? { sourceAuthority } : {})
+      });
       if (ocr?.text && hasUsefulPdfTextLayer(ocr.text)) {
         processableSource = await this.pdfRepository.updatePdfSource(pdfSourceId, {
           rawText: ocr.text,
@@ -169,7 +183,11 @@ export class PdfProcessingService {
 
     if (!processableSource.ocrProcessedAt && (eventInputs.length === 0 || shouldAttemptDocumentAiTableExtraction())) {
       this.logger.log(`Attempting OCR/layout extraction for PDF source ${pdfSourceId}; current candidate count=${eventInputs.length}.`);
-      const ocr = await this.ocrService.extractText({ pdfSource: source, ...(input.pdfData ? { pdfData: input.pdfData } : {}) });
+      const ocr = await this.ocrService.extractText({
+        pdfSource: source,
+        ...(input.pdfData ? { pdfData: input.pdfData } : {}),
+        ...(!input.pdfData && sourceAuthority ? { sourceAuthority } : {})
+      });
       if (ocr?.text && hasUsefulPdfTextLayer(ocr.text)) {
         const ocrSource = { ...processableSource, rawText: ocr.text };
         const ocrEventInputs = this.extractEventsFromText(ocrSource);
@@ -279,6 +297,46 @@ export class PdfProcessingService {
     if (input.fileSize <= 0 || input.fileSize > maxPdfFileSizeBytes) throw new BadRequestException("PDF file size is outside allowed limits.");
     if (input.pageCount <= 0 || input.pageCount > maxPdfPageCount) throw new BadRequestException("PDF page count is outside allowed limits.");
     if (!/^20\d{2}-20\d{2}$/u.test(input.academicYear)) throw new BadRequestException("Academic year must use YYYY-YYYY format.");
+  }
+
+  private async authorizePdfSource(
+    input: CreatePdfSourceInput,
+    boundary: "registration" | "publication"
+  ): Promise<CreatePdfSourceInput> {
+    if (!input.url) return input;
+    const authority = await this.resolvePdfSourceAuthority(input.universityId);
+    const decision = requireSourceAuthority(authority, {
+      boundary,
+      resource: "pdf",
+      url: input.url
+    });
+    return decision.canonicalUrl && decision.canonicalUrl !== input.url
+      ? { ...input, url: decision.canonicalUrl }
+      : input;
+  }
+
+  private async authorizeStoredPdfSource(
+    source: Pick<PdfSourceRecord, "universityId" | "url">,
+    boundary: "fetch" | "publication"
+  ): Promise<SourceAuthorityContext | undefined> {
+    if (!source.url) return undefined;
+    const authority = await this.resolvePdfSourceAuthority(source.universityId);
+    requireSourceAuthority(authority, {
+      boundary,
+      resource: "pdf",
+      url: source.url
+    });
+    return authority;
+  }
+
+  private async resolvePdfSourceAuthority(universityId: string): Promise<SourceAuthorityContext> {
+    const resolved = await resolveSourceAuthorityContext({
+      universityId,
+      ownerAcademicEntityId: universityId,
+      scopeType: "university",
+      scopeId: universityId
+    });
+    return resolved.context;
   }
 
   private createFileHash(input: CreatePdfSourceInput): string {

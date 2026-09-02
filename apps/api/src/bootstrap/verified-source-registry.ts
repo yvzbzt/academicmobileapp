@@ -1,4 +1,41 @@
 import { readFile } from "node:fs/promises";
+import {
+  sourceAuthorityPolicy,
+  type SourceAuthorityReasonCode,
+  type SourceAuthorityResource,
+  type SourceAuthorityScopeType
+} from "../domain/source-authority-policy.js";
+import {
+  buildSourceScopeOwnershipIndex,
+  resolveSourceScopeOwnership,
+  type SourceScopeOwnershipIndex
+} from "../domain/source-scope-ownership.js";
+
+export type VerifiedRegistryReasonCode = SourceAuthorityReasonCode | "owner_evidence_missing";
+
+export interface VerifiedSourceAuthorityEvidence {
+  type: "YOK_HOMEPAGE" | "OBSERVED_OFFICIAL_REDIRECT" | "CHECKED_IN_AUTHORITY_ALIAS" | "CURATED_CATALOG_BINDING";
+  url: string;
+}
+
+export interface VerifiedSourceAuthority {
+  universityId: string;
+  status: "verified" | "quarantined";
+  authorityDomains: string[];
+  authorityUrls: string[];
+  evidence: VerifiedSourceAuthorityEvidence[];
+  reasonCodes: VerifiedRegistryReasonCode[];
+}
+
+export interface QuarantinedVerifiedSource {
+  id: string;
+  status: "quarantined";
+  field: string;
+  url: string;
+  reasonCode: VerifiedRegistryReasonCode;
+  authorityDomains: string[];
+  canonicalUrl?: string;
+}
 
 export interface VerifiedUniversitySource {
   universityId: string;
@@ -9,7 +46,11 @@ export interface VerifiedUniversitySource {
   eventUrl?: string;
   calendarUrl?: string;
   summerSchoolUrl?: string;
+  rawUrls?: Partial<Record<VerifiedUniversitySourceUrlField, string>>;
+  quarantinedSources?: QuarantinedVerifiedSource[];
 }
+
+export type VerifiedUniversitySourceUrlField = "announcementUrl" | "newsUrl" | "eventUrl" | "calendarUrl" | "summerSchoolUrl";
 
 export interface VerifiedAcademicUnitSource {
   scopeType: "faculty" | "department";
@@ -25,7 +66,11 @@ export interface VerifiedAcademicUnitSource {
   eventUrl?: string;
   courseScheduleUrl?: string;
   examScheduleUrl?: string;
+  rawUrls?: Partial<Record<VerifiedAcademicUnitSourceUrlField, string>>;
+  quarantinedSources?: QuarantinedVerifiedSource[];
 }
+
+export type VerifiedAcademicUnitSourceUrlField = "websiteUrl" | "announcementUrl" | "newsUrl" | "eventUrl" | "courseScheduleUrl" | "examScheduleUrl";
 
 interface RawVerifiedUniversitySource {
   universityId?: unknown;
@@ -58,6 +103,18 @@ let sourceCache: Promise<VerifiedUniversitySource[]> | null = null;
 let sourceMapCache: Promise<Map<string, VerifiedUniversitySource>> | null = null;
 let academicUnitSourceCache: Promise<VerifiedAcademicUnitSource[]> | null = null;
 let academicUnitSourceMapsCache: Promise<{ faculty: Map<string, VerifiedAcademicUnitSource>; department: Map<string, VerifiedAcademicUnitSource> }> | null = null;
+let authorityCache: Promise<VerifiedSourceAuthority[]> | null = null;
+let authorityMapCache: Promise<Map<string, VerifiedSourceAuthority>> | null = null;
+
+export async function listVerifiedSourceAuthorities(): Promise<VerifiedSourceAuthority[]> {
+  authorityCache ??= readVerifiedSourceAuthorities();
+  return authorityCache;
+}
+
+export async function findVerifiedSourceAuthority(universityId: string): Promise<VerifiedSourceAuthority | null> {
+  authorityMapCache ??= listVerifiedSourceAuthorities().then((authorities) => new Map(authorities.map((authority) => [authority.universityId, authority])));
+  return (await authorityMapCache).get(universityId) ?? null;
+}
 
 export async function listVerifiedUniversitySources(): Promise<VerifiedUniversitySource[]> {
   sourceCache ??= readVerifiedUniversitySources();
@@ -87,9 +144,17 @@ export async function findVerifiedAcademicUnitSource(input: { facultyId?: string
 
 async function readVerifiedUniversitySources(): Promise<VerifiedUniversitySource[]> {
   try {
-    const raw = await readJsonFile(new URL("./verified-university-sources.json", import.meta.url));
+    const [raw, authorities, catalog] = await Promise.all([
+      readJsonFile(new URL("./verified-university-sources.json", import.meta.url)),
+      listVerifiedSourceAuthorities(),
+      readJsonFile(new URL("./turkiye-catalog-seed.json", import.meta.url))
+    ]);
     if (!Array.isArray(raw)) return [];
-    return raw.map(normalizeVerifiedSource).filter((source): source is VerifiedUniversitySource => Boolean(source));
+    const authorityByUniversity = new Map(authorities.map((authority) => [authority.universityId, authority]));
+    const scopeOwnership = buildSourceScopeOwnershipIndex(catalog);
+    return raw
+      .map((source) => normalizeVerifiedSource(source, authorityByUniversity, scopeOwnership))
+      .filter((source): source is VerifiedUniversitySource => Boolean(source));
   } catch {
     return [];
   }
@@ -97,9 +162,30 @@ async function readVerifiedUniversitySources(): Promise<VerifiedUniversitySource
 
 async function readVerifiedAcademicUnitSources(): Promise<VerifiedAcademicUnitSource[]> {
   try {
-    const raw = await readJsonFile(new URL("./verified-academic-unit-sources.json", import.meta.url));
+    const [raw, authorities, catalog] = await Promise.all([
+      readJsonFile(new URL("./verified-academic-unit-sources.json", import.meta.url)),
+      listVerifiedSourceAuthorities(),
+      readJsonFile(new URL("./turkiye-catalog-seed.json", import.meta.url))
+    ]);
     if (!Array.isArray(raw)) return [];
-    return raw.map(normalizeAcademicUnitSource).filter((source): source is VerifiedAcademicUnitSource => Boolean(source));
+    const authorityByUniversity = new Map(authorities.map((authority) => [authority.universityId, authority]));
+    const scopeOwnership = buildSourceScopeOwnershipIndex(catalog);
+    return raw
+      .map((source) => normalizeAcademicUnitSource(source, authorityByUniversity, scopeOwnership))
+      .filter((source): source is VerifiedAcademicUnitSource => Boolean(source));
+  } catch {
+    return [];
+  }
+}
+
+async function readVerifiedSourceAuthorities(): Promise<VerifiedSourceAuthority[]> {
+  try {
+    const raw = await readJsonFile(new URL("./verified-source-authorities.json", import.meta.url));
+    if (!isRecord(raw) || raw.schemaVersion !== 1 || !Array.isArray(raw.authorities)) return [];
+    return raw.authorities
+      .map(normalizeSourceAuthority)
+      .filter((authority): authority is VerifiedSourceAuthority => Boolean(authority))
+      .sort((left, right) => left.universityId.localeCompare(right.universityId, "en-US"));
   } catch {
     return [];
   }
@@ -129,30 +215,45 @@ function swapUtf16Bytes(data: Buffer): Buffer {
   return swapped;
 }
 
-function normalizeVerifiedSource(input: RawVerifiedUniversitySource): VerifiedUniversitySource | null {
+function normalizeVerifiedSource(
+  input: RawVerifiedUniversitySource,
+  authorityByUniversity: ReadonlyMap<string, VerifiedSourceAuthority>,
+  scopeOwnership: SourceScopeOwnershipIndex
+): VerifiedUniversitySource | null {
   const universityId = readString(input.universityId);
   if (!universityId) return null;
   const universityName = readString(input.universityName) ?? universityId;
   const city = readString(input.city);
-  const announcementUrl = readUrl(input.announcementUrl);
-  const newsUrl = readUrl(input.newsUrl);
-  const eventUrl = readUrl(input.eventUrl);
-  const calendarUrl = readUrl(input.calendarUrl);
-  const summerSchoolUrl = readUrl(input.summerSchoolUrl);
+  const rawUrls = readRawUrls<VerifiedUniversitySourceUrlField>(input, universitySourceFields);
+  const resolvedOwnership = resolveSourceScopeOwnership(scopeOwnership, {
+    scopeType: "university",
+    scopeId: universityId
+  });
+  const evaluated = evaluateOperationalUrls({
+    recordKind: "university",
+    scopeType: "university",
+    scopeId: universityId,
+    universityId,
+    rawUrls,
+    authority: authorityByUniversity.get(universityId),
+    ...resolvedOwnership
+  });
 
   return {
     universityId,
     universityName,
     ...(city ? { city } : {}),
-    ...(announcementUrl ? { announcementUrl } : {}),
-    ...(newsUrl ? { newsUrl } : {}),
-    ...(eventUrl ? { eventUrl } : {}),
-    ...(calendarUrl ? { calendarUrl } : {}),
-    ...(summerSchoolUrl ? { summerSchoolUrl } : {})
+    ...evaluated.operationalUrls,
+    rawUrls,
+    quarantinedSources: evaluated.quarantinedSources
   };
 }
 
-function normalizeAcademicUnitSource(input: RawVerifiedAcademicUnitSource): VerifiedAcademicUnitSource | null {
+function normalizeAcademicUnitSource(
+  input: RawVerifiedAcademicUnitSource,
+  authorityByUniversity: ReadonlyMap<string, VerifiedSourceAuthority>,
+  scopeOwnership: SourceScopeOwnershipIndex
+): VerifiedAcademicUnitSource | null {
   const scopeType = input.scopeType === "faculty" || input.scopeType === "department" ? input.scopeType : undefined;
   const universityId = readString(input.universityId);
   if (!scopeType || !universityId) return null;
@@ -164,13 +265,23 @@ function normalizeAcademicUnitSource(input: RawVerifiedAcademicUnitSource): Veri
   const universityName = readString(input.universityName);
   const facultyName = readString(input.facultyName);
   const departmentName = readString(input.departmentName);
-  const websiteUrl = readUrl(input.websiteUrl);
-  const announcementUrl = readUrl(input.announcementUrl);
-  const newsUrl = readUrl(input.newsUrl);
-  const eventUrl = readUrl(input.eventUrl);
-  const courseScheduleUrl = scopeType === "department" ? readUrl(input.courseScheduleUrl) : undefined;
-  const examScheduleUrl = scopeType === "department" ? readUrl(input.examScheduleUrl) : undefined;
-  if (!websiteUrl && !announcementUrl && !newsUrl && !eventUrl && !courseScheduleUrl && !examScheduleUrl) return null;
+  const rawUrls = readRawUrls<VerifiedAcademicUnitSourceUrlField>(input, academicUnitSourceFields);
+  if (scopeType === "faculty") {
+    delete rawUrls.courseScheduleUrl;
+    delete rawUrls.examScheduleUrl;
+  }
+  if (Object.keys(rawUrls).length === 0) return null;
+  const scopeId = scopeType === "department" ? departmentId! : facultyId!;
+  const resolvedOwnership = resolveSourceScopeOwnership(scopeOwnership, { scopeType, scopeId });
+  const evaluated = evaluateOperationalUrls({
+    recordKind: "academic-unit",
+    scopeType,
+    scopeId,
+    universityId,
+    rawUrls,
+    authority: authorityByUniversity.get(universityId),
+    ...resolvedOwnership
+  });
 
   return {
     scopeType,
@@ -180,13 +291,103 @@ function normalizeAcademicUnitSource(input: RawVerifiedAcademicUnitSource): Veri
     ...(facultyName ? { facultyName } : {}),
     ...(departmentId ? { departmentId } : {}),
     ...(departmentName ? { departmentName } : {}),
-    ...(websiteUrl ? { websiteUrl } : {}),
-    ...(announcementUrl ? { announcementUrl } : {}),
-    ...(newsUrl ? { newsUrl } : {}),
-    ...(eventUrl ? { eventUrl } : {}),
-    ...(courseScheduleUrl ? { courseScheduleUrl } : {}),
-    ...(examScheduleUrl ? { examScheduleUrl } : {})
+    ...evaluated.operationalUrls,
+    rawUrls,
+    quarantinedSources: evaluated.quarantinedSources
   };
+}
+
+function normalizeSourceAuthority(input: unknown): VerifiedSourceAuthority | null {
+  if (!isRecord(input)) return null;
+  const universityId = readString(input.universityId);
+  const status = input.status === "verified" || input.status === "quarantined" ? input.status : undefined;
+  if (!universityId || !status || !Array.isArray(input.authorityDomains) || !Array.isArray(input.authorityUrls) || !Array.isArray(input.evidence) || !Array.isArray(input.reasonCodes)) return null;
+  const authorityDomains = input.authorityDomains.map(readString).filter((value): value is string => Boolean(value));
+  const authorityUrls = input.authorityUrls.map(readUrl).filter((value): value is string => Boolean(value));
+  const evidence = input.evidence.map((value): VerifiedSourceAuthorityEvidence | null => {
+    if (!isRecord(value)) return null;
+    const type = value.type;
+    const url = readUrl(value.url);
+    if ((type !== "YOK_HOMEPAGE" && type !== "OBSERVED_OFFICIAL_REDIRECT" && type !== "CHECKED_IN_AUTHORITY_ALIAS" && type !== "CURATED_CATALOG_BINDING") || !url) return null;
+    return { type, url };
+  }).filter((value): value is VerifiedSourceAuthorityEvidence => Boolean(value));
+  const reasonCodes = input.reasonCodes.map(readString).filter((value): value is VerifiedRegistryReasonCode => Boolean(value));
+  if (authorityDomains.length !== input.authorityDomains.length || authorityUrls.length !== input.authorityUrls.length || evidence.length !== input.evidence.length || reasonCodes.length !== input.reasonCodes.length) return null;
+  if (status === "verified" && authorityDomains.length === 0) return null;
+  if (status === "quarantined" && reasonCodes.length === 0) return null;
+  return { universityId, status, authorityDomains, authorityUrls, evidence, reasonCodes };
+}
+
+const universitySourceFields: readonly VerifiedUniversitySourceUrlField[] = ["announcementUrl", "newsUrl", "eventUrl", "calendarUrl", "summerSchoolUrl"];
+const academicUnitSourceFields: readonly VerifiedAcademicUnitSourceUrlField[] = ["websiteUrl", "announcementUrl", "newsUrl", "eventUrl", "courseScheduleUrl", "examScheduleUrl"];
+
+function readRawUrls<TField extends string>(input: object, fields: readonly TField[]): Partial<Record<TField, string>> {
+  const urls: Partial<Record<TField, string>> = {};
+  for (const field of fields) {
+    const url = readUrl((input as Record<string, unknown>)[field]);
+    if (url) urls[field] = url;
+  }
+  return urls;
+}
+
+function evaluateOperationalUrls<TField extends string>(input: {
+  recordKind: "university" | "academic-unit";
+  scopeType: SourceAuthorityScopeType;
+  scopeId: string;
+  universityId: string;
+  rawUrls: Partial<Record<TField, string>>;
+  authority: VerifiedSourceAuthority | undefined;
+  resolvedOwnerAcademicEntityId: string | null;
+  resolvedOwnerUniversityId: string | null;
+}): { operationalUrls: Partial<Record<TField, string>>; quarantinedSources: QuarantinedVerifiedSource[] } {
+  const operationalUrls: Partial<Record<TField, string>> = {};
+  const quarantinedSources: QuarantinedVerifiedSource[] = [];
+  const authorityDomains = input.authority?.status === "verified" ? input.authority.authorityDomains : [];
+
+  for (const [field, url] of Object.entries(input.rawUrls) as Array<[TField, string]>) {
+    const decision = sourceAuthorityPolicy.evaluate({
+      boundary: "registration",
+      resource: resourceForSourceField(field, url),
+      ownerAcademicEntityId: input.scopeId,
+      ownerUniversityId: input.universityId,
+      resolvedOwnerAcademicEntityId: input.resolvedOwnerAcademicEntityId,
+      resolvedOwnerUniversityId: input.resolvedOwnerUniversityId,
+      scopeType: input.scopeType,
+      scopeId: input.scopeId,
+      authorityDomains,
+      url
+    });
+    if (decision.allowed && decision.canonicalUrl) {
+      operationalUrls[field] = url;
+      continue;
+    }
+
+    const reasonCode = input.authority?.status === "quarantined"
+      ? input.authority.reasonCodes[0] ?? decision.reasonCode
+      : decision.reasonCode;
+    quarantinedSources.push({
+      id: input.recordKind === "university"
+        ? `university:${input.universityId}:${field}`
+        : `academic-unit:${input.scopeType}:${input.scopeId}:${field}`,
+      status: "quarantined",
+      field,
+      url,
+      reasonCode,
+      authorityDomains: [...authorityDomains],
+      ...(decision.canonicalUrl ? { canonicalUrl: decision.canonicalUrl } : {})
+    });
+  }
+
+  return { operationalUrls, quarantinedSources };
+}
+
+function resourceForSourceField(field: string, url: string): SourceAuthorityResource {
+  if (/\.pdf(?:$|[?#])/iu.test(url)) return "pdf";
+  if (field === "announcementUrl" || field === "summerSchoolUrl") return "announcement";
+  if (field === "newsUrl") return "news";
+  if (field === "eventUrl") return "event";
+  if (field === "calendarUrl" || field === "courseScheduleUrl" || field === "examScheduleUrl") return "academic_calendar";
+  return "website";
 }
 
 function readString(value: unknown): string | undefined {
@@ -197,8 +398,13 @@ function readUrl(value: unknown): string | undefined {
   const candidate = readString(value);
   if (!candidate) return undefined;
   try {
-    return new URL(candidate).toString();
+    new URL(candidate);
+    return candidate;
   } catch {
     return undefined;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

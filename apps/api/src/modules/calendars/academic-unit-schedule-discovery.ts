@@ -1,4 +1,12 @@
+import { resolveSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
+import {
+  evaluateSourceAuthority,
+  type SourceAuthorityContext
+} from "../../domain/source-authority-enforcement.js";
+import type { SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import { cleanText, fetchText } from "../announcements/announcement-parser.js";
+
+const akuUniversityId = "afyon-kocatepe-universitesi-afyonkarahisar";
 
 export type AcademicScheduleType = "course_schedule" | "exam_schedule";
 export type AcademicScheduleTerm = "fall" | "spring" | "summer" | "unknown";
@@ -76,11 +84,21 @@ export async function discoverAkuGsfCourseSchedules(input: {
   academicYear: string;
   preferredTerm?: Exclude<AcademicScheduleTerm, "unknown">;
   timeoutMs?: number;
+  authority?: SourceAuthorityContext;
 }): Promise<AcademicScheduleLink[]> {
+  const authority = await resolveAkuAuthority(input.authority);
   const results: AcademicScheduleLink[] = [];
   for (const departmentPageUrl of input.departmentPageUrls) {
-    const page = await fetchText(departmentPageUrl, input.timeoutMs ?? 12000);
-    const links = extractAcademicScheduleLinks(page.text, page.finalUrl).filter((link) => link.type === "course_schedule");
+    const registeredPageUrl = registerAuthorityUrl(departmentPageUrl, authority, "website");
+    if (!registeredPageUrl) continue;
+    const page = await fetchText(registeredPageUrl, input.timeoutMs ?? 12000, {
+      authority,
+      resource: "website"
+    });
+    const links = authorizeScheduleLinks(
+      extractAcademicScheduleLinks(page.text, page.finalUrl).filter((link) => link.type === "course_schedule"),
+      authority
+    );
     results.push(...selectCurrentAcademicScheduleLinks(links, input.academicYear, input.preferredTerm));
   }
   return uniqueBy(results, (link) => link.sourceUrl);
@@ -91,20 +109,38 @@ export async function discoverAkuSbfSchedules(input: {
   academicYear: string;
   preferredTerm?: Exclude<AcademicScheduleTerm, "unknown">;
   timeoutMs?: number;
+  authority?: SourceAuthorityContext;
 }): Promise<AkuSbfScheduleDiscoveryResult> {
-  const sourcePageUrl = input.sourcePageUrl ?? "https://sbf.aku.edu.tr/";
-  const page = await fetchText(sourcePageUrl, input.timeoutMs ?? 12000);
+  const authority = await resolveAkuAuthority(input.authority);
+  const requestedSourcePageUrl = input.sourcePageUrl ?? "https://sbf.aku.edu.tr/";
+  const sourcePageUrl = registerAuthorityUrl(requestedSourcePageUrl, authority, "website");
+  if (!sourcePageUrl) throw new Error("SOURCE_AUTHORITY_SOURCE_DOMAIN_MISMATCH");
+  const page = await fetchText(sourcePageUrl, input.timeoutMs ?? 12000, {
+    authority,
+    resource: "website"
+  });
   const examSchedules = selectCurrentAcademicScheduleLinks(
-    extractModalPopupExamScheduleLinks(page.text, page.finalUrl),
+    authorizeScheduleLinks(extractModalPopupExamScheduleLinks(page.text, page.finalUrl), authority),
     input.academicYear,
     input.preferredTerm
   );
-  const departmentPages = extractDepartmentMenuLinks(page.text, page.finalUrl);
+  const departmentPages = extractDepartmentMenuLinks(page.text, page.finalUrl)
+    .map((departmentPage) => {
+      const registeredUrl = registerAuthorityUrl(departmentPage.sourceUrl, authority, "website");
+      return registeredUrl ? { ...departmentPage, sourceUrl: registeredUrl } : null;
+    })
+    .filter((departmentPage): departmentPage is { sourceUrl: string; title: string } => Boolean(departmentPage));
   const courseSchedules: AcademicScheduleLink[] = [];
   for (const departmentPage of departmentPages) {
     try {
-      const department = await fetchText(departmentPage.sourceUrl, input.timeoutMs ?? 12000);
-      const links = extractAcademicScheduleLinks(department.text, department.finalUrl).filter((link) => link.type === "course_schedule");
+      const department = await fetchText(departmentPage.sourceUrl, input.timeoutMs ?? 12000, {
+        authority,
+        resource: "website"
+      });
+      const links = authorizeScheduleLinks(
+        extractAcademicScheduleLinks(department.text, department.finalUrl).filter((link) => link.type === "course_schedule"),
+        authority
+      );
       courseSchedules.push(...selectCurrentAcademicScheduleLinks(links, input.academicYear, input.preferredTerm));
     } catch {
       continue;
@@ -116,6 +152,57 @@ export async function discoverAkuSbfSchedules(input: {
     departmentPages,
     courseSchedules: uniqueBy(courseSchedules, (link) => link.sourceUrl)
   };
+}
+
+async function resolveAkuAuthority(override?: SourceAuthorityContext): Promise<SourceAuthorityContext> {
+  if (override) return override;
+  return (await resolveSourceAuthorityContext({
+    universityId: akuUniversityId,
+    ownerAcademicEntityId: akuUniversityId,
+    scopeType: "university",
+    scopeId: akuUniversityId
+  })).context;
+}
+
+function authorizeScheduleLinks(
+  links: AcademicScheduleLink[],
+  authority: SourceAuthorityContext
+): AcademicScheduleLink[] {
+  return links.flatMap((link) => {
+    const sourceUrl = registerAuthorityUrl(link.sourceUrl, authority, resourceForScheduleUrl(link.sourceUrl));
+    return sourceUrl ? [{ ...link, sourceUrl }] : [];
+  });
+}
+
+function registerAuthorityUrl(
+  url: string,
+  authority: SourceAuthorityContext,
+  resource: SourceAuthorityResource
+): string | null {
+  const decision = evaluateSourceAuthority(authority, {
+    boundary: "registration",
+    resource,
+    url
+  });
+  return decision.allowed && decision.canonicalUrl
+    ? preserveTrailingSlash(decision.canonicalUrl, url)
+    : null;
+}
+
+function preserveTrailingSlash(canonicalUrl: string, requestedUrl: string): string {
+  try {
+    const requested = new URL(requestedUrl);
+    if (requested.pathname.length <= 1 || !requested.pathname.endsWith("/")) return canonicalUrl;
+    const canonical = new URL(canonicalUrl);
+    if (!canonical.pathname.endsWith("/")) canonical.pathname += "/";
+    return canonical.toString();
+  } catch {
+    return canonicalUrl;
+  }
+}
+
+function resourceForScheduleUrl(url: string): SourceAuthorityResource {
+  return /\.pdf(?:$|[?#])/iu.test(url) ? "pdf" : "academic_calendar";
 }
 
 function extractAnchors(html: string, baseUrl: string): Array<{ sourceUrl: string; title: string }> {

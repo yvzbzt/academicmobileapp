@@ -568,7 +568,26 @@ function mergeReasons(...groups: Array<readonly (string | AnnouncementTrustReaso
     "invalid_timestamp",
     "duplicate_canonical_url",
     "legacy_crawl_time_removed",
-    "unverified_source_time_removed"
+    "unverified_source_time_removed",
+    "invalid_boundary",
+    "invalid_resource",
+    "missing_owner_academic_entity_id",
+    "missing_owner_university_id",
+    "missing_resolved_owner_academic_entity_id",
+    "missing_resolved_owner_university_id",
+    "owner_academic_entity_mismatch",
+    "owner_university_mismatch",
+    "missing_scope_type",
+    "invalid_scope_type",
+    "missing_scope_id",
+    "scope_owner_mismatch",
+    "missing_authority_domain",
+    "invalid_authority_domain",
+    "unsafe_source_url",
+    "unsafe_redirect_url",
+    "source_domain_mismatch",
+    "redirect_domain_mismatch",
+    "national_authority_scope_mismatch"
   ]);
   return [...new Set(groups.flatMap((group) => group ?? []).filter((reason): reason is AnnouncementTrustReason => allowed.has(reason as AnnouncementTrustReason)))];
 }

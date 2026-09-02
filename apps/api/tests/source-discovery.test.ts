@@ -36,53 +36,53 @@ describe("AcademicSourceDiscoveryService", () => {
     const repository = new InMemoryCatalogRepository();
     const catalog = new CatalogService(repository);
     const university = await catalog.createUniversity({
-      name: "Test University",
-      city: "Istanbul",
+      name: "Abdullah Gul Universitesi Kayseri",
+      city: "Kayseri",
       type: "state",
-      websiteUrl: "https://test.edu.tr",
-      announcementUrl: "https://test.edu.tr/announcements",
-      academicCalendarUrl: "https://test.edu.tr/calendar.pdf"
+      websiteUrl: "https://www.agu.edu.tr",
+      announcementUrl: "https://www.agu.edu.tr/announcements",
+      academicCalendarUrl: "https://www.agu.edu.tr/calendar.pdf"
     });
     const faculty = await catalog.createFaculty({
       universityId: university.id,
-      name: "Engineering Faculty",
-      announcementUrl: "https://eng.test.edu.tr/announcements"
+      name: "Muhendislik Fakultesi",
+      announcementUrl: "https://engineering.agu.edu.tr/announcements"
     });
     const department = await catalog.createDepartment({
       universityId: university.id,
       facultyId: faculty.id,
-      name: "Computer Engineering",
+      name: "Bilgisayar Muhendisligi",
       educationLevel: "bachelor",
-      announcementUrl: "https://ceng.test.edu.tr/announcements",
-      courseScheduleUrl: "https://ceng.test.edu.tr/courses.jpg",
-      examScheduleUrl: "https://ceng.test.edu.tr/exams.pdf"
+      announcementUrl: "https://ceng.agu.edu.tr/announcements",
+      courseScheduleUrl: "https://ceng.agu.edu.tr/courses.jpg",
+      examScheduleUrl: "https://ceng.agu.edu.tr/exams.pdf"
     });
     const service = new AcademicSourceDiscoveryService(repository);
 
     const result = await service.discoverSources({ universityId: university.id });
 
     expect(result.queryPlan.map((item) => item.query)).toEqual([
-      "Test University",
-      "Test University Engineering Faculty",
-      "Test University Engineering Faculty Computer Engineering"
+      "Abdullah Gul Universitesi Kayseri",
+      "Abdullah Gul Universitesi Kayseri Muhendislik Fakultesi",
+      "Abdullah Gul Universitesi Kayseri Muhendislik Fakultesi Bilgisayar Muhendisligi"
     ]);
     expect(result.candidates).toEqual(expect.arrayContaining([
       expect.objectContaining({
         scopeType: "department",
         scopeId: department.id,
         sourceType: "department_announcement",
-        url: "https://ceng.test.edu.tr/announcements"
+        url: "https://ceng.agu.edu.tr/announcements"
       }),
       expect.objectContaining({
         scopeType: "department",
         sourceType: "department_exam_schedule",
-        url: "https://ceng.test.edu.tr/exams.pdf",
+        url: "https://ceng.agu.edu.tr/exams.pdf",
         extractionMethod: "pdf_auto"
       }),
       expect.objectContaining({
         scopeType: "department",
         sourceType: "course_schedule",
-        url: "https://ceng.test.edu.tr/courses.jpg",
+        url: "https://ceng.agu.edu.tr/courses.jpg",
         extractionMethod: "image_ocr"
       })
     ]));

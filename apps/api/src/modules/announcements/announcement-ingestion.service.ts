@@ -1,10 +1,13 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
+import { resolveSourceAuthorityContext, type ResolvedSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
+import { evaluateSourceAuthority, SourceAuthorityError, type SourceAuthorityContext } from "../../domain/source-authority-enforcement.js";
+import type { SourceAuthorityDecision, SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
-import { fetchSourceItems, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
+import { fetchSourceItems, fetchSourceSnapshot, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
 import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
-import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus } from "./announcements.types.js";
+import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 export interface AnnouncementDiscoveryResult {
@@ -185,20 +188,45 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
 
   async createManualSource(input: ManualAnnouncementSourceInput) {
     const scope = await this.resolveManualScope(input);
-    const canonicalUrl = canonicalizeContentUrl(input.sourceUrl);
-    if (!canonicalUrl || !isOfficialContentUrl(canonicalUrl, scope.homepageUrl)) {
-      throw new BadRequestException("Source URL must belong to the selected university or academic unit.");
+    const authority = await this.resolveAuthority(scope.university, input.scopeType, scope.scopeId);
+    const decision = evaluateSourceAuthority(authority.context, {
+      boundary: "registration",
+      resource: sourceAuthorityResource(input.contentType),
+      url: input.sourceUrl
+    });
+    if (!decision.allowed || !decision.canonicalUrl) {
+      await this.insertRejectedCandidate({
+        scopeType: input.scopeType,
+        scopeId: scope.scopeId,
+        sourceName: input.sourceName,
+        sourceUrl: decision.canonicalUrl ?? input.sourceUrl,
+        contentType: input.contentType,
+        parser: input.parser,
+        priority: input.priority,
+        homepageUrl: scope.homepageUrl,
+        discoveryMethod: "manual",
+        healthStatus: "failed",
+        lastError: decision.reasonCode,
+        consecutiveFailures: 0,
+        itemCount: 0,
+        fetchIntervalMinutes: input.fetchIntervalMinutes,
+        trustReasonCodes: [decision.reasonCode]
+      });
+      throw new BadRequestException(`Source authority validation failed: ${decision.reasonCode}.`);
     }
+    const sourceHomepageUrl = isOfficialContentUrl(decision.canonicalUrl, scope.homepageUrl)
+      ? scope.homepageUrl
+      : homepageFromUrl(decision.canonicalUrl) ?? scope.homepageUrl;
     const source = await this.announcementRepository.upsertSource({
       scopeType: input.scopeType,
       scopeId: scope.scopeId,
       sourceName: input.sourceName,
-      sourceUrl: canonicalUrl,
+      sourceUrl: decision.canonicalUrl,
       contentType: input.contentType,
       parser: input.parser,
       priority: input.priority,
       status: "active",
-      homepageUrl: scope.homepageUrl,
+      homepageUrl: sourceHomepageUrl,
       discoveryMethod: "manual",
       healthStatus: "pending",
       consecutiveFailures: 0,
@@ -218,18 +246,35 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     const definedInput = Object.fromEntries(
       Object.entries(input).filter(([, value]) => value !== undefined)
     ) as ManualAnnouncementSourceUpdateInput;
-    const sourceUrl = canonicalizeContentUrl(input.sourceUrl ?? existing.sourceUrl);
-    const homepageUrl = existing.homepageUrl;
-    if (!sourceUrl || !homepageUrl || !isOfficialContentUrl(sourceUrl, homepageUrl)) {
-      throw new BadRequestException("Source URL must stay on the verified academic domain.");
+    const authority = await this.resolveAuthorityForSource(existing);
+    const requestedUrl = input.sourceUrl ?? existing.sourceUrl;
+    const decision = authority
+      ? evaluateSourceAuthority(authority.context, {
+        boundary: "registration",
+        resource: sourceAuthorityResource(input.contentType ?? existing.contentType),
+        url: requestedUrl
+      })
+      : missingSourceOwnerDecision(existing, requestedUrl, "registration");
+    if (!decision.allowed || !decision.canonicalUrl) {
+      const quarantined = await this.announcementRepository.quarantineSource(existing.id, [decision.reasonCode]);
+      await this.retireSourceNotifications(quarantined ?? { ...existing, status: "inactive", trustStatus: "quarantined" });
+      throw new BadRequestException(`Source authority validation failed: ${decision.reasonCode}.`);
     }
+    const sourceUrl = decision.canonicalUrl;
+    const homepageUrl = existing.homepageUrl;
+    if (!homepageUrl) throw new BadRequestException("Source homepage authority evidence is missing.");
+    const sourceHomepageUrl = isOfficialContentUrl(sourceUrl, homepageUrl)
+      ? homepageUrl
+      : homepageFromUrl(sourceUrl) ?? homepageUrl;
     const updated = await this.announcementRepository.upsertSource({
       ...sourceInputFromRecord(existing),
       id: existing.id,
       ...definedInput,
       sourceUrl,
-      homepageUrl,
-      discoveryMethod: "manual"
+      homepageUrl: sourceHomepageUrl,
+      discoveryMethod: "manual",
+      trustStatus: "trusted",
+      trustReasonCodes: []
     });
     if (updated.status !== "active") {
       await this.retireSourceNotifications(updated);
@@ -266,12 +311,27 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     const existingSourceKeys = new Set((await this.announcementRepository.listAllSources({ limit: 5_000, offset: 0 }))
       .map((source) => staticSourceIdentityKey(source.scopeType, source.scopeId, source.canonicalUrl ?? source.sourceUrl))
       .filter((key): key is string => Boolean(key)));
-    const provisionIfMissing = async (input: Parameters<AnnouncementRepository["insertQuarantinedSourceCandidate"]>[0]): Promise<void> => {
-      const key = staticSourceIdentityKey(input.scopeType, input.scopeId, input.sourceUrl);
+    const provisionIfMissing = async (
+      input: Parameters<AnnouncementRepository["insertQuarantinedSourceCandidate"]>[0],
+      authority: ResolvedSourceAuthorityContext
+    ): Promise<void> => {
+      const decision = evaluateSourceAuthority(authority.context, {
+        boundary: "registration",
+        resource: sourceAuthorityResource(input.contentType),
+        url: input.sourceUrl
+      });
+      const sourceUrl = decision.canonicalUrl ?? canonicalizeContentUrl(input.sourceUrl);
+      if (!sourceUrl) return;
+      const candidate = {
+        ...input,
+        sourceUrl,
+        trustReasonCodes: decision.allowed ? [] : [decision.reasonCode]
+      };
+      const key = staticSourceIdentityKey(candidate.scopeType, candidate.scopeId, candidate.sourceUrl);
       if (!key || existingSourceKeys.has(key)) return;
       existingSourceKeys.add(key);
       try {
-        await this.announcementRepository.insertQuarantinedSourceCandidate(input);
+        await this.announcementRepository.insertQuarantinedSourceCandidate(candidate);
       } catch (error) {
         existingSourceKeys.delete(key);
         throw error;
@@ -288,7 +348,12 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       priority: 100,
       homepageUrl: "https://www.yok.gov.tr/tr",
       discoveryMethod: "manual"
-    });
+    }, await resolveSourceAuthorityContext({
+      universityId: YOK_ANNOUNCEMENT_SCOPE_ID,
+      ownerAcademicEntityId: YOK_ANNOUNCEMENT_SCOPE_ID,
+      scopeType: "university",
+      scopeId: YOK_ANNOUNCEMENT_SCOPE_ID
+    }));
 
     const verifiedSources = await listVerifiedUniversitySources();
     await Promise.all(verifiedSources.map(async (source) => {
@@ -298,8 +363,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       const officialHomepage = university.websiteUrl ?? knownOfficialUniversityUrls(university.id)[0] ?? knownOfficialUniversityUrls(university.slug)[0];
       if (!officialHomepage) return;
       await Promise.all(definitions
-        .filter((definition) => isOfficialContentUrl(definition.url, officialHomepage))
-        .map((definition) => provisionIfMissing({
+        .map(async (definition) => provisionIfMissing({
           scopeType: "university",
           scopeId: source.universityId,
           sourceName: `${source.universityName} ${definition.label}`,
@@ -309,7 +373,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
           priority: definition.priority,
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: "manual"
-        })));
+        }, await this.resolveAuthority(university, "university", university.id))));
     }));
 
     const verifiedAcademicUnitSources = await listVerifiedAcademicUnitSources();
@@ -342,8 +406,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
         ? source.websiteUrl
         : universityAuthority;
       await Promise.all(definitions
-        .filter((definition) => isOfficialContentUrl(definition.url, officialHomepage))
-        .map((definition) => {
+        .map(async (definition) => {
         const unitName = source.scopeType === "department" ? source.departmentName ?? "Bölüm" : source.facultyName ?? "Fakülte";
         const sourceName = `${source.universityName ?? source.universityId} ${unitName} ${definition.label}`;
         return provisionIfMissing({
@@ -356,7 +419,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
           priority: definition.priority + (source.scopeType === "department" ? 15 : 10),
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: "manual"
-        });
+        }, await this.resolveAuthority(university, source.scopeType, scopeId));
       }));
     }));
   }
@@ -388,9 +451,45 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       throw new BadRequestException("Only active, trusted announcement sources can be ingested.");
     }
     const checkedAt = new Date();
+    const authority = await this.resolveAuthorityForSource(source);
+    const registrationDecision = authority
+      ? evaluateSourceAuthority(authority.context, {
+        boundary: "registration",
+        resource: sourceAuthorityResource(source.contentType),
+        url: source.sourceUrl
+      })
+      : missingSourceOwnerDecision(source, source.sourceUrl, "registration");
+    if (!registrationDecision.allowed) {
+      return this.quarantineIngestionSource(source, registrationDecision, checkedAt);
+    }
     try {
-      const parsedItems = await fetchSourceItems(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000));
+      const snapshot = await fetchSourceSnapshot(
+        source.sourceUrl,
+        source.parser,
+        readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
+        { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) }
+      );
+      const parsedItems = snapshot.items;
       const items = toAnnouncementItems(source, parsedItems, checkedAt);
+      const publicationDecision = evaluateSourceAuthority(authority!.context, {
+        boundary: "publication",
+        resource: sourceAuthorityResource(source.contentType),
+        url: source.sourceUrl,
+        finalRedirectUrl: snapshot.finalUrl
+      });
+      if (!publicationDecision.allowed) {
+        return this.quarantineIngestionSource(source, publicationDecision, checkedAt);
+      }
+      const rejectedItemDecision = items
+        .map((item) => evaluateSourceAuthority(authority!.context, {
+          boundary: "publication",
+          resource: sourceAuthorityResource(item.contentType ?? source.contentType),
+          url: item.canonicalUrl ?? item.link
+        }))
+        .find((decision) => !decision.allowed);
+      if (rejectedItemDecision) {
+        return this.quarantineIngestionSource(source, rejectedItemDecision, checkedAt);
+      }
       const authoritativeEmpty = parsedItems.length === 0;
       const succeeded = items.length > 0 || authoritativeEmpty;
       if (succeeded) {
@@ -412,6 +511,9 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       });
       return { sourceId: source.id, sourceName: source.sourceName, sourceUrl: source.sourceUrl, status, itemCount: items.length, sampleTitles: items.slice(0, 3).map((item) => item.title) };
     } catch (error) {
+      if (error instanceof SourceAuthorityError) {
+        return this.quarantineIngestionSource(source, error.decision, checkedAt);
+      }
       const message = error instanceof Error ? error.message : String(error);
       const failures = (source.consecutiveFailures ?? 0) + 1;
       await this.announcementRepository.recordSourceCheck(source.id, {
@@ -425,6 +527,78 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     }
   }
 
+  private resolveAuthority(
+    university: UniversityRecord,
+    scopeType: "university" | "faculty" | "department",
+    scopeId: string
+  ): Promise<ResolvedSourceAuthorityContext> {
+    return resolveAuthorityForUniversityRecord(university, scopeType, scopeId);
+  }
+
+  private async resolveAuthorityForSource(source: AnnouncementSourceRecord): Promise<ResolvedSourceAuthorityContext | null> {
+    if (source.scopeType === "university" && source.scopeId === YOK_ANNOUNCEMENT_SCOPE_ID) {
+      return resolveSourceAuthorityContext({
+        universityId: YOK_ANNOUNCEMENT_SCOPE_ID,
+        ownerAcademicEntityId: YOK_ANNOUNCEMENT_SCOPE_ID,
+        scopeType: "university",
+        scopeId: YOK_ANNOUNCEMENT_SCOPE_ID
+      });
+    }
+    if (source.scopeType === "university") {
+      const university = await this.catalogRepository.findUniversityById(source.scopeId);
+      return university ? this.resolveAuthority(university, "university", university.id) : null;
+    }
+
+    const universities = await this.catalogRepository.listUniversities({ status: "active", limit: 5_000, offset: 0 });
+    for (const university of universities) {
+      const faculties = await this.catalogRepository.listFaculties(university.id, "active");
+      if (source.scopeType === "faculty" && faculties.some((faculty) => faculty.id === source.scopeId)) {
+        return this.resolveAuthority(university, "faculty", source.scopeId);
+      }
+      if (source.scopeType !== "department") continue;
+      for (const faculty of faculties) {
+        const department = (await this.catalogRepository.listDepartments(faculty.id, "active"))
+          .find((candidate) => candidate.id === source.scopeId && candidate.universityId === university.id);
+        if (department) return this.resolveAuthority(university, "department", department.id);
+      }
+    }
+    return null;
+  }
+
+  private async insertRejectedCandidate(input: AnnouncementSourceCandidateInput): Promise<void> {
+    try {
+      await this.announcementRepository.insertQuarantinedSourceCandidate(input);
+    } catch {
+      // Unsafe/non-canonical URLs cannot be stored. The policy denial remains
+      // the authoritative result returned to the caller.
+    }
+  }
+
+  private async quarantineIngestionSource(
+    source: AnnouncementSourceRecord,
+    decision: SourceAuthorityDecision,
+    checkedAt: Date
+  ): Promise<AnnouncementIngestionResult> {
+    const quarantined = await this.announcementRepository.quarantineSource(source.id, [decision.reasonCode]);
+    await this.announcementRepository.recordSourceCheck(source.id, {
+      healthStatus: "failed",
+      lastCheckedAt: checkedAt,
+      lastError: decision.reasonCode,
+      consecutiveFailures: (source.consecutiveFailures ?? 0) + 1,
+      itemCount: 0
+    });
+    await this.retireSourceNotifications(quarantined ?? { ...source, status: "inactive", trustStatus: "quarantined" });
+    return {
+      sourceId: source.id,
+      sourceName: source.sourceName,
+      sourceUrl: source.sourceUrl,
+      status: "failed",
+      itemCount: 0,
+      sampleTitles: [],
+      error: decision.reasonCode
+    };
+  }
+
   private async listUniversities(limit: number, offset: number): Promise<UniversityRecord[]> {
     return this.catalogRepository.listUniversities({ status: "active", limit, offset });
   }
@@ -435,7 +609,27 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     });
     if (result.status !== "source_found" || !result.sourceUrl) return result;
     const officialHomepage = university.websiteUrl ?? result.homepageUrl;
-    if (!officialHomepage || !isOfficialContentUrl(result.sourceUrl, officialHomepage)) {
+    const authority = await this.resolveAuthority(university, "university", university.id);
+    const registrationDecision = evaluateSourceAuthority(authority.context, {
+      boundary: "registration",
+      resource: "announcement",
+      url: result.sourceUrl
+    });
+    if (!officialHomepage || !registrationDecision.allowed || !registrationDecision.canonicalUrl) {
+      if (officialHomepage) {
+        await this.insertRejectedCandidate({
+          scopeType: "university",
+          scopeId: university.id,
+          sourceName: `${university.name} Duyurular`,
+          sourceUrl: registrationDecision.canonicalUrl ?? result.sourceUrl,
+          contentType: "announcement",
+          parser: result.parser ?? "auto",
+          priority: 20,
+          homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
+          discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
+          trustReasonCodes: [registrationDecision.reasonCode]
+        });
+      }
       const { sourceUrl: _sourceUrl, parser: _parser, ...rest } = result;
       void _sourceUrl;
       void _parser;
@@ -444,7 +638,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
         status: "homepage_found_no_items",
         itemCount: 0,
         sampleTitles: [],
-        error: "SOURCE_DOMAIN_NOT_OFFICIAL"
+        error: registrationDecision.reasonCode
       };
     }
 
@@ -452,7 +646,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       scopeType: "university",
       scopeId: university.id,
       sourceName: `${university.name} Duyurular`,
-      sourceUrl: result.sourceUrl,
+      sourceUrl: registrationDecision.canonicalUrl,
       contentType: "announcement",
       parser: result.parser ?? "auto",
       priority: 20,
@@ -462,7 +656,8 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       lastCheckedAt: new Date(),
       ...(result.itemCount > 0 ? { lastSuccessAt: new Date() } : {}),
       consecutiveFailures: result.itemCount > 0 ? 0 : 1,
-      itemCount: result.itemCount
+      itemCount: result.itemCount,
+      trustReasonCodes: []
     });
     return result;
   }
@@ -493,28 +688,31 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     return source;
   }
 
-  private async resolveManualScope(input: ManualAnnouncementSourceInput): Promise<{ scopeId: string; homepageUrl: string }> {
+  private async resolveManualScope(input: ManualAnnouncementSourceInput): Promise<{ scopeId: string; homepageUrl: string; university: UniversityRecord }> {
     const university = await this.catalogRepository.findUniversityById(input.universityId);
-    if (!university || university.status !== "active" || !university.websiteUrl) {
+    const universityHomepage = university
+      ? university.websiteUrl ?? knownOfficialUniversityUrls(university.id)[0] ?? knownOfficialUniversityUrls(university.slug)[0]
+      : undefined;
+    if (!university || university.status !== "active" || !universityHomepage) {
       throw new BadRequestException("Selected university has no verified active website.");
     }
     if (input.scopeType === "university") {
-      return { scopeId: university.id, homepageUrl: university.websiteUrl };
+      return { scopeId: university.id, homepageUrl: universityHomepage, university };
     }
     const faculty = (await this.catalogRepository.listFaculties(university.id, "active"))
       .find((candidate) => candidate.id === input.facultyId);
     if (!faculty) throw new BadRequestException("Selected faculty does not belong to the university.");
-    const facultyHomepage = faculty.websiteUrl && isOfficialContentUrl(faculty.websiteUrl, university.websiteUrl)
+    const facultyHomepage = faculty.websiteUrl && isOfficialContentUrl(faculty.websiteUrl, universityHomepage)
       ? faculty.websiteUrl
-      : university.websiteUrl;
-    if (input.scopeType === "faculty") return { scopeId: faculty.id, homepageUrl: facultyHomepage };
+      : universityHomepage;
+    if (input.scopeType === "faculty") return { scopeId: faculty.id, homepageUrl: facultyHomepage, university };
     const department = (await this.catalogRepository.listDepartments(faculty.id, "active"))
       .find((candidate) => candidate.id === input.departmentId && candidate.universityId === university.id);
     if (!department) throw new BadRequestException("Selected department does not belong to the faculty.");
     const departmentHomepage = department.websiteUrl && isOfficialContentUrl(department.websiteUrl, facultyHomepage)
       ? department.websiteUrl
       : facultyHomepage;
-    return { scopeId: department.id, homepageUrl: departmentHomepage };
+    return { scopeId: department.id, homepageUrl: departmentHomepage, university };
   }
 
   private retireSourceNotifications(source: AnnouncementSourceRecord): Promise<unknown> {
@@ -547,12 +745,50 @@ export interface ManualAnnouncementSourceUpdateInput {
   status?: AnnouncementSourceStatus;
 }
 
+function sourceAuthorityResource(contentType?: AnnouncementContentType): SourceAuthorityResource {
+  return contentType ?? "announcement";
+}
+
+function resolveAuthorityForUniversityRecord(
+  university: UniversityRecord,
+  scopeType: "university" | "faculty" | "department",
+  scopeId: string
+): Promise<ResolvedSourceAuthorityContext> {
+  return resolveSourceAuthorityContext({
+    universityId: university.id,
+    ownerAcademicEntityId: scopeId,
+    scopeType,
+    scopeId
+  });
+}
+
+function missingSourceOwnerDecision(
+  source: Pick<AnnouncementSourceRecord, "scopeType" | "scopeId" | "contentType">,
+  url: string,
+  boundary: "registration" | "publication"
+): SourceAuthorityDecision {
+  return evaluateSourceAuthority({
+    ownerAcademicEntityId: source.scopeId,
+    ownerUniversityId: null,
+    resolvedOwnerAcademicEntityId: source.scopeId,
+    resolvedOwnerUniversityId: null,
+    scopeType: source.scopeType,
+    scopeId: source.scopeId,
+    authorityDomains: null
+  }, {
+    boundary,
+    resource: sourceAuthorityResource(source.contentType),
+    url
+  });
+}
+
 export async function discoverAnnouncementSourceForUniversity(university: UniversityRecord, input: { timeoutMs?: number } = {}): Promise<AnnouncementDiscoveryResult> {
   const timeoutMs = input.timeoutMs ?? 7000;
-  const verifiedSource = await discoverVerifiedAnnouncementSource(university, timeoutMs);
+  const authority = await resolveAuthorityForUniversityRecord(university, "university", university.id);
+  const verifiedSource = await discoverVerifiedAnnouncementSource(university, timeoutMs, authority.context);
   if (verifiedSource) return verifiedSource;
   const homepageCandidates = buildHomepageCandidates(university).slice(0, 16);
-  return discoverAnnouncementSourceFromHomepages(university, homepageCandidates, timeoutMs, (homepage) => isLikelyUniversityHomepage(homepage.text, homepage.finalUrl, university));
+  return discoverAnnouncementSourceFromHomepages(university, homepageCandidates, timeoutMs, authority.context, (homepage) => isLikelyUniversityHomepage(homepage.text, homepage.finalUrl, university));
 }
 
 export async function discoverAnnouncementSourceForAcademicScope(
@@ -561,14 +797,18 @@ export async function discoverAnnouncementSourceForAcademicScope(
   input: { timeoutMs?: number } = {}
 ): Promise<AnnouncementDiscoveryResult> {
   const timeoutMs = input.timeoutMs ?? 7000;
-  const homepageCandidates = await buildAcademicScopeHomepageCandidates(university, scope, timeoutMs);
-  return discoverAnnouncementSourceFromHomepages(university, homepageCandidates, timeoutMs, (homepage) => isLikelyAcademicScopePage(homepage.text, homepage.finalUrl, university, scope));
+  const scopeType = scope.department ? "department" : scope.faculty ? "faculty" : "university";
+  const scopeId = scope.department?.id ?? scope.faculty?.id ?? university.id;
+  const authority = await resolveAuthorityForUniversityRecord(university, scopeType, scopeId);
+  const homepageCandidates = await buildAcademicScopeHomepageCandidates(university, scope, timeoutMs, authority.context);
+  return discoverAnnouncementSourceFromHomepages(university, homepageCandidates, timeoutMs, authority.context, (homepage) => isLikelyAcademicScopePage(homepage.text, homepage.finalUrl, university, scope));
 }
 
 async function discoverAnnouncementSourceFromHomepages(
   university: UniversityRecord,
   homepageCandidates: string[],
   timeoutMs: number,
+  authority: SourceAuthorityContext,
   isLikelyHomepage: (homepage: { text: string; finalUrl: string }) => boolean
 ): Promise<AnnouncementDiscoveryResult> {
   let checkedHomepageCandidates = 0;
@@ -578,7 +818,7 @@ async function discoverAnnouncementSourceFromHomepages(
   for (const homepageUrl of homepageCandidates) {
     checkedHomepageCandidates += 1;
     try {
-      const homepage = await fetchText(homepageUrl, timeoutMs);
+      const homepage = await fetchText(homepageUrl, timeoutMs, { authority, resource: "announcement" });
       if (!isLikelyHomepage(homepage)) continue;
 
       const homepageItems = parseHtmlAnchors(homepage.text, homepage.finalUrl);
@@ -592,7 +832,7 @@ async function discoverAnnouncementSourceFromHomepages(
       for (const candidate of sourceCandidates) {
         checkedSourceCandidates += 1;
         try {
-          const items = await fetchSourceItems(candidate.url, "auto", timeoutMs);
+          const items = await fetchSourceItems(candidate.url, "auto", timeoutMs, { authority, resource: "announcement" });
           if (items.length > (best?.itemCount ?? 0)) best = { url: candidate.url, itemCount: items.length, sampleTitles: items.slice(0, 3).map((item) => item.title) };
           if (best && best.itemCount >= 5) break;
         } catch (error) {
@@ -678,8 +918,12 @@ export function buildHomepageCandidates(university: UniversityRecord): string[] 
 export async function buildAcademicScopeHomepageCandidates(
   university: UniversityRecord,
   scope: { faculty?: FacultyRecord; department?: DepartmentRecord },
-  timeoutMs = 7000
+  timeoutMs = 7000,
+  authorityContext?: SourceAuthorityContext
 ): Promise<string[]> {
+  const scopeType = scope.department ? "department" : scope.faculty ? "faculty" : "university";
+  const scopeId = scope.department?.id ?? scope.faculty?.id ?? university.id;
+  const authority = authorityContext ?? (await resolveAuthorityForUniversityRecord(university, scopeType, scopeId)).context;
   const candidates = new Set<string>();
   const verifiedScope = await findVerifiedAcademicUnitSource({
     ...(scope.faculty?.id ? { facultyId: scope.faculty.id } : {}),
@@ -691,7 +935,7 @@ export async function buildAcademicScopeHomepageCandidates(
 
   for (const homepageUrl of buildHomepageCandidates(university).slice(0, 8)) {
     try {
-      const homepage = await fetchText(homepageUrl, timeoutMs);
+      const homepage = await fetchText(homepageUrl, timeoutMs, { authority, resource: "announcement" });
       if (!isLikelyUniversityHomepage(homepage.text, homepage.finalUrl, university)) continue;
       addScopedPathCandidates(candidates, homepage.finalUrl, scope);
       addScopedSubdomainCandidates(candidates, homepage.finalUrl, scope);
@@ -719,12 +963,16 @@ function addAcademicScopeExplicitUrls(candidates: Set<string>, scope: { faculty?
   }
 }
 
-async function discoverVerifiedAnnouncementSource(university: UniversityRecord, timeoutMs: number): Promise<AnnouncementDiscoveryResult | null> {
+async function discoverVerifiedAnnouncementSource(
+  university: UniversityRecord,
+  timeoutMs: number,
+  authority: SourceAuthorityContext
+): Promise<AnnouncementDiscoveryResult | null> {
   const verified = await findVerifiedUniversitySource(university.id);
   if (!verified?.announcementUrl) return null;
 
   try {
-    const items = await fetchSourceItems(verified.announcementUrl, "auto", timeoutMs);
+    const items = await fetchSourceItems(verified.announcementUrl, "auto", timeoutMs, { authority, resource: "announcement" });
     if (items.length === 0) return null;
     const homepageUrl = homepageFromUrl(verified.announcementUrl);
     return {

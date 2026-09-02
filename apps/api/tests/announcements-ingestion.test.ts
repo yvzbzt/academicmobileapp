@@ -28,7 +28,7 @@ import type { CatalogRepository, UniversityRecord } from "../src/modules/catalog
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/announcements/${name}`, import.meta.url), "utf8");
 
 const sampleUniversity: UniversityRecord = {
-  id: "u-agu",
+  id: "abdullah-gul-universitesi-kayseri",
   name: "ABDULLAH GÜL ÜNİVERSİTESİ (KAYSERİ)",
   slug: "abdullah-gul-universitesi-kayseri",
   city: "KAYSERİ",

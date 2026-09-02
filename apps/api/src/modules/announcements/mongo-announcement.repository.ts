@@ -5,7 +5,7 @@ import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
 import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, createAnnouncementSourceCandidateId, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, AnnouncementTrustReason, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class MongoAnnouncementRepository implements AnnouncementRepository {
@@ -62,7 +62,12 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
     const canonicalUrl = canonicalizeContentUrl(input.sourceUrl);
     if (!canonicalUrl || !officialDomainForUrl(canonicalUrl)) throw new Error("ANNOUNCEMENT_SOURCE_URL_NOT_OFFICIAL");
     const homepageUrl = input.homepageUrl ? canonicalizeContentUrl(input.homepageUrl) : undefined;
-    if (input.homepageUrl && (!homepageUrl || !isOfficialContentUrl(canonicalUrl, homepageUrl))) throw new Error("ANNOUNCEMENT_SOURCE_DOMAIN_MISMATCH");
+    if (input.homepageUrl && !homepageUrl) throw new Error("ANNOUNCEMENT_SOURCE_HOMEPAGE_URL_INVALID");
+    if (
+      homepageUrl
+      && (input.status === "active" || input.trustStatus === "trusted")
+      && !isOfficialContentUrl(canonicalUrl, homepageUrl)
+    ) throw new Error("ANNOUNCEMENT_SOURCE_DOMAIN_MISMATCH");
     const normalizedInput = {
       ...input,
       sourceName: normalizeDisplayText(input.sourceName, 160) || "Resmî akademik kaynak",
@@ -97,7 +102,7 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
     const canonicalUrl = canonicalizeContentUrl(input.sourceUrl);
     if (!canonicalUrl || !officialDomainForUrl(canonicalUrl)) throw new Error("ANNOUNCEMENT_SOURCE_URL_NOT_OFFICIAL");
     const homepageUrl = input.homepageUrl ? canonicalizeContentUrl(input.homepageUrl) : undefined;
-    if (input.homepageUrl && (!homepageUrl || !isOfficialContentUrl(canonicalUrl, homepageUrl))) throw new Error("ANNOUNCEMENT_SOURCE_DOMAIN_MISMATCH");
+    if (input.homepageUrl && !homepageUrl) throw new Error("ANNOUNCEMENT_SOURCE_HOMEPAGE_URL_INVALID");
     const identityKey = canonicalAnnouncementSourceIdentityKey(canonicalUrl);
     const candidateId = createAnnouncementSourceCandidateId({
       scopeType: input.scopeType,
@@ -144,6 +149,15 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
 
   async recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null> {
     const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findByIdAndUpdate(id, omitUndefined(input as unknown as Record<string, unknown>), { new: true });
+    return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
+  }
+
+  async quarantineSource(id: string, reasonCodes: AnnouncementTrustReason[]): Promise<AnnouncementSourceRecord | null> {
+    if (!isValidObjectId(id)) return null;
+    const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findByIdAndUpdate(id, {
+      $set: { status: "inactive", trustStatus: "quarantined" },
+      $addToSet: { trustReasonCodes: { $each: [...new Set(reasonCodes)].sort() } }
+    }, { new: true });
     return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
   }
 

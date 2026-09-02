@@ -184,9 +184,10 @@ describe("CalendarIngestionService", () => {
       {} as never
     );
 
-    const result = await service.ingestUniversityCalendar("atu");
-    const published = await calendarRepository.findPublishedCalendar("atu", "2025-2026");
-    const events = await calendarRepository.listPublishedEvents({ universityId: "atu", limit: 10, offset: 0 });
+    const universityId = "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi";
+    const result = await service.ingestUniversityCalendar(universityId);
+    const published = await calendarRepository.findPublishedCalendar(universityId, "2025-2026");
+    const events = await calendarRepository.listPublishedEvents({ universityId, limit: 10, offset: 0 });
 
     expect(result).toMatchObject({ status: "published", academicYear: "2025-2026", eventCount: 1 });
     expect(published?.sourceUrl).toContain("odata.atu.edu.tr");
@@ -233,7 +234,7 @@ describe("CalendarIngestionService", () => {
       {} as never
     );
 
-    await expect(service.ingestUniversityCalendar("atu")).resolves.toMatchObject({
+    await expect(service.ingestUniversityCalendar("adana-alparslan-turkes-bilim-ve-teknoloji-universitesi")).resolves.toMatchObject({
       status: "failed",
       eventCount: 0,
       error: "endDate must not be before startDate."
@@ -305,7 +306,7 @@ describe("AKU academic-unit schedule discovery", () => {
 
 class FakeCatalogRepository implements CatalogRepository {
   private readonly university: UniversityRecord = {
-    id: "atu",
+    id: "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi",
     name: "ADANA ALPARSLAN TÜRKEŞ BİLİM VE TEKNOLOJİ ÜNİVERSİTESİ",
     slug: "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi",
     city: "Adana",

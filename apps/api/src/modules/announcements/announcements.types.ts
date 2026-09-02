@@ -7,6 +7,7 @@ import type {
   AcademicContentType,
   TrustedAcademicContentDto
 } from "../../../../../packages/shared/src/contracts.js";
+import type { SourceAuthorityReasonCode } from "../../domain/source-authority-policy.js";
 
 export type AnnouncementScopeType = AcademicContentScopeType;
 export type AnnouncementContentType = AcademicContentType;
@@ -14,7 +15,7 @@ export type AnnouncementSourceParser = "auto" | "rss" | "html";
 export type AnnouncementSourceStatus = "active" | "inactive";
 export type AnnouncementSourceHealthStatus = "pending" | "healthy" | "degraded" | "failed";
 export type AnnouncementTrustStatus = "trusted" | "rejected" | "quarantined";
-export type AnnouncementTrustReason =
+export type AnnouncementTrustReason = SourceAuthorityReasonCode
   | "navigation_or_chrome"
   | "unsafe_url"
   | "unofficial_source"
@@ -108,7 +109,7 @@ export type MobileAnnouncementItem = TrustedAcademicContentDto;
 export type UpsertAnnouncementSourceInput = Omit<AnnouncementSourceRecord, "id" | "createdAt" | "updatedAt"> & { id?: string };
 export type AnnouncementSourceCandidateInput = Omit<
   UpsertAnnouncementSourceInput,
-  "id" | "status" | "trustStatus" | "trustReasonCodes" | "duplicateOfId"
+  "id" | "status" | "trustStatus" | "duplicateOfId"
 >;
 export type SourceCheckInput = Pick<AnnouncementSourceRecord, "healthStatus" | "lastCheckedAt" | "lastSuccessAt" | "lastError" | "consecutiveFailures" | "itemCount">;
 
@@ -160,6 +161,7 @@ export interface AnnouncementRepository {
   findSourceById(id: string): Promise<AnnouncementSourceRecord | null>;
   upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord>;
   insertQuarantinedSourceCandidate(input: AnnouncementSourceCandidateInput): Promise<AnnouncementSourceRecord>;
+  quarantineSource(id: string, reasonCodes: AnnouncementTrustReason[]): Promise<AnnouncementSourceRecord | null>;
   deactivateSource(id: string): Promise<AnnouncementSourceRecord | null>;
   recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null>;
   replaceItemsForSource(

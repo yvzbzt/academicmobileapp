@@ -3,6 +3,10 @@ import {
   GOOGLE_METADATA_TOKEN_URL,
   safeOutboundRequest
 } from "../../common/network/safe-outbound-request.js";
+import {
+  requireSourceAuthority,
+  type SourceAuthorityContext
+} from "../../domain/source-authority-enforcement.js";
 import { isOfficialContentUrl } from "../announcements/announcement-content-trust.js";
 import type { PdfSourceRecord } from "./pdf.types.js";
 
@@ -54,7 +58,11 @@ interface DocumentAiResponse {
 export class PdfOcrService {
   private readonly logger = new Logger(PdfOcrService.name);
 
-  async extractText(input: { pdfSource: PdfSourceRecord; pdfData?: Buffer }): Promise<PdfOcrResult | null> {
+  async extractText(input: {
+    pdfSource: PdfSourceRecord;
+    pdfData?: Buffer;
+    sourceAuthority?: SourceAuthorityContext;
+  }): Promise<PdfOcrResult | null> {
     const provider = (process.env.OCR_PROVIDER ?? "").trim().toLocaleLowerCase("en-US");
     if (!["google_document_ai", "document_ai"].includes(provider)) return null;
 
@@ -64,7 +72,7 @@ export class PdfOcrService {
       return null;
     }
 
-    const pdfData = input.pdfData ?? await downloadPdfData(input.pdfSource.url);
+    const pdfData = input.pdfData ?? await downloadPdfData(input.pdfSource.url, input.sourceAuthority);
     if (!pdfData) {
       this.logger.warn(`OCR skipped: PDF data is unavailable for source ${input.pdfSource.id}.`);
       return null;
@@ -148,14 +156,28 @@ export async function readGoogleAccessToken(): Promise<string | undefined> {
   }
 }
 
-export async function downloadPdfData(url?: string): Promise<Buffer | undefined> {
+export async function downloadPdfData(
+  url?: string,
+  authority?: SourceAuthorityContext
+): Promise<Buffer | undefined> {
   if (!url) return undefined;
   const response = await safeOutboundRequest(url, {
     timeoutMs: readPositiveInteger(process.env.OCR_SOURCE_TIMEOUT_MS, 20000),
     maximumRedirects: 5,
     maximumResponseBytes: 50 * 1024 * 1024,
     headers: { Accept: "application/pdf,*/*;q=0.8" },
-    validateUrl: (candidate) => {
+    validateUrl: (candidate, previousUrl) => {
+      if (authority) {
+        const decision = requireSourceAuthority(authority, {
+          boundary: "fetch",
+          resource: "pdf",
+          url,
+          ...(previousUrl ? { finalRedirectUrl: candidate } : {})
+        });
+        const canonical = previousUrl ? decision.canonicalFinalRedirectUrl : decision.canonicalUrl;
+        if (!canonical) throw new Error("SOURCE_AUTHORITY_CANONICAL_URL_MISSING");
+        return preserveFetchTrailingSlash(canonical, candidate, previousUrl);
+      }
       if (!isOfficialContentUrl(candidate, url)) throw new Error("OCR_SOURCE_DOMAIN_UNTRUSTED");
       return candidate;
     }
@@ -163,6 +185,18 @@ export async function downloadPdfData(url?: string): Promise<Buffer | undefined>
   if (response.status < 200 || response.status >= 300) return undefined;
   if (!response.body.subarray(0, 4).equals(Buffer.from("%PDF"))) return undefined;
   return response.body;
+}
+
+function preserveFetchTrailingSlash(canonicalUrl: string, candidate: string, baseUrl?: string): string {
+  try {
+    const requested = baseUrl ? new URL(candidate, baseUrl) : new URL(candidate);
+    if (requested.pathname.length <= 1 || !requested.pathname.endsWith("/")) return canonicalUrl;
+    const fetchUrl = new URL(canonicalUrl);
+    if (!fetchUrl.pathname.endsWith("/")) fetchUrl.pathname += "/";
+    return fetchUrl.toString();
+  } catch {
+    return canonicalUrl;
+  }
 }
 
 function documentAiPageText(response: DocumentAiResponse): string {

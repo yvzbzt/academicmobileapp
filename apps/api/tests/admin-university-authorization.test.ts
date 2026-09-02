@@ -224,28 +224,49 @@ async function createAcademicTree(catalog: InMemoryCatalogRepository, suffix: st
   faculty: FacultyRecord;
   department: DepartmentRecord;
 }> {
+  const fixture = suffix === "one"
+    ? {
+      universityName: "Abdullah Gul Universitesi Kayseri",
+      universitySlug: "abdullah-gul-universitesi-kayseri",
+      universityUrl: "https://www.agu.edu.tr",
+      city: "Kayseri",
+      facultyName: "Muhendislik Fakultesi",
+      facultySlug: "muhendislik-fakultesi",
+      departmentName: "Bilgisayar Muhendisligi",
+      departmentSlug: "bilgisayar-muhendisligi"
+    }
+    : {
+      universityName: "Adana Alparslan Turkes Bilim ve Teknoloji Universitesi",
+      universitySlug: "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi",
+      universityUrl: "https://www.atu.edu.tr",
+      city: "Adana",
+      facultyName: "Muhendislik Fakultesi",
+      facultySlug: "muhendislik-fakultesi",
+      departmentName: "Elektrik Elektronik Muhendisligi",
+      departmentSlug: "elektrik-elektronik-muhendisligi"
+    };
   const university = await catalog.createUniversity({
-    name: `University ${suffix}`,
-    slug: `university-${suffix}`,
-    city: "Ankara",
+    name: fixture.universityName,
+    slug: fixture.universitySlug,
+    city: fixture.city,
     type: "state",
-    websiteUrl: `https://university-${suffix}.edu.tr`,
+    websiteUrl: fixture.universityUrl,
     status: "active"
   });
   const faculty = await catalog.createFaculty({
     universityId: university.id,
-    name: `Faculty ${suffix}`,
-    slug: `faculty-${suffix}`,
-    websiteUrl: `https://faculty-${suffix}.university-${suffix}.edu.tr`,
+    name: fixture.facultyName,
+    slug: fixture.facultySlug,
+    websiteUrl: new URL("/faculty", fixture.universityUrl).toString(),
     status: "active"
   });
   const department = await catalog.createDepartment({
     universityId: university.id,
     facultyId: faculty.id,
-    name: `Department ${suffix}`,
-    slug: `department-${suffix}`,
+    name: fixture.departmentName,
+    slug: fixture.departmentSlug,
     educationLevel: "bachelor",
-    websiteUrl: `https://department-${suffix}.university-${suffix}.edu.tr`,
+    websiteUrl: new URL("/department", fixture.universityUrl).toString(),
     status: "active"
   });
   return { university, faculty, department };

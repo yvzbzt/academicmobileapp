@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { BadRequestException, Inject, Injectable, InternalServerErrorException, NotFoundException, Optional } from "@nestjs/common";
 import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
+import { resolveSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
+import { requireSourceAuthority } from "../../domain/source-authority-enforcement.js";
+import type { SourceAuthorityBoundary, SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import type { PdfRepository } from "../pdf/pdf.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord } from "../catalog/catalog.types.js";
 import { AuditService } from "../audit/audit.service.js";
@@ -86,6 +89,9 @@ export class AdminCalendarService {
     if (!source) throw new NotFoundException("PDF source not found.");
     if (source.universityId !== input.universityId) throw new BadRequestException("PDF source does not belong to the selected university.");
     if (source.academicYear !== input.academicYear) throw new BadRequestException("PDF source academic year does not match calendar academic year.");
+    if (source.url) {
+      await this.requireExternalSourceAuthority(input.universityId, source.url, "publication", "pdf");
+    }
 
     const approvedExtractedEvents = await this.pdfRepository.listExtractedEvents({
       pdfSourceId: input.sourcePdfId,
@@ -305,6 +311,7 @@ export class AdminCalendarService {
   async publishCalendar(calendarId: string, approvedBy: string): Promise<PublishCalendarResponse> {
     const calendar = await this.calendarRepository.findCalendarById(calendarId);
     if (!calendar) throw new NotFoundException("Calendar not found.");
+    await this.requireCalendarPublicationAuthority(calendar);
     if (calendar.status === "published") {
       // Repair a publication interrupted after the parent calendar was persisted but
       // before its child events (or notification jobs) were durably reconciled.
@@ -340,6 +347,42 @@ export class AdminCalendarService {
     return { calendar: publishedCalendar, publishedEvents, archivedCalendarCount };
   }
 
+  private async requireCalendarPublicationAuthority(calendar: AcademicCalendarRecord): Promise<void> {
+    if (calendar.sourcePdfId) {
+      const source = await this.pdfRepository.findPdfSourceById(calendar.sourcePdfId);
+      if (!source) throw new NotFoundException("PDF source not found.");
+      if (source.universityId !== calendar.universityId) {
+        throw new BadRequestException("PDF source does not belong to the selected university.");
+      }
+      if (source.url) {
+        await this.requireExternalSourceAuthority(calendar.universityId, source.url, "publication", "pdf");
+      }
+    }
+    if (calendar.sourceUrl) {
+      await this.requireExternalSourceAuthority(
+        calendar.universityId,
+        calendar.sourceUrl,
+        "publication",
+        sourceResourceForUrl(calendar.sourceUrl)
+      );
+    }
+  }
+
+  private async requireExternalSourceAuthority(
+    universityId: string,
+    url: string,
+    boundary: SourceAuthorityBoundary,
+    resource: SourceAuthorityResource
+  ): Promise<void> {
+    const authority = await resolveSourceAuthorityContext({
+      universityId,
+      ownerAcademicEntityId: universityId,
+      scopeType: "university",
+      scopeId: universityId
+    });
+    requireSourceAuthority(authority.context, { boundary, resource, url });
+  }
+
   async rollbackCalendar(calendarId: string): Promise<AcademicCalendarRecord> {
     const calendar = await this.calendarRepository.findCalendarById(calendarId);
     if (!calendar) throw new NotFoundException("Calendar not found.");
@@ -357,6 +400,10 @@ export class AdminCalendarService {
     });
     return rolledBack;
   }
+}
+
+function sourceResourceForUrl(url: string): SourceAuthorityResource {
+  return /\.pdf(?:$|[?#])/iu.test(url) ? "pdf" : "academic_calendar";
 }
 
 function expandWeeklyManualEvent(event: ManualCalendarEventInput): ManualCalendarEventInput[] {

@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import tls from "node:tls";
 import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
+import {
+  requireSourceAuthority,
+  type SourceAuthorityContext
+} from "../../domain/source-authority-enforcement.js";
+import type { SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import {
   academicContentLogicalIdentityKey,
@@ -34,13 +39,54 @@ export interface ParsedAnnouncementItem {
   keyDates?: NonNullable<AnnouncementItem["keyDates"]>;
 }
 
-export async function fetchSourceItems(sourceUrl: string, parser: AnnouncementSourceParser, timeoutMs = 7000): Promise<ParsedAnnouncementItem[]> {
-  const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
-  const atuItems = await fetchAtuContentItems(officialSourceUrl, timeoutMs);
-  if (atuItems) return atuItems.slice(0, 30);
+export interface SourceAuthorityFetchContext {
+  authority: SourceAuthorityContext;
+  resource: SourceAuthorityResource;
+}
 
-  const body = await fetchText(officialSourceUrl, timeoutMs, { accept: "text/html,application/json,application/rss+xml,application/xml;q=0.9,*/*;q=0.8" });
-  return parseFetchedSourceItems(body.text, body.finalUrl, parser).slice(0, 30);
+export interface FetchedSourceSnapshot {
+  items: ParsedAnnouncementItem[];
+  finalUrl: string;
+}
+
+export interface FetchTextInput {
+  accept?: string;
+  authority?: SourceAuthorityContext;
+  resource?: SourceAuthorityResource;
+}
+
+export async function fetchSourceItems(
+  sourceUrl: string,
+  parser: AnnouncementSourceParser,
+  timeoutMs = 7000,
+  authorityContext?: SourceAuthorityFetchContext
+): Promise<ParsedAnnouncementItem[]> {
+  return (await fetchSourceSnapshot(sourceUrl, parser, timeoutMs, authorityContext)).items;
+}
+
+export async function fetchSourceSnapshot(
+  sourceUrl: string,
+  parser: AnnouncementSourceParser,
+  timeoutMs = 7000,
+  authorityContext?: SourceAuthorityFetchContext
+): Promise<FetchedSourceSnapshot> {
+  const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
+  const atuSnapshot = await fetchAtuContentItems(officialSourceUrl, timeoutMs, authorityContext);
+  if (atuSnapshot) {
+    return {
+      items: atuSnapshot.items.slice(0, 30),
+      finalUrl: atuSnapshot.finalUrl
+    };
+  }
+
+  const body = await fetchText(officialSourceUrl, timeoutMs, {
+    accept: "text/html,application/json,application/rss+xml,application/xml;q=0.9,*/*;q=0.8",
+    ...(authorityContext ? authorityContext : {})
+  });
+  return {
+    items: parseFetchedSourceItems(body.text, body.finalUrl, parser).slice(0, 30),
+    finalUrl: body.finalUrl
+  };
 }
 
 export function parseFetchedSourceItems(
@@ -67,7 +113,11 @@ export function parseFetchedSourceItems(
   throw new Error("SOURCE_HTML_LAYOUT_INVALID");
 }
 
-export async function fetchText(sourceUrl: string, timeoutMs = 7000, input: { accept?: string } = {}): Promise<{ text: string; finalUrl: string; status: number }> {
+export async function fetchText(
+  sourceUrl: string,
+  timeoutMs = 7000,
+  input: FetchTextInput = {}
+): Promise<{ text: string; finalUrl: string; status: number }> {
   const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
   return fetchTextWithSafeRequest(officialSourceUrl, timeoutMs, input);
 }
@@ -519,7 +569,11 @@ interface AtuContentRow {
   EklenmeTarihi?: string;
 }
 
-async function fetchAtuContentItems(sourceUrl: string, timeoutMs: number): Promise<ParsedAnnouncementItem[] | null> {
+async function fetchAtuContentItems(
+  sourceUrl: string,
+  timeoutMs: number,
+  authorityContext?: SourceAuthorityFetchContext
+): Promise<FetchedSourceSnapshot | null> {
   const descriptor = describeAtuContentSource(sourceUrl);
   if (!descriptor) return null;
 
@@ -528,7 +582,11 @@ async function fetchAtuContentItems(sourceUrl: string, timeoutMs: number): Promi
     "$filter": `AlanAdi eq '${descriptor.siteAlias}' and Durum eq 1`,
     "$top": "1"
   });
-  const sitePayload = parseAtuODataPayload<{ ID?: number }>((await fetchText(siteUrl, timeoutMs, { accept: "application/json" })).text);
+  const siteResponse = await fetchText(siteUrl, timeoutMs, {
+    accept: "application/json",
+    ...(authorityContext ? authorityContext : {})
+  });
+  const sitePayload = parseAtuODataPayload<{ ID?: number }>(siteResponse.text);
   const siteId = sitePayload[0]?.ID;
   if (!Number.isInteger(siteId)) throw new Error("ATU_CONTENT_SITE_NOT_FOUND");
 
@@ -538,9 +596,13 @@ async function fetchAtuContentItems(sourceUrl: string, timeoutMs: number): Promi
     "$orderby": "BaslamaTarihi desc",
     "$top": "40"
   });
-  const rows = parseAtuODataPayload<AtuContentRow>((await fetchText(contentUrl, timeoutMs, { accept: "application/json" })).text);
+  const contentResponse = await fetchText(contentUrl, timeoutMs, {
+    accept: "application/json",
+    ...(authorityContext ? authorityContext : {})
+  });
+  const rows = parseAtuODataPayload<AtuContentRow>(contentResponse.text);
 
-  return dedupeParsedItems(rows.flatMap((row) => {
+  const items = dedupeParsedItems(rows.flatMap((row) => {
     const rawTitle = row.Baslik;
     if (!rawTitle) return [];
 
@@ -564,6 +626,7 @@ async function fetchAtuContentItems(sourceUrl: string, timeoutMs: number): Promi
     }, descriptor.sourceUrl.toString());
     return item ? [item] : [];
   }));
+  return { items, finalUrl: contentResponse.finalUrl };
 }
 
 function describeAtuContentSource(sourceUrl: string): AtuContentDescriptor | null {
@@ -1025,8 +1088,9 @@ function preserveFetchTrailingSlash(canonicalUrl: string, candidate: string, bas
 async function fetchTextWithSafeRequest(
   sourceUrl: string,
   timeoutMs: number,
-  input: { accept?: string }
+  input: FetchTextInput
 ): Promise<{ text: string; finalUrl: string; status: number }> {
+  const authorityContext = normalizeSourceAuthorityFetchContext(input);
   const response = await safeOutboundRequest(sourceUrl, {
     timeoutMs,
     maximumRedirects: 5,
@@ -1036,9 +1100,20 @@ async function fetchTextWithSafeRequest(
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
       "User-Agent": crawlerUserAgent
     },
-    validateUrl: (candidate, previousUrl) => (
-      requireOfficialRedirectUrl(candidate, sourceUrl, previousUrl ?? sourceUrl)
-    )
+    validateUrl: (candidate, previousUrl) => {
+      if (authorityContext) {
+        const decision = requireSourceAuthority(authorityContext.authority, {
+          boundary: "fetch",
+          resource: authorityContext.resource,
+          url: sourceUrl,
+          ...(previousUrl ? { finalRedirectUrl: candidate } : {})
+        });
+        const canonical = previousUrl ? decision.canonicalFinalRedirectUrl : decision.canonicalUrl;
+        if (!canonical) throw new Error("SOURCE_AUTHORITY_CANONICAL_URL_MISSING");
+        return preserveFetchTrailingSlash(canonical, candidate, previousUrl);
+      }
+      return requireOfficialRedirectUrl(candidate, sourceUrl, previousUrl ?? sourceUrl);
+    }
   });
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`SOURCE_FETCH_FAILED:${response.status}`);
@@ -1048,6 +1123,14 @@ async function fetchTextWithSafeRequest(
     finalUrl: response.finalUrl,
     status: response.status
   };
+}
+
+function normalizeSourceAuthorityFetchContext(input: FetchTextInput): SourceAuthorityFetchContext | null {
+  const hasAuthority = input.authority !== undefined;
+  const hasResource = input.resource !== undefined;
+  if (hasAuthority !== hasResource) throw new Error("SOURCE_AUTHORITY_FETCH_CONTEXT_INCOMPLETE");
+  if (!input.authority || !input.resource) return null;
+  return { authority: input.authority, resource: input.resource };
 }
 
 function preferParsedItem(candidate: ParsedAnnouncementItem, current: ParsedAnnouncementItem): boolean {

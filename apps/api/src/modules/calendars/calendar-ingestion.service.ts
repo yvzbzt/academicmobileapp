@@ -1,8 +1,14 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
 import { PDFParse } from "pdf-parse";
+import { resolveSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { findVerifiedUniversitySource } from "../../bootstrap/verified-source-registry.js";
 import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
 import { mapAcademicEventCategory } from "../../domain/category-mapper.js";
+import {
+  evaluateSourceAuthority,
+  requireSourceAuthority,
+  type SourceAuthorityContext
+} from "../../domain/source-authority-enforcement.js";
 import type { AcademicTerm } from "../../domain/academic-event.types.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import type { CatalogRepository, UniversityRecord } from "../catalog/catalog.types.js";
@@ -295,16 +301,21 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     }
 
     try {
+      const authority = await resolveCalendarSourceAuthority(university);
       if (university.slug === "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi") {
-        return await this.ingestAtuCalendar(university, academicYear);
+        return await this.ingestAtuCalendar(university, academicYear, authority);
       }
 
-      const pdf = await discoverAcademicCalendarPdf(university, readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000));
+      const pdf = await discoverAcademicCalendarPdf(
+        university,
+        readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000),
+        authority
+      );
       if (!pdf) {
         this.logger.warn(`Calendar source not found for ${university.name} (${university.id}).`);
         return { universityId, universityName: university.name, status: "source_not_found", eventCount: 0 };
       }
-      const result = await this.ingestPdfCalendar(university, pdf, academicYear);
+      const result = await this.ingestPdfCalendar(university, pdf, academicYear, authority);
       if (result.status === "published" || result.status === "existing") this.logger.log(`Calendar ${result.status} for ${university.name}: ${result.academicYear ?? "unknown year"} (${result.eventCount} events).`);
       else this.logger.warn(`Calendar ingestion ${result.status} for ${university.name}: ${result.error ?? result.sourceUrl ?? "no details"}.`);
       return result;
@@ -370,7 +381,8 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     university: UniversityRecord,
     academicYear: string,
     sourceUrl: string,
-    sourcePdfId?: string
+    sourcePdfId: string | undefined,
+    authority: SourceAuthorityContext
   ): Promise<AcademicCalendarRecord> {
     const existing = await this.calendarRepository.findPublishedCalendar(university.id, academicYear);
     if (existing) {
@@ -378,6 +390,11 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
       if (existingEvents.length > 0 || existing.sourceUrl === sourceUrl) return existing;
     }
 
+    requireSourceAuthority(authority, {
+      boundary: "publication",
+      resource: "academic_calendar",
+      url: sourceUrl
+    });
     const draft = await this.calendarRepository.createCalendar({
       universityId: university.id,
       academicYear,
@@ -398,21 +415,26 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     return published ?? draft;
   }
 
-  private async ingestAtuCalendar(university: UniversityRecord, requestedAcademicYear?: string): Promise<CalendarIngestionResult> {
+  private async ingestAtuCalendar(
+    university: UniversityRecord,
+    requestedAcademicYear: string | undefined,
+    authority: SourceAuthorityContext
+  ): Promise<CalendarIngestionResult> {
     let pageError: unknown;
     try {
       const pdf = await discoverAtuAcademicCalendarPdf(
         requestedAcademicYear,
-        readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000)
+        readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000),
+        authority
       );
-      if (pdf) return await this.ingestPdfCalendar(university, pdf, requestedAcademicYear);
+      if (pdf) return await this.ingestPdfCalendar(university, pdf, requestedAcademicYear, authority);
     } catch (error) {
       pageError = error;
       this.logger.warn(`ATU calendar page ingestion failed; trying OData fallback: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     try {
-      const odataResult = await this.ingestAtuODataCalendar(university, requestedAcademicYear);
+      const odataResult = await this.ingestAtuODataCalendar(university, requestedAcademicYear, authority);
       if (odataResult.status !== "no_events" || !pageError) return odataResult;
     } catch (odataError) {
       if (!pageError) throw odataError;
@@ -424,9 +446,21 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     throw pageError;
   }
 
-  private async ingestAtuODataCalendar(university: UniversityRecord, requestedAcademicYear?: string): Promise<CalendarIngestionResult> {
+  private async ingestAtuODataCalendar(
+    university: UniversityRecord,
+    requestedAcademicYear: string | undefined,
+    authority: SourceAuthorityContext
+  ): Promise<CalendarIngestionResult> {
     const sourceUrl = atuCalendarODataUrl;
-    const rowsFromSource = await fetchAtuCalendarRows(readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000));
+    requireSourceAuthority(authority, {
+      boundary: "registration",
+      resource: "academic_calendar",
+      url: sourceUrl
+    });
+    const rowsFromSource = await fetchAtuCalendarRows(
+      readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000),
+      authority
+    );
     const activeRows = rowsFromSource.filter((row) => row.Durum === 1 || row.Durum === true).filter((row) => row.AdTR && row.BaslamaTarihi && row.Yil);
     const availableYears = [...new Set(activeRows.map((row) => row.Yil).filter((year): year is number => Number.isInteger(year)))].sort((left, right) => right - left);
     const selectedStartYear = requestedAcademicYear
@@ -444,6 +478,11 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     if (preparedEventInputs.length === 0) {
       return { universityId: university.id, universityName: university.name, status: "no_events", academicYear, sourceUrl, eventCount: 0 };
     }
+    requireSourceAuthority(authority, {
+      boundary: "publication",
+      resource: "academic_calendar",
+      url: sourceUrl
+    });
     const existing = await this.calendarRepository.findPublishedCalendar(university.id, academicYear);
     const calendar = await this.calendarRepository.createCalendar({
       universityId: university.id,
@@ -473,8 +512,22 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     return { universityId: university.id, universityName: university.name, status: "published", academicYear: publishedCalendar?.academicYear ?? academicYear, sourceUrl, eventCount: events.length };
   }
 
-  private async ingestPdfCalendar(university: UniversityRecord, pdf: DiscoveredCalendarPdf, requestedAcademicYear?: string): Promise<CalendarIngestionResult> {
-    const downloaded = await downloadPdf(pdf.sourceUrl, readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000));
+  private async ingestPdfCalendar(
+    university: UniversityRecord,
+    pdf: DiscoveredCalendarPdf,
+    requestedAcademicYear: string | undefined,
+    authority: SourceAuthorityContext
+  ): Promise<CalendarIngestionResult> {
+    requireSourceAuthority(authority, {
+      boundary: "registration",
+      resource: "pdf",
+      url: pdf.sourceUrl
+    });
+    const downloaded = await downloadPdf(
+      pdf.sourceUrl,
+      readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000),
+      authority
+    );
     const extracted = await extractPdfText(downloaded.data);
     const inferredAcademicYear = inferAcademicYear([pdf.title, downloaded.fileName, downloaded.finalUrl, extracted.text]);
     if (!requestedAcademicYear && inferredAcademicYear && !isAcceptableAcademicYear(inferredAcademicYear)) {
@@ -498,10 +551,15 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     this.logger.log(`PDF processed for ${university.name}: extracted=${processed.extractedEvents.length}, approvable=${approvable.length}, parseStatus=${processed.pdfSource.parseStatus}, ocr=${processed.pdfSource.ocrProvider ? "yes" : "no"}.`);
     for (const event of approvable) await this.pdfProcessingService.approveExtractedEvent(event.id, "system-calendar-ingestion");
     if (approvable.length === 0) {
-      await this.publishSourceOnlyCalendar(university, academicYear, downloaded.finalUrl, pdfSource.id);
+      await this.publishSourceOnlyCalendar(university, academicYear, downloaded.finalUrl, pdfSource.id, authority);
       return { universityId: university.id, universityName: university.name, status: "published", academicYear, sourceUrl: downloaded.finalUrl, eventCount: 0 };
     }
 
+    requireSourceAuthority(authority, {
+      boundary: "publication",
+      resource: "academic_calendar",
+      url: downloaded.finalUrl
+    });
     const draft = await this.adminCalendarService.createDraftFromApprovedExtractedEvents({
       universityId: university.id,
       academicYear,
@@ -526,27 +584,40 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
 
 export async function discoverAtuAcademicCalendarPdf(
   requestedAcademicYear?: string,
-  timeoutMs = 12000
+  timeoutMs = 12000,
+  authority?: SourceAuthorityContext
 ): Promise<DiscoveredCalendarPdf | null> {
   const payload = await fetchCalendarJson<AtuCalendarPagePayload>(atuCalendarPageApiUrl, timeoutMs, "ATU_CALENDAR_PAGE_FETCH_FAILED", {
     headers: {
       Accept: "application/json",
       "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.6",
       "User-Agent": "AcademicCalendarPdfCrawler/1.0"
-    }
+    },
+    ...(authority ? { authority } : {})
   });
   const html = payload.d?.HTMLicerik ?? payload.d?.MetinIcerik;
   if (!html) return null;
 
-  return selectAtuAcademicCalendarPdf(html, requestedAcademicYear);
+  const pdf = selectAtuAcademicCalendarPdf(html, requestedAcademicYear);
+  if (pdf && authority) {
+    requireSourceAuthority(authority, {
+      boundary: "registration",
+      resource: "pdf",
+      url: pdf.sourceUrl
+    });
+  }
+  return pdf;
 }
 
-export async function fetchAtuCalendarRows(timeoutMs = 12000): Promise<AtuCalendarRow[]> {
+export async function fetchAtuCalendarRows(
+  timeoutMs = 12000,
+  authority?: SourceAuthorityContext
+): Promise<AtuCalendarRow[]> {
   const payload = await fetchCalendarJson<{ d?: AtuCalendarRow[] }>(
     atuCalendarODataUrl,
     timeoutMs,
     "ATU_CALENDAR_FETCH_FAILED",
-    { headers: { Accept: "application/json" } }
+    { headers: { Accept: "application/json" }, ...(authority ? { authority } : {}) }
   );
   return Array.isArray(payload.d) ? payload.d : [];
 }
@@ -555,14 +626,20 @@ async function fetchCalendarJson<T>(
   sourceUrl: string,
   timeoutMs: number,
   errorCode: string,
-  input: { headers: Record<string, string> }
+  input: { headers: Record<string, string>; authority?: SourceAuthorityContext }
 ): Promise<T> {
   const response = await safeOutboundRequest(sourceUrl, {
     timeoutMs,
     maximumRedirects: 5,
     maximumResponseBytes: 5 * 1024 * 1024,
     headers: input.headers,
-    validateUrl: (candidate) => requireOfficialCalendarSourceUrl(candidate, sourceUrl)
+    validateUrl: (candidate, previousUrl) => requireCalendarFetchUrl(
+      candidate,
+      sourceUrl,
+      previousUrl,
+      "academic_calendar",
+      input.authority
+    )
   });
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`${errorCode}:${response.status}`);
@@ -593,7 +670,12 @@ export function selectAtuAcademicCalendarPdf(
   return candidates[0] ?? null;
 }
 
-export async function discoverAcademicCalendarPdf(university: UniversityRecord, timeoutMs = 12000): Promise<DiscoveredCalendarPdf | null> {
+export async function discoverAcademicCalendarPdf(
+  university: UniversityRecord,
+  timeoutMs = 12000,
+  authority?: SourceAuthorityContext
+): Promise<DiscoveredCalendarPdf | null> {
+  const effectiveAuthority = authority ?? await resolveCalendarSourceAuthority(university);
   const verified = await findVerifiedUniversitySource(university.id);
   const yearAwareCandidates = buildYearAwareAcademicCalendarCandidates(university);
   const explicitCalendarUrls = new Set([
@@ -607,7 +689,14 @@ export async function discoverAcademicCalendarPdf(university: UniversityRecord, 
     ...(university.academicCalendarUrl ? [university.academicCalendarUrl] : []),
     ...buildHomepageCandidates(university)
   ]).slice(0, 16);
-  return discoverAcademicCalendarPdfFromHomepages(university, homepageCandidates, timeoutMs, explicitCalendarUrls, (page) => isLikelyUniversityHomepage(page.text, page.finalUrl, university));
+  return discoverAcademicCalendarPdfFromHomepages(
+    university,
+    homepageCandidates,
+    timeoutMs,
+    explicitCalendarUrls,
+    (page) => isLikelyUniversityHomepage(page.text, page.finalUrl, university),
+    effectiveAuthority
+  );
 }
 
 export function buildYearAwareAcademicCalendarCandidates(university: Pick<UniversityRecord, "slug">, date = new Date()): string[] {
@@ -620,7 +709,8 @@ export async function discoverAcademicCalendarPdfFromHomepages(
   homepageCandidates: string[],
   timeoutMs: number,
   explicitCalendarUrls: Set<string>,
-  isLikelyHomepage: (page: { text: string; finalUrl: string }) => boolean
+  isLikelyHomepage: (page: { text: string; finalUrl: string }) => boolean,
+  authority?: SourceAuthorityContext
 ): Promise<DiscoveredCalendarPdf | null> {
   const checked = new Set<string>();
 
@@ -628,22 +718,32 @@ export async function discoverAcademicCalendarPdfFromHomepages(
     if (checked.has(candidate)) continue;
     checked.add(candidate);
     const isExplicitCalendarUrl = explicitCalendarUrls.has(candidate);
-    if (isExplicitCalendarUrl && looksLikePdfUrl(candidate) && containsCalendarHint(candidate, candidate) && isAcceptableCalendarSource({ sourceUrl: candidate, title: candidate })) return { sourceUrl: candidate, title: "Akademik Takvim" };
+    if (isExplicitCalendarUrl && looksLikePdfUrl(candidate) && containsCalendarHint(candidate, candidate) && isAcceptableCalendarSource({ sourceUrl: candidate, title: candidate })) {
+      if (authority) requireSourceAuthority(authority, { boundary: "registration", resource: "pdf", url: candidate });
+      return { sourceUrl: candidate, title: "Akademik Takvim" };
+    }
 
     try {
-      const page = await fetchText(candidate, timeoutMs);
+      const page = await fetchText(candidate, timeoutMs, authority ? { authority, resource: "academic_calendar" } : {});
       if (!isExplicitCalendarUrl && !isLikelyHomepage(page)) continue;
-      if (looksLikePdfUrl(page.finalUrl) && containsCalendarHint(page.finalUrl, page.finalUrl) && isAcceptableCalendarSource({ sourceUrl: page.finalUrl, title: page.finalUrl })) return { sourceUrl: page.finalUrl, title: "Akademik Takvim" };
+      if (looksLikePdfUrl(page.finalUrl) && containsCalendarHint(page.finalUrl, page.finalUrl) && isAcceptableCalendarSource({ sourceUrl: page.finalUrl, title: page.finalUrl })) {
+        if (authority) requireSourceAuthority(authority, { boundary: "registration", resource: "pdf", url: page.finalUrl });
+        return { sourceUrl: page.finalUrl, title: "Akademik Takvim" };
+      }
       const links = extractAcademicCalendarLinks(page.text, page.finalUrl)
-        .filter((link) => isOfficialContentUrl(link.sourceUrl, page.finalUrl));
+        .filter((link) => authority
+          ? isAuthorityAllowed(authority, "pdf", link.sourceUrl)
+          : isOfficialContentUrl(link.sourceUrl, page.finalUrl));
       const directPdf = links.find((link) => looksLikePdfUrl(link.sourceUrl) && isAcceptableCalendarSource(link));
       if (directPdf) return directPdf;
 
       for (const link of links.slice(0, 6)) {
         try {
-          const nested = await fetchText(link.sourceUrl, timeoutMs);
+          const nested = await fetchText(link.sourceUrl, timeoutMs, authority ? { authority, resource: "academic_calendar" } : {});
           const nestedPdf = extractAcademicCalendarLinks(nested.text, nested.finalUrl)
-            .filter((nestedLink) => isOfficialContentUrl(nestedLink.sourceUrl, page.finalUrl))
+            .filter((nestedLink) => authority
+              ? isAuthorityAllowed(authority, "pdf", nestedLink.sourceUrl)
+              : isOfficialContentUrl(nestedLink.sourceUrl, page.finalUrl))
             .find((nestedLink) => looksLikePdfUrl(nestedLink.sourceUrl) && isAcceptableCalendarSource(nestedLink));
           if (nestedPdf) return nestedPdf;
         } catch {
@@ -654,9 +754,11 @@ export async function discoverAcademicCalendarPdfFromHomepages(
       for (const path of academicCalendarPaths) {
         const calendarPageUrl = new URL(path, page.finalUrl).toString();
         try {
-          const nested = await fetchText(calendarPageUrl, timeoutMs);
+          const nested = await fetchText(calendarPageUrl, timeoutMs, authority ? { authority, resource: "academic_calendar" } : {});
           const nestedPdf = extractAcademicCalendarLinks(nested.text, nested.finalUrl)
-            .filter((nestedLink) => isOfficialContentUrl(nestedLink.sourceUrl, page.finalUrl))
+            .filter((nestedLink) => authority
+              ? isAuthorityAllowed(authority, "pdf", nestedLink.sourceUrl)
+              : isOfficialContentUrl(nestedLink.sourceUrl, page.finalUrl))
             .find((nestedLink) => looksLikePdfUrl(nestedLink.sourceUrl) && isAcceptableCalendarSource(nestedLink));
           if (nestedPdf) return nestedPdf;
         } catch {
@@ -727,7 +829,11 @@ function toCalendarLink(href: string | undefined, title: string | undefined, bas
   }
 }
 
-export async function downloadPdf(sourceUrl: string, timeoutMs: number): Promise<DownloadedPdf> {
+export async function downloadPdf(
+  sourceUrl: string,
+  timeoutMs: number,
+  authority?: SourceAuthorityContext
+): Promise<DownloadedPdf> {
   const response = await safeOutboundRequest(sourceUrl, {
     timeoutMs,
     maximumRedirects: 5,
@@ -737,7 +843,13 @@ export async function downloadPdf(sourceUrl: string, timeoutMs: number): Promise
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
       "User-Agent": "AcademicCalendarPdfCrawler/1.0"
     },
-    validateUrl: (candidate) => requireOfficialCalendarSourceUrl(candidate, sourceUrl)
+    validateUrl: (candidate, previousUrl) => requireCalendarFetchUrl(
+      candidate,
+      sourceUrl,
+      previousUrl,
+      "pdf",
+      authority
+    )
   });
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`CALENDAR_PDF_FETCH_FAILED:${response.status}`);
@@ -751,6 +863,60 @@ export async function downloadPdf(sourceUrl: string, timeoutMs: number): Promise
     fileName: fileNameFromUrl(response.finalUrl),
     magicBytesHex
   };
+}
+
+async function resolveCalendarSourceAuthority(university: UniversityRecord): Promise<SourceAuthorityContext> {
+  const resolved = await resolveSourceAuthorityContext({
+    universityId: university.id,
+    ownerAcademicEntityId: university.id,
+    scopeType: "university",
+    scopeId: university.id
+  });
+  return resolved.context;
+}
+
+function isAuthorityAllowed(
+  authority: SourceAuthorityContext | undefined,
+  resource: "pdf" | "academic_calendar",
+  url: string
+): boolean {
+  if (!authority) return true;
+  return evaluateSourceAuthority(authority, {
+    boundary: "registration",
+    resource,
+    url
+  }).allowed;
+}
+
+function requireCalendarFetchUrl(
+  candidate: string,
+  sourceUrl: string,
+  previousUrl: string | undefined,
+  resource: "pdf" | "academic_calendar",
+  authority?: SourceAuthorityContext
+): string {
+  if (!authority) return requireOfficialCalendarSourceUrl(candidate, sourceUrl);
+  const decision = requireSourceAuthority(authority, {
+    boundary: "fetch",
+    resource,
+    url: sourceUrl,
+    ...(previousUrl ? { finalRedirectUrl: candidate } : {})
+  });
+  const canonical = previousUrl ? decision.canonicalFinalRedirectUrl : decision.canonicalUrl;
+  if (!canonical) throw new Error("SOURCE_AUTHORITY_CANONICAL_URL_MISSING");
+  return preserveFetchTrailingSlash(canonical, candidate, previousUrl);
+}
+
+function preserveFetchTrailingSlash(canonicalUrl: string, candidate: string, baseUrl?: string): string {
+  try {
+    const requested = baseUrl ? new URL(candidate, baseUrl) : new URL(candidate);
+    if (requested.pathname.length <= 1 || !requested.pathname.endsWith("/")) return canonicalUrl;
+    const fetchUrl = new URL(canonicalUrl);
+    if (!fetchUrl.pathname.endsWith("/")) fetchUrl.pathname += "/";
+    return fetchUrl.toString();
+  } catch {
+    return canonicalUrl;
+  }
 }
 
 function requireOfficialCalendarSourceUrl(candidate: string, officialSourceUrl: string): string {

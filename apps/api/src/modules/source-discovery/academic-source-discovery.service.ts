@@ -1,6 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { resolveSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource } from "../../bootstrap/verified-source-registry.js";
 import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
+import {
+  evaluateSourceAuthority,
+  type SourceAuthorityContext
+} from "../../domain/source-authority-enforcement.js";
+import type { SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import { cleanText, fetchText } from "../announcements/announcement-parser.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
@@ -93,6 +99,7 @@ export class AcademicSourceDiscoveryService {
   private async discoverUniversitySources(university: UniversityRecord): Promise<{ queryPlan: SourceDiscoveryQueryPlanItem[]; candidates: AcademicSourceCandidate[] }> {
     const queryPlan: SourceDiscoveryQueryPlanItem[] = [];
     const candidates: AcademicSourceCandidate[] = [];
+    const universityAuthority = await resolveDiscoveryAuthority(university, "university", university.id);
     const universityQuery = university.name;
     queryPlan.push({ scopeType: "university", universityId: university.id, universityName: university.name, query: universityQuery });
 
@@ -193,12 +200,25 @@ export class AcademicSourceDiscoveryService {
       }
     }
 
-    candidates.push(...await this.discoverOfficialDirectoryCandidates(university, faculties, departmentsByFaculty));
+    candidates.push(...await this.discoverOfficialDirectoryCandidates(
+      university,
+      faculties,
+      departmentsByFaculty,
+      universityAuthority
+    ));
 
-    return { queryPlan, candidates };
+    return {
+      queryPlan,
+      candidates: await authorizeDiscoveryCandidates(university, candidates, universityAuthority)
+    };
   }
 
-  private async discoverOfficialDirectoryCandidates(university: UniversityRecord, faculties: FacultyRecord[], departmentsByFaculty: Map<string, DepartmentRecord[]>): Promise<AcademicSourceCandidate[]> {
+  private async discoverOfficialDirectoryCandidates(
+    university: UniversityRecord,
+    faculties: FacultyRecord[],
+    departmentsByFaculty: Map<string, DepartmentRecord[]>,
+    authority: SourceAuthorityContext
+  ): Promise<AcademicSourceCandidate[]> {
     if (!isAnkaraUniversity(university)) return [];
 
     const candidates: AcademicSourceCandidate[] = [];
@@ -207,7 +227,10 @@ export class AcademicSourceDiscoveryService {
     let directoryLinks: SourceAnchorLink[] = [];
 
     try {
-      const directory = await fetchText(directoryUrl, timeoutMs);
+      const directory = await fetchText(directoryUrl, timeoutMs, {
+        authority,
+        resource: "website"
+      });
       directoryLinks = extractSourceLinks(directory.text, directory.finalUrl);
     } catch {
       return candidates;
@@ -220,7 +243,10 @@ export class AcademicSourceDiscoveryService {
       let facultyWebsiteUrl: string | undefined;
       let facultyPageLinks: SourceAnchorLink[] = [];
       try {
-        const detail = await fetchText(facultyDirectoryLink.url, timeoutMs);
+        const detail = await fetchText(facultyDirectoryLink.url, timeoutMs, {
+          authority,
+          resource: "website"
+        });
         facultyPageLinks = extractSourceLinks(detail.text, detail.finalUrl);
         facultyWebsiteUrl = findWebsiteLink(facultyPageLinks)?.url;
       } catch {
@@ -248,7 +274,7 @@ export class AcademicSourceDiscoveryService {
         evidence: facultyDirectoryLink.url
       }));
 
-      const siteLinks = await fetchLinksFromPage(facultyWebsiteUrl, timeoutMs);
+      const siteLinks = await fetchLinksFromPage(facultyWebsiteUrl, timeoutMs, authority);
       const mergedSiteLinks = dedupeLinks([...facultyPageLinks, ...siteLinks]);
       const departments = departmentsByFaculty.get(faculty.id) ?? [];
       for (const department of departments) {
@@ -277,7 +303,9 @@ export class AcademicSourceDiscoveryService {
 
         const courseSchedule = bestScheduleLink(mergedSiteLinks, "course") ?? lawFacultyFallbackSchedule(facultyWebsiteUrl, department, "course");
         const examSchedule = bestScheduleLink(mergedSiteLinks, "exam") ?? lawFacultyFallbackSchedule(facultyWebsiteUrl, department, "exam");
-        const courseScheduleAssets = courseSchedule ? await fetchScheduleAssetLinks(courseSchedule.url, timeoutMs, "course") : [];
+        const courseScheduleAssets = courseSchedule
+          ? await fetchScheduleAssetLinks(courseSchedule.url, timeoutMs, "course", authority)
+          : [];
         addCandidate(candidates, scopedCandidate(university, faculty, department, {
           sourceType: "course_schedule",
           url: courseSchedule?.url,
@@ -476,6 +504,58 @@ export class AcademicSourceDiscoveryService {
   }
 }
 
+async function resolveDiscoveryAuthority(
+  university: UniversityRecord,
+  scopeType: SourceCandidateScopeType,
+  scopeId: string
+): Promise<SourceAuthorityContext> {
+  return (await resolveSourceAuthorityContext({
+    universityId: university.id,
+    ownerAcademicEntityId: scopeId,
+    scopeType,
+    scopeId
+  })).context;
+}
+
+async function authorizeDiscoveryCandidates(
+  university: UniversityRecord,
+  candidates: AcademicSourceCandidate[],
+  universityAuthority: SourceAuthorityContext
+): Promise<AcademicSourceCandidate[]> {
+  const authorityByScope = new Map<string, Promise<SourceAuthorityContext>>([
+    [`university:${university.id}`, Promise.resolve(universityAuthority)]
+  ]);
+  const authorized: AcademicSourceCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const scopeKey = `${candidate.scopeType}:${candidate.scopeId}`;
+    let authority = authorityByScope.get(scopeKey);
+    if (!authority) {
+      authority = resolveDiscoveryAuthority(university, candidate.scopeType, candidate.scopeId);
+      authorityByScope.set(scopeKey, authority);
+    }
+    const decision = evaluateSourceAuthority(await authority, {
+      boundary: "registration",
+      resource: resourceForCandidate(candidate),
+      url: candidate.url
+    });
+    if (decision.allowed) authorized.push(candidate);
+  }
+
+  return authorized;
+}
+
+function resourceForCandidate(candidate: AcademicSourceCandidate): SourceAuthorityResource {
+  if (/\.pdf(?:$|[?#])/iu.test(candidate.url)) return "pdf";
+  if (candidate.sourceType === "announcement"
+    || candidate.sourceType === "faculty_announcement"
+    || candidate.sourceType === "department_announcement") return "announcement";
+  if (candidate.sourceType === "academic_calendar"
+    || candidate.sourceType === "course_schedule"
+    || candidate.sourceType === "department_exam_schedule") return "academic_calendar";
+  return "website";
+}
+
 function baseCandidate(university: UniversityRecord, input: CandidateInput): AcademicSourceCandidate | null {
   const url = normalizeUrl(input.url);
   if (!url) return null;
@@ -611,9 +691,16 @@ export async function fetchConfiguredSearchResults(query: string): Promise<WebSe
   }
 }
 
-async function fetchLinksFromPage(pageUrl: string, timeoutMs: number): Promise<SourceAnchorLink[]> {
+async function fetchLinksFromPage(
+  pageUrl: string,
+  timeoutMs: number,
+  authority: SourceAuthorityContext
+): Promise<SourceAnchorLink[]> {
   try {
-    const page = await fetchText(pageUrl, timeoutMs);
+    const page = await fetchText(pageUrl, timeoutMs, {
+      authority,
+      resource: "website"
+    });
     return extractSourceLinks(page.text, page.finalUrl);
   } catch {
     return [];
@@ -661,9 +748,14 @@ function extractSourceLinks(html: string, baseUrl: string): SourceAnchorLink[] {
   return dedupeLinks(links);
 }
 
-async function fetchScheduleAssetLinks(pageUrl: string, timeoutMs: number, kind: "course" | "exam"): Promise<ScheduleLinkMatch[]> {
+async function fetchScheduleAssetLinks(
+  pageUrl: string,
+  timeoutMs: number,
+  kind: "course" | "exam",
+  authority: SourceAuthorityContext
+): Promise<ScheduleLinkMatch[]> {
   if (looksLikeImageUrl(pageUrl) || looksLikeOfficeDocumentUrl(pageUrl) || /\.pdf(?:$|[?#])/iu.test(pageUrl)) return [];
-  const links = await fetchLinksFromPage(pageUrl, timeoutMs);
+  const links = await fetchLinksFromPage(pageUrl, timeoutMs, authority);
   return links
     .map((link) => ({ link, score: scoreScheduleAssetLink(link, kind) }))
     .filter((match) => match.score >= 70)
