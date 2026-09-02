@@ -21,6 +21,12 @@ export interface MobileContentRecordInput {
   contentType?: "announcement" | "news" | "event";
   scopeType: "university" | "faculty" | "department";
   scopeId: string;
+  universityId?: string;
+  universityName?: string;
+  facultyId?: string;
+  facultyName?: string;
+  departmentId?: string;
+  departmentName?: string;
   title: string;
   link: string;
   canonicalUrl?: string;
@@ -297,6 +303,12 @@ export function admitTrustedContentRecord(
     || normalized.canonicalUrl !== record.canonicalUrl
     || normalized.link !== record.link
     || normalized.officialSourceUrl !== record.officialSourceUrl
+    || normalized.universityId !== record.universityId
+    || normalized.universityName !== record.universityName
+    || normalized.facultyId !== record.facultyId
+    || normalized.facultyName !== record.facultyName
+    || normalized.departmentId !== record.departmentId
+    || normalized.departmentName !== record.departmentName
     || (record.summary !== undefined && normalized.summary !== record.summary)
     || (record.body !== undefined && JSON.stringify(normalized.body ?? []) !== JSON.stringify(record.body))
     || (record.keyDates !== undefined && JSON.stringify(normalized.keyDates ?? []) !== JSON.stringify(record.keyDates))
@@ -461,6 +473,8 @@ function normalizeTrustedContentRecord(
 
   const sourceName = normalizeDisplayText(record.sourceName);
   if (!isExplicitAcademicSourceName(sourceName)) return null;
+  const academicHierarchy = normalizeAcademicHierarchy(record, scopeId);
+  if (!academicHierarchy) return null;
   const summary = normalizeDisplayText(record.summary);
   const body = normalizeContentBodyBlocks(record.body);
   const keyDates = normalizeContentKeyDates(record.keyDates);
@@ -476,6 +490,10 @@ function normalizeTrustedContentRecord(
     body: _body,
     contentFingerprint: _contentFingerprint,
     discoveredAt: _discoveredAt,
+    departmentId: _departmentId,
+    departmentName: _departmentName,
+    facultyId: _facultyId,
+    facultyName: _facultyName,
     fetchedAt: _fetchedAt,
     keyDates: _keyDates,
     officialSourceUrl: _officialSourceUrl,
@@ -488,6 +506,8 @@ function normalizeTrustedContentRecord(
     sourceUpdatedAt: _sourceUpdatedAt,
     summary: _summary,
     trustStatus: _trustStatus,
+    universityId: _universityId,
+    universityName: _universityName,
     ...baseRecord
   } = record;
   const contentFingerprint = validContentFingerprint(record.contentFingerprint);
@@ -521,6 +541,7 @@ function normalizeTrustedContentRecord(
     sourceTrustStatus: "trusted",
     officialSourceUrl,
     sourceRelationships,
+    ...academicHierarchy,
     ...(contentFingerprint ? { contentFingerprint } : {}),
     ...(summary ? { summary } : {}),
     ...(body.length ? { body } : {}),
@@ -531,6 +552,44 @@ function normalizeTrustedContentRecord(
     ...(discoveredAt ? { discoveredAt } : {}),
     ...(fetchedAt ? { fetchedAt } : {})
   };
+}
+
+function normalizeAcademicHierarchy(
+  record: MobileContentRecordInput,
+  scopeId: string,
+): Pick<
+  MobileContentRecordInput,
+  "universityId" | "universityName" | "facultyId" | "facultyName" | "departmentId" | "departmentName"
+> | null {
+  const university = normalizeAcademicUnit(record.universityId, record.universityName);
+  const faculty = normalizeAcademicUnit(record.facultyId, record.facultyName);
+  const department = normalizeAcademicUnit(record.departmentId, record.departmentName);
+  if (university === false || faculty === false || department === false) return null;
+
+  const hasHierarchy = Boolean(university || faculty || department);
+  if (!hasHierarchy) return {};
+  if (!university) return null;
+  if (record.scopeType === "university" && (university.id !== scopeId || faculty || department)) return null;
+  if (record.scopeType === "faculty" && (!faculty || faculty.id !== scopeId || department)) return null;
+  if (record.scopeType === "department" && (!faculty || !department || department.id !== scopeId)) return null;
+
+  return {
+    universityId: university.id,
+    universityName: university.name,
+    ...(faculty ? { facultyId: faculty.id, facultyName: faculty.name } : {}),
+    ...(department ? { departmentId: department.id, departmentName: department.name } : {}),
+  };
+}
+
+function normalizeAcademicUnit(
+  rawId: string | undefined,
+  rawName: string | undefined,
+): { id: string; name: string } | false | null {
+  if (rawId === undefined && rawName === undefined) return null;
+  const id = normalizeIdentifier(rawId);
+  const name = normalizeDisplayText(rawName);
+  if (!id || !name) return false;
+  return { id, name };
 }
 
 function decodeNumericEntity(value: string, radix: number): string {

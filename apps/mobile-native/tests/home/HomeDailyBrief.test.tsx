@@ -1,5 +1,5 @@
 import { NavigationContainer, useScrollToTop } from "@react-navigation/native";
-import { fireEvent, renderAsync, screen } from "@testing-library/react-native";
+import { fireEvent, renderAsync, screen, within } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { HomeDailyBrief, type HomeDailyBriefProps } from "../../src/home/HomeDailyBrief";
 import { referencePalette, ThemeProvider } from "../../src/design-system";
@@ -40,8 +40,11 @@ function content(overrides: Partial<TrustedMobileContentRecord> = {}): TrustedMo
     id: "announcement-1",
     sourceId: "source-1",
     sourceName: "Öğrenci İşleri Daire Başkanlığı",
+    contentType: "announcement",
     scopeType: "university",
     scopeId: "university-1",
+    universityId: "university-1",
+    universityName: "Örnek Üniversitesi",
     title: "2026-2027 eğitim öğretim yılı kayıt takvimi açıklandı",
     summary: "Kayıt tarihleri ve öğrenci işlemleri için kısa bilgilendirme.",
     link: "https://example.edu.tr/duyuru/kayit",
@@ -714,6 +717,82 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.queryByRole("header", { name: "Önemli duyuru" })).not.toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Son duyurular" })).toBeOnTheScreen();
     expect(screen.getByText("Kampüs yaşamından haftalık haberler")).toBeOnTheScreen();
+  });
+
+  it.each([
+    {
+      contentType: "announcement" as const,
+      typeLabel: "Duyuru",
+      title: "Akademik bilgilendirme duyurusu",
+      sourceName: "Öğrenci İşleri Daire Başkanlığı",
+      provenance: "Örnek Üniversitesi · Üniversite geneli",
+      openAction: "Resmî duyuruyu aç",
+      hierarchy: {
+        scopeType: "university" as const,
+        scopeId: "university-1",
+      },
+    },
+    {
+      contentType: "news" as const,
+      typeLabel: "Haber",
+      title: "Kampüs araştırmaları haberi",
+      sourceName: "Mühendislik Fakültesi Haber Merkezi",
+      provenance: "Örnek Üniversitesi · Fakülte · Mühendislik Fakültesi",
+      openAction: "Resmî haberi aç",
+      hierarchy: {
+        scopeType: "faculty" as const,
+        scopeId: "faculty-1",
+        facultyId: "faculty-1",
+        facultyName: "Mühendislik Fakültesi",
+      },
+    },
+    {
+      contentType: "event" as const,
+      typeLabel: "Etkinlik",
+      title: "Teknoloji buluşması etkinliği",
+      sourceName: "Bilgisayar Mühendisliği Bölümü",
+      provenance: "Örnek Üniversitesi · Bölüm · Bilgisayar Mühendisliği Bölümü",
+      openAction: "Resmî etkinliği aç",
+      hierarchy: {
+        scopeType: "department" as const,
+        scopeId: "department-1",
+        facultyId: "faculty-1",
+        facultyName: "Mühendislik Fakültesi",
+        departmentId: "department-1",
+        departmentName: "Bilgisayar Mühendisliği Bölümü",
+      },
+    },
+  ])("shows compact provenance and the $contentType-specific accessible action", async ({
+    contentType,
+    hierarchy,
+    openAction,
+    provenance,
+    sourceName,
+    title,
+    typeLabel,
+  }) => {
+    const canonicalUrl = `https://example.edu.tr/icerik/${contentType}`;
+    await renderHome(props({
+      announcements: [content({
+        ...hierarchy,
+        canonicalUrl,
+        contentType,
+        id: `content-${contentType}`,
+        link: canonicalUrl,
+        sourceName,
+        title,
+      })],
+    }));
+
+    const card = screen.getByRole("link", {
+      name: new RegExp(`${title}.*${openAction}`, "u"),
+    });
+    expect(within(card).getByText(provenance, { includeHiddenElements: true }))
+      .toBeOnTheScreen();
+    expect(within(card).getByText(typeLabel, { includeHiddenElements: true }))
+      .toBeOnTheScreen();
+    expect(card.props.accessibilityLabel).toContain(provenance);
+    expect(card.props.accessibilityLabel).toContain(openAction);
   });
 
   it("exposes the announcement card as an official-source link and keeps the list destination", async () => {

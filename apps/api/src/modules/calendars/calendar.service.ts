@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional, UnauthorizedException } from "@nestjs/common";
 import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
-import { findVerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
+import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource } from "../../bootstrap/verified-source-registry.js";
 import { academicContentLogicalIdentityKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, isOfficialContentUrl, normalizeDisplayText, toTrustedAcademicContentDto } from "../announcements/announcement-content-trust.js";
 import type { AnnouncementRepository, AnnouncementSourceRecord } from "../announcements/announcements.types.js";
 import type { AuthRepository } from "../auth/auth.types.js";
@@ -250,7 +250,12 @@ export class CalendarService {
         ...(department ? { departmentName: department.name } : {})
       },
       requirements,
-      ownAnnouncements: ownAnnouncementSelection.items,
+      ownAnnouncements: ownAnnouncementSelection.items.map((item) => attachResolvedAcademicHierarchy(
+        item,
+        university,
+        faculty,
+        department
+      )),
       sameDepartmentAnnouncements: sameDepartmentAnnouncementSelection.items,
       announcementStatus: summerSchoolAnnouncementStatus([ownAnnouncementSelection, sameDepartmentAnnouncementSelection]),
       sameDepartmentOptions,
@@ -529,7 +534,10 @@ export class CalendarService {
       .filter((item) => !isSelectedUniversityAnnouncementScope(item, selectedScope.universityId, selectedScopeIds))
       .filter((item) => departmentMatchers.some((matcher) => announcementMatchesDepartment(item, matcher)))
       .slice(0, 120);
-    return { items: trustedItems, sources };
+    return {
+      items: await Promise.all(trustedItems.map((item) => attachVerifiedAcademicHierarchy(item, this.catalogRepository))),
+      sources
+    };
   }
 
   private async resolveAcademicProfile(universityId: string, facultyId?: string, departmentId?: string): Promise<[UniversityRecord | null, FacultyRecord | null, DepartmentRecord | null]> {
@@ -809,6 +817,70 @@ function isSummerSchoolAnnouncement(item: Pick<TrustedAcademicContentDto, "title
     "summer school",
     "summer term"
   ].some((keyword) => searchable.includes(keyword));
+}
+
+async function attachVerifiedAcademicHierarchy(
+  item: TrustedAcademicContentDto,
+  catalogRepository?: CatalogRepository
+): Promise<TrustedAcademicContentDto> {
+  if (item.scopeType === "university") {
+    const university = await catalogRepository?.findUniversityById(item.scopeId)
+      ?? await findVerifiedUniversitySource(item.scopeId);
+    return university ? {
+      ...item,
+      universityId: "universityId" in university ? university.universityId : university.id,
+      universityName: "universityName" in university ? university.universityName : university.name
+    } : item;
+  }
+
+  const unit = await findVerifiedAcademicUnitSource(
+    item.scopeType === "department"
+      ? { departmentId: item.scopeId }
+      : { facultyId: item.scopeId }
+  );
+  if (!unit?.universityName || !unit.facultyId || !unit.facultyName) return item;
+  if (item.scopeType === "department" && (!unit.departmentId || !unit.departmentName)) return item;
+  return {
+    ...item,
+    universityId: unit.universityId,
+    universityName: unit.universityName,
+    facultyId: unit.facultyId,
+    facultyName: unit.facultyName,
+    ...(item.scopeType === "department" ? {
+      departmentId: unit.departmentId!,
+      departmentName: unit.departmentName!
+    } : {})
+  };
+}
+
+function attachResolvedAcademicHierarchy(
+  item: TrustedAcademicContentDto,
+  university: UniversityRecord | null,
+  faculty: FacultyRecord | null,
+  department: DepartmentRecord | null
+): TrustedAcademicContentDto {
+  if (!university) return item;
+  const universityHierarchy = {
+    universityId: university.id,
+    universityName: university.name
+  };
+  if (item.scopeType === "university") {
+    return item.scopeId === university.id ? { ...item, ...universityHierarchy } : item;
+  }
+  if (!faculty || (item.scopeType === "faculty" && item.scopeId !== faculty.id)) return item;
+  const facultyHierarchy = {
+    ...universityHierarchy,
+    facultyId: faculty.id,
+    facultyName: faculty.name
+  };
+  if (item.scopeType === "faculty") return { ...item, ...facultyHierarchy };
+  if (!department || item.scopeId !== department.id) return item;
+  return {
+    ...item,
+    ...facultyHierarchy,
+    departmentId: department.id,
+    departmentName: department.name
+  };
 }
 
 function announcementMatchesDepartment(item: Pick<TrustedAcademicContentDto, "title" | "summary" | "link" | "sourceName">, foldedDepartmentName: string): boolean {

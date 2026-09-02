@@ -59,6 +59,146 @@ describe("multi-university student contract", () => {
     ]);
   });
 
+  it("attributes every primary and followed-university item to its own university", async () => {
+    const fixture = await createFixture();
+
+    await Promise.all([
+      fixture.users.addFollowedScope(fixture.student.id, {
+        universityId: fixture.universities.first.id
+      }),
+      fixture.users.addFollowedScope(fixture.student.id, {
+        universityId: fixture.universities.second.id
+      }),
+      fixture.users.addFollowedScope(fixture.student.id, {
+        universityId: fixture.universities.third.id
+      })
+    ]);
+
+    const response = await fixture.announcements.getMyAnnouncementsCollection(fixture.student.id, 10);
+    const universityByTitle = Object.fromEntries(response.items.map((item) => [
+      item.title,
+      {
+        scopeId: item.scopeId,
+        universityId: item.universityId,
+        universityName: item.universityName
+      }
+    ]));
+
+    expect(universityByTitle).toEqual({
+      "Primary announcement": {
+        scopeId: fixture.universities.primary.id,
+        universityId: fixture.universities.primary.id,
+        universityName: fixture.universities.primary.name
+      },
+      "First followed announcement": {
+        scopeId: fixture.universities.first.id,
+        universityId: fixture.universities.first.id,
+        universityName: fixture.universities.first.name
+      },
+      "Second followed announcement": {
+        scopeId: fixture.universities.second.id,
+        universityId: fixture.universities.second.id,
+        universityName: fixture.universities.second.name
+      },
+      "Third followed announcement": {
+        scopeId: fixture.universities.third.id,
+        universityId: fixture.universities.third.id,
+        universityName: fixture.universities.third.name
+      }
+    });
+  });
+
+  it("includes the exact faculty and department hierarchy for unit-scoped content", async () => {
+    const fixture = await createFixture();
+    const university = fixture.universities.primary;
+    const faculty = await fixture.catalog.createFaculty({
+      universityId: university.id,
+      name: "Engineering Faculty",
+      slug: "engineering-faculty",
+      status: "active"
+    });
+    const department = await fixture.catalog.createDepartment({
+      universityId: university.id,
+      facultyId: faculty.id,
+      name: "Computer Engineering",
+      slug: "computer-engineering",
+      educationLevel: "bachelor",
+      status: "active"
+    });
+    await fixture.users.addFollowedScope(fixture.student.id, {
+      universityId: university.id,
+      facultyId: faculty.id,
+      departmentId: department.id
+    });
+
+    const facultySource = await fixture.announcementRepository.upsertSource({
+      scopeType: "faculty",
+      scopeId: faculty.id,
+      sourceName: "Engineering Faculty News",
+      sourceUrl: "https://primary-university.edu.tr/faculty/news",
+      contentType: "news",
+      parser: "auto",
+      priority: 20,
+      status: "active",
+      trustStatus: "trusted"
+    });
+    const departmentSource = await fixture.announcementRepository.upsertSource({
+      scopeType: "department",
+      scopeId: department.id,
+      sourceName: "Computer Engineering Events",
+      sourceUrl: "https://primary-university.edu.tr/department/events",
+      contentType: "event",
+      parser: "auto",
+      priority: 20,
+      status: "active",
+      trustStatus: "trusted"
+    });
+    await Promise.all([
+      fixture.announcementRepository.replaceItemsForSource(facultySource, [{
+        id: "faculty-news",
+        sourceId: facultySource.id,
+        sourceName: facultySource.sourceName,
+        scopeType: "faculty",
+        scopeId: faculty.id,
+        title: "Faculty research news",
+        link: `${facultySource.sourceUrl}/research`,
+        publishedAt: "2026-08-25T08:00:00.000Z",
+        publicationTimeSource: "source"
+      }]),
+      fixture.announcementRepository.replaceItemsForSource(departmentSource, [{
+        id: "department-event",
+        sourceId: departmentSource.id,
+        sourceName: departmentSource.sourceName,
+        scopeType: "department",
+        scopeId: department.id,
+        title: "Department research event",
+        link: `${departmentSource.sourceUrl}/research`,
+        publishedAt: "2026-08-26T08:00:00.000Z",
+        publicationTimeSource: "source"
+      }])
+    ]);
+
+    const response = await fixture.announcements.getMyAnnouncementsCollection(fixture.student.id, 10);
+    expect(response.items.find((item) => item.id === "faculty-news")).toMatchObject({
+      universityId: university.id,
+      universityName: university.name,
+      facultyId: faculty.id,
+      facultyName: faculty.name,
+      scopeType: "faculty",
+      scopeId: faculty.id
+    });
+    expect(response.items.find((item) => item.id === "department-event")).toMatchObject({
+      universityId: university.id,
+      universityName: university.name,
+      facultyId: faculty.id,
+      facultyName: faculty.name,
+      departmentId: department.id,
+      departmentName: department.name,
+      scopeType: "department",
+      scopeId: department.id
+    });
+  });
+
   it("re-evaluates trusted detail access after follow add/remove and isolates every user's follows", async () => {
     const fixture = await createFixture();
     const firstItemId = fixture.itemIds.get(fixture.universities.first.id)!;
@@ -169,6 +309,8 @@ async function createFixture() {
 
   return {
     auth,
+    catalog,
+    announcementRepository,
     universities,
     student,
     otherStudent,

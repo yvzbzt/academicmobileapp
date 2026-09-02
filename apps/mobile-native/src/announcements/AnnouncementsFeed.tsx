@@ -41,6 +41,11 @@ import {
   type TrustedMobileContentRecord,
 } from "../content/content-trust";
 import {
+  compactContentProvenanceLabel,
+  contentTypeLabel,
+  officialContentOpenActionLabel,
+} from "../content/content-provenance";
+import {
   CONTENT_FEED_SEARCH_DEBOUNCE_MS,
   buildContentFeed,
   filterContentFeed,
@@ -101,18 +106,6 @@ const REFERENCE_COLORS = {
 } as const;
 
 const academicCalendarLogo = require("../../assets/design-package/academic-calendar-logo.png");
-
-const CONTENT_TYPE_LABELS: Record<Exclude<FeedContentTypeFilter, "all">, string> = {
-  announcement: "Duyuru",
-  news: "Haber",
-  event: "Etkinlik",
-};
-
-const SCOPE_LABELS: Record<TrustedMobileContentRecord["scopeType"], string> = {
-  university: "Üniversite",
-  faculty: "Fakülte",
-  department: "Bölüm",
-};
 
 export interface AnnouncementsFeedProps {
   academicItems: readonly TrustedMobileContentRecord[];
@@ -768,8 +761,7 @@ function FeedRow({
 }) {
   const theme = useTheme();
   const record = item.record;
-  const scopeLabel = scopeAndSourceLabel(item);
-  const typeLabel = CONTENT_TYPE_LABELS[item.contentType];
+  const provenanceLabel = feedProvenanceLabel(item);
   const timeLabel = contentTimestampLabel(record);
   const keyDate = primaryContentKeyDate(record);
   const palette = feedItemPalette(item);
@@ -778,14 +770,13 @@ function FeedRow({
   const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
   const rowLabel = [
     record.sourceName,
-    scopeLabel,
-    typeLabel,
+    provenanceLabel,
     keyDate?.text,
     timeLabel,
     record.title,
     excerpt,
     destinationDomain,
-    destinationUrl ? "Resmî duyuruyu aç" : "Resmî bağlantı kullanılamıyor",
+    destinationUrl ? officialContentOpenActionLabel(record) : "Resmî bağlantı kullanılamıyor",
   ].filter(Boolean).join(". ");
 
   return (
@@ -817,8 +808,12 @@ function FeedRow({
           >
             {record.sourceName}
           </Text>
-          <Text style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}>
-            {typeLabel} · {scopeLabel}
+          <Text
+            maxFontSizeMultiplier={stacked ? undefined : 1.25}
+            numberOfLines={stacked ? undefined : 2}
+            style={[theme.typography.meta, { color: REFERENCE_COLORS.secondary }]}
+          >
+            {provenanceLabel}
           </Text>
         </View>
         <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -928,13 +923,16 @@ function contentKeyDateIcon(
   return "calendar-outline";
 }
 
-function scopeAndSourceLabel(item: ContentFeedItem): string {
+function feedProvenanceLabel(item: ContentFeedItem): string {
   const familyLabels = [
     item.sourceFamilies.includes("yok") ? "YÖK" : null,
     item.sourceFamilies.includes("summer-school") ? "Yaz Okulu" : null,
   ].filter((value): value is string => Boolean(value));
-  const scopeLabel = SCOPE_LABELS[item.record.scopeType];
-  return [...familyLabels, scopeLabel].join(" · ");
+  return [
+    contentTypeLabel(item.record),
+    ...familyLabels,
+    compactContentProvenanceLabel(item.record),
+  ].join(" · ");
 }
 
 function AnnouncementReminderBanner({

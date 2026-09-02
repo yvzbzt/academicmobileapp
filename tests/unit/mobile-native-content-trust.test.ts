@@ -183,6 +183,102 @@ describe("mobile native content trust", () => {
     }));
   });
 
+  it("preserves a complete trusted academic hierarchy", () => {
+    const collection = normalizeTrustedApiContentEnvelope({
+      items: [scopedRecord("academic-hierarchy", {
+        scopeType: "department",
+        scopeId: "department-42",
+        universityId: "university-1",
+        universityName: "Example University",
+        facultyId: "faculty-7",
+        facultyName: "Engineering Faculty",
+        departmentId: "department-42",
+        departmentName: "Computer Engineering Department"
+      })]
+    });
+
+    expect(collection.items).toHaveLength(1);
+    expect(collection.items[0]).toEqual(expect.objectContaining({
+      universityId: "university-1",
+      universityName: "Example University",
+      facultyId: "faculty-7",
+      facultyName: "Engineering Faculty",
+      departmentId: "department-42",
+      departmentName: "Computer Engineering Department"
+    }));
+  });
+
+  it("rejects every partial academic hierarchy id-name pair", () => {
+    const collection = normalizeTrustedApiContentEnvelope({
+      items: [
+        scopedRecord("university-id-only", { universityId: "university-1" }),
+        scopedRecord("university-name-only", { universityName: "Example University" }),
+        scopedRecord("faculty-id-only", {
+          universityId: "university-1",
+          universityName: "Example University",
+          facultyId: "faculty-7"
+        }),
+        scopedRecord("faculty-name-only", {
+          universityId: "university-1",
+          universityName: "Example University",
+          facultyName: "Engineering Faculty"
+        }),
+        scopedRecord("department-id-only", {
+          universityId: "university-1",
+          universityName: "Example University",
+          facultyId: "faculty-7",
+          facultyName: "Engineering Faculty",
+          departmentId: "department-42"
+        }),
+        scopedRecord("department-name-only", {
+          universityId: "university-1",
+          universityName: "Example University",
+          facultyId: "faculty-7",
+          facultyName: "Engineering Faculty",
+          departmentName: "Computer Engineering Department"
+        })
+      ]
+    });
+
+    expect(collection.items).toEqual([]);
+    expect(collection.omittedCount).toBe(6);
+    expect(collection.state).toBe("partial");
+  });
+
+  it("rejects hierarchy ids that do not match the record scope id", () => {
+    const hierarchy = {
+      universityId: "university-1",
+      universityName: "Example University",
+      facultyId: "faculty-7",
+      facultyName: "Engineering Faculty",
+      departmentId: "department-42",
+      departmentName: "Computer Engineering Department"
+    };
+    const collection = normalizeTrustedApiContentEnvelope({
+      items: [
+        scopedRecord("university-scope-mismatch", {
+          ...hierarchy,
+          scopeType: "university",
+          scopeId: "other-university"
+        }),
+        scopedRecord("faculty-scope-mismatch", {
+          ...hierarchy,
+          scopeType: "faculty",
+          scopeId: "other-faculty"
+        }),
+        scopedRecord("department-scope-mismatch", {
+          ...hierarchy,
+          scopeType: "department",
+          scopeId: "other-department"
+        })
+      ]
+    });
+
+    expect(collection.items).toEqual([]);
+    expect(collection.omittedCount).toBe(3);
+    expect(collection.state).toBe("partial");
+  });
+
   it("distinguishes stale collections from mixed partial collections", () => {
     const stale = normalizeTrustedContentCollection([
       record({ id: "stale-1", link: "https://example.edu.tr/duyuru/1", freshness: "stale" }),

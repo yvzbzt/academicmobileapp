@@ -196,6 +196,9 @@ export function filterContentFeed(
       item.record.title,
       item.record.summary ?? "",
       item.record.sourceName,
+      item.record.universityName ?? "",
+      item.record.facultyName ?? "",
+      item.record.departmentName ?? "",
     ].join(" "));
     return searchTokens.every((token) => searchableText.includes(token));
   });

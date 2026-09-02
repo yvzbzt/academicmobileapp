@@ -36,6 +36,8 @@ function record(
     contentType: "announcement",
     scopeType: "university",
     scopeId: "university-1",
+    universityId: "university-1",
+    universityName: "Örnek Üniversitesi",
     title: "Ders kayıt takvimi açıklandı",
     summary: "Ders kayıtları ve danışman onayları için güvenli özet.",
     canonicalUrl: "https://example.edu.tr/duyurular/detail-record",
@@ -161,7 +163,7 @@ describe("Phase 8 announcement detail", () => {
     expect(screen.getByText(/Yayınlandı/iu)).toBeOnTheScreen();
     expect(screen.getByText(/Güncellendi/iu)).toBeOnTheScreen();
     expect(screen.getAllByText(/example\.edu\.tr/iu).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Duyuru · Üniversite")).toBeOnTheScreen();
+    expect(screen.getByText("Duyuru · Örnek Üniversitesi · Üniversite geneli")).toBeOnTheScreen();
     expect(screen.queryByText(/<strong>|&amp;|<p>/iu)).not.toBeOnTheScreen();
   });
 

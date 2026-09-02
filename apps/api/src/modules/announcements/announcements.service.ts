@@ -13,7 +13,7 @@ export class AnnouncementsService {
   constructor(
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
-    @Optional() @Inject("CatalogRepository") _catalogRepository?: CatalogRepository,
+    @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
     @Optional() @Inject(AnnouncementIngestionService) _announcementIngestionService?: AnnouncementIngestionService,
     @Optional() @Inject(NotificationSchedulingService) _notificationSchedulingService?: NotificationSchedulingService,
     @Optional() @Inject("UserDataRepository") private readonly userDataRepository?: Pick<UserDataRepository, "listFollowedAcademicScopesByUserId">
@@ -49,8 +49,11 @@ export class AnnouncementsService {
 
     const cachedItems = scopeResults.flatMap((result) => result.items);
     const presentedItems = markExpiredAnnouncementItems(cachedItems);
+    const hierarchyByScope = await loadAcademicHierarchyByScope(this.catalogRepository, scopes);
     return toContentCollection(
-      presentTrustedItems(presentedItems, sources).slice(0, boundedLimit),
+      presentTrustedItems(presentedItems, sources)
+        .map((item) => attachAcademicHierarchy(item, hierarchyByScope))
+        .slice(0, boundedLimit),
       sources.length,
       persistedFailedSourceCount(sources)
     );
@@ -79,7 +82,10 @@ export class AnnouncementsService {
       ? { universityId: YOK_ANNOUNCEMENT_SCOPE_ID }
       : userScopes.find((scope) => scopeContainsSource(scope, match.source))
         ?? scopeForSource(match.source);
-    const sources = await this.announcementRepository.listSourcesByScope(presentationScope);
+    const [sources, hierarchyByScope] = await Promise.all([
+      this.announcementRepository.listSourcesByScope(presentationScope),
+      loadAcademicHierarchyByScope(this.catalogRepository, [...userScopes, presentationScope])
+    ]);
     const scopedItems = await this.announcementRepository.listItemsByScope({
       ...presentationScope,
       limit: 1_000
@@ -89,11 +95,12 @@ export class AnnouncementsService {
       ? presentTrustedItems(scopedItems, sources).find((item) =>
         academicContentLogicalIdentityKey(item) === trustedPresentationIdentity)
       : undefined;
-    return logical ? {
+    const result = logical ? {
       ...trustedPresentation,
       ...(logical.canonicalUrlAliases ? { canonicalUrlAliases: logical.canonicalUrlAliases } : {}),
       ...(logical.sourceRelationships ? { sourceRelationships: logical.sourceRelationships } : {})
     } : trustedPresentation;
+    return attachAcademicHierarchy(result, hierarchyByScope);
   }
 
   async getMySavedAnnouncementStatus(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
@@ -169,6 +176,11 @@ type AnnouncementScopeInput = {
   departmentId?: string;
 };
 
+type AcademicContentHierarchy = Pick<
+  TrustedAcademicContentDto,
+  "universityId" | "universityName" | "facultyId" | "facultyName" | "departmentId" | "departmentName"
+>;
+
 function uniqueScopes(scopes: readonly AnnouncementScopeInput[]): AnnouncementScopeInput[] {
   return [...new Map(scopes.map((scope) => [
     [scope.universityId, scope.facultyId ?? "", scope.departmentId ?? ""].join("\u0000"),
@@ -178,6 +190,79 @@ function uniqueScopes(scopes: readonly AnnouncementScopeInput[]): AnnouncementSc
 
 function uniqueSources(sources: readonly AnnouncementSourceRecord[]): AnnouncementSourceRecord[] {
   return [...new Map(sources.map((source) => [source.id, source])).values()];
+}
+
+async function loadAcademicHierarchyByScope(
+  catalogRepository: CatalogRepository | undefined,
+  scopes: readonly AnnouncementScopeInput[]
+): Promise<Map<string, AcademicContentHierarchy>> {
+  const hierarchyByScope = new Map<string, AcademicContentHierarchy>();
+  if (!catalogRepository) return hierarchyByScope;
+
+  const unique = uniqueScopes(scopes).filter((scope) => scope.universityId !== "*");
+  const universityIds = [...new Set(unique.map((scope) => scope.universityId))];
+  const universities = new Map((await Promise.all(universityIds.map(async (universityId) => {
+    const university = await catalogRepository.findUniversityById(universityId);
+    return university ? [[university.id, university] as const] : [];
+  }))).flat());
+
+  const facultiesByUniversity = new Map<string, Awaited<ReturnType<CatalogRepository["listFaculties"]>>>();
+  await Promise.all(universityIds.map(async (universityId) => {
+    if (!unique.some((scope) => scope.universityId === universityId && scope.facultyId)) return;
+    facultiesByUniversity.set(universityId, await catalogRepository.listFaculties(universityId, "active"));
+  }));
+
+  const facultyIds = [...new Set(unique.flatMap((scope) => scope.facultyId ? [scope.facultyId] : []))];
+  const departmentsByFaculty = new Map<string, Awaited<ReturnType<CatalogRepository["listDepartments"]>>>();
+  await Promise.all(facultyIds.map(async (facultyId) => {
+    if (!unique.some((scope) => scope.facultyId === facultyId && scope.departmentId)) return;
+    departmentsByFaculty.set(facultyId, await catalogRepository.listDepartments(facultyId, "active"));
+  }));
+
+  for (const scope of unique) {
+    const university = universities.get(scope.universityId);
+    if (!university) continue;
+    const universityHierarchy: AcademicContentHierarchy = {
+      universityId: university.id,
+      universityName: university.name
+    };
+    hierarchyByScope.set(academicScopeKey("university", university.id), universityHierarchy);
+
+    const faculty = scope.facultyId
+      ? facultiesByUniversity.get(university.id)?.find((candidate) => candidate.id === scope.facultyId)
+      : undefined;
+    if (!faculty) continue;
+    const facultyHierarchy: AcademicContentHierarchy = {
+      ...universityHierarchy,
+      facultyId: faculty.id,
+      facultyName: faculty.name
+    };
+    hierarchyByScope.set(academicScopeKey("faculty", faculty.id), facultyHierarchy);
+
+    const department = scope.departmentId
+      ? departmentsByFaculty.get(faculty.id)?.find((candidate) => candidate.id === scope.departmentId)
+      : undefined;
+    if (!department) continue;
+    hierarchyByScope.set(academicScopeKey("department", department.id), {
+      ...facultyHierarchy,
+      departmentId: department.id,
+      departmentName: department.name
+    });
+  }
+
+  return hierarchyByScope;
+}
+
+function attachAcademicHierarchy(
+  item: TrustedAcademicContentDto,
+  hierarchyByScope: ReadonlyMap<string, AcademicContentHierarchy>
+): TrustedAcademicContentDto {
+  const hierarchy = hierarchyByScope.get(academicScopeKey(item.scopeType, item.scopeId));
+  return hierarchy ? { ...item, ...hierarchy } : item;
+}
+
+function academicScopeKey(scopeType: TrustedAcademicContentDto["scopeType"], scopeId: string): string {
+  return `${scopeType}\u0000${scopeId}`;
 }
 
 function scopeContainsSource(scope: AnnouncementScopeInput, source: AnnouncementSourceRecord): boolean {

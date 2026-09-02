@@ -28,23 +28,14 @@ import {
   type TrustedMobileContentRecord,
 } from "../content/content-trust";
 import {
+  compactContentProvenanceLabel,
+  contentTypeLabel,
+} from "../content/content-provenance";
+import {
   resolveContentFeedLayout,
   type ContentFeedItem,
-  type FeedContentTypeFilter,
 } from "./feed-model";
 import { classifyContentKeyDate } from "./content-card";
-
-const CONTENT_TYPE_LABELS: Record<Exclude<FeedContentTypeFilter, "all">, string> = {
-  announcement: "Duyuru",
-  news: "Haber",
-  event: "Etkinlik",
-};
-
-const SCOPE_LABELS: Record<TrustedMobileContentRecord["scopeType"], string> = {
-  university: "Üniversite",
-  faculty: "Fakülte",
-  department: "Bölüm",
-};
 
 const REFERENCE_COLORS = {
   background: referencePalette.white,
@@ -247,7 +238,7 @@ export function AnnouncementDetail({
               accessibilityRole="header"
               style={[theme.typography.screenTitle, styles.previewHeaderTitle, { color: REFERENCE_COLORS.navy }]}
             >
-              Duyuru Detayı
+              {detail.contentTypeLabel} Detayı
             </Text>
           </View>
         ) : null}
@@ -497,6 +488,7 @@ export function AnnouncementDetail({
 interface NormalizedDetail {
   title: string;
   sourceName: string;
+  contentTypeLabel: string;
   summary: string;
   body: NonNullable<TrustedMobileContentRecord["body"]>;
   keyDates: NonNullable<TrustedMobileContentRecord["keyDates"]>;
@@ -537,14 +529,15 @@ function normalizeDetail(item: ContentFeedItem | null): NormalizedDetail | null 
     item.sourceFamilies.includes("summer-school") ? "Yaz Okulu" : null,
   ].filter((value): value is string => Boolean(value));
   const typeAndScopeLabel = [
-    CONTENT_TYPE_LABELS[item.contentType],
+    contentTypeLabel(record),
     ...familyLabels,
-    SCOPE_LABELS[record.scopeType],
+    compactContentProvenanceLabel(record),
   ].join(" · ");
 
   return {
     title,
     sourceName,
+    contentTypeLabel: contentTypeLabel(record),
     summary,
     body,
     keyDates,

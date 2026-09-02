@@ -55,6 +55,8 @@ function record(
     contentType: "announcement",
     scopeType: "university",
     scopeId: "university-1",
+    universityId: "university-1",
+    universityName: "Örnek Üniversitesi",
     title: `Güvenilir duyuru ${id}`,
     summary: `Güvenilir özet ${id}`,
     link: canonicalUrl,
@@ -90,6 +92,8 @@ const academicItems = [
     contentType: "news",
     scopeType: "faculty",
     scopeId: "faculty-1",
+    facultyId: "faculty-1",
+    facultyName: "Mühendislik Fakültesi",
     title: "Burs başvurusu belge listesi",
     publishedAt: undefined,
     sourceUpdatedAt: "2026-08-01T08:00:00.000Z",
@@ -99,6 +103,10 @@ const academicItems = [
     contentType: "event",
     scopeType: "department",
     scopeId: "department-1",
+    facultyId: "faculty-1",
+    facultyName: "Mühendislik Fakültesi",
+    departmentId: "department-1",
+    departmentName: "Bilgisayar Mühendisliği Bölümü",
     title: "Araştırma etkinliği",
     publishedAt: "2026-07-31T08:00:00.000Z",
   }),
@@ -335,6 +343,33 @@ describe("Phase 8 Announcements feed", () => {
       .toBeOnTheScreen();
     expect(screen.getByTestId("announcements-search-frame")).toHaveStyle({ minHeight: 52 });
 
+    const expectedCards = [
+      {
+        title: "Ders kayıt takvimi açıklandı",
+        provenance: "Duyuru · Örnek Üniversitesi · Üniversite geneli",
+        openAction: "Resmî duyuruyu aç",
+      },
+      {
+        title: "Burs başvurusu belge listesi",
+        provenance: "Haber · Örnek Üniversitesi · Fakülte · Mühendislik Fakültesi",
+        openAction: "Resmî haberi aç",
+      },
+      {
+        title: "Araştırma etkinliği",
+        provenance: "Etkinlik · Örnek Üniversitesi · Bölüm · Bilgisayar Mühendisliği Bölümü",
+        openAction: "Resmî etkinliği aç",
+      },
+    ] as const;
+    for (const { title, provenance, openAction } of expectedCards) {
+      const contentRow = screen.getByRole("link", {
+        name: new RegExp(`${title}.*${openAction}`, "u"),
+      });
+      expect(within(contentRow).getByText(provenance, { includeHiddenElements: true }))
+        .toBeOnTheScreen();
+      expect(contentRow.props.accessibilityLabel).toContain(provenance);
+      expect(contentRow.props.accessibilityLabel).toContain(openAction);
+    }
+
     const row = screen.getAllByRole("link", {
       name: /Örnek Üniversitesi Öğrenci İşleri.*Ders kayıt takvimi açıklandı.*example\.edu\.tr.*Resmî duyuruyu aç/iu,
     })[0]!;
@@ -343,8 +378,6 @@ describe("Phase 8 Announcements feed", () => {
       .toHaveProp("numberOfLines", 3);
     expect(within(row).getByText("Güvenilir özet registration"))
       .toHaveProp("numberOfLines", 3);
-    expect(within(row).getByText(/Duyuru.*Üniversite/u, { includeHiddenElements: true }))
-      .toBeOnTheScreen();
     expect(within(row).getByText("Örnek Üniversitesi Öğrenci İşleri"))
       .toBeOnTheScreen();
     expect(row.props.accessibilityLabel).toContain("Örnek Üniversitesi Öğrenci İşleri");

@@ -85,6 +85,13 @@ export interface TrustedAcademicContentDto {
   contentType: AcademicContentType;
   scopeType: AcademicContentScopeType;
   scopeId: string;
+  /** Authoritative academic hierarchy used to explain which institution published the item. */
+  universityId?: string;
+  universityName?: string;
+  facultyId?: string;
+  facultyName?: string;
+  departmentId?: string;
+  departmentName?: string;
   title: string;
   summary?: string;
   /** Sanitized, presentation-safe structure derived from source-owned content. */

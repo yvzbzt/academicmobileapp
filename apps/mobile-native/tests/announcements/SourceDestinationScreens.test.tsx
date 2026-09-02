@@ -106,7 +106,11 @@ function summerProps(
   overrides: Partial<SummerSchoolScreenProps> = {},
 ): SummerSchoolScreenProps {
   return {
-    announcements: [record("summer", { title: "Yaz okulu başvuruları" })],
+    announcements: [record("summer", {
+      title: "Yaz okulu başvuruları",
+      universityId: "university-1",
+      universityName: "Örnek Üniversitesi",
+    })],
     calendarAttempted: true,
     calendarError: undefined,
     calendarLoading: false,
@@ -235,7 +239,9 @@ describe("semantic Summer School and YÖK destinations", () => {
 
     fireEvent.press(screen.getByRole("link", { name: /Başvuru koşulu.*Not dökümünü.*Resmî kaynağı aç/u }));
     expect(summerCallbacks.onOpenOfficialSource).toHaveBeenCalledWith("https://example.edu.tr/yaz-okulu/basvuru");
-    fireEvent.press(screen.getByRole("link", { name: /Yaz okulu duyurusu.*Yaz okulu başvuruları.*Resmî duyuruyu aç/u }));
+    fireEvent.press(screen.getByRole("link", {
+      name: /Duyuru · Yaz Okulu · Örnek Üniversitesi · Üniversite geneli.*Yaz okulu başvuruları.*Resmî duyuruyu aç/u,
+    }));
     expect(summerCallbacks.onOpenAnnouncement).toHaveBeenCalledWith(expect.objectContaining({ id: "summer" }));
     fireEvent.press(screen.getByRole("link", { name: /Başka Üniversite.*Resmî kaynağı aç/u }));
     expect(summerCallbacks.onOpenOfficialSource).toHaveBeenCalledWith("https://other.edu.tr/yaz-okulu");

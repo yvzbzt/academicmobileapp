@@ -59,6 +59,11 @@ import {
   shortContentCardExcerpt,
   trustedContentDestinationUrl,
 } from "../announcements/content-card";
+import {
+  compactContentProvenanceLabel,
+  contentTypeLabel,
+  officialContentOpenActionLabel,
+} from "../content/content-provenance";
 
 export interface HomeDailyBriefProps {
   fullName: string;
@@ -1349,9 +1354,12 @@ function AnnouncementCard({
   const excerpt = shortContentCardExcerpt(item);
   const destinationUrl = trustedContentDestinationUrl(item);
   const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
+  const provenanceLabel = compactContentProvenanceLabel(item);
+  const typeLabel = contentTypeLabel(item);
+  const openActionLabel = officialContentOpenActionLabel(item);
   return (
     <Card
-      accessibilityLabel={`${item.sourceName}. ${homeScopeLabel(item.scopeType)}. ${item.title}. ${contentTimestampLabel(item)}. Resmî duyuruyu aç.`}
+      accessibilityLabel={`${item.sourceName}. ${typeLabel}. ${provenanceLabel}. ${item.title}. ${contentTimestampLabel(item)}. ${openActionLabel}.`}
       accessibilityRole="link"
       onPress={() => onPress(item)}
       style={[
@@ -1378,15 +1386,16 @@ function AnnouncementCard({
         </View>
         <View style={styles.announcementCopy}>
           <Text
-            style={[theme.typography.navLabel, styles.trustedLabel, { color: REFERENCE_COLORS.blue }]}
+            numberOfLines={2}
+            style={[theme.typography.metaStrong, styles.announcementSourceName, { color: REFERENCE_COLORS.navy }]}
           >
-            Güvenilir kaynak
+            {item.sourceName}
           </Text>
           <Text
             numberOfLines={2}
-            style={[theme.typography.meta, styles.announcementSourceName, { color: REFERENCE_COLORS.secondary }]}
+            style={[theme.typography.meta, styles.announcementProvenance, { color: REFERENCE_COLORS.secondary }]}
           >
-            {item.sourceName}
+            {provenanceLabel}
           </Text>
           <Text
             style={[theme.typography.bodyStrong, styles.announcementTitle, { color: REFERENCE_COLORS.navy }]}
@@ -1413,7 +1422,7 @@ function AnnouncementCard({
               numberOfLines={1}
               style={[theme.typography.navLabel, styles.announcementScope, { color: palette.text }]}
             >
-              {homeScopeLabel(item.scopeType)}
+              {typeLabel}
             </Text>
           </View>
           {destinationDomain ? (
@@ -1585,12 +1594,6 @@ function homeEventPalette(kind: HomeImportantKind): { container: string; text: s
     return { container: REFERENCE_COLORS.orangeSoft, text: REFERENCE_COLORS.orange };
   }
   return { container: REFERENCE_COLORS.blueSoft, text: REFERENCE_COLORS.blue };
-}
-
-function homeScopeLabel(scopeType: TrustedMobileContentRecord["scopeType"]): string {
-  if (scopeType === "faculty") return "Fakülte";
-  if (scopeType === "department") return "Bölüm";
-  return "Üniversite";
 }
 
 function homeAnnouncementPalette(
@@ -1794,6 +1797,9 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: "center",
     width: 44,
+  },
+  announcementProvenance: {
+    lineHeight: 17,
   },
   announcementSourceName: {
     lineHeight: 17,
@@ -2472,9 +2478,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
-  },
-  trustedLabel: {
-    letterSpacing: 0.3,
   },
   visuallyHidden: {
     height: 1,

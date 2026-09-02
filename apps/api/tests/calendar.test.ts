@@ -773,14 +773,28 @@ describe("CalendarService", () => {
     expect(response.requirements.some((item) => item.message.includes("Yaz Okulu"))).toBe(true);
     expect(response.ownAnnouncements).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "own-summer-announcement", sourceId: ownSource.id }),
-        expect.objectContaining({ id: "own-secondary-source-summer-announcement", sourceId: ownSecondarySource.id })
+        expect.objectContaining({
+          id: "own-summer-announcement",
+          sourceId: ownSource.id,
+          universityId: "sample-university-1",
+          universityName: "Örnek Üniversitesi"
+        }),
+        expect.objectContaining({
+          id: "own-secondary-source-summer-announcement",
+          sourceId: ownSecondarySource.id,
+          universityId: "sample-university-1",
+          universityName: "Örnek Üniversitesi"
+        })
       ])
     );
     expect(response.ownAnnouncements.filter((item) => item.title === "Yaz Okulu basvuru duyurusu")).toHaveLength(2);
     expect(response.sameDepartmentAnnouncements).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "other-same-department-summer-announcement" })
+        expect.objectContaining({
+          id: "other-same-department-summer-announcement",
+          universityId: "sample-university-2",
+          universityName: "Örnek Teknik Üniversitesi"
+        })
       ])
     );
     expect(response.sameDepartmentAnnouncements.some((item) => item.id === "other-different-department-summer-announcement")).toBe(false);

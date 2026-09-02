@@ -18,6 +18,11 @@ import {
   type TrustedMobileContentRecord,
 } from "../content/content-trust";
 import {
+  compactContentProvenanceLabel,
+  contentTypeLabel,
+  officialContentOpenActionLabel,
+} from "../content/content-provenance";
+import {
   Banner,
   Button,
   Card,
@@ -161,7 +166,7 @@ export function YokAnnouncementsScreen({
     <TrustedDestinationCard
       item={item}
       onPress={() => onOpenItem(item)}
-      scopeLabel="YÖK resmî duyurusu"
+      familyLabel="YÖK"
     />
   );
 
@@ -509,11 +514,11 @@ function DestinationHeading({
 
 function TrustedDestinationCard({
   item,
-  scopeLabel,
+  familyLabel,
   onPress,
 }: {
   item: TrustedMobileContentRecord;
-  scopeLabel: string;
+  familyLabel: string;
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -521,9 +526,11 @@ function TrustedDestinationCard({
   const excerpt = shortContentCardExcerpt(item);
   const destinationUrl = trustedContentDestinationUrl(item);
   const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
+  const familyAndTypeLabel = `${contentTypeLabel(item)} · ${familyLabel}`;
+  const provenanceLabel = compactContentProvenanceLabel(item);
   return (
     <Card
-      accessibilityLabel={`${item.sourceName}. ${scopeLabel}. ${timestamp}. ${item.title}. Resmî duyuruyu aç.`}
+      accessibilityLabel={`${item.sourceName}. ${familyAndTypeLabel} · ${provenanceLabel}. ${timestamp}. ${item.title}. ${officialContentOpenActionLabel(item)}.`}
       accessibilityRole="link"
       onPress={onPress}
       style={[
@@ -551,7 +558,7 @@ function TrustedDestinationCard({
         >
           <Ionicons color={theme.colors.text.link} name="shield-checkmark-outline" size={14} />
         </View>
-        <Text style={[theme.typography.metaStrong, styles.flexOne, { color: theme.colors.text.link }]}>{scopeLabel}</Text>
+        <Text style={[theme.typography.metaStrong, styles.flexOne, { color: theme.colors.text.link }]}>{familyAndTypeLabel}</Text>
         <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{timestamp}</Text>
         <Ionicons
           accessibilityElementsHidden
@@ -562,6 +569,7 @@ function TrustedDestinationCard({
         />
       </View>
       <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{item.sourceName}</Text>
+      <Text numberOfLines={2} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>{provenanceLabel}</Text>
       <Text style={[theme.typography.cardTitle, { color: theme.colors.text.primary }]}>{item.title}</Text>
       {excerpt ? (
         <Text ellipsizeMode="tail" numberOfLines={3} style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
@@ -653,7 +661,7 @@ function SummerRowContent({
       <TrustedDestinationCard
         item={item.announcement}
         onPress={() => onOpenAnnouncement(item.announcement)}
-        scopeLabel="Yaz okulu duyurusu"
+        familyLabel="Yaz Okulu"
       />
     );
   }
