@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException, UnauthorizedException } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AuthApplicationService } from "../src/modules/auth/auth-application.service.js";
 import { EmailVerificationSenderService, type SendVerificationEmailInput } from "../src/modules/auth/email-verification-sender.service.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
@@ -268,17 +268,39 @@ describe("CalendarService", () => {
       publishedAt: new Date()
     });
     const service = new CalendarService(calendarRepository, authRepository);
-    const previousAutoIngest = process.env.CALENDAR_AUTO_INGEST_ON_MISS;
-    process.env.CALENDAR_AUTO_INGEST_ON_MISS = "false";
+    const updateCalendar = vi.spyOn(calendarRepository, "updateCalendar");
 
-    try {
-      await expect(service.getMyCalendar(session.user.id)).rejects.toBeInstanceOf(NotFoundException);
-    } finally {
-      if (previousAutoIngest === undefined) delete process.env.CALENDAR_AUTO_INGEST_ON_MISS;
-      else process.env.CALENDAR_AUTO_INGEST_ON_MISS = previousAutoIngest;
-    }
+    await expect(service.getMyCalendar(session.user.id)).rejects.toBeInstanceOf(NotFoundException);
 
-    await expect(calendarRepository.findCalendarById(wrongCalendar.id)).resolves.toEqual(expect.objectContaining({ status: "archived" }));
+    expect(updateCalendar).not.toHaveBeenCalled();
+    await expect(calendarRepository.findCalendarById(wrongCalendar.id)).resolves.toEqual(expect.objectContaining({ status: "published" }));
+  });
+
+  it("keeps calendar GET and ICS read chains free of ingestion writes on a cache miss", async () => {
+    const { authRepository, session } = await createStudentWithUniversity();
+    const calendarRepository = new InMemoryCalendarRepository();
+    const createCalendar = vi.spyOn(calendarRepository, "createCalendar");
+    const updateCalendar = vi.spyOn(calendarRepository, "updateCalendar");
+    const archiveCalendars = vi.spyOn(calendarRepository, "archivePublishedCalendars");
+    const createEvents = vi.spyOn(calendarRepository, "createEvents");
+    const updateEvents = vi.spyOn(calendarRepository, "updateEventsByCalendar");
+    const service = new CalendarService(calendarRepository, authRepository);
+
+    await expect(service.getMyCalendar(session.user.id)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getUniversityCalendar("sample-university-1")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getUpcomingEvents(session.user.id)).resolves.toEqual([]);
+    await expect(service.getMySummerSchool(session.user.id)).resolves.toEqual(expect.objectContaining({ requirements: [] }));
+
+    const links = await service.getMyCalendarIntegrationLinks(session.user.id, "https://api.example.test");
+    const token = links.feedUrl.match(/\/calendar\/integrations\/feed\/(.+)\.ics$/u)?.[1];
+    expect(token).toBeTruthy();
+    await expect(service.getMyCalendarFeedByToken(token!)).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(createCalendar).not.toHaveBeenCalled();
+    expect(updateCalendar).not.toHaveBeenCalled();
+    expect(archiveCalendars).not.toHaveBeenCalled();
+    expect(createEvents).not.toHaveBeenCalled();
+    expect(updateEvents).not.toHaveBeenCalled();
   });
 
   it("returns upcoming events sorted by start date", async () => {
@@ -765,7 +787,7 @@ describe("CalendarService", () => {
       consecutiveFailures: 0,
       itemCount: 2
     });
-    const service = new CalendarService(calendarRepository, authRepository, createCatalogRepository(), undefined, announcementRepository);
+    const service = new CalendarService(calendarRepository, authRepository, createCatalogRepository(), announcementRepository);
 
     const response = await service.getMySummerSchool(session.user.id);
 

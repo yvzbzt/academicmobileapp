@@ -16,12 +16,16 @@ Short answer:
 
 ### Step A - Source Intake
 
-Admin creates PDF source record with university and academic year.
+The content worker or an admin creates a PDF source record with university and academic year. A publishable source is identified by the SHA-256 of the exact PDF bytes. Metadata-only legacy records remain readable for compatibility but cannot be used to publish a calendar.
+
+For an official URL submitted through the admin API, the server downloads the allowlisted source and derives its text from those same verified bytes. Caller-supplied text is not used as evidence for that verified binary.
 
 ### Step B - Extraction
 
-- If PDF has text layer: parser extracts rows and dates directly.
+- If PDF has text layer: parser extracts rows and dates directly from the verified bytes.
 - If no text layer: source is marked `ocr_required` for OCR path.
+- A date that is not explicit in the source remains unknown; fetch time is never substituted as an event date.
+- Reprocessing the same binary reuses its SHA-256 identity and active extracted-event snapshot.
 
 ### Step C - Normalization
 
@@ -32,6 +36,7 @@ Extracted rows are normalized into event candidates:
 - start/end date
 - academic year
 - confidence score
+- optional deterministic student-relevance metadata and exact evidence spans
 
 ### Step D - Manual Review
 
@@ -41,15 +46,13 @@ Admin reviews each extracted candidate and can:
 - reject
 - edit critical fields before approve
 
+Only high-confidence candidates with explicit date evidence may be auto-approved by the worker. All other candidates stay in `pending_review`.
+
 ### Step E - Publish
 
 Approved candidates are transformed into published academic events.
 
-At publish time:
-
-- old published calendar is archived
-- new calendar becomes active
-- notification jobs are scheduled
+At publish time, the complete approved event set is activated before superseded data is retired. If ingestion or activation fails, the last usable published calendar remains visible and can be repaired by the next worker cycle. Notification scheduling is idempotently reconciled after publication.
 
 ## 3. Manual Entry Clarification
 

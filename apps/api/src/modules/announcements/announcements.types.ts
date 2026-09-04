@@ -8,6 +8,7 @@ import type {
   TrustedAcademicContentDto
 } from "../../../../../packages/shared/src/contracts.js";
 import type { SourceAuthorityReasonCode } from "../../domain/source-authority-policy.js";
+import type { StudentRelevanceMetadata } from "../../domain/student-relevance-classifier.js";
 
 export type AnnouncementScopeType = AcademicContentScopeType;
 export type AnnouncementContentType = AcademicContentType;
@@ -58,6 +59,17 @@ export interface AnnouncementSourceRecord {
   lastError?: string;
   consecutiveFailures?: number;
   itemCount?: number;
+  etag?: string;
+  lastModified?: string;
+  contentHash?: string;
+  lastContentChangedAt?: Date;
+  /** Atomic pointer to the complete student-visible snapshot. Missing on legacy sources. */
+  activeSnapshotId?: string;
+  /** Opaque fence rotated whenever URL/parser/content type changes. Missing on legacy sources. */
+  sourceDefinitionVersion?: string;
+  /** Opaque fence rotated only when a trusted source is reactivated. */
+  notificationProducerVersion?: string;
+  processingVersion?: string;
   fetchIntervalMinutes?: number;
   fallbackItems?: AnnouncementFallbackItem[];
   discoveredAt?: Date;
@@ -70,9 +82,11 @@ export interface AnnouncementSourceRecord {
 
 export type AnnouncementSourceScope = Pick<AnnouncementSourceRecord, "scopeType" | "scopeId">;
 
-export interface AnnouncementItem {
+export interface AnnouncementItem extends Partial<StudentRelevanceMetadata> {
   id: string;
   sourceId: string;
+  /** Internal persistence pointer; omitted on legacy rows. */
+  snapshotId?: string;
   sourceName: string;
   contentType?: AnnouncementContentType;
   scopeType: AnnouncementScopeType;
@@ -111,11 +125,31 @@ export type AnnouncementSourceCandidateInput = Omit<
   UpsertAnnouncementSourceInput,
   "id" | "status" | "trustStatus" | "duplicateOfId"
 >;
-export type SourceCheckInput = Pick<AnnouncementSourceRecord, "healthStatus" | "lastCheckedAt" | "lastSuccessAt" | "lastError" | "consecutiveFailures" | "itemCount">;
+export type SourceCheckInput = Pick<
+  AnnouncementSourceRecord,
+  | "healthStatus"
+  | "lastCheckedAt"
+  | "lastSuccessAt"
+  | "lastError"
+  | "consecutiveFailures"
+  | "itemCount"
+  | "etag"
+  | "lastModified"
+  | "contentHash"
+  | "lastContentChangedAt"
+  | "processingVersion"
+>;
+
+export type AnnouncementSourceDefinitionFence = Pick<
+  AnnouncementSourceRecord,
+  "sourceUrl" | "parser" | "contentType" | "sourceDefinitionVersion" | "notificationProducerVersion"
+>;
 
 export interface AnnouncementPersistenceReference {
   id: string;
   sourceId: string;
+  /** Snapshot that produced this reference. Missing for legacy rows. */
+  snapshotId?: string;
   scopeType: AnnouncementScopeType;
   scopeId: string;
   canonicalUrl: string;
@@ -127,6 +161,10 @@ export interface AnnouncementPersistenceDelta {
   materiallyUpdated: AnnouncementPersistenceReference[];
   unchanged: AnnouncementPersistenceReference[];
   removed: AnnouncementPersistenceReference[];
+  /** Snapshot made visible by this write. Missing for legacy/in-memory persistence. */
+  snapshotId?: string;
+  /** Snapshot that was visible when this write began. Missing for the legacy row store. */
+  previousSnapshotId?: string;
 }
 
 export interface AnnouncementReplacementOptions {
@@ -161,16 +199,26 @@ export interface AnnouncementRepository {
   findSourceById(id: string): Promise<AnnouncementSourceRecord | null>;
   upsertSource(input: UpsertAnnouncementSourceInput): Promise<AnnouncementSourceRecord>;
   insertQuarantinedSourceCandidate(input: AnnouncementSourceCandidateInput): Promise<AnnouncementSourceRecord>;
-  quarantineSource(id: string, reasonCodes: AnnouncementTrustReason[]): Promise<AnnouncementSourceRecord | null>;
+  quarantineSource(
+    id: string,
+    reasonCodes: AnnouncementTrustReason[],
+    expectedDefinition?: AnnouncementSourceDefinitionFence
+  ): Promise<AnnouncementSourceRecord | null>;
   deactivateSource(id: string): Promise<AnnouncementSourceRecord | null>;
-  recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null>;
+  recordSourceCheck(
+    id: string,
+    input: SourceCheckInput,
+    expectedDefinition?: AnnouncementSourceDefinitionFence,
+    /** Optional CAS fence for health/validator writes; null means no active snapshot. */
+    expectedActiveSnapshotId?: string | null
+  ): Promise<AnnouncementSourceRecord | null>;
   replaceItemsForSource(
     source: AnnouncementSourceRecord,
     items: AnnouncementItem[],
     options?: AnnouncementReplacementOptions
   ): Promise<AnnouncementPersistenceDelta>;
   acknowledgeNotificationProduction(references: readonly AnnouncementPersistenceReference[]): Promise<number>;
-  listItemsForSource(sourceId: string, limit?: number): Promise<AnnouncementItem[]>;
+  listItemsForSource(sourceId: string, limit?: number, offset?: number): Promise<AnnouncementItem[]>;
   listItemsByScope(input: { universityId: string; facultyId?: string; departmentId?: string; limit: number }): Promise<AnnouncementItem[]>;
   findTrustedItemByIdInScope(input: {
     announcementId: string;

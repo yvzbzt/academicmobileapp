@@ -101,15 +101,17 @@ async function createScheduledNotificationJob(repository: InMemoryNotificationRe
 async function createPublishableCalendar(input: { auditService?: AuditService; notificationRepository?: InMemoryNotificationRepository } = {}) {
   const pdfRepository = new InMemoryPdfRepository();
   const pdfService = new PdfProcessingService(pdfRepository, disabledOcrService);
+  const pdfData = Buffer.from("%PDF-1.7\noperations-calendar-fixture", "utf8");
   const source = await pdfService.createPdfSource({
     universityId: "sample-university-1",
     fileName: "operations-calendar.pdf",
     mimeType: "application/pdf",
     magicBytesHex: "255044462d312e37",
-    fileSize: 4096,
+    fileSize: pdfData.byteLength,
     pageCount: 2,
     academicYear: "2026-2027",
     uploadedBy: "admin-1",
+    pdfData,
     rawText: "15-19 Eylul 2026 Guz Donemi Ders Kayitlari\n05-16 Ocak 2027 Guz Donemi Final Sinavlari"
   });
   const processed = await pdfService.processPdfSource(source.id);

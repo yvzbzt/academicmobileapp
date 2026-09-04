@@ -146,12 +146,32 @@ describe("mongoose schemas", () => {
   it("defines PDF source and extracted event indexes", () => {
     expect(pdfSourceSchema.get("collection")).toBe("pdf_sources");
     expect(extractedEventSchema.get("collection")).toBe("extracted_events");
+    expect(pdfSourceSchema.path("binarySha256").isRequired).toBe(false);
+    expect(pdfSourceSchema.path("binaryIdentityVerified").isRequired).toBe(false);
+    expect(pdfSourceSchema.path("activeExtractedEventIds").isRequired).toBe(false);
+    expect(pdfSourceSchema.path("activeExtractedEventIds").options.default).toBeUndefined();
     expect(pdfSourceSchema.indexes()).toEqual(
       expect.arrayContaining([[{ universityId: 1, fileHash: 1 }, expect.objectContaining({ unique: true })]])
     );
     expect(extractedEventSchema.indexes()).toEqual(
       expect.arrayContaining([[{ status: 1, confidenceScore: 1, createdAt: -1 }, expect.objectContaining({ name: "extracted_review_queue" })]])
     );
+  });
+
+  it("keeps deterministic student-relevance metadata optional on every content record", () => {
+    const metadataPaths = [
+      "studentRelevance", "topic", "audience", "actionType", "deadline", "urgency",
+      "evidenceSpans", "classificationVersion"
+    ];
+    for (const schema of [announcementItemSchema, academicEventSchema, extractedEventSchema]) {
+      for (const path of metadataPaths) {
+        expect(schema.path(path), `${schema.get("collection")}.${path}`).toBeDefined();
+        expect(schema.path(path).isRequired, `${schema.get("collection")}.${path} optional`).toBe(false);
+      }
+    }
+    for (const path of ["etag", "lastModified", "contentHash", "lastContentChangedAt"]) {
+      expect(announcementSourceSchema.path(path).isRequired, `announcement_sources.${path} optional`).toBe(false);
+    }
   });
 
   it("defines announcement source and item indexes", () => {

@@ -14,10 +14,18 @@ import {
   extractModalPopupExamScheduleLinks,
   selectCurrentAcademicScheduleLinks
 } from "../../apps/api/src/modules/calendars/academic-unit-schedule-discovery.js";
+import { AdminCalendarService, type PublishCalendarResponse } from "../../apps/api/src/modules/calendars/admin-calendar.service.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "../../apps/api/src/modules/calendars/calendar.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../../apps/api/src/modules/catalog/catalog.types.js";
 import { PdfProcessingService } from "../../apps/api/src/modules/pdf/pdf-processing.service.js";
-import type { ExtractedEventRecord, ExtractedEventStatus, PdfRepository, PdfSourceRecord } from "../../apps/api/src/modules/pdf/pdf.types.js";
+import type {
+  ExtractedEventRecord,
+  ExtractedEventStatus,
+  PdfRepository,
+  PdfSourceGenerationUpdate,
+  PdfSourceRecord,
+  PdfSourceUpdate
+} from "../../apps/api/src/modules/pdf/pdf.types.js";
 import {
   setSafeOutboundRequestDependenciesForTesting,
   type SafeOutboundHopResponse
@@ -181,7 +189,7 @@ describe("CalendarIngestionService", () => {
       new FakeCatalogRepository(),
       calendarRepository,
       {} as PdfProcessingService,
-      {} as never
+      new FakeAdminCalendarService(calendarRepository)
     );
 
     const universityId = "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi";
@@ -466,6 +474,28 @@ class FakeCalendarRepository implements CalendarRepository {
   }
 }
 
+class FakeAdminCalendarService extends AdminCalendarService {
+  constructor(private readonly testCalendarRepository: CalendarRepository) {
+    super(testCalendarRepository, {} as PdfRepository);
+  }
+
+  override async publishCalendar(calendarId: string, approvedBy: string): Promise<PublishCalendarResponse> {
+    const calendar = await this.testCalendarRepository.findCalendarById(calendarId);
+    if (!calendar) throw new Error("Calendar not found in test repository.");
+
+    await this.testCalendarRepository.updateEventsByCalendar(calendarId, { status: "published" });
+    const publishedEvents = await this.testCalendarRepository.listEventsByCalendar(calendarId);
+    const publishedCalendar = await this.testCalendarRepository.updateCalendar(calendarId, {
+      status: "published",
+      publishedAt: new Date(),
+      approvedBy
+    });
+    if (!publishedCalendar) throw new Error("Calendar could not be published in test repository.");
+
+    return { calendar: publishedCalendar, publishedEvents, archivedCalendarCount: 0 };
+  }
+}
+
 class FakePdfRepository implements PdfRepository {
   private sources = new Map<string, PdfSourceRecord>();
   private events = new Map<string, ExtractedEventRecord>();
@@ -485,10 +515,37 @@ class FakePdfRepository implements PdfRepository {
     return [...this.sources.values()].find((source) => source.universityId === universityId && source.fileHash === fileHash) ?? null;
   }
 
-  async updatePdfSource(id: string, input: Partial<Omit<PdfSourceRecord, "id" | "createdAt" | "updatedAt">>): Promise<PdfSourceRecord | null> {
+  async updatePdfSource(id: string, input: PdfSourceUpdate): Promise<PdfSourceRecord | null> {
     const source = this.sources.get(id);
     if (!source) return null;
     const updated = { ...source, ...input, updatedAt: new Date() };
+    this.sources.set(id, updated);
+    return updated;
+  }
+
+  async beginPdfProcessing(id: string): Promise<PdfSourceRecord | null> {
+    const source = this.sources.get(id);
+    if (!source) return null;
+    const updated: PdfSourceRecord = {
+      ...source,
+      version: source.version + 1,
+      parseStatus: "processing",
+      updatedAt: new Date()
+    };
+    delete updated.parseError;
+    this.sources.set(id, updated);
+    return updated;
+  }
+
+  async updatePdfSourceForGeneration(
+    id: string,
+    generation: number,
+    input: PdfSourceGenerationUpdate
+  ): Promise<PdfSourceRecord | null> {
+    const source = this.sources.get(id);
+    if (!source || source.version !== generation) return null;
+    const updated: PdfSourceRecord = { ...source, ...input, updatedAt: new Date() };
+    if (input.parseStatus === "processed") delete updated.parseError;
     this.sources.set(id, updated);
     return updated;
   }

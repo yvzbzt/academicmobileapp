@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import {
   setSafeOutboundRequestDependenciesForTesting,
   type ResolvedOutboundAddress,
@@ -239,6 +240,90 @@ describe("calendar and PDF source-authority boundaries", () => {
     }));
   });
 
+  it("binds an admin URL source and its extracted text to the exact downloaded PDF bytes", async () => {
+    const catalog = new InMemoryCatalogRepository();
+    const university = await catalog.createUniversity({
+      name: "Abdullah Gul Universitesi",
+      slug: "abdullah-gul-universitesi-kayseri",
+      city: "Kayseri",
+      type: "state",
+      websiteUrl: "https://agu.edu.tr",
+      status: "active"
+    });
+    const repository = new InMemoryPdfRepository();
+    const pdfData = textPdf("15 Eylul 2026 Ders Kayitlari");
+    const requestHop = vi.fn(async (_url: string, pinnedAddress: ResolvedOutboundAddress): Promise<SafeOutboundHopResponse> => ({
+      status: 200,
+      headers: { "content-type": "application/pdf" },
+      body: pdfData,
+      remoteAddress: pinnedAddress.address
+    }));
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [publicAddress],
+      requestHop
+    });
+    const service = new PdfProcessingService(repository, { extractText: async () => null });
+
+    const source = await service.createPdfSourceForAdmin({ kind: "global" }, {
+      ...validPdfInput(university.id),
+      url: "https://files.agu.edu.tr/calendar.pdf",
+      fileSize: 1,
+      pageCount: 99,
+      rawText: "31 Aralik 2099 Sahte Takvim"
+    });
+
+    expect(requestHop).toHaveBeenCalledTimes(1);
+    expect(source).toEqual(expect.objectContaining({
+      binaryIdentityVerified: true,
+      binarySha256: createHash("sha256").update(pdfData).digest("hex"),
+      fileSize: pdfData.byteLength,
+      pageCount: 1,
+      activeExtractedEventIds: []
+    }));
+    expect(source.rawText).toContain("15 Eylul 2026 Ders Kayitlari");
+    expect(source.rawText).not.toContain("Sahte Takvim");
+  });
+
+  it("rejects changed bytes at an admin URL before claiming a processing generation", async () => {
+    const catalog = new InMemoryCatalogRepository();
+    const university = await catalog.createUniversity({
+      name: "Abdullah Gul Universitesi",
+      slug: "abdullah-gul-universitesi-kayseri",
+      city: "Kayseri",
+      type: "state",
+      websiteUrl: "https://agu.edu.tr",
+      status: "active"
+    });
+    const repository = new InMemoryPdfRepository();
+    let responseBody = textPdf("15 Eylul 2026 Ders Kayitlari");
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [publicAddress],
+      requestHop: async (_url, pinnedAddress): Promise<SafeOutboundHopResponse> => ({
+        status: 200,
+        headers: { "content-type": "application/pdf" },
+        body: responseBody,
+        remoteAddress: pinnedAddress.address
+      })
+    });
+    const service = new PdfProcessingService(repository, { extractText: async () => null });
+    const source = await service.createPdfSourceForAdmin({ kind: "global" }, {
+      ...validPdfInput(university.id),
+      url: "https://files.agu.edu.tr/calendar.pdf"
+    });
+    const beginPdfProcessing = vi.spyOn(repository, "beginPdfProcessing");
+    responseBody = textPdf("16 Eylul 2026 Degistirilmis Ders Kayitlari");
+
+    await expect(service.processPdfSourceForAdmin({ kind: "global" }, source.id))
+      .rejects.toThrow("does not match the source identity");
+
+    expect(beginPdfProcessing).not.toHaveBeenCalled();
+    await expect(repository.findPdfSourceById(source.id)).resolves.toMatchObject({
+      version: 1,
+      parseStatus: "pending",
+      activeExtractedEventIds: []
+    });
+  });
+
   it("rejects a cross-owner URL before PDF source persistence", async () => {
     const catalog = new InMemoryCatalogRepository();
     const university = await catalog.createUniversity({
@@ -251,7 +336,7 @@ describe("calendar and PDF source-authority boundaries", () => {
     });
     const repository = new InMemoryPdfRepository();
     const createPdfSource = vi.spyOn(repository, "createPdfSource");
-    const service = new PdfProcessingService(repository, { extractText: async () => null }, catalog);
+    const service = new PdfProcessingService(repository, { extractText: async () => null });
 
     await expect(service.createPdfSource({
       ...validPdfInput(university.id),
@@ -275,8 +360,7 @@ describe("calendar and PDF source-authority boundaries", () => {
     });
     const service = new PdfProcessingService(
       new InMemoryPdfRepository(),
-      { extractText: async () => null },
-      catalog
+      { extractText: async () => null }
     );
     const requireAuthority = vi.spyOn(authorityEnforcement, "requireSourceAuthority");
 
@@ -303,7 +387,7 @@ describe("calendar and PDF source-authority boundaries", () => {
       status: "active"
     });
     const extractText = vi.fn(async () => null);
-    const service = new PdfProcessingService(new InMemoryPdfRepository(), { extractText }, catalog);
+    const service = new PdfProcessingService(new InMemoryPdfRepository(), { extractText });
     const { rawText: omittedRawText, ...inputWithoutText } = validPdfInput(university.id);
     void omittedRawText;
     const source = await service.createPdfSource({
@@ -333,7 +417,7 @@ describe("calendar and PDF source-authority boundaries", () => {
       status: "active"
     });
     const repository = new InMemoryPdfRepository();
-    const service = new PdfProcessingService(repository, { extractText: async () => null }, catalog);
+    const service = new PdfProcessingService(repository, { extractText: async () => null });
     const source = await service.createPdfSource(validPdfInput(university.id));
     await repository.updatePdfSource(source.id, { url: "https://other.edu.tr/calendar.pdf" });
     const updatePdfSource = vi.spyOn(repository, "updatePdfSource");
@@ -358,7 +442,7 @@ describe("calendar and PDF source-authority boundaries", () => {
       status: "active"
     });
     const pdfRepository = new InMemoryPdfRepository();
-    const pdfService = new PdfProcessingService(pdfRepository, { extractText: async () => null }, catalog);
+    const pdfService = new PdfProcessingService(pdfRepository, { extractText: async () => null });
     const source = await pdfService.createPdfSource(validPdfInput(university.id));
     const processed = await pdfService.processPdfSource(source.id);
     expect(processed.extractedEvents.length).toBeGreaterThan(0);
@@ -448,4 +532,27 @@ function validPdfInput(universityId: string) {
     uploadedBy: "test",
     rawText: "15.09.2026 Course registration"
   };
+}
+
+function textPdf(text: string): Buffer {
+  const escapedText = text.replace(/([\\()])/gu, "\\$1");
+  const stream = `BT\n/F1 12 Tf\n72 720 Td\n(${escapedText}) Tj\nET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets = objects.map((object, index) => {
+    const offset = Buffer.byteLength(body, "latin1");
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xrefOffset = Buffer.byteLength(body, "latin1");
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  body += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body, "latin1");
 }

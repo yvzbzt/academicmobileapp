@@ -4,7 +4,7 @@ import { academicCalendarSchema, academicEventSchema } from "../../database/mong
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
 import { instantBoundaryForIstanbulCalendarDate, istanbulCalendarDate } from "./calendar-temporal.js";
-import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, CalendarTemporalFilterBoundary, UpcomingEventFilters } from "./calendar.types.js";
+import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, CalendarTemporalFilterBoundary, PublishedCalendarReconciliation, UpcomingEventFilters } from "./calendar.types.js";
 
 @Injectable()
 export class MongoCalendarRepository implements CalendarRepository {
@@ -13,13 +13,17 @@ export class MongoCalendarRepository implements CalendarRepository {
   async findPublishedCalendar(universityId: string, academicYear?: string): Promise<AcademicCalendarRecord | null> {
     const document = await (await this.model("AcademicCalendar", academicCalendarSchema))
       .findOne({ universityId, status: "published", ...(academicYear ? { academicYear } : {}) })
-      .sort({ academicYear: -1, version: -1 });
+      .sort({ academicYear: -1, version: -1, createdAt: -1, _id: -1 });
     return document ? toDomainRecord<AcademicCalendarRecord>(document) : null;
   }
 
-  async listPublishedCalendars(input: { limit: number; offset: number }): Promise<AcademicCalendarRecord[]> {
+  async listPublishedCalendars(input: { universityId?: string; academicYear?: string; limit: number; offset: number }): Promise<AcademicCalendarRecord[]> {
     const documents = await (await this.model("AcademicCalendar", academicCalendarSchema))
-      .find({ status: "published" })
+      .find({
+        status: "published",
+        ...(input.universityId ? { universityId: input.universityId } : {}),
+        ...(input.academicYear ? { academicYear: input.academicYear } : {})
+      })
       .sort({ createdAt: 1, _id: 1 })
       .skip(input.offset)
       .limit(input.limit);
@@ -41,9 +45,14 @@ export class MongoCalendarRepository implements CalendarRepository {
     return document ? toDomainRecord<AcademicCalendarRecord>(document) : null;
   }
 
-  async archivePublishedCalendars(universityId: string, academicYear: string): Promise<number> {
+  async archivePublishedCalendars(universityId: string, academicYear: string, excludeCalendarId?: string): Promise<number> {
     const calendarModel = await this.model("AcademicCalendar", academicCalendarSchema);
-    const publishedCalendars = await calendarModel.find({ universityId, academicYear, status: "published" }).select({ _id: 1 });
+    const publishedCalendars = await calendarModel.find({
+      universityId,
+      academicYear,
+      status: "published",
+      ...(excludeCalendarId ? { _id: { $ne: excludeCalendarId } } : {})
+    }).select({ _id: 1 });
     const calendarIds = publishedCalendars.map((calendar) => String(calendar._id));
     if (calendarIds.length === 0) return 0;
     const result = await calendarModel.updateMany({ _id: { $in: calendarIds }, status: "published" }, { status: "archived" });
@@ -52,6 +61,44 @@ export class MongoCalendarRepository implements CalendarRepository {
       { status: "archived" }
     );
     return result.modifiedCount;
+  }
+
+  async reconcilePublishedCalendars(
+    universityId: string,
+    academicYear: string,
+    candidateCalendarIds?: readonly string[]
+  ): Promise<PublishedCalendarReconciliation> {
+    if (candidateCalendarIds?.length === 0) {
+      return { winnerCalendarId: null, archivedCalendarCount: 0, archivedCalendarIds: [] };
+    }
+    const calendarModel = await this.model("AcademicCalendar", academicCalendarSchema);
+    const candidates = await calendarModel.find({
+      universityId,
+      academicYear,
+      status: "published",
+      ...(candidateCalendarIds ? { _id: { $in: candidateCalendarIds } } : {})
+    }).sort({ version: -1, createdAt: -1, _id: -1 }).select({ _id: 1 });
+    const winner = candidates[0];
+    if (!winner) return { winnerCalendarId: null, archivedCalendarCount: 0, archivedCalendarIds: [] };
+
+    const winnerCalendarId = String(winner._id);
+    const loserCalendarIds = candidates.slice(1).map((calendar) => String(calendar._id));
+    if (loserCalendarIds.length === 0) {
+      return { winnerCalendarId, archivedCalendarCount: 0, archivedCalendarIds: [] };
+    }
+    const result = await calendarModel.updateMany(
+      { _id: { $in: loserCalendarIds }, status: "published" },
+      { status: "archived" }
+    );
+    await (await this.model("AcademicEvent", academicEventSchema)).updateMany(
+      { calendarId: { $in: loserCalendarIds } },
+      { status: "archived" }
+    );
+    return {
+      winnerCalendarId,
+      archivedCalendarCount: result.modifiedCount,
+      archivedCalendarIds: loserCalendarIds
+    };
   }
 
   async createEvents(input: Array<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<AcademicEventRecord[]> {

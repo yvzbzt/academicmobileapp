@@ -13,6 +13,28 @@ import { UsersService } from "../src/modules/users/users.service.js";
 import { TestUserDataRepository } from "./support/test-user-data.repository.js";
 
 describe("multi-university student contract", () => {
+  it("returns an empty feed without a primary university and supports one or multiple followed universities", async () => {
+    const fixture = await createFixture();
+    const student = await createStudent(fixture.auth, "student-without-primary@example.com");
+
+    await expect(fixture.announcements.getMyAnnouncementsCollection(student.id, 10)).resolves.toEqual({
+      items: [],
+      state: "fresh",
+      sourceCount: 0,
+      failedSourceCount: 0
+    });
+    await expect(fixture.announcements.getMyTrustedAnnouncement(student.id, "missing-content"))
+      .rejects.toBeInstanceOf(NotFoundException);
+
+    await fixture.users.addFollowedScope(student.id, { universityId: fixture.universities.first.id });
+    expect((await fixture.announcements.getMyAnnouncements(student.id, 10)).map((item) => item.title))
+      .toEqual(["First followed announcement"]);
+
+    await fixture.users.addFollowedScope(student.id, { universityId: fixture.universities.second.id });
+    expect((await fixture.announcements.getMyAnnouncements(student.id, 10)).map((item) => item.title))
+      .toEqual(["First followed announcement", "Second followed announcement"]);
+  });
+
   it("merges 0/1/2/3 followed universities, removes a duplicate primary scope, then applies one global order and limit", async () => {
     const fixture = await createFixture();
 
@@ -332,7 +354,7 @@ async function createUniversity(
 async function createStudent(
   auth: InMemoryAuthRepository,
   email: string,
-  universityId: string
+  universityId?: string
 ): Promise<AuthUserRecord> {
   return auth.createUser({
     fullName: email.split("@")[0]!,
@@ -340,7 +362,7 @@ async function createStudent(
     passwordHash: "unused",
     role: "student",
     status: "active",
-    universityId
+    ...(universityId ? { universityId } : {})
   });
 }
 

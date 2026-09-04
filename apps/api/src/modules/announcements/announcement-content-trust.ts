@@ -4,6 +4,11 @@ import type {
   AcademicContentKeyDateDto,
   TrustedAcademicContentDto
 } from "../../../../../packages/shared/src/contracts.js";
+import {
+  STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
+  classifyStudentRelevance,
+  type StudentRelevanceMetadata
+} from "../../domain/student-relevance-classifier.js";
 import type {
   AnnouncementContentType,
   AnnouncementItem,
@@ -641,6 +646,12 @@ export function toTrustedAcademicContentDto(
   );
   const sourceName = normalizeDisplayText(source.sourceName, 160) || "Resmî akademik kaynak";
   const normalizedOfficialSourceUrl = canonicalizeContentUrl(officialSourceUrl)!;
+  const studentMetadata = normalizedStudentMetadata(item, {
+    title: decision.title,
+    ...(summary ? { summary } : {}),
+    body,
+    keyDates
+  });
 
   return {
     id: item.id,
@@ -670,6 +681,7 @@ export function toTrustedAcademicContentDto(
     ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
     ...(discoveredAt ? { discoveredAt } : {}),
     ...(fetchedAt ? { fetchedAt } : {}),
+    ...studentMetadata,
     freshness: item.freshness === "stale" ? "stale" : "fresh"
   };
 }
@@ -709,6 +721,12 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
       [decision.canonicalUrl, ...(item.canonicalUrlAliases ?? [])],
       officialSourceUrl
     );
+    const studentMetadata = normalizedStudentMetadata(item, {
+      title: decision.title,
+      ...(summary ? { summary } : {}),
+      body,
+      keyDates
+    });
     const normalized: AnnouncementItem = {
       id: item.id,
       sourceId: source.id,
@@ -733,7 +751,8 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
       freshness: item.freshness === "stale" ? "stale" : "fresh",
       trustStatus: "trusted",
       trustReasonCodes: [],
-      dedupeKey: decision.dedupeKey
+      dedupeKey: decision.dedupeKey,
+      ...studentMetadata
     };
     const logicalKey = academicContentLogicalIdentityKey(normalized);
     if (!logicalKey) continue;
@@ -752,6 +771,29 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
     });
   }
   return [...unique.values()];
+}
+
+function normalizedStudentMetadata(
+  item: AnnouncementItem,
+  content: {
+    title: string;
+    summary?: string;
+    body: readonly AcademicContentBodyBlockDto[];
+    keyDates: readonly AcademicContentKeyDateDto[];
+  }
+): StudentRelevanceMetadata | Record<string, never> {
+  if (item.classificationVersion !== STUDENT_RELEVANCE_CLASSIFICATION_VERSION) return {};
+  return classifyStudentRelevance({
+    title: content.title,
+    ...(content.summary ? { summary: content.summary } : {}),
+    ...(content.body.length ? { body: content.body.map((block) => block.text).join("\n") } : {}),
+    ...(content.keyDates.length ? {
+      keyDates: content.keyDates.map((keyDate) => ({
+        label: keyDate.label,
+        value: keyDate.endDate ?? keyDate.startDate
+      }))
+    } : {})
+  });
 }
 
 export function toIsoString(value: string | Date | undefined): string | undefined {

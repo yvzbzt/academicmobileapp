@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, createAnnouncementSourceCandidateId, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, planAnnouncementReplacement, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, AnnouncementTrustReason, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceDefinitionFence, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus, AnnouncementTrustReason, SavedAnnouncementRecord, SourceCheckInput, UpsertAnnouncementSourceInput } from "./announcements.types.js";
 
 @Injectable()
 export class InMemoryAnnouncementRepository implements AnnouncementRepository {
@@ -68,6 +68,14 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
     const id = input.id ?? duplicate?.id ?? randomUUID();
     const now = new Date();
     const existing = this.sources.get(id);
+    const processingDefinitionChanged = existing
+      ? hasProcessingDefinitionChanged(existing, {
+          sourceUrl: canonicalUrl,
+          parser: input.parser,
+          contentType: input.contentType
+        })
+      : false;
+    const reactivated = existing ? isReactivatedTrustedSource(existing, input) : false;
     const source: AnnouncementSourceRecord = {
       ...existing,
       ...input,
@@ -81,6 +89,17 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
+    delete source.activeSnapshotId;
+    if (existing?.activeSnapshotId !== undefined) source.activeSnapshotId = existing.activeSnapshotId;
+    delete source.sourceDefinitionVersion;
+    if (!existing || processingDefinitionChanged) source.sourceDefinitionVersion = randomUUID();
+    else if (existing.sourceDefinitionVersion !== undefined) source.sourceDefinitionVersion = existing.sourceDefinitionVersion;
+    delete source.notificationProducerVersion;
+    if (!existing || reactivated) source.notificationProducerVersion = randomUUID();
+    else if (existing.notificationProducerVersion !== undefined) {
+      source.notificationProducerVersion = existing.notificationProducerVersion;
+    }
+    if (processingDefinitionChanged) clearSourceValidators(source);
     this.sources.set(id, source);
     return source;
   }
@@ -112,17 +131,33 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
     });
   }
 
-  async recordSourceCheck(id: string, input: SourceCheckInput): Promise<AnnouncementSourceRecord | null> {
+  async recordSourceCheck(
+    id: string,
+    input: SourceCheckInput,
+    expectedDefinition?: AnnouncementSourceDefinitionFence,
+    expectedActiveSnapshotId?: string | null
+  ): Promise<AnnouncementSourceRecord | null> {
     const existing = this.sources.get(id);
     if (!existing) return null;
+    if (expectedDefinition && !sameSourceDefinition(existing, expectedDefinition)) return null;
+    if (
+      expectedActiveSnapshotId !== undefined
+      && normalizedSnapshotId(existing.activeSnapshotId) !== normalizedSnapshotId(expectedActiveSnapshotId ?? undefined)
+    ) return null;
     const updated: AnnouncementSourceRecord = { ...existing, ...input, updatedAt: new Date() };
+    if (input.healthStatus === "healthy") delete updated.lastError;
     this.sources.set(id, updated);
     return updated;
   }
 
-  async quarantineSource(id: string, reasonCodes: AnnouncementTrustReason[]): Promise<AnnouncementSourceRecord | null> {
+  async quarantineSource(
+    id: string,
+    reasonCodes: AnnouncementTrustReason[],
+    expectedDefinition?: AnnouncementSourceDefinitionFence
+  ): Promise<AnnouncementSourceRecord | null> {
     const existing = this.sources.get(id);
     if (!existing) return null;
+    if (expectedDefinition && !sameSourceDefinition(existing, expectedDefinition)) return null;
     const updated: AnnouncementSourceRecord = {
       ...existing,
       status: "inactive",
@@ -143,8 +178,13 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
   }
 
   async replaceItemsForSource(source: AnnouncementSourceRecord, items: AnnouncementItem[], options: AnnouncementReplacementOptions = {}): Promise<AnnouncementPersistenceDelta> {
+    const currentSource = this.sources.get(source.id);
+    if (!currentSource || currentSource.status !== "active" || currentSource.trustStatus !== "trusted") {
+      throw new Error("ANNOUNCEMENT_SNAPSHOT_SOURCE_NOT_ACTIVE");
+    }
+    if (!sameSourceDefinition(currentSource, source)) throw new Error("ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED");
     const existing = this.items.get(source.id) ?? [];
-    const plan = planAnnouncementReplacement(source, items, existing, options);
+    const plan = planAnnouncementReplacement(currentSource, items, existing, options);
     if (plan.entries.length === 0 && plan.removed.length === 0) return emptyAnnouncementPersistenceDelta();
     const delta = emptyAnnouncementPersistenceDelta();
     const persistedItems = plan.entries.map(({ item, previous, materiallyUpdated }) => {
@@ -153,11 +193,11 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
         ...item,
         id: previous?.id ?? item.id,
         sourceId: source.id,
-        sourceName: source.sourceName,
-        officialSourceUrl: source.canonicalUrl ?? source.sourceUrl,
-        contentType: item.contentType ?? source.contentType ?? "announcement",
-        scopeType: source.scopeType,
-        scopeId: source.scopeId,
+        sourceName: currentSource.sourceName,
+        officialSourceUrl: currentSource.canonicalUrl ?? currentSource.sourceUrl,
+        contentType: item.contentType ?? currentSource.contentType ?? "announcement",
+        scopeType: currentSource.scopeType,
+        scopeId: currentSource.scopeId,
         ...(discoveredAt ? { discoveredAt } : {})
       };
       const reference = toPersistenceReference(persisted);
@@ -203,13 +243,13 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
     return acknowledged;
   }
 
-  async listItemsForSource(sourceId: string, limit = 1_000): Promise<AnnouncementItem[]> {
+  async listItemsForSource(sourceId: string, limit = 1_000, offset = 0): Promise<AnnouncementItem[]> {
     const source = this.sources.get(sourceId);
     if (!source || source.status !== "active" || source.trustStatus !== "trusted") return [];
     return (this.items.get(sourceId) ?? [])
       .filter(isApiEligibleItem)
       .sort(compareAnnouncementItems)
-      .slice(0, limit);
+      .slice(offset, offset + limit);
   }
 
   async listItemsByScope(input: { universityId: string; facultyId?: string; departmentId?: string; limit: number }): Promise<AnnouncementItem[]> {
@@ -291,4 +331,54 @@ function savedAnnouncementKey(userId: string, announcementId: string): string {
 
 function isApiEligibleItem(item: AnnouncementItem): boolean {
   return item.trustStatus === "trusted";
+}
+
+const sourceValidatorFields = [
+  "etag",
+  "lastModified",
+  "contentHash",
+  "processingVersion",
+  "lastContentChangedAt"
+] as const;
+
+function hasProcessingDefinitionChanged(
+  existing: AnnouncementSourceRecord,
+  next: {
+    sourceUrl: AnnouncementSourceRecord["sourceUrl"];
+    parser: AnnouncementSourceRecord["parser"];
+    contentType: AnnouncementSourceRecord["contentType"] | undefined;
+  }
+): boolean {
+  return existing.sourceUrl !== next.sourceUrl
+    || existing.parser !== next.parser
+    || (existing.contentType ?? "announcement") !== (next.contentType ?? "announcement");
+}
+
+function isReactivatedTrustedSource(
+  existing: AnnouncementSourceRecord,
+  next: Pick<UpsertAnnouncementSourceInput, "status" | "trustStatus">
+): boolean {
+  return (existing.status !== "active" || existing.trustStatus !== "trusted")
+    && next.status === "active"
+    && (next.trustStatus ?? existing.trustStatus) === "trusted";
+}
+
+function sameSourceDefinition(
+  current: AnnouncementSourceDefinitionFence,
+  expected: AnnouncementSourceDefinitionFence
+): boolean {
+  return current.sourceUrl === expected.sourceUrl
+    && current.parser === expected.parser
+    && (current.contentType ?? "announcement") === (expected.contentType ?? "announcement")
+    && current.sourceDefinitionVersion === expected.sourceDefinitionVersion
+    && current.notificationProducerVersion === expected.notificationProducerVersion;
+}
+
+function normalizedSnapshotId(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function clearSourceValidators(source: AnnouncementSourceRecord): void {
+  for (const field of sourceValidatorFields) delete source[field];
 }

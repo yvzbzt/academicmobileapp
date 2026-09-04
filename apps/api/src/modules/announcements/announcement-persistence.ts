@@ -97,6 +97,7 @@ export function toPersistenceReference(item: AnnouncementItem, id = item.id): An
   return {
     id,
     sourceId: item.sourceId,
+    ...(item.snapshotId ? { snapshotId: item.snapshotId } : {}),
     scopeType: item.scopeType,
     scopeId: item.scopeId,
     canonicalUrl,

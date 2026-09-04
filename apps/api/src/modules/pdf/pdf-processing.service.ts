@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { resolveSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { assertUniversityOwnedRecord, assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
@@ -6,11 +6,12 @@ import { mapAcademicEventCategory } from "../../domain/category-mapper.js";
 import { calculateConfidenceScore } from "../../domain/confidence-score.js";
 import { normalizeAcademicDate } from "../../domain/date-normalizer.js";
 import { requireSourceAuthority, type SourceAuthorityContext } from "../../domain/source-authority-enforcement.js";
+import { classifyStudentRelevance } from "../../domain/student-relevance-classifier.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
-import type { CatalogRepository } from "../catalog/catalog.types.js";
 import { academicTemporalFields, academicTemporalFieldsFromRecord, istanbulTimestamp, storedAcademicTemporalEndValue, storedAcademicTemporalStartValue } from "../calendars/calendar-temporal.js";
-import type { CreatePdfSourceInput, ExtractedEventRecord, ExtractedEventStatus, PdfRepository, PdfSourceRecord } from "./pdf.types.js";
-import { PdfOcrService } from "./pdf-ocr.service.js";
+import type { CreatePdfSourceInput, ExtractedEventRecord, ExtractedEventStatus, PdfRepository, PdfSourceGenerationUpdate, PdfSourceRecord } from "./pdf.types.js";
+import { extractPdfBinaryText } from "./pdf-binary-text.js";
+import { downloadPdfData, PdfOcrService } from "./pdf-ocr.service.js";
 
 const maxPdfFileSizeBytes = 25 * 1024 * 1024;
 const maxPdfPageCount = 100;
@@ -41,18 +42,59 @@ export class PdfProcessingService {
 
   constructor(
     @Inject("PdfRepository") private readonly pdfRepository: PdfRepository,
-    @Inject(PdfOcrService) private readonly ocrService: Pick<PdfOcrService, "extractText">,
-    @Optional() @Inject("CatalogRepository") _catalogRepository?: Pick<CatalogRepository, "findUniversityById">
+    @Inject(PdfOcrService) private readonly ocrService: Pick<PdfOcrService, "extractText">
   ) {}
 
   async createPdfSourceForAdmin(access: AdminUniversityAccess, input: CreatePdfSourceInput): Promise<PdfSourceRecord> {
     assertUniversityTarget(access, input.universityId);
-    return this.createPdfSource(input);
+    if (input.pdfData) return this.createVerifiedAdminPdfSource(input, input.pdfData);
+    if (!input.url) return this.createPdfSource(input);
+
+    const authorizedInput = await this.authorizePdfSource(input, "registration");
+    const authority = await this.resolvePdfSourceAuthority(input.universityId);
+    const pdfData = await downloadPdfData(authorizedInput.url, authority);
+    if (!pdfData) throw new BadRequestException("The official PDF source could not be downloaded and verified.");
+    return this.createVerifiedAdminPdfSource(authorizedInput, pdfData);
+  }
+
+  private async createVerifiedAdminPdfSource(input: CreatePdfSourceInput, pdfData: Buffer): Promise<PdfSourceRecord> {
+    const { rawText: _callerSuppliedRawText, ...inputWithoutText } = input;
+    void _callerSuppliedRawText;
+    const binaryInput: CreatePdfSourceInput = {
+      ...inputWithoutText,
+      pdfData,
+      fileSize: pdfData.byteLength,
+      magicBytesHex: pdfData.subarray(0, 8).toString("hex")
+    };
+    this.validatePdfSource(binaryInput);
+
+    let extracted: Awaited<ReturnType<typeof extractPdfBinaryText>>;
+    try {
+      extracted = await extractPdfBinaryText(pdfData);
+    } catch {
+      throw new BadRequestException("The supplied PDF binary could not be parsed safely.");
+    }
+    return this.createPdfSource({
+      ...binaryInput,
+      pageCount: extracted.pageCount,
+      ...(extracted.text.trim() ? { rawText: extracted.text } : {})
+    });
   }
 
   async processPdfSourceForAdmin(access: AdminUniversityAccess, pdfSourceId: string) {
-    await this.getPdfSourceForAdmin(access, pdfSourceId);
-    return this.processPdfSource(pdfSourceId);
+    const source = await this.getPdfSourceForAdmin(access, pdfSourceId);
+    if (source.url && source.binaryIdentityVerified === true && !source.binarySha256) {
+      throw new BadRequestException("The verified PDF source is missing its binary identity.");
+    }
+    if (!source.url || source.binaryIdentityVerified !== true) {
+      return this.processPdfSource(pdfSourceId);
+    }
+
+    const sourceAuthority = await this.authorizeStoredPdfSource(source, "fetch");
+    const pdfData = await downloadPdfData(source.url, sourceAuthority);
+    if (!pdfData) throw new BadRequestException("The verified PDF source could not be downloaded safely.");
+    this.assertPdfBinaryMatchesSource(source, pdfData);
+    return this.processPdfSource(pdfSourceId, { pdfData });
   }
 
   async getPdfSourceForAdmin(access: AdminUniversityAccess, id: string): Promise<PdfSourceRecord> {
@@ -122,7 +164,26 @@ export class PdfProcessingService {
     const fileHash = this.createFileHash(registeredInput);
     const duplicate = await this.pdfRepository.findPdfSourceByHash(registeredInput.universityId, fileHash);
     if (duplicate) return duplicate;
-    return this.createPdfSourceWithHash(registeredInput, fileHash);
+    try {
+      return await this.createPdfSourceWithHash(registeredInput, fileHash);
+    } catch (error) {
+      // Another worker may have inserted the same binary after our lookup.
+      // Re-read by the deterministic hash instead of creating a duplicate.
+      const racedDuplicate = await this.pdfRepository.findPdfSourceByHash(registeredInput.universityId, fileHash);
+      if (racedDuplicate) return racedDuplicate;
+      throw error;
+    }
+  }
+
+  async findVerifiedPdfSourceForBytes(universityId: string, pdfData: Buffer): Promise<PdfSourceRecord | null> {
+    const binarySha256 = createHash("sha256").update(pdfData).digest("hex");
+    const source = await this.pdfRepository.findPdfSourceByHash(universityId, binarySha256);
+    if (
+      !source
+      || source.binaryIdentityVerified !== true
+      || source.binarySha256 !== binarySha256
+    ) return null;
+    return source;
   }
 
   private async createPdfSourceWithHash(input: CreatePdfSourceInput, fileHash: string): Promise<PdfSourceRecord> {
@@ -133,6 +194,8 @@ export class PdfProcessingService {
       fileName: authorizedInput.fileName,
       filePath: `private/pdf-sources/${authorizedInput.universityId}/${fileHash}.pdf`,
       fileHash,
+      ...(authorizedInput.pdfData ? { binarySha256: fileHash } : {}),
+      binaryIdentityVerified: Boolean(authorizedInput.pdfData),
       fileSize: authorizedInput.fileSize,
       mimeType: authorizedInput.mimeType,
       magicBytesHex: authorizedInput.magicBytesHex.toLocaleLowerCase("tr-TR"),
@@ -141,6 +204,9 @@ export class PdfProcessingService {
       version: 1,
       status: "uploaded",
       parseStatus: "pending",
+      // A defined empty pointer hides any rows staged before the first
+      // complete extraction is atomically activated.
+      activeExtractedEventIds: [],
       uploadedBy: authorizedInput.uploadedBy,
       ...(authorizedInput.rawText ? { rawText: authorizedInput.rawText } : {})
     });
@@ -149,66 +215,125 @@ export class PdfProcessingService {
   async processPdfSource(pdfSourceId: string, input: { pdfData?: Buffer } = {}): Promise<{ pdfSource: PdfSourceRecord; extractedEvents: ExtractedEventRecord[] }> {
     const source = await this.pdfRepository.findPdfSourceById(pdfSourceId);
     if (!source) throw new NotFoundException("PDF source not found.");
+    if (input.pdfData) {
+      if (!hasPdfMagicBytes(input.pdfData)) throw new BadRequestException("PDF binary does not contain the required magic bytes.");
+      this.assertPdfBinaryMatchesSource(source, input.pdfData);
+    }
     const sourceAuthority = source.url
       ? await this.authorizeStoredPdfSource(source, "publication")
       : undefined;
 
-    await this.pdfRepository.updatePdfSource(pdfSourceId, { parseStatus: "processing" });
-
-    let processableSource = source;
-    if (!hasUsefulPdfTextLayer(processableSource.rawText)) {
-      const ocr = await this.ocrService.extractText({
-        pdfSource: source,
-        ...(input.pdfData ? { pdfData: input.pdfData } : {}),
-        ...(!input.pdfData && sourceAuthority ? { sourceAuthority } : {})
-      });
-      if (ocr?.text && hasUsefulPdfTextLayer(ocr.text)) {
-        processableSource = await this.pdfRepository.updatePdfSource(pdfSourceId, {
-          rawText: ocr.text,
-          ocrProvider: ocr.provider,
-          ocrProcessedAt: new Date()
-        }) ?? source;
-      }
-    }
-
-    if (!hasUsefulPdfTextLayer(processableSource.rawText)) {
-      const updated = await this.pdfRepository.updatePdfSource(pdfSourceId, {
-        parseStatus: "ocr_required",
-        parseError: "No text layer found. OCR is required."
-      });
-      return { pdfSource: updated ?? source, extractedEvents: [] };
-    }
-
-    let eventInputs = this.extractEventsFromText(processableSource);
-
-    if (!processableSource.ocrProcessedAt && (eventInputs.length === 0 || shouldAttemptDocumentAiTableExtraction())) {
-      this.logger.log(`Attempting OCR/layout extraction for PDF source ${pdfSourceId}; current candidate count=${eventInputs.length}.`);
-      const ocr = await this.ocrService.extractText({
-        pdfSource: source,
-        ...(input.pdfData ? { pdfData: input.pdfData } : {}),
-        ...(!input.pdfData && sourceAuthority ? { sourceAuthority } : {})
-      });
-      if (ocr?.text && hasUsefulPdfTextLayer(ocr.text)) {
-        const ocrSource = { ...processableSource, rawText: ocr.text };
-        const ocrEventInputs = this.extractEventsFromText(ocrSource);
-        if (isBetterExtraction(ocrEventInputs, eventInputs)) {
-          processableSource = await this.pdfRepository.updatePdfSource(pdfSourceId, {
+    const claimedSource = await this.pdfRepository.beginPdfProcessing(pdfSourceId);
+    if (!claimedSource) throw new NotFoundException("PDF source not found.");
+    const processingGeneration = claimedSource.version;
+    try {
+      let processableSource = claimedSource;
+      if (!hasUsefulPdfTextLayer(processableSource.rawText)) {
+        const ocr = await this.ocrService.extractText({
+          pdfSource: claimedSource,
+          ...(input.pdfData ? { pdfData: input.pdfData } : {}),
+          ...(!input.pdfData && sourceAuthority ? { sourceAuthority } : {})
+        });
+        if (ocr?.text && hasUsefulPdfTextLayer(ocr.text)) {
+          processableSource = await this.updateProcessingSource(pdfSourceId, processingGeneration, {
             rawText: ocr.text,
             ocrProvider: ocr.provider,
             ocrProcessedAt: new Date()
-          }) ?? processableSource;
-          eventInputs = ocrEventInputs;
+          });
         }
       }
+
+      if (!hasUsefulPdfTextLayer(processableSource.rawText)) {
+        const updated = await this.updateProcessingSource(pdfSourceId, processingGeneration, {
+          parseStatus: "ocr_required",
+          parseError: "No text layer found. OCR is required."
+        });
+        return { pdfSource: updated, extractedEvents: [] };
+      }
+
+      let eventInputs = this.extractEventsFromText(processableSource);
+
+      if (!processableSource.ocrProcessedAt && (eventInputs.length === 0 || shouldAttemptDocumentAiTableExtraction())) {
+        this.logger.log(`Attempting OCR/layout extraction for PDF source ${pdfSourceId}; current candidate count=${eventInputs.length}.`);
+        const ocr = await this.ocrService.extractText({
+          pdfSource: claimedSource,
+          ...(input.pdfData ? { pdfData: input.pdfData } : {}),
+          ...(!input.pdfData && sourceAuthority ? { sourceAuthority } : {})
+        });
+        if (ocr?.text && hasUsefulPdfTextLayer(ocr.text)) {
+          const ocrSource = { ...processableSource, rawText: ocr.text };
+          const ocrEventInputs = this.extractEventsFromText(ocrSource);
+          if (isBetterExtraction(ocrEventInputs, eventInputs)) {
+            processableSource = await this.updateProcessingSource(pdfSourceId, processingGeneration, {
+              rawText: ocr.text,
+              ocrProvider: ocr.provider,
+              ocrProcessedAt: new Date()
+            });
+            eventInputs = ocrEventInputs;
+          }
+        }
+      }
+
+      if (eventInputs.length === 0) {
+        const retainedEvents = (await loadCompletePdfExtractedEventSnapshot(this.pdfRepository, pdfSourceId)).extractedEvents;
+        const updatedSource = await this.updateProcessingSource(pdfSourceId, processingGeneration, {
+          parseStatus: "failed",
+          parseError: "No trusted academic events were extracted; the previous snapshot was retained."
+        });
+        return { pdfSource: updatedSource, extractedEvents: retainedEvents };
+      }
+
+      const extractedEvents = await this.pdfRepository.createExtractedEvents(eventInputs);
+      const activeExtractedEventIds = extractedEvents.map((event) => event.id);
+      const updatedSource = await this.pdfRepository.updatePdfSourceForGeneration(pdfSourceId, processingGeneration, {
+        parseStatus: "processed",
+        processedAt: new Date(),
+        activeExtractedEventIds
+      });
+      if (!updatedSource || !sameOrderedIds(updatedSource.activeExtractedEventIds, activeExtractedEventIds)) {
+        throw new Error("PDF_EXTRACTED_EVENT_SNAPSHOT_ACTIVATION_FAILED");
+      }
+
+      return { pdfSource: updatedSource, extractedEvents };
+    } catch (error) {
+      try {
+        await this.pdfRepository.updatePdfSourceForGeneration(pdfSourceId, processingGeneration, {
+          parseStatus: "failed",
+          parseError: pdfProcessingErrorMessage(error),
+          ...(claimedSource.activeExtractedEventIds !== undefined
+            ? { activeExtractedEventIds: claimedSource.activeExtractedEventIds }
+            : {})
+        });
+      } catch {
+        // Preserve the original processing failure. The fenced best-effort health
+        // update must never overwrite a newer generation or mask its root cause.
+      }
+      throw error;
     }
+  }
 
-    const extractedEvents = await this.pdfRepository.createExtractedEvents(eventInputs);
-    const updatedSource = await this.pdfRepository.updatePdfSource(pdfSourceId, {
-      parseStatus: "processed",
-      processedAt: new Date()
-    });
+  private async updateProcessingSource(
+    pdfSourceId: string,
+    processingGeneration: number,
+    input: PdfSourceGenerationUpdate
+  ): Promise<PdfSourceRecord> {
+    const updated = await this.pdfRepository.updatePdfSourceForGeneration(
+      pdfSourceId,
+      processingGeneration,
+      input
+    );
+    if (!updated) throw new ConflictException("PDF processing was superseded by a newer generation.");
+    return updated;
+  }
 
-    return { pdfSource: updatedSource ?? processableSource, extractedEvents };
+  private assertPdfBinaryMatchesSource(source: PdfSourceRecord, pdfData: Buffer): void {
+    if (source.binaryIdentityVerified !== true) return;
+    if (!source.binarySha256) {
+      throw new BadRequestException("The verified PDF source is missing its binary identity.");
+    }
+    if (createHash("sha256").update(pdfData).digest("hex") !== source.binarySha256) {
+      throw new BadRequestException("PDF binary does not match the source identity.");
+    }
   }
 
   async getPdfSource(id: string): Promise<PdfSourceRecord> {
@@ -225,6 +350,13 @@ export class PdfProcessingService {
       limit: Math.min(Math.max(input.limit ?? 50, 1), 100),
       offset: Math.max(input.offset ?? 0, 0)
     });
+  }
+
+  async loadCompleteExtractedEventSnapshot(
+    pdfSourceId: string,
+    input: { maximumEvents?: number } = {}
+  ): Promise<{ pdfSource: PdfSourceRecord; extractedEvents: ExtractedEventRecord[] }> {
+    return loadCompletePdfExtractedEventSnapshot(this.pdfRepository, pdfSourceId, input);
   }
 
   async getExtractedEvent(id: string): Promise<ExtractedEventRecord> {
@@ -256,10 +388,12 @@ export class PdfProcessingService {
         : storedAcademicTemporalEndValue(current);
       temporal = academicTemporalFields(requestedStart, requestedEnd);
     }
+    const normalizedTitle = input.normalizedTitle?.trim() || current.normalizedTitle;
     const updated = await this.pdfRepository.updateExtractedEvent(id, {
-      ...(input.normalizedTitle ? { normalizedTitle: input.normalizedTitle } : {}),
+      ...(input.normalizedTitle ? { normalizedTitle } : {}),
       ...(input.normalizedCategory ? { normalizedCategory: input.normalizedCategory } : {}),
       ...temporal,
+      ...classifyStudentRelevance({ title: normalizedTitle, body: current.rawText }),
       ...(input.adminNote ? { adminNote: input.adminNote } : {})
     });
     if (!updated) throw new NotFoundException("Extracted event not found.");
@@ -294,6 +428,8 @@ export class PdfProcessingService {
   private validatePdfSource(input: CreatePdfSourceInput): void {
     if (input.mimeType !== "application/pdf") throw new BadRequestException("Only application/pdf files are accepted.");
     if (!input.magicBytesHex.toLocaleLowerCase("tr-TR").startsWith(pdfMagicBytesHex)) throw new BadRequestException("Invalid PDF magic bytes.");
+    if (input.pdfData && !hasPdfMagicBytes(input.pdfData)) throw new BadRequestException("PDF binary does not contain the required magic bytes.");
+    if (input.pdfData && input.pdfData.byteLength !== input.fileSize) throw new BadRequestException("PDF binary size does not match its declared size.");
     if (input.fileSize <= 0 || input.fileSize > maxPdfFileSizeBytes) throw new BadRequestException("PDF file size is outside allowed limits.");
     if (input.pageCount <= 0 || input.pageCount > maxPdfPageCount) throw new BadRequestException("PDF page count is outside allowed limits.");
     if (!/^20\d{2}-20\d{2}$/u.test(input.academicYear)) throw new BadRequestException("Academic year must use YYYY-YYYY format.");
@@ -340,38 +476,39 @@ export class PdfProcessingService {
   }
 
   private createFileHash(input: CreatePdfSourceInput): string {
-    return createHash("sha256")
+    if (input.pdfData) return createHash("sha256").update(input.pdfData).digest("hex");
+    const legacyMetadataHash = createHash("sha256")
+      .update("legacy-unverified-pdf-identity:v1\0")
       .update(`${input.universityId}:${input.fileName}:${input.fileSize}:${input.pageCount}:${input.rawText ?? ""}`)
       .digest("hex");
+    return `legacy-unverified-${legacyMetadataHash}`;
   }
 
   private extractEventsFromText(source: PdfSourceRecord): Array<Omit<ExtractedEventRecord, "id" | "createdAt" | "updatedAt">> {
     const pages = source.rawText?.split(/\f/u) ?? [];
     const extracted = pages.flatMap((pageText, pageIndex) =>
       buildPdfEventLineCandidates(pageText, pageIndex + 1)
-        .map((candidate) => this.createExtractedEventFromLine(source, candidate.text, candidate.sourcePage))
-        .filter((event) => isMeaningfulExtractedEvent(event))
+        .map((candidate, candidateIndex) => this.createExtractedEventFromLine(source, candidate.text, candidate.sourcePage, candidateIndex))
+        .filter((event): event is Omit<ExtractedEventRecord, "id" | "createdAt" | "updatedAt"> => Boolean(event && isMeaningfulExtractedEvent(event)))
     );
     return deduplicateExtractedEvents(extracted);
   }
 
-  private createExtractedEventFromLine(source: PdfSourceRecord, line: string, sourcePage: number): Omit<ExtractedEventRecord, "id" | "createdAt" | "updatedAt"> {
+  private createExtractedEventFromLine(
+    source: PdfSourceRecord,
+    line: string,
+    sourcePage: number,
+    candidateIndex: number
+  ): Omit<ExtractedEventRecord, "id" | "createdAt" | "updatedAt"> | null {
     const repaired = repairOcrDateTimeText(stripNavigationChrome(line));
     const normalizedDate = normalizeAcademicDate(repaired.text);
     const title = this.normalizeTitle(repaired.text);
     const category = mapAcademicEventCategory(`${title} ${repaired.text}`);
-    const fallbackDate = !normalizedDate.startDate && shouldUseDocumentDateFallback(title, repaired.text)
-      ? inferDocumentPublicationIsoDate(source)
-      : undefined;
-    const startDate = normalizedDate.startDate ?? fallbackDate;
-    const endDate = normalizedDate.endDate ?? fallbackDate;
-    const originalDateText = normalizedDate.startDate
-      ? normalizedDate.originalDateText
-      : fallbackDate
-        ? `Document publication date fallback: ${fallbackDate}`
-        : normalizedDate.originalDateText;
+    const startDate = validIsoCalendarDate(normalizedDate.startDate);
+    const endDate = validIsoCalendarDate(normalizedDate.endDate);
+    const originalDateText = normalizedDate.originalDateText || repaired.text.match(dateBearingLinePattern)?.[0]?.trim() || "unknown";
     const score = calculateConfidenceScore({
-      dateClarity: normalizedDate.startDate ? 100 : fallbackDate ? 55 : 20,
+      dateClarity: normalizedDate.startDate ? 100 : 20,
       titleClarity: title.length > 4 ? 90 : 40,
       categoryClarity: category === "custom_event" ? 55 : 90,
       ocrQuality: repaired.repaired ? 82 : 100,
@@ -390,8 +527,13 @@ export class PdfProcessingService {
           normalizedDate.endTime
         )
       : undefined;
+    if (startDate && !temporal) return null;
+    const studentRelevance = classifyStudentRelevance({
+      title,
+      body: repaired.text
+    });
 
-    return {
+    const extractedEvent = {
       pdfSourceId: source.id,
       universityId: source.universityId,
       academicYear: source.academicYear,
@@ -404,11 +546,48 @@ export class PdfProcessingService {
       ...(normalizedDate.endTime ? { endTime: normalizedDate.endTime } : {}),
       ...(normalizedDate.hasExplicitTime ? { hasExplicitTime: true } : {}),
       timezone: "Europe/Istanbul",
-      datePrecision: fallbackDate ? "day" : normalizedDate.datePrecision,
+      datePrecision: temporal ? normalizedDate.datePrecision : "unknown",
       term: normalizedDate.term ?? "unknown",
       sourcePage,
       confidenceScore: score.score,
+      ...studentRelevance,
       status: "pending_review"
+    } satisfies Omit<ExtractedEventRecord, "id" | "createdAt" | "updatedAt">;
+    const semanticKey = hashStableValue("pdf-event-semantic:v1", [
+      source.universityId,
+      source.academicYear,
+      category,
+      foldEventText(title),
+      temporal?.temporalKind,
+      temporal?.dateOnlyStart,
+      temporal?.startDate,
+      temporal?.endTemporalKind,
+      temporal?.dateOnlyEnd,
+      temporal?.endDate
+    ]);
+    const sourceEventKey = hashStableValue("pdf-event-source-position:v1", [source.id, sourcePage, candidateIndex]);
+    const extractionFingerprint = hashStableValue("pdf-event-extraction:v1", [
+      repaired.text,
+      originalDateText,
+      title,
+      category,
+      temporal,
+      normalizedDate.startTime,
+      normalizedDate.endTime,
+      normalizedDate.hasExplicitTime,
+      normalizedDate.datePrecision,
+      normalizedDate.term,
+      sourcePage,
+      score.score,
+      studentRelevance
+    ]);
+
+    return {
+      ...extractedEvent,
+      semanticKey,
+      sourceEventKey,
+      extractionFingerprint,
+      observedPdfSourceIds: [source.id]
     };
   }
 
@@ -425,6 +604,104 @@ export class PdfProcessingService {
       .replace(/(?<=\p{L})0(?=\p{L})/gu, "o");
     return stripNavigationChrome(title);
   }
+}
+
+export async function loadCompletePdfExtractedEventSnapshot(
+  pdfRepository: PdfRepository,
+  pdfSourceId: string,
+  input: { maximumEvents?: number } = {}
+): Promise<{ pdfSource: PdfSourceRecord; extractedEvents: ExtractedEventRecord[] }> {
+  const maximumEvents = Math.min(Math.max(input.maximumEvents ?? 5_000, 1), 20_000);
+  const pageSize = 100;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const before = await pdfRepository.findPdfSourceById(pdfSourceId);
+    if (!before) throw new NotFoundException("PDF source not found.");
+    const expectedIds = before.activeExtractedEventIds;
+    if (expectedIds && (expectedIds.length > maximumEvents || new Set(expectedIds).size !== expectedIds.length)) {
+      throw new BadRequestException("PDF extracted-event snapshot exceeds the safe publication limit or contains duplicate pointers.");
+    }
+
+    const extractedEvents: ExtractedEventRecord[] = [];
+    if (expectedIds !== undefined) {
+      while (extractedEvents.length < expectedIds.length) {
+        const page = await pdfRepository.listExtractedEvents({
+          pdfSourceId,
+          limit: Math.min(pageSize, expectedIds.length - extractedEvents.length),
+          offset: extractedEvents.length
+        });
+        extractedEvents.push(...page);
+        if (page.length === 0) break;
+      }
+    } else {
+      while (extractedEvents.length <= maximumEvents) {
+        const limit = Math.min(pageSize, maximumEvents + 1 - extractedEvents.length);
+        const page = await pdfRepository.listExtractedEvents({
+          pdfSourceId,
+          limit,
+          offset: extractedEvents.length
+        });
+        extractedEvents.push(...page);
+        if (page.length < limit) break;
+      }
+      if (extractedEvents.length > maximumEvents) {
+        throw new BadRequestException("PDF extracted-event snapshot exceeds the safe publication limit.");
+      }
+    }
+
+    const after = await pdfRepository.findPdfSourceById(pdfSourceId);
+    if (!after) throw new NotFoundException("PDF source not found.");
+    if (
+      after.version !== before.version
+      || !sameOrderedIds(after.activeExtractedEventIds, expectedIds)
+    ) continue;
+    if (expectedIds !== undefined) {
+      const loadedIds = new Set(extractedEvents.map((event) => event.id));
+      if (loadedIds.size !== expectedIds.length || expectedIds.some((id) => !loadedIds.has(id))) continue;
+    }
+    return { pdfSource: after, extractedEvents };
+  }
+
+  throw new ConflictException("PDF extracted-event snapshot changed while it was being read.");
+}
+
+function hasPdfMagicBytes(pdfData: Buffer): boolean {
+  return pdfData.length >= 4
+    && pdfData[0] === 0x25
+    && pdfData[1] === 0x50
+    && pdfData[2] === 0x44
+    && pdfData[3] === 0x46;
+}
+
+function sameOrderedIds(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
+  if (!left || !right) return left === right;
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function pdfProcessingErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  return (message || "PDF processing failed unexpectedly.").slice(0, 500);
+}
+
+function hashStableValue(namespace: string, values: unknown[]): string {
+  return createHash("sha256")
+    .update(`${namespace}\0`)
+    .update(JSON.stringify(values))
+    .digest("hex");
+}
+
+function validIsoCalendarDate(value?: string): string | undefined {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return undefined;
+  const [yearText, monthText, dayText] = value.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  return candidate.getUTCFullYear() === year
+    && candidate.getUTCMonth() === month - 1
+    && candidate.getUTCDate() === day
+    ? value
+    : undefined;
 }
 
 function extractedAcademicTemporalFields(
@@ -448,7 +725,7 @@ function extractedAcademicTemporalFields(
 
 function isMeaningfulExtractedEvent(event: Omit<ExtractedEventRecord, "id" | "createdAt" | "updatedAt">): boolean {
   const title = event.normalizedTitle.trim();
-  if (!event.startDate || event.datePrecision === "unknown") return false;
+  if ((!event.startDate || event.datePrecision === "unknown") && !dateBearingLinePattern.test(event.rawText)) return false;
   if (isDocumentChromeOrNote(event.rawText) || isDocumentChromeOrNote(title)) return false;
   if (title.length < 3) return false;
   if (/^[\d\s./\-"()\u2013\u2014]+$/u.test(title)) return false;
@@ -739,50 +1016,6 @@ function isDocumentChromeOrNote(value: string): boolean {
   if (/\bakademik takvim(?:i)?\b/u.test(folded) && folded.replace(/\b20\d{2}\b/gu, "").replace(/[^\p{L}\d]+/gu, " ").trim().split(" ").length <= 6) return true;
   if (/^(guz|bahar|yaz)\s+donemi\s*$/u.test(folded)) return true;
   return false;
-}
-
-function shouldUseDocumentDateFallback(title: string, rawText: string): boolean {
-  if (isDocumentChromeOrNote(title) || isDocumentChromeOrNote(rawText)) return false;
-  const folded = foldEventText(`${title} ${rawText}`);
-  if (!folded || folded.length < 12) return false;
-  return [
-    "basvuru",
-    "bitis",
-    "ders",
-    "duyuru",
-    "kayit",
-    "program",
-    "sinav",
-    "takvim",
-    "tercih",
-    "odeme",
-    "mezuniyet",
-    "orientation",
-    "exam",
-    "registration",
-    "schedule"
-  ].some((keyword) => folded.includes(keyword));
-}
-
-function inferDocumentPublicationIsoDate(source: PdfSourceRecord): string | undefined {
-  const fromText = dateFromSourceMetadata(`${source.fileName} ${source.url ?? ""}`);
-  if (fromText) return fromText;
-  const metadataDate = source.downloadedAt ?? source.createdAt;
-  return metadataDate.toISOString().slice(0, 10);
-}
-
-function dateFromSourceMetadata(value: string): string | undefined {
-  const numeric = value.match(/\b(\d{1,2})[._-](\d{1,2})[._-](20\d{2})\b/u);
-  if (numeric?.[1] && numeric[2] && numeric[3]) return toIsoDate(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
-  const isoLike = value.match(/\b(20\d{2})[._-](\d{1,2})[._-](\d{1,2})\b/u);
-  if (isoLike?.[1] && isoLike[2] && isoLike[3]) return toIsoDate(Number(isoLike[1]), Number(isoLike[2]), Number(isoLike[3]));
-  return undefined;
-}
-
-function toIsoDate(year: number, month: number, day: number): string | undefined {
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return undefined;
-  if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31) return undefined;
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function stripNavigationChrome(value: string): string {

@@ -265,6 +265,14 @@ export const announcementSourceSchema = new Schema(
     lastError: { type: String, required: false, trim: true },
     consecutiveFailures: { type: Number, required: false, min: 0 },
     itemCount: { type: Number, required: false, min: 0 },
+    etag: { type: String, required: false, maxlength: 512 },
+    lastModified: { type: String, required: false, maxlength: 128 },
+    contentHash: { type: String, required: false, match: /^[a-f\d]{64}$/u },
+    lastContentChangedAt: { type: Date, required: false },
+    activeSnapshotId: { type: String, required: false },
+    sourceDefinitionVersion: { type: String, required: false, maxlength: 64 },
+    notificationProducerVersion: { type: String, required: false, maxlength: 64 },
+    processingVersion: { type: String, required: false, maxlength: 96 },
     fetchIntervalMinutes: { type: Number, required: false, min: 5, max: 10080, default: 180 },
     discoveredAt: { type: Date, required: false },
     trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
@@ -278,6 +286,53 @@ announcementSourceSchema.index({ scopeType: 1, scopeId: 1, status: 1 }, { name: 
 announcementSourceSchema.index({ sourceUrl: 1, scopeType: 1, scopeId: 1 }, { unique: true, name: "announcement_sources_unique_scope_url" });
 announcementSourceSchema.index({ canonicalUrl: 1, scopeType: 1, scopeId: 1 }, { name: "announcement_sources_canonical_scope" });
 announcementSourceSchema.index({ status: 1, lastCheckedAt: 1 }, { name: "announcement_sources_due_checks" });
+
+function studentRelevanceSchemaFields() {
+  const supportedAudiences = [
+    "all_students", "prospective_students", "associate_students", "bachelor_students",
+    "master_students", "doctoral_students", "graduates"
+  ];
+  return {
+    studentRelevance: { type: String, required: false, enum: ["relevant", "not_relevant", "uncertain"] },
+    topic: {
+      type: String,
+      required: false,
+      enum: [
+        "academic_calendar", "course_registration", "exam", "scholarship", "internship", "exchange",
+        "graduation", "tuition", "housing", "student_event", "personnel_recruitment", "procurement",
+        "internal_operations", "unknown"
+      ]
+    },
+    audience: {
+      type: Schema.Types.Mixed,
+      required: false,
+      validate: {
+        validator: (value: unknown) => value === "unknown" || (
+          Array.isArray(value)
+          && value.every((entry) => supportedAudiences.includes(entry as string))
+        ),
+        message: "audience must be unknown or a supported student audience list"
+      }
+    },
+    actionType: { type: String, required: false, enum: ["apply", "attend", "pay", "register", "review", "submit", "unknown"] },
+    deadline: { type: String, required: false, match: /^(?:unknown|\d{4}-\d{2}-\d{2})$/u },
+    urgency: { type: String, required: false, enum: ["critical", "high", "normal", "low", "unknown"] },
+    evidenceSpans: {
+      type: [{
+        _id: false,
+        targetField: { type: String, required: true, enum: ["studentRelevance", "topic", "audience", "actionType", "deadline", "urgency"] },
+        sourceField: { type: String, required: true, maxlength: 64 },
+        start: { type: Number, required: true, min: 0 },
+        end: { type: Number, required: true, min: 1 },
+        text: { type: String, required: true, maxlength: 240 },
+        ruleId: { type: String, required: true, maxlength: 96 }
+      }],
+      required: false,
+      default: undefined
+    },
+    classificationVersion: { type: String, required: false, enum: ["student-relevance-rules-v1"] }
+  };
+}
 
 export const announcementItemSchema = new Schema(
   {
@@ -316,6 +371,7 @@ export const announcementItemSchema = new Schema(
     }],
     fetchedAt: { type: String, required: false },
     freshness: { type: String, required: false, enum: ["fresh", "stale"], default: "fresh" },
+    ...studentRelevanceSchemaFields(),
     trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
     trustReasonCodes: [{ type: String, required: false }],
     dedupeKey: { type: String, required: false, trim: true, index: true },
@@ -329,6 +385,15 @@ announcementItemSchema.index({ sourceId: 1, canonicalUrl: 1 }, { name: "announce
 announcementItemSchema.index({ trustStatus: 1, dedupeKey: 1 }, { name: "announcement_items_trust_dedupe" });
 announcementItemSchema.index({ scopeType: 1, scopeId: 1 }, { name: "announcement_items_scope" });
 announcementItemSchema.index({ scopeType: 1, scopeId: 1, contentFingerprint: 1 }, { name: "announcement_items_scope_fingerprint" });
+
+export const announcementSnapshotSchema = new Schema(
+  {
+    sourceId: { type: String, required: true },
+    items: { type: [Schema.Types.Mixed], required: true, default: undefined },
+    snapshotHash: { type: String, required: true, match: /^[a-f\d]{64}$/u }
+  },
+  { collection: "announcement_snapshots", timestamps: true }
+);
 
 export const savedAnnouncementSchema = new Schema(
   {
@@ -419,6 +484,7 @@ export const academicEventSchema = new Schema(
     sourcePdfId: { type: String, required: false },
     sourcePage: { type: Number, required: false },
     confidenceScore: { type: Number, required: false, min: 0, max: 100 },
+    ...studentRelevanceSchemaFields(),
     status: { type: String, required: true, enum: ["draft", "approved", "published", "archived"], index: true },
     notificationRules: [
       {
@@ -443,6 +509,9 @@ export const pdfSourceSchema = new Schema(
     fileName: { type: String, required: true },
     filePath: { type: String, required: true },
     fileHash: { type: String, required: true },
+    binarySha256: { type: String, required: false, match: /^[a-f\d]{64}$/u },
+    binaryIdentityVerified: { type: Boolean, required: false, default: false },
+    activeExtractedEventIds: { type: [{ type: String }], required: false, default: undefined },
     fileSize: { type: Number, required: true, min: 1 },
     mimeType: { type: String, required: true },
     magicBytesHex: { type: String, required: true },
@@ -488,6 +557,11 @@ export const extractedEventSchema = new Schema(
     term: { type: String, required: true },
     sourcePage: { type: Number, required: true, min: 1 },
     confidenceScore: { type: Number, required: true, min: 0, max: 100, index: true },
+    semanticKey: { type: String, required: false, maxlength: 128 },
+    sourceEventKey: { type: String, required: false, maxlength: 128 },
+    extractionFingerprint: { type: String, required: false, match: /^[a-f\d]{64}$/u },
+    observedPdfSourceIds: { type: [{ type: String }], required: false, default: undefined },
+    ...studentRelevanceSchemaFields(),
     status: { type: String, required: true, enum: ["pending_review", "approved", "rejected"], index: true },
     adminNote: { type: String, required: false },
     reviewedBy: { type: String, required: false },

@@ -41,8 +41,16 @@ describe("calendar notification reconciliation", () => {
       restartedService,
       restartedScheduler
     );
-    await expect(reconciliationScan.onApplicationBootstrap()).resolves.toBeUndefined();
-    await expect(reconciliationScan.onApplicationBootstrap()).resolves.toBeUndefined();
+    await expect(reconciliationScan.reconcilePublishedCalendarNotifications()).resolves.toEqual({
+      checked: 1,
+      reconciled: 1,
+      failed: 0
+    });
+    await expect(reconciliationScan.reconcilePublishedCalendarNotifications()).resolves.toEqual({
+      checked: 1,
+      reconciled: 1,
+      failed: 0
+    });
     const reconciledJobs = await notifications.listJobsByCalendar(draftCalendar.id);
     expect(reconciledJobs).toHaveLength(1);
     expect(reconciledJobs[0]).toEqual(expect.objectContaining({ destinationId: draftEvent.id, status: "scheduled" }));

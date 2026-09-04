@@ -107,6 +107,29 @@ describe("safe outbound requests", () => {
     ]);
   });
 
+  it("returns a 304 conditional response without requiring a redirect location", async () => {
+    const response = await safeOutboundRequest("https://example.edu.tr/announcements", {
+      timeoutMs: 1_000,
+      headers: { "If-None-Match": '"snapshot-v1"' }
+    }, {
+      resolveHostname: async () => [firstPublicAddress],
+      requestHop: async (_url, pinnedAddress, input) => {
+        expect(input.headers).toMatchObject({ "If-None-Match": '"snapshot-v1"' });
+        return {
+          status: 304,
+          headers: { etag: '"snapshot-v1"' },
+          body: Buffer.alloc(0),
+          remoteAddress: pinnedAddress.address
+        };
+      }
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      status: 304,
+      finalUrl: "https://example.edu.tr/announcements"
+    }));
+  });
+
   it("rejects a connected address that differs from the DNS-pinned destination", async () => {
     await expect(safeOutboundRequest("https://example.edu.tr/start", {
       timeoutMs: 1_000

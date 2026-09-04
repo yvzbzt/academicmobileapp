@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { compareEventStart, eventIsCurrentOrFuture, eventMatchesTemporalFilters } from "./calendar-temporal.js";
-import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, UpcomingEventFilters } from "./calendar.types.js";
+import type { AcademicCalendarRecord, AcademicEventRecord, CalendarEventFilters, CalendarEventScope, CalendarRepository, PublishedCalendarReconciliation, UpcomingEventFilters } from "./calendar.types.js";
 
 @Injectable()
 export class InMemoryCalendarRepository implements CalendarRepository {
@@ -22,9 +22,11 @@ export class InMemoryCalendarRepository implements CalendarRepository {
     );
   }
 
-  async listPublishedCalendars(input: { limit: number; offset: number }): Promise<AcademicCalendarRecord[]> {
+  async listPublishedCalendars(input: { universityId?: string; academicYear?: string; limit: number; offset: number }): Promise<AcademicCalendarRecord[]> {
     return this.calendars
       .filter((calendar) => calendar.status === "published")
+      .filter((calendar) => !input.universityId || calendar.universityId === input.universityId)
+      .filter((calendar) => !input.academicYear || calendar.academicYear === input.academicYear)
       .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id, "en-US"))
       .slice(input.offset, input.offset + input.limit);
   }
@@ -50,11 +52,16 @@ export class InMemoryCalendarRepository implements CalendarRepository {
     return updated;
   }
 
-  async archivePublishedCalendars(universityId: string, academicYear: string): Promise<number> {
+  async archivePublishedCalendars(universityId: string, academicYear: string, excludeCalendarId?: string): Promise<number> {
     let archivedCount = 0;
     const archivedCalendarIds = new Set<string>();
     for (const [index, calendar] of this.calendars.entries()) {
-      if (calendar.universityId === universityId && calendar.academicYear === academicYear && calendar.status === "published") {
+      if (
+        calendar.universityId === universityId
+        && calendar.academicYear === academicYear
+        && calendar.status === "published"
+        && calendar.id !== excludeCalendarId
+      ) {
         this.calendars[index] = { ...calendar, status: "archived", updatedAt: new Date() };
         archivedCalendarIds.add(calendar.id);
         archivedCount += 1;
@@ -68,6 +75,30 @@ export class InMemoryCalendarRepository implements CalendarRepository {
       }
     }
     return archivedCount;
+  }
+
+  async reconcilePublishedCalendars(
+    universityId: string,
+    academicYear: string,
+    candidateCalendarIds?: readonly string[]
+  ): Promise<PublishedCalendarReconciliation> {
+    const candidateIdSet = candidateCalendarIds ? new Set(candidateCalendarIds) : undefined;
+    const candidates = this.calendars
+      .filter((calendar) => (
+        calendar.universityId === universityId
+        && calendar.academicYear === academicYear
+        && calendar.status === "published"
+        && (!candidateIdSet || candidateIdSet.has(calendar.id))
+      ))
+      .sort(compareCalendarPublicationWinner);
+    const winner = candidates[0];
+    if (!winner) return { winnerCalendarId: null, archivedCalendarCount: 0, archivedCalendarIds: [] };
+    const archivedCalendarIds = candidates.slice(1).map((calendar) => calendar.id);
+    for (const calendarId of archivedCalendarIds) {
+      await this.updateCalendar(calendarId, { status: "archived" });
+      await this.updateEventsByCalendar(calendarId, { status: "archived" });
+    }
+    return { winnerCalendarId: winner.id, archivedCalendarCount: archivedCalendarIds.length, archivedCalendarIds };
   }
 
   async createEvents(input: Array<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<AcademicEventRecord[]> {
@@ -169,5 +200,11 @@ function matchesExactScope(event: AcademicEventRecord, facultyId?: string, depar
 }
 
 function compareCalendarFreshness(left: AcademicCalendarRecord, right: AcademicCalendarRecord): number {
-  return right.academicYear.localeCompare(left.academicYear, "en-US") || right.version - left.version;
+  return right.academicYear.localeCompare(left.academicYear, "en-US") || compareCalendarPublicationWinner(left, right);
+}
+
+function compareCalendarPublicationWinner(left: AcademicCalendarRecord, right: AcademicCalendarRecord): number {
+  return right.version - left.version
+    || right.createdAt.getTime() - left.createdAt.getTime()
+    || right.id.localeCompare(left.id, "en-US");
 }

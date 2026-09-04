@@ -783,7 +783,7 @@ function App() {
   async function createPdfSource(event: FormEvent<HTMLFormElement>) {
     if (!ensureToken()) return;
     const values = formData(event);
-    const source = await request<{ id: string }>("/admin/pdf-sources", { method: "POST", body: JSON.stringify({ universityId: values.universityId, fileName: values.fileName, mimeType: "application/pdf", magicBytesHex: "255044462d312e37", fileSize: Number(values.fileSize), pageCount: Number(values.pageCount), academicYear: values.academicYear, rawText: values.rawText }) });
+    const source = await request<{ id: string }>("/admin/pdf-sources", { method: "POST", body: JSON.stringify({ universityId: values.universityId, fileName: values.fileName, mimeType: "application/pdf", magicBytesHex: "255044462d312e37", fileSize: Number(values.fileSize), pageCount: Number(values.pageCount), academicYear: values.academicYear, url: values.url }) });
     setPdfSourceId(source.id);
     setMessage("PDF kaynağı oluşturuldu");
   }
@@ -1610,10 +1610,10 @@ function PdfPage(props: any) {
         <form className="gridForm" onSubmit={props.createPdfSource}>
           <input name="universityId" value={props.universityId} onChange={(event) => props.setUniversityId(event.target.value)} placeholder="Üniversite ID" required aria-label="PDF kaynağı için üniversite ID" />
           <input name="academicYear" placeholder="2026-2027" required aria-label="Akademik yıl" />
+          <input name="url" type="url" placeholder="Resmî doğrudan PDF adresi" required aria-label="Resmî doğrudan PDF adresi" />
           <input name="fileName" placeholder="calendar.pdf" required aria-label="Dosya adı" />
           <input name="fileSize" type="number" min="1" defaultValue="4096" required aria-label="Dosya boyutu" />
           <input name="pageCount" type="number" min="1" max="100" defaultValue="2" required aria-label="Sayfa sayısı" />
-          <textarea name="rawText" placeholder="PDF'den çıkarılan metin" required aria-label="Ham çıkarılmış metin" />
           <button className="btn btn-primary" disabled={!props.hasToken}><Check size={18} /> Kaynak Oluştur</button>
         </form>
         <div className="toolbar three">

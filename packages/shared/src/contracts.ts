@@ -20,7 +20,31 @@ export interface UniversitySummaryDto {
 
 export type AcademicEventTemporalKind = "date" | "timestamp";
 
-export interface AcademicEventDto {
+export type StudentRelevanceDto = "relevant" | "not_relevant" | "uncertain";
+export type StudentContentUrgencyDto = "critical" | "high" | "normal" | "low" | "unknown";
+
+export interface StudentRelevanceEvidenceSpanDto {
+  targetField: "studentRelevance" | "topic" | "audience" | "actionType" | "deadline" | "urgency";
+  sourceField: string;
+  start: number;
+  end: number;
+  text: string;
+  ruleId: string;
+}
+
+/** Optional deterministic enrichment. It never controls trust, ownership, ordering, or visibility. */
+export interface StudentRelevanceMetadataDto {
+  studentRelevance: StudentRelevanceDto;
+  topic: string;
+  audience: readonly string[] | "unknown";
+  actionType: string;
+  deadline: string | "unknown";
+  urgency: StudentContentUrgencyDto;
+  evidenceSpans: readonly StudentRelevanceEvidenceSpanDto[];
+  classificationVersion: string;
+}
+
+export interface AcademicEventDto extends Partial<StudentRelevanceMetadataDto> {
   id: string;
   universityId: string;
   calendarId: string;
@@ -77,7 +101,7 @@ export interface AcademicContentSourceRelationshipDto {
  * content. Persistence-only trust/audit fields such as raw titles and
  * quarantine reasons must never be serialized into this shape.
  */
-export interface TrustedAcademicContentDto {
+export interface TrustedAcademicContentDto extends Partial<StudentRelevanceMetadataDto> {
   id: string;
   sourceId: string;
   sourceName: string;

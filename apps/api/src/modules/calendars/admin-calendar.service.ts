@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, Inject, Injectable, InternalServerErrorException, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, InternalServerErrorException, NotFoundException, Optional } from "@nestjs/common";
 import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import { resolveSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { requireSourceAuthority } from "../../domain/source-authority-enforcement.js";
 import type { SourceAuthorityBoundary, SourceAuthorityResource } from "../../domain/source-authority-policy.js";
+import { classifyStudentRelevance } from "../../domain/student-relevance-classifier.js";
 import type { PdfRepository } from "../pdf/pdf.types.js";
+import { loadCompletePdfExtractedEventSnapshot } from "../pdf/pdf-processing.service.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord } from "../catalog/catalog.types.js";
 import { AuditService } from "../audit/audit.service.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
-import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
+import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository, PublishedCalendarReconciliation } from "./calendar.types.js";
 import type { AcademicEventCategory, AcademicTerm } from "../../domain/academic-event.types.js";
 import { academicTemporalFields, academicTemporalFieldsFromRecord } from "./calendar-temporal.js";
 
@@ -92,13 +94,14 @@ export class AdminCalendarService {
     if (source.url) {
       await this.requireExternalSourceAuthority(input.universityId, source.url, "publication", "pdf");
     }
+    if (!source.binaryIdentityVerified || !source.binarySha256) {
+      throw new BadRequestException("A verified PDF binary identity is required to create a calendar draft.");
+    }
 
-    const approvedExtractedEvents = await this.pdfRepository.listExtractedEvents({
-      pdfSourceId: input.sourcePdfId,
-      status: "approved",
-      limit: 500,
-      offset: 0
-    });
+    const approvedExtractedEvents = (await loadCompletePdfExtractedEventSnapshot(
+      this.pdfRepository,
+      input.sourcePdfId
+    )).extractedEvents.filter((event) => event.status === "approved");
     if (approvedExtractedEvents.length === 0) throw new BadRequestException("At least one approved extracted event is required to create a calendar draft.");
     const validatedEvents = approvedExtractedEvents.map((event) => ({
       event,
@@ -131,9 +134,10 @@ export class AdminCalendarService {
         timezone: event.timezone,
         originalDateText: event.originalDateText,
         originalText: event.rawText,
-        sourcePdfId: event.pdfSourceId,
+        sourcePdfId: input.sourcePdfId,
         sourcePage: event.sourcePage,
         confidenceScore: event.confidenceScore,
+        ...classifyStudentRelevance({ title: event.normalizedTitle, body: event.rawText }),
         status: "approved",
         notificationRules: [
           { offsetDays: 7, enabled: true },
@@ -184,6 +188,10 @@ export class AdminCalendarService {
           ...(event.courseName?.trim() ? { courseName: event.courseName.trim() } : {}),
           ...(event.description ? { description: event.description.trim() } : {}),
           ...(event.location?.trim() ? { location: event.location.trim() } : {}),
+          ...classifyStudentRelevance({
+            title: event.title.trim(),
+            ...(event.description ? { body: event.description.trim() } : {})
+          }),
           ...temporal,
           timezone: "Europe/Istanbul" as const,
           status: "approved" as const,
@@ -239,6 +247,10 @@ export class AdminCalendarService {
       title: event.title.trim(),
       ...(event.courseName?.trim() ? { courseName: event.courseName.trim() } : {}),
       ...(event.location?.trim() ? { location: event.location.trim() } : {}),
+      ...classifyStudentRelevance({
+        title: event.title.trim(),
+        ...(event.courseName?.trim() ? { body: event.courseName.trim() } : {})
+      }),
       scheduleSeriesId: seriesId,
       ...temporal,
       timezone: "Europe/Istanbul" as const,
@@ -314,37 +326,172 @@ export class AdminCalendarService {
     await this.requireCalendarPublicationAuthority(calendar);
     if (calendar.status === "published") {
       // Repair a publication interrupted after the parent calendar was persisted but
-      // before its child events (or notification jobs) were durably reconciled.
-      await this.calendarRepository.updateEventsByCalendar(calendarId, { status: "published" });
-      const publishedEvents = await this.calendarRepository.listEventsByCalendar(calendarId);
-      await this.notificationSchedulingService?.scheduleCalendarPublished(calendar, publishedEvents);
-      return { calendar, publishedEvents, archivedCalendarCount: 0 };
+      // before its superseded snapshot (or notification jobs) was durably reconciled.
+      const storedEvents = await this.calendarRepository.listEventsByCalendar(calendarId);
+      const calendarSnapshotEvents = storedEvents.filter((event) => !event.scheduleSeriesId);
+      if (
+        calendarSnapshotEvents.length === 0
+        || calendarSnapshotEvents.some((event) => event.status !== "published")
+      ) {
+        throw new InternalServerErrorException("Published calendar snapshot is incomplete.");
+      }
+      const publishedEvents = storedEvents.filter((event) => event.status === "published");
+      const reconciled = await this.finalizeCalendarPublication(calendar, publishedEvents);
+      return { calendar: reconciled.calendar, publishedEvents, archivedCalendarCount: reconciled.archivedCalendarCount };
     }
     if (calendar.status !== "draft") throw new BadRequestException("Only draft calendars can be published.");
 
     const draftEvents = await this.calendarRepository.listEventsByCalendar(calendarId);
     if (draftEvents.length === 0) throw new BadRequestException("Calendar must have at least one event before publishing.");
-    if (draftEvents.some((event) => event.status !== "approved")) throw new BadRequestException("All calendar events must be approved before publishing.");
+    if (draftEvents.some((event) => event.status !== "approved" && event.status !== "published")) {
+      throw new BadRequestException("All calendar events must be approved before publishing.");
+    }
 
-    const archivedCalendarCount = await this.calendarRepository.archivePublishedCalendars(calendar.universityId, calendar.academicYear);
+    // Child events are prepared first but remain invisible while their parent is a
+    // draft. The single parent status update is the snapshot visibility boundary.
+    await this.calendarRepository.updateEventsByCalendar(calendarId, { status: "published" });
+    const publishedEvents = await this.calendarRepository.listEventsByCalendar(calendarId);
+    if (publishedEvents.length !== draftEvents.length || publishedEvents.some((event) => event.status !== "published")) {
+      throw new InternalServerErrorException("Calendar events could not be prepared for publication.");
+    }
     const publishedCalendar = await this.calendarRepository.updateCalendar(calendarId, {
       status: "published",
       publishedAt: new Date(),
       approvedBy
     });
     if (!publishedCalendar) throw new NotFoundException("Calendar not found.");
-    await this.calendarRepository.updateEventsByCalendar(calendarId, { status: "published" });
-    const publishedEvents = await this.calendarRepository.listEventsByCalendar(calendarId);
-    await this.notificationSchedulingService?.scheduleCalendarPublished(publishedCalendar, publishedEvents);
+    const reconciled = await this.finalizeCalendarPublication(publishedCalendar, publishedEvents);
     await this.auditService?.record({
       actorId: approvedBy,
       action: "calendar.published",
       entityType: "academic_calendar",
       entityId: calendarId,
-      metadata: { universityId: calendar.universityId, academicYear: calendar.academicYear, eventCount: publishedEvents.length, archivedCalendarCount }
+      metadata: { universityId: calendar.universityId, academicYear: calendar.academicYear, eventCount: publishedEvents.length, archivedCalendarCount: reconciled.archivedCalendarCount }
     });
 
-    return { calendar: publishedCalendar, publishedEvents, archivedCalendarCount };
+    return { calendar: reconciled.calendar, publishedEvents, archivedCalendarCount: reconciled.archivedCalendarCount };
+  }
+
+  private async reconcilePublishedCalendar(calendar: AcademicCalendarRecord): Promise<{
+    calendar: AcademicCalendarRecord;
+    archivedCalendarCount: number;
+  }> {
+    const reconciliation = await this.reconcilePublishedCalendarScope(
+      calendar.universityId,
+      calendar.academicYear
+    );
+    const current = await this.calendarRepository.findCalendarById(calendar.id);
+    if (reconciliation.winnerCalendarId !== calendar.id || current?.status !== "published") {
+      await this.calendarRepository.updateCalendar(calendar.id, { status: "archived" });
+      await this.calendarRepository.updateEventsByCalendar(calendar.id, { status: "archived" });
+      await this.notificationSchedulingService?.retireCalendarJobs(calendar.id);
+      throw new ConflictException("Another calendar won concurrent publication for this university and academic year.");
+    }
+    return { calendar: current, archivedCalendarCount: reconciliation.archivedCalendarCount };
+  }
+
+  private async finalizeCalendarPublication(
+    calendar: AcademicCalendarRecord,
+    publishedEvents: AcademicEventRecord[]
+  ): Promise<{ calendar: AcademicCalendarRecord; archivedCalendarCount: number }> {
+    const initial = await this.reconcilePublishedCalendar(calendar);
+    await this.notificationSchedulingService?.scheduleCalendarPublished(initial.calendar, publishedEvents);
+
+    // A contender can be superseded while its own producer jobs are being synced.
+    // Confirm the deterministic winner after scheduling and retire only this
+    // calendar's producer if it lost.
+    const confirmation = await this.reconcilePublishedCalendarScope(
+      calendar.universityId,
+      calendar.academicYear
+    );
+    const current = await this.calendarRepository.findCalendarById(calendar.id);
+    if (confirmation.winnerCalendarId === calendar.id && current?.status === "published") {
+      return {
+        calendar: current,
+        archivedCalendarCount: initial.archivedCalendarCount + confirmation.archivedCalendarCount
+      };
+    }
+
+    await this.calendarRepository.updateCalendar(calendar.id, { status: "archived" });
+    await this.calendarRepository.updateEventsByCalendar(calendar.id, { status: "archived" });
+    await this.notificationSchedulingService?.retireCalendarJobs(calendar.id);
+    await this.repairPublishedCalendarNotifications(
+      calendar.universityId,
+      calendar.academicYear,
+      confirmation.winnerCalendarId
+    );
+    throw new ConflictException("Another calendar won concurrent publication for this university and academic year.");
+  }
+
+  private async repairPublishedCalendarNotifications(
+    universityId: string,
+    academicYear: string,
+    initialWinnerCalendarId: string | null
+  ): Promise<void> {
+    if (!this.notificationSchedulingService || !initialWinnerCalendarId) return;
+    let winnerCalendarId: string | null = initialWinnerCalendarId;
+
+    for (let attempt = 0; attempt < 3 && winnerCalendarId; attempt += 1) {
+      const winner = await this.calendarRepository.findCalendarById(winnerCalendarId);
+      if (!winner || winner.status !== "published") {
+        const reconciliation = await this.reconcilePublishedCalendarScope(universityId, academicYear);
+        winnerCalendarId = reconciliation.winnerCalendarId;
+        continue;
+      }
+      const events = await this.calendarRepository.listEventsByCalendar(winner.id);
+      if (events.length === 0 || events.some((event) => event.status !== "published")) {
+        throw new InternalServerErrorException("Published calendar snapshot is incomplete.");
+      }
+      await this.notificationSchedulingService.scheduleCalendarPublished(winner, events);
+
+      const confirmation = await this.reconcilePublishedCalendarScope(universityId, academicYear);
+      const current = await this.calendarRepository.findCalendarById(winner.id);
+      if (confirmation.winnerCalendarId === winner.id && current?.status === "published") return;
+      await this.notificationSchedulingService.retireCalendarJobs(winner.id);
+      winnerCalendarId = confirmation.winnerCalendarId;
+    }
+
+    throw new InternalServerErrorException("Published calendar notification reconciliation did not stabilize.");
+  }
+
+  private async retireArchivedCalendarJobs(calendarIds: readonly string[]): Promise<void> {
+    if (!this.notificationSchedulingService) return;
+    for (const calendarId of calendarIds) {
+      await this.notificationSchedulingService.retireCalendarJobs(calendarId);
+    }
+  }
+
+  private async reconcilePublishedCalendarScope(
+    universityId: string,
+    academicYear: string
+  ): Promise<PublishedCalendarReconciliation> {
+    const observed = await this.calendarRepository.listPublishedCalendars({
+      universityId,
+      academicYear,
+      limit: 5_001,
+      offset: 0
+    });
+    try {
+      const reconciliation = await this.calendarRepository.reconcilePublishedCalendars(universityId, academicYear);
+      await this.retireArchivedCalendarJobs(reconciliation.archivedCalendarIds);
+      return reconciliation;
+    } catch (error) {
+      // If persistence completed but its response was lost, identify the observed
+      // parents that are now archived and finish their child/job cleanup. The
+      // original error is still surfaced so the caller can retry idempotently.
+      for (const calendar of observed) {
+        try {
+          const current = await this.calendarRepository.findCalendarById(calendar.id);
+          if (current?.status !== "archived") continue;
+          await this.calendarRepository.updateEventsByCalendar(calendar.id, { status: "archived" });
+          await this.notificationSchedulingService?.retireCalendarJobs(calendar.id);
+        } catch {
+          // Preserve the reconciliation error; a later retry/worker scan can repair
+          // any cleanup whose backing store is still unavailable.
+        }
+      }
+      throw error;
+    }
   }
 
   private async requireCalendarPublicationAuthority(calendar: AcademicCalendarRecord): Promise<void> {
@@ -356,6 +503,9 @@ export class AdminCalendarService {
       }
       if (source.url) {
         await this.requireExternalSourceAuthority(calendar.universityId, source.url, "publication", "pdf");
+      }
+      if (!source.binaryIdentityVerified || !source.binarySha256) {
+        throw new BadRequestException("A verified PDF binary identity is required to publish a calendar.");
       }
     }
     if (calendar.sourceUrl) {

@@ -9,7 +9,7 @@ import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import type { CalendarScopeView } from "./calendar.dto.js";
 import { isProductionSecret } from "../../config/production-secret.js";
-import { CalendarIngestionService, isAcceptableAcademicYear, isUnitSpecificCalendarSource } from "./calendar-ingestion.service.js";
+import { isAcceptableAcademicYear, isUnitSpecificCalendarSource } from "./calendar-ingestion.service.js";
 import { compareEventStart, instantBoundaryForIstanbulCalendarDate, temporalStartValue } from "./calendar-temporal.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository, CalendarTemporalFilterBoundary } from "./calendar.types.js";
 
@@ -101,7 +101,6 @@ export class CalendarService {
     @Inject("CalendarRepository") private readonly calendarRepository: CalendarRepository,
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
-    @Optional() @Inject(CalendarIngestionService) private readonly calendarIngestionService?: CalendarIngestionService,
     @Optional() @Inject("AnnouncementRepository") private readonly announcementRepository?: AnnouncementRepository
   ) {}
 
@@ -110,7 +109,7 @@ export class CalendarService {
     if (!user) throw new NotFoundException("User not found.");
     if (!user.universityId) throw new BadRequestException("User must select a university first.");
 
-    const calendar = await this.findPublishedCalendarOrIngest(user.universityId);
+    const calendar = await this.findPublishedCalendar(user.universityId);
     if (!calendar) throw new NotFoundException("Selected university academic calendar is not available yet.");
 
     const events = (await this.calendarRepository.listPublishedEvents({
@@ -148,7 +147,7 @@ export class CalendarService {
   }
 
   async getUniversityCalendar(universityId: string, academicYear?: string): Promise<CalendarWithEventsResponse> {
-    const calendar = await this.findPublishedCalendarOrIngest(universityId, academicYear);
+    const calendar = await this.findPublishedCalendar(universityId, academicYear);
     if (!calendar) throw new NotFoundException("Selected university academic calendar is not available yet.");
     const events = (await this.calendarRepository.listPublishedEvents({
       calendarId: calendar.id,
@@ -163,7 +162,6 @@ export class CalendarService {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
     if (!user.universityId) throw new BadRequestException("User must select a university first.");
-    await this.findPublishedCalendarOrIngest(user.universityId);
     return this.calendarRepository.listUpcomingEvents({
       universityId: user.universityId,
       ...(user.facultyId ? { facultyId: user.facultyId } : {}),
@@ -203,7 +201,6 @@ export class CalendarService {
     if (!user.universityId) throw new BadRequestException("User must select a university first.");
 
     const [university, faculty, department] = await this.resolveAcademicProfile(user.universityId, user.facultyId, user.departmentId);
-    await this.findPublishedCalendarOrIngest(user.universityId);
     const userSummerEvents = await this.listSummerSchoolEvents({
       universityId: user.universityId,
       ...(user.facultyId ? { facultyId: user.facultyId } : {}),
@@ -376,32 +373,10 @@ export class CalendarService {
     return department?.[input.sourceField] ?? verified?.[input.sourceField];
   }
 
-  private async findPublishedCalendarOrIngest(universityId: string, academicYear?: string): Promise<AcademicCalendarRecord | null> {
+  private async findPublishedCalendar(universityId: string, academicYear?: string): Promise<AcademicCalendarRecord | null> {
     const existing = await this.calendarRepository.findPublishedCalendar(universityId, academicYear);
-    if (existing && (academicYear || isAcceptableAcademicYear(existing.academicYear))) {
-      if (isUnitSpecificCalendar(existing)) {
-        await this.calendarRepository.updateCalendar(existing.id, { status: "archived" });
-        return this.findPublishedCalendarOrIngest(universityId, academicYear);
-      } else {
-        if (process.env.CALENDAR_AUTO_INGEST_ON_MISS === "false") return existing;
-        const events = await this.calendarRepository.listPublishedEvents({ calendarId: existing.id, universityId, limit: 1, offset: 0 });
-        if (events.length > 0) return existing;
-
-        const retried = await this.calendarIngestionService?.ensurePublishedCalendarForUniversity(universityId, academicYear);
-        return retried?.calendar && !isUnitSpecificCalendar(retried.calendar) ? retried.calendar : existing;
-      }
-    }
-    if (process.env.CALENDAR_AUTO_INGEST_ON_MISS === "false") return null;
-
-    const ingested = await this.calendarIngestionService?.ensurePublishedCalendarForUniversity(universityId, academicYear);
-    if (ingested?.calendar && (academicYear || isAcceptableAcademicYear(ingested.calendar.academicYear)) && !isUnitSpecificCalendar(ingested.calendar)) return ingested.calendar;
-    const refreshed = await this.calendarRepository.findPublishedCalendar(universityId, academicYear);
-    if (!refreshed || (!academicYear && !isAcceptableAcademicYear(refreshed.academicYear))) return null;
-    if (isUnitSpecificCalendar(refreshed)) {
-      await this.calendarRepository.updateCalendar(refreshed.id, { status: "archived" });
-      return null;
-    }
-    return refreshed;
+    if (!existing || (!academicYear && !isAcceptableAcademicYear(existing.academicYear))) return null;
+    return isUnitSpecificCalendar(existing) ? null : existing;
   }
 
   private async listSummerSchoolEvents(input: { universityId?: string; facultyId?: string; departmentId?: string; limit: number }): Promise<AcademicEventRecord[]> {

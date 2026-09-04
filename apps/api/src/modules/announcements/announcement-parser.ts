@@ -6,6 +6,7 @@ import {
   type SourceAuthorityContext
 } from "../../domain/source-authority-enforcement.js";
 import type { SourceAuthorityResource } from "../../domain/source-authority-policy.js";
+import { classifyStudentRelevance } from "../../domain/student-relevance-classifier.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import {
   academicContentLogicalIdentityKey,
@@ -47,12 +48,33 @@ export interface SourceAuthorityFetchContext {
 export interface FetchedSourceSnapshot {
   items: ParsedAnnouncementItem[];
   finalUrl: string;
+  fetchStatus: "fetched" | "not_modified";
+  etag?: string;
+  lastModified?: string;
+  contentHash?: string;
 }
 
 export interface FetchTextInput {
   accept?: string;
   authority?: SourceAuthorityContext;
   resource?: SourceAuthorityResource;
+  etag?: string;
+  lastModified?: string;
+}
+
+export interface SourceSnapshotValidators {
+  etag?: string;
+  lastModified?: string;
+  contentHash?: string;
+}
+
+export interface FetchedText {
+  text: string;
+  finalUrl: string;
+  status: number;
+  etag?: string;
+  lastModified?: string;
+  contentHash?: string;
 }
 
 export async function fetchSourceItems(
@@ -68,24 +90,49 @@ export async function fetchSourceSnapshot(
   sourceUrl: string,
   parser: AnnouncementSourceParser,
   timeoutMs = 7000,
-  authorityContext?: SourceAuthorityFetchContext
+  authorityContext?: SourceAuthorityFetchContext,
+  validators: SourceSnapshotValidators = {}
 ): Promise<FetchedSourceSnapshot> {
   const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
-  const atuSnapshot = await fetchAtuContentItems(officialSourceUrl, timeoutMs, authorityContext);
+  const atuSnapshot = await fetchAtuContentItems(officialSourceUrl, timeoutMs, authorityContext, validators);
   if (atuSnapshot) {
     return {
-      items: atuSnapshot.items.slice(0, 30),
-      finalUrl: atuSnapshot.finalUrl
+      ...atuSnapshot,
+      items: atuSnapshot.items.slice(0, 30)
     };
   }
 
   const body = await fetchText(officialSourceUrl, timeoutMs, {
     accept: "text/html,application/json,application/rss+xml,application/xml;q=0.9,*/*;q=0.8",
-    ...(authorityContext ? authorityContext : {})
+    ...(authorityContext ? authorityContext : {}),
+    ...validators
   });
+  if (body.status === 304) {
+    return {
+      items: [],
+      finalUrl: body.finalUrl,
+      fetchStatus: "not_modified",
+      ...(body.etag ? { etag: body.etag } : {}),
+      ...(body.lastModified ? { lastModified: body.lastModified } : {})
+    };
+  }
+  if (body.contentHash && body.contentHash === validators.contentHash) {
+    return {
+      items: [],
+      finalUrl: body.finalUrl,
+      fetchStatus: "not_modified",
+      ...(body.etag ? { etag: body.etag } : {}),
+      ...(body.lastModified ? { lastModified: body.lastModified } : {}),
+      contentHash: body.contentHash
+    };
+  }
   return {
     items: parseFetchedSourceItems(body.text, body.finalUrl, parser).slice(0, 30),
-    finalUrl: body.finalUrl
+    finalUrl: body.finalUrl,
+    fetchStatus: "fetched",
+    ...(body.etag ? { etag: body.etag } : {}),
+    ...(body.lastModified ? { lastModified: body.lastModified } : {}),
+    ...(body.contentHash ? { contentHash: body.contentHash } : {})
   };
 }
 
@@ -117,7 +164,7 @@ export async function fetchText(
   sourceUrl: string,
   timeoutMs = 7000,
   input: FetchTextInput = {}
-): Promise<{ text: string; finalUrl: string; status: number }> {
+): Promise<FetchedText> {
   const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
   return fetchTextWithSafeRequest(officialSourceUrl, timeoutMs, input);
 }
@@ -139,6 +186,17 @@ export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItem
     const summary = normalizeDisplayText(item.summary, 1_200);
     const body = item.body ?? [];
     const keyDates = item.keyDates ?? [];
+    const studentMetadata = classifyStudentRelevance({
+      title: trust.title,
+      ...(summary ? { summary } : {}),
+      ...(body.length ? { body: body.map((block) => block.text).join("\n") } : {}),
+      ...(keyDates.length ? {
+        keyDates: keyDates.map((keyDate) => ({
+          label: keyDate.label,
+          value: keyDate.endDate ?? keyDate.startDate
+        }))
+      } : {})
+    });
     const freshness = isFreshAcademicContent({
       title: trust.title,
       url: trust.canonicalUrl,
@@ -174,7 +232,8 @@ export function toAnnouncementItems(source: AnnouncementSourceRecord, parsedItem
       freshness: "fresh",
       trustStatus: "trusted",
       trustReasonCodes: [],
-      dedupeKey: trust.dedupeKey
+      dedupeKey: trust.dedupeKey,
+      ...studentMetadata
     }];
   }));
 }
@@ -572,7 +631,8 @@ interface AtuContentRow {
 async function fetchAtuContentItems(
   sourceUrl: string,
   timeoutMs: number,
-  authorityContext?: SourceAuthorityFetchContext
+  authorityContext?: SourceAuthorityFetchContext,
+  validators: SourceSnapshotValidators = {}
 ): Promise<FetchedSourceSnapshot | null> {
   const descriptor = describeAtuContentSource(sourceUrl);
   if (!descriptor) return null;
@@ -598,8 +658,28 @@ async function fetchAtuContentItems(
   });
   const contentResponse = await fetchText(contentUrl, timeoutMs, {
     accept: "application/json",
-    ...(authorityContext ? authorityContext : {})
+    ...(authorityContext ? authorityContext : {}),
+    ...validators
   });
+  if (contentResponse.status === 304) {
+    return {
+      items: [],
+      finalUrl: contentResponse.finalUrl,
+      fetchStatus: "not_modified",
+      ...(contentResponse.etag ? { etag: contentResponse.etag } : {}),
+      ...(contentResponse.lastModified ? { lastModified: contentResponse.lastModified } : {})
+    };
+  }
+  if (contentResponse.contentHash && contentResponse.contentHash === validators.contentHash) {
+    return {
+      items: [],
+      finalUrl: contentResponse.finalUrl,
+      fetchStatus: "not_modified",
+      ...(contentResponse.etag ? { etag: contentResponse.etag } : {}),
+      ...(contentResponse.lastModified ? { lastModified: contentResponse.lastModified } : {}),
+      contentHash: contentResponse.contentHash
+    };
+  }
   const rows = parseAtuODataPayload<AtuContentRow>(contentResponse.text);
 
   const items = dedupeParsedItems(rows.flatMap((row) => {
@@ -626,7 +706,14 @@ async function fetchAtuContentItems(
     }, descriptor.sourceUrl.toString());
     return item ? [item] : [];
   }));
-  return { items, finalUrl: contentResponse.finalUrl };
+  return {
+    items,
+    finalUrl: contentResponse.finalUrl,
+    fetchStatus: "fetched",
+    ...(contentResponse.etag ? { etag: contentResponse.etag } : {}),
+    ...(contentResponse.lastModified ? { lastModified: contentResponse.lastModified } : {}),
+    ...(contentResponse.contentHash ? { contentHash: contentResponse.contentHash } : {})
+  };
 }
 
 function describeAtuContentSource(sourceUrl: string): AtuContentDescriptor | null {
@@ -1089,7 +1176,7 @@ async function fetchTextWithSafeRequest(
   sourceUrl: string,
   timeoutMs: number,
   input: FetchTextInput
-): Promise<{ text: string; finalUrl: string; status: number }> {
+): Promise<FetchedText> {
   const authorityContext = normalizeSourceAuthorityFetchContext(input);
   const response = await safeOutboundRequest(sourceUrl, {
     timeoutMs,
@@ -1098,7 +1185,9 @@ async function fetchTextWithSafeRequest(
     headers: {
       Accept: input.accept ?? "text/html,*/*;q=0.8",
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
-      "User-Agent": crawlerUserAgent
+      "User-Agent": crawlerUserAgent,
+      ...(input.etag ? { "If-None-Match": input.etag } : {}),
+      ...(input.lastModified ? { "If-Modified-Since": input.lastModified } : {})
     },
     validateUrl: (candidate, previousUrl) => {
       if (authorityContext) {
@@ -1115,14 +1204,25 @@ async function fetchTextWithSafeRequest(
       return requireOfficialRedirectUrl(candidate, sourceUrl, previousUrl ?? sourceUrl);
     }
   });
-  if (response.status < 200 || response.status >= 300) {
+  if (response.status !== 304 && (response.status < 200 || response.status >= 300)) {
     throw new Error(`SOURCE_FETCH_FAILED:${response.status}`);
   }
+  const etag = normalizedResponseValidator(response.headers.etag, 512);
+  const lastModified = normalizedResponseValidator(response.headers["last-modified"], 128);
   return {
     text: response.body.toString("utf8"),
     finalUrl: response.finalUrl,
-    status: response.status
+    status: response.status,
+    ...(etag ? { etag } : {}),
+    ...(lastModified ? { lastModified } : {}),
+    ...(response.status === 304 ? {} : { contentHash: createHash("sha256").update(response.body).digest("hex") })
   };
+}
+
+function normalizedResponseValidator(value: string | string[] | undefined, maximumLength: number): string | undefined {
+  const candidate = (Array.isArray(value) ? value[0] : value)?.trim();
+  if (!candidate || candidate.length > maximumLength || /[\r\n]/u.test(candidate)) return undefined;
+  return candidate;
 }
 
 function normalizeSourceAuthorityFetchContext(input: FetchTextInput): SourceAuthorityFetchContext | null {

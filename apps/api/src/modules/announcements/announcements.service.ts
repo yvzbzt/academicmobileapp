@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
@@ -27,7 +27,7 @@ export class AnnouncementsService {
     const user = await this.authRepository.findUserById(userId);
     if (!user) throw new NotFoundException("User not found.");
     const scopes = await this.academicScopesForUser(userId, user);
-    if (scopes.length === 0) throw new BadRequestException("User must select a university first.");
+    if (scopes.length === 0) return toContentCollection([], 0, 0);
     const boundedLimit = Math.min(Math.max(limit, 1), 100);
     const scopeResults = await Promise.all(scopes.map(async (scope) => {
       const sources = await this.announcementRepository.listSourcesByScope(scope);
@@ -71,7 +71,6 @@ export class AnnouncementsService {
         universityId: YOK_ANNOUNCEMENT_SCOPE_ID
       });
     if (!match) {
-      if (userScopes.length === 0) throw new BadRequestException("User must select a university first.");
       throw new NotFoundException("Trusted announcement not found.");
     }
     const presented = toTrustedAcademicContentDto(match.item, match.source);

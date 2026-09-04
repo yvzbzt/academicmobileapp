@@ -63,7 +63,9 @@ describe("announcement source-authority fetch boundary", () => {
 
     expect(snapshot).toEqual({
       items: [],
-      finalUrl: "https://news.example.edu.tr/announcements/"
+      finalUrl: "https://news.example.edu.tr/announcements/",
+      fetchStatus: "fetched",
+      contentHash: "bd02dd856212291f308b99f94a074ff0d5aa38584462a60b4f929b2d8a82de6a"
     });
     expect(requestHop).toHaveBeenCalledTimes(2);
     expect(requireAuthority).toHaveBeenCalledTimes(2);

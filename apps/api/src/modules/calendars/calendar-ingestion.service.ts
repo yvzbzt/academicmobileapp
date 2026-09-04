@@ -1,5 +1,4 @@
-import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
-import { PDFParse } from "pdf-parse";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { resolveSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { findVerifiedUniversitySource } from "../../bootstrap/verified-source-registry.js";
 import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
@@ -10,6 +9,12 @@ import {
   type SourceAuthorityContext
 } from "../../domain/source-authority-enforcement.js";
 import type { AcademicTerm } from "../../domain/academic-event.types.js";
+import {
+  STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
+  classifyStudentRelevance,
+  summarizeStudentRelevanceAudit,
+  type StudentRelevanceAuditCounts
+} from "../../domain/student-relevance-classifier.js";
 import { isFreshAcademicContent } from "../../domain/temporal-freshness.js";
 import type { CatalogRepository, UniversityRecord } from "../catalog/catalog.types.js";
 import { buildHomepageCandidates, isLikelyUniversityHomepage } from "../announcements/announcement-ingestion.service.js";
@@ -19,6 +24,8 @@ import { AdminCalendarService } from "./admin-calendar.service.js";
 import { academicTemporalFields, istanbulCalendarDate } from "./calendar-temporal.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
 import { PdfProcessingService } from "../pdf/pdf-processing.service.js";
+import { extractPdfBinaryText } from "../pdf/pdf-binary-text.js";
+import type { ExtractedEventRecord } from "../pdf/pdf.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
 export interface CalendarIngestionResult {
@@ -28,7 +35,14 @@ export interface CalendarIngestionResult {
   academicYear?: string;
   sourceUrl?: string;
   eventCount: number;
+  classificationAudit?: CalendarClassificationAudit;
   error?: string;
+}
+
+interface CalendarClassificationAudit {
+  mode: "shadow";
+  classificationVersion: typeof STUDENT_RELEVANCE_CLASSIFICATION_VERSION;
+  counts: StudentRelevanceAuditCounts;
 }
 
 export interface CalendarSourceDiscoveryResult {
@@ -51,11 +65,6 @@ interface DownloadedPdf {
   data: Buffer;
   fileName: string;
   magicBytesHex: string;
-}
-
-interface ExtractedPdfText {
-  text: string;
-  pageCount: number;
 }
 
 const academicCalendarPaths = [
@@ -104,10 +113,8 @@ const atuCalendarPageUrl = "https://www.atu.edu.tr/#!/sayfa/2061/51/f4d5eeb2-c7b
 const atuCalendarODataUrl = "https://odata.atu.edu.tr/odata/DataService.svc/V_AkademikTakvim?$format=json";
 
 @Injectable()
-export class CalendarIngestionService implements OnApplicationBootstrap, OnModuleDestroy {
+export class CalendarIngestionService {
   private readonly logger = new Logger(CalendarIngestionService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private initialTimer: NodeJS.Timeout | null = null;
   private readonly inFlight = new Map<string, Promise<{ calendar: AcademicCalendarRecord; events: AcademicEventRecord[] } | null>>();
 
   constructor(
@@ -117,19 +124,6 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     @Inject(AdminCalendarService) private readonly adminCalendarService: AdminCalendarService,
     @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
   ) {}
-
-  async onApplicationBootstrap(): Promise<void> {
-    await this.reconcilePublishedCalendarNotifications();
-    if (process.env.CALENDAR_AUTO_INGEST_ENABLED !== "true") return;
-    const initialDelayMs = readPositiveInteger(process.env.CALENDAR_INGEST_INITIAL_DELAY_MS, 15000);
-    const scheduleTimes = parseDailyScheduleTimes(process.env.CALENDAR_INGEST_SCHEDULE_TIMES ?? "06:30");
-    if (scheduleTimes.length > 0) this.scheduleNextCycle(scheduleTimes);
-    else this.timer = setInterval(() => void this.runScheduledCycle(), readPositiveInteger(process.env.CALENDAR_INGEST_INTERVAL_MS, 24 * 60 * 60 * 1000));
-    this.initialTimer = setTimeout(() => {
-      this.initialTimer = null;
-      void this.runScheduledCycle();
-    }, initialDelayMs);
-  }
 
   async reconcilePublishedCalendarNotifications(input: { batchSize?: number; maximumCalendars?: number } = {}): Promise<{
     checked: number;
@@ -145,6 +139,7 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     let checked = 0;
     let reconciled = 0;
     let failed = 0;
+    const observedCalendars: AcademicCalendarRecord[] = [];
 
     while (checked < maximumCalendars) {
       const limit = Math.min(batchSize, maximumCalendars - checked);
@@ -157,38 +152,38 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
       }
       if (calendars.length === 0) break;
       checked += calendars.length;
-
-      for (const calendar of calendars) {
-        try {
-          const current = await this.calendarRepository.findCalendarById(calendar.id);
-          if (!current || current.status !== "published") continue;
-          const events = await this.listAllPublishedEvents(current);
-          const revalidated = await this.calendarRepository.findCalendarById(current.id);
-          if (!revalidated || revalidated.status !== "published") continue;
-          await this.notificationSchedulingService.scheduleCalendarPublished(revalidated, events);
-          reconciled += 1;
-        } catch (error) {
-          failed += 1;
-          this.logger.warn(`Calendar notification reconciliation failed for ${calendar.id}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
+      observedCalendars.push(...calendars);
 
       if (calendars.length < limit) break;
+    }
+
+    const scopes = new Map<string, { universityId: string; academicYear: string }>();
+    for (const calendar of observedCalendars) {
+      scopes.set(`${calendar.universityId}\0${calendar.academicYear}`, {
+        universityId: calendar.universityId,
+        academicYear: calendar.academicYear
+      });
+    }
+    for (const scope of scopes.values()) {
+      try {
+        const active = await this.reconcileUsablePublishedSnapshot(scope.universityId, scope.academicYear);
+        if (active) reconciled += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`Calendar notification reconciliation failed for ${scope.universityId}/${scope.academicYear}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     return { checked, reconciled, failed };
   }
 
-  onModuleDestroy() {
-    if (this.timer) clearTimeout(this.timer);
-    if (this.initialTimer) clearTimeout(this.initialTimer);
-    this.timer = null;
-    this.initialTimer = null;
-  }
-
   async ensurePublishedCalendarForUniversity(universityId: string, academicYear?: string): Promise<{ calendar: AcademicCalendarRecord; events: AcademicEventRecord[] } | null> {
     const existing = await this.getPublishedCalendarWithEvents(universityId, academicYear);
-    if (existing && !await this.shouldRetrySourceOnlyCalendar(existing)) return existing;
+    if (
+      existing
+      && existing.events.length > 0
+      && !isUnitSpecificCalendarSource(existing.calendar)
+    ) return existing;
 
     const key = `${universityId}:${academicYear ?? "latest"}`;
     const existingJob = this.inFlight.get(key);
@@ -244,12 +239,16 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     };
   }
 
-  async runDiscoveryAndIngestion(input: { universityId?: string; academicYear?: string; limit?: number; offset?: number; concurrency?: number } = {}) {
+  async runDiscoveryAndIngestion(input: { universityId?: string; academicYear?: string; limit?: number; offset?: number; concurrency?: number; retrySourceOnly?: boolean } = {}) {
     const universities = input.universityId
       ? [await this.catalogRepository.findUniversityById(input.universityId)].filter((university): university is UniversityRecord => Boolean(university))
       : await this.catalogRepository.listUniversities({ status: "active", limit: input.limit ?? readPositiveInteger(process.env.CALENDAR_DISCOVERY_BATCH_SIZE, 205), offset: input.offset ?? 0 });
 
-    const results = await runWithConcurrency(universities, input.concurrency ?? 2, (university) => this.ingestUniversityCalendar(university.id, input.academicYear));
+    const results = await runWithConcurrency(universities, input.concurrency ?? 2, (university) => this.ingestUniversityCalendar(
+      university.id,
+      input.academicYear,
+      input.retrySourceOnly === undefined ? {} : { retrySourceOnly: input.retrySourceOnly }
+    ));
     return {
       summary: {
         checkedUniversities: results.length,
@@ -257,7 +256,8 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
         sourceNotFound: results.filter((result) => result.status === "source_not_found").length,
         noEvents: results.filter((result) => result.status === "no_events").length,
         failed: results.filter((result) => result.status === "failed").length,
-        totalEvents: results.reduce((total, result) => total + result.eventCount, 0)
+        totalEvents: results.reduce((total, result) => total + result.eventCount, 0),
+        classificationAudit: aggregateCalendarClassificationAudits(results)
       },
       results
     };
@@ -273,11 +273,42 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     const existing = await this.calendarRepository.findPublishedCalendar(universityId, academicYear);
     if (existing && (academicYear || isAcceptableAcademicYear(existing.academicYear))) {
       const events = await this.listAllPublishedEvents(existing);
-      if (events.length > 0 || !options.retrySourceOnly || !await this.shouldRetrySourceOnlyCalendar({ calendar: existing, events })) {
+      const refreshRequired = isUnitSpecificCalendarSource(existing)
+        || (options.retrySourceOnly === true && events.length === 0);
+      if (refreshRequired) {
         try {
-          // This scan is also the durable reconciliation path for a publication that
-          // committed before notification scheduling completed or acknowledged.
-          await this.notificationSchedulingService?.scheduleCalendarPublished(existing, events);
+          const active = await this.reconcileUsablePublishedSnapshot(universityId, existing.academicYear);
+          if (active && (active.events.length === 0 || isUnitSpecificCalendarSource(active.calendar))) {
+            throw new Error("No usable published calendar remained after fallback reconciliation.");
+          }
+        } catch (error) {
+          return {
+            universityId,
+            universityName: university.name,
+            status: "failed",
+            academicYear: existing.academicYear,
+            eventCount: events.length,
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
+      if (!refreshRequired) {
+        try {
+          // This scan also repairs a publish that committed before archiving its
+          // superseded snapshot or scheduling notifications.
+          const active = await this.reconcileUsablePublishedSnapshot(universityId, existing.academicYear);
+          if (!active) throw new Error("Published calendar reconciliation produced no winner.");
+          if (options.retrySourceOnly !== true) {
+            return {
+              universityId,
+              universityName: university.name,
+              status: "existing",
+              academicYear: active.calendar.academicYear,
+              ...(active.calendar.sourceUrl ? { sourceUrl: active.calendar.sourceUrl } : {}),
+              eventCount: active.events.length,
+              classificationAudit: classificationAuditFor(active.events)
+            };
+          }
         } catch (error) {
           return {
             universityId,
@@ -286,17 +317,10 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
             academicYear: existing.academicYear,
             ...(existing.sourceUrl ? { sourceUrl: existing.sourceUrl } : {}),
             eventCount: events.length,
+            classificationAudit: classificationAuditFor(events),
             error: error instanceof Error ? error.message : String(error)
           };
         }
-        return {
-          universityId,
-          universityName: university.name,
-          status: "existing",
-          academicYear: existing.academicYear,
-          ...(existing.sourceUrl ? { sourceUrl: existing.sourceUrl } : {}),
-          eventCount: events.length
-        };
       }
     }
 
@@ -331,20 +355,13 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     }
   }
 
-  private async runScheduledCycle(): Promise<void> {
+  async runScheduledCycle(): Promise<void> {
     await this.runDiscoveryAndIngestion({
       limit: readPositiveInteger(process.env.CALENDAR_DISCOVERY_BATCH_SIZE, 205),
       offset: readPositiveInteger(process.env.CALENDAR_DISCOVERY_OFFSET, 0),
-      concurrency: readPositiveInteger(process.env.CALENDAR_DISCOVERY_CONCURRENCY, 2)
+      concurrency: readPositiveInteger(process.env.CALENDAR_DISCOVERY_CONCURRENCY, 2),
+      retrySourceOnly: true
     });
-  }
-
-  private scheduleNextCycle(scheduleTimes: number[]): void {
-    const delayMs = millisecondsUntilNextDailyRun(scheduleTimes);
-    this.timer = setTimeout(async () => {
-      await this.runScheduledCycle();
-      this.scheduleNextCycle(scheduleTimes);
-    }, delayMs);
   }
 
   private async getPublishedCalendarWithEvents(universityId: string, academicYear?: string) {
@@ -354,6 +371,78 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     const events = await this.listAllPublishedEvents(calendar);
     await this.notificationSchedulingService?.scheduleCalendarPublished(calendar, events);
     return { calendar, events };
+  }
+
+  private async reconcileUsablePublishedSnapshot(
+    universityId: string,
+    academicYear: string
+  ): Promise<{ calendar: AcademicCalendarRecord; events: AcademicEventRecord[] } | null> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const candidates = await this.listPublishedCalendarCandidates(universityId, academicYear);
+      if (candidates.length === 0) return null;
+      const snapshots = await Promise.all(candidates.map(async (calendar) => ({
+        calendar,
+        events: await this.listCompletePublishedSnapshotEvents(calendar)
+      })));
+      const usable = snapshots
+        .filter((snapshot) => snapshot.events.length > 0 && !isUnitSpecificCalendarSource(snapshot.calendar))
+        .sort((left, right) => compareCalendarPublicationWinner(left.calendar, right.calendar));
+
+      // A source-only calendar is still a recoverable last-known snapshot. Do not
+      // archive it unless a complete, usable replacement is already present.
+      if (usable.length === 0) return null;
+
+      for (const snapshot of snapshots) {
+        if (usable.some((candidate) => candidate.calendar.id === snapshot.calendar.id)) continue;
+        await this.calendarRepository.updateCalendar(snapshot.calendar.id, { status: "archived" });
+        await this.calendarRepository.updateEventsByCalendar(snapshot.calendar.id, { status: "archived" });
+        await this.notificationSchedulingService?.retireCalendarJobs(snapshot.calendar.id);
+      }
+
+      // Reconcile only the snapshots proven usable in this bounded observation.
+      // A concurrent, unvalidated publisher is intentionally outside this write set
+      // and will be assessed in the next loop instead of deleting the last good copy.
+      const reconciliation = await this.calendarRepository.reconcilePublishedCalendars(
+        universityId,
+        academicYear,
+        usable.map((snapshot) => snapshot.calendar.id)
+      );
+      for (const archivedCalendarId of reconciliation.archivedCalendarIds) {
+        await this.notificationSchedulingService?.retireCalendarJobs(archivedCalendarId);
+      }
+      if (!reconciliation.winnerCalendarId) continue;
+      const selected = usable.find((snapshot) => snapshot.calendar.id === reconciliation.winnerCalendarId);
+      if (!selected) continue;
+      const current = await this.calendarRepository.findCalendarById(selected.calendar.id);
+      if (!current || current.status !== "published") continue;
+
+      const beforeSchedule = await this.listPublishedCalendarCandidates(universityId, academicYear);
+      if (beforeSchedule.some((calendar) => calendar.id !== current.id)) continue;
+      await this.notificationSchedulingService?.scheduleCalendarPublished(current, selected.events);
+      const afterSchedule = await this.listPublishedCalendarCandidates(universityId, academicYear);
+      if (afterSchedule.length === 1 && afterSchedule[0]?.id === current.id) {
+        return { calendar: current, events: selected.events };
+      }
+    }
+
+    throw new Error(`CALENDAR_PUBLICATION_RECONCILIATION_UNSTABLE:${universityId}:${academicYear}`);
+  }
+
+  private async listPublishedCalendarCandidates(
+    universityId: string,
+    academicYear: string
+  ): Promise<AcademicCalendarRecord[]> {
+    const candidates = (await this.calendarRepository.listPublishedCalendars({
+      universityId,
+      academicYear,
+      limit: 5_001,
+      offset: 0
+    }))
+      .filter((calendar) => calendar.universityId === universityId && calendar.academicYear === academicYear);
+    if (candidates.length > 5_000) {
+      throw new Error(`CALENDAR_PUBLICATION_RECONCILIATION_LIMIT:${universityId}:${academicYear}`);
+    }
+    return candidates;
   }
 
   private async listAllPublishedEvents(calendar: AcademicCalendarRecord): Promise<AcademicEventRecord[]> {
@@ -377,42 +466,24 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
     return events;
   }
 
-  private async publishSourceOnlyCalendar(
-    university: UniversityRecord,
-    academicYear: string,
-    sourceUrl: string,
-    sourcePdfId: string | undefined,
-    authority: SourceAuthorityContext
-  ): Promise<AcademicCalendarRecord> {
-    const existing = await this.calendarRepository.findPublishedCalendar(university.id, academicYear);
-    if (existing) {
-      const existingEvents = await this.calendarRepository.listPublishedEvents({ calendarId: existing.id, universityId: university.id, limit: 1, offset: 0 });
-      if (existingEvents.length > 0 || existing.sourceUrl === sourceUrl) return existing;
+  private async listCompletePublishedSnapshotEvents(calendar: AcademicCalendarRecord): Promise<AcademicEventRecord[]> {
+    const events = await this.calendarRepository.listEventsByCalendar(calendar.id);
+    const calendarSnapshotEvents = events.filter((event) => !event.scheduleSeriesId);
+    if (
+      calendarSnapshotEvents.length === 0
+      || calendarSnapshotEvents.some((event) => event.status !== "published")
+    ) return [];
+    // Course schedule series have an independent archive lifecycle while sharing
+    // the university calendar parent. They do not make the base snapshot partial.
+    const activeEvents = events.filter((event) => event.status === "published");
+    const maximumEvents = Math.min(
+      readPositiveInteger(process.env.CALENDAR_NOTIFICATION_RECONCILIATION_EVENT_LIMIT, 5_000),
+      20_000
+    );
+    if (activeEvents.length > maximumEvents) {
+      throw new Error(`CALENDAR_NOTIFICATION_RECONCILIATION_EVENT_LIMIT:${calendar.id}`);
     }
-
-    requireSourceAuthority(authority, {
-      boundary: "publication",
-      resource: "academic_calendar",
-      url: sourceUrl
-    });
-    const draft = await this.calendarRepository.createCalendar({
-      universityId: university.id,
-      academicYear,
-      title: `${university.name} ${academicYear} Akademik Takvimi`.trim(),
-      status: "draft",
-      version: (existing?.version ?? 0) + 1,
-      ...(sourcePdfId ? { sourcePdfId } : {}),
-      sourceUrl,
-      createdBy: "system-calendar-ingestion",
-      approvedBy: "system-calendar-ingestion"
-    });
-    await this.calendarRepository.archivePublishedCalendars(university.id, academicYear);
-    const published = await this.calendarRepository.updateCalendar(draft.id, {
-      status: "published",
-      publishedAt: new Date(),
-      approvedBy: "system-calendar-ingestion"
-    });
-    return published ?? draft;
+    return activeEvents;
   }
 
   private async ingestAtuCalendar(
@@ -484,6 +555,20 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
       url: sourceUrl
     });
     const existing = await this.calendarRepository.findPublishedCalendar(university.id, academicYear);
+    if (existing?.sourceUrl === sourceUrl && !isUnitSpecificCalendarSource(existing)) {
+      const existingEvents = await this.listAllPublishedEvents(existing);
+      if (sameAcademicEventSnapshot(existingEvents, preparedEventInputs)) {
+        return {
+          universityId: university.id,
+          universityName: university.name,
+          status: "existing",
+          academicYear: existing.academicYear,
+          sourceUrl,
+          eventCount: existingEvents.length,
+          classificationAudit: classificationAuditFor(existingEvents)
+        };
+      }
+    }
     const calendar = await this.calendarRepository.createCalendar({
       universityId: university.id,
       academicYear,
@@ -501,15 +586,16 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
       return { universityId: university.id, universityName: university.name, status: "no_events", academicYear, sourceUrl, eventCount: 0 };
     }
 
-    await this.calendarRepository.archivePublishedCalendars(university.id, academicYear);
-    const publishedCalendar = await this.calendarRepository.updateCalendar(calendar.id, {
+    const published = await this.adminCalendarService.publishCalendar(calendar.id, "system-calendar-ingestion");
+    return {
+      universityId: university.id,
+      universityName: university.name,
       status: "published",
-      publishedAt: new Date(),
-      approvedBy: "system-calendar-ingestion"
-    });
-    await this.calendarRepository.updateEventsByCalendar(calendar.id, { status: "published" });
-    await this.notificationSchedulingService?.scheduleCalendarPublished(publishedCalendar ?? calendar, events);
-    return { universityId: university.id, universityName: university.name, status: "published", academicYear: publishedCalendar?.academicYear ?? academicYear, sourceUrl, eventCount: events.length };
+      academicYear: published.calendar.academicYear,
+      sourceUrl,
+      eventCount: published.publishedEvents.length,
+      classificationAudit: classificationAuditFor(published.publishedEvents)
+    };
   }
 
   private async ingestPdfCalendar(
@@ -528,31 +614,88 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
       readPositiveInteger(process.env.CALENDAR_SOURCE_TIMEOUT_MS, 12000),
       authority
     );
-    const extracted = await extractPdfText(downloaded.data);
-    const inferredAcademicYear = inferAcademicYear([pdf.title, downloaded.fileName, downloaded.finalUrl, extracted.text]);
-    if (!requestedAcademicYear && inferredAcademicYear && !isAcceptableAcademicYear(inferredAcademicYear)) {
-      return { universityId: university.id, universityName: university.name, status: "source_not_found", sourceUrl: downloaded.finalUrl, eventCount: 0 };
+    // Binary identity is cheap and authoritative. Check it before parsing so a
+    // scheduled replay of unchanged bytes does not repeat PDF extraction/OCR.
+    const verifiedPdfSource = await this.pdfProcessingService.findVerifiedPdfSourceForBytes(
+      university.id,
+      downloaded.data
+    );
+    let academicYear: string;
+    let pdfSource;
+    if (verifiedPdfSource) {
+      if (requestedAcademicYear && requestedAcademicYear !== verifiedPdfSource.academicYear) {
+        return {
+          universityId: university.id,
+          universityName: university.name,
+          status: "source_not_found",
+          sourceUrl: downloaded.finalUrl,
+          eventCount: 0,
+          error: "CALENDAR_PDF_ACADEMIC_YEAR_MISMATCH"
+        };
+      }
+      if (!requestedAcademicYear && !isAcceptableAcademicYear(verifiedPdfSource.academicYear)) {
+        return { universityId: university.id, universityName: university.name, status: "source_not_found", sourceUrl: downloaded.finalUrl, eventCount: 0 };
+      }
+      academicYear = verifiedPdfSource.academicYear;
+      pdfSource = verifiedPdfSource;
+    } else {
+      const extracted = await extractPdfBinaryText(downloaded.data);
+      const inferredAcademicYear = inferAcademicYear([pdf.title, downloaded.fileName, downloaded.finalUrl, extracted.text]);
+      if (!requestedAcademicYear && inferredAcademicYear && !isAcceptableAcademicYear(inferredAcademicYear)) {
+        return { universityId: university.id, universityName: university.name, status: "source_not_found", sourceUrl: downloaded.finalUrl, eventCount: 0 };
+      }
+      academicYear = requestedAcademicYear ?? inferredAcademicYear ?? currentAcademicYear();
+      pdfSource = await this.pdfProcessingService.createOrReusePdfSource({
+        universityId: university.id,
+        fileName: downloaded.fileName,
+        mimeType: "application/pdf",
+        magicBytesHex: downloaded.magicBytesHex,
+        fileSize: downloaded.data.byteLength,
+        pageCount: extracted.pageCount,
+        academicYear,
+        uploadedBy: "system-calendar-ingestion",
+        rawText: extracted.text,
+        url: downloaded.finalUrl,
+        pdfData: downloaded.data
+      });
     }
-    const academicYear = requestedAcademicYear ?? inferredAcademicYear ?? currentAcademicYear();
-    const pdfSource = await this.pdfProcessingService.createOrReusePdfSource({
-      universityId: university.id,
-      fileName: downloaded.fileName,
-      mimeType: "application/pdf",
-      magicBytesHex: downloaded.magicBytesHex,
-      fileSize: downloaded.data.byteLength,
-      pageCount: extracted.pageCount,
-      academicYear,
-      uploadedBy: "system-calendar-ingestion",
-      rawText: extracted.text,
-      url: downloaded.finalUrl
-    });
-    const processed = await this.pdfProcessingService.processPdfSource(pdfSource.id, { pdfData: downloaded.data });
-    const approvable = processed.extractedEvents.filter((event) => event.startDate && event.confidenceScore >= 55);
+    const currentForPdf = await this.calendarRepository.findPublishedCalendar(university.id, academicYear);
+    if (
+      currentForPdf?.sourcePdfId === pdfSource.id
+      && !isUnitSpecificCalendarSource(currentForPdf)
+    ) {
+      const currentEvents = await this.listAllPublishedEvents(currentForPdf);
+      if (currentEvents.length > 0) {
+        return {
+          universityId: university.id,
+          universityName: university.name,
+          status: "existing",
+          academicYear: currentForPdf.academicYear,
+          ...(currentForPdf.sourceUrl ? { sourceUrl: currentForPdf.sourceUrl } : {}),
+          eventCount: currentEvents.length,
+          classificationAudit: classificationAuditFor(currentEvents)
+        };
+      }
+    }
+    const processed = pdfSource.parseStatus === "processed"
+      ? await this.pdfProcessingService.loadCompleteExtractedEventSnapshot(pdfSource.id)
+      : await this.pdfProcessingService.processPdfSource(pdfSource.id, { pdfData: downloaded.data });
+    const publishable = processed.extractedEvents.filter((event) => (
+      event.status !== "rejected" && hasAutoPublicationEvidence(event)
+    ));
+    const approvable = publishable.filter(isAutoApprovableExtractedEvent);
     this.logger.log(`PDF processed for ${university.name}: extracted=${processed.extractedEvents.length}, approvable=${approvable.length}, parseStatus=${processed.pdfSource.parseStatus}, ocr=${processed.pdfSource.ocrProvider ? "yes" : "no"}.`);
     for (const event of approvable) await this.pdfProcessingService.approveExtractedEvent(event.id, "system-calendar-ingestion");
-    if (approvable.length === 0) {
-      await this.publishSourceOnlyCalendar(university, academicYear, downloaded.finalUrl, pdfSource.id, authority);
-      return { universityId: university.id, universityName: university.name, status: "published", academicYear, sourceUrl: downloaded.finalUrl, eventCount: 0 };
+    if (publishable.length === 0) {
+      return {
+        universityId: university.id,
+        universityName: university.name,
+        status: "no_events",
+        academicYear,
+        sourceUrl: downloaded.finalUrl,
+        eventCount: 0,
+        classificationAudit: classificationAuditFor(processed.extractedEvents)
+      };
     }
 
     requireSourceAuthority(authority, {
@@ -568,18 +711,114 @@ export class CalendarIngestionService implements OnApplicationBootstrap, OnModul
       createdBy: "system-calendar-ingestion"
     });
     const published = await this.adminCalendarService.publishCalendar(draft.calendar.id, "system-calendar-ingestion");
-    return { universityId: university.id, universityName: university.name, status: "published", academicYear, sourceUrl: downloaded.finalUrl, eventCount: published.publishedEvents.length };
+    return {
+      universityId: university.id,
+      universityName: university.name,
+      status: "published",
+      academicYear,
+      sourceUrl: downloaded.finalUrl,
+      eventCount: published.publishedEvents.length,
+      classificationAudit: classificationAuditFor(published.publishedEvents)
+    };
   }
 
-  private async shouldRetrySourceOnlyCalendar(existing: { calendar: AcademicCalendarRecord; events: AcademicEventRecord[] }): Promise<boolean> {
-    if (existing.events.length > 0 || !isOcrProviderEnabled() || !existing.calendar.sourcePdfId) return false;
-    try {
-      const source = await this.pdfProcessingService.getPdfSource(existing.calendar.sourcePdfId);
-      return !source.ocrProcessedAt;
-    } catch {
-      return false;
-    }
-  }
+}
+
+export function isAutoApprovableExtractedEvent(
+  event: Pick<ExtractedEventRecord, "confidenceScore" | "datePrecision" | "originalDateText" | "rawText" | "sourcePage" | "startDate" | "status">
+): boolean {
+  return event.status === "pending_review" && hasAutoPublicationEvidence(event);
+}
+
+function hasAutoPublicationEvidence(
+  event: Pick<ExtractedEventRecord, "confidenceScore" | "datePrecision" | "originalDateText" | "rawText" | "sourcePage" | "startDate">
+): boolean {
+  const originalDateText = event.originalDateText.trim();
+  const rawText = event.rawText.trim();
+  return Boolean(
+    event.startDate
+    && !Number.isNaN(event.startDate.getTime())
+    && event.confidenceScore >= 90
+    && (event.datePrecision === "day" || event.datePrecision === "date_range")
+    && Number.isInteger(event.sourcePage)
+    && event.sourcePage > 0
+    && originalDateText
+    && rawText
+    && !/^document publication date fallback:/iu.test(originalDateText)
+    && hasExplicitDateEvidence(originalDateText)
+    && hasExplicitDateEvidence(rawText)
+    && normalizedEvidenceText(rawText).includes(normalizedEvidenceText(originalDateText))
+  );
+}
+
+function hasExplicitDateEvidence(value: string): boolean {
+  const folded = foldText(value);
+  return /\b(?:20\d{2}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]20\d{2}|\d{1,2}\s*(?:[-\u2013\u2014]\s*\d{1,2})?\s+(?:ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik|january|february|march|april|may|june|july|august|september|october|november|december)\s+20\d{2})\b/u.test(folded);
+}
+
+function normalizedEvidenceText(value: string): string {
+  return foldText(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/gu, " ");
+}
+
+function sameAcademicEventSnapshot(
+  existing: readonly AcademicEventRecord[],
+  prepared: readonly PreparedAcademicEventInput[]
+): boolean {
+  if (existing.length === 0 || existing.length !== prepared.length) return false;
+  const existingKeys = existing.map(academicEventSnapshotKey).sort();
+  const preparedKeys = prepared.map(academicEventSnapshotKey).sort();
+  return existingKeys.every((key, index) => key === preparedKeys[index]);
+}
+
+function academicEventSnapshotKey(event: PreparedAcademicEventInput | AcademicEventRecord): string {
+  return JSON.stringify([
+    event.universityId,
+    event.academicYear,
+    event.term,
+    event.category,
+    event.title.trim(),
+    event.description?.trim(),
+    event.temporalKind,
+    event.dateOnlyStart,
+    event.startDate.toISOString(),
+    event.endTemporalKind,
+    event.dateOnlyEnd,
+    event.endDate?.toISOString(),
+    event.timezone,
+    event.originalDateText,
+    event.originalText,
+    event.sourcePage,
+    event.confidenceScore
+  ]);
+}
+
+function classificationAuditFor(
+  records: ReadonlyArray<Pick<AcademicEventRecord, "studentRelevance"> | Pick<ExtractedEventRecord, "studentRelevance">>
+): CalendarClassificationAudit {
+  return {
+    mode: "shadow",
+    classificationVersion: STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
+    counts: summarizeStudentRelevanceAudit(records.flatMap((record) => (
+      record.studentRelevance ? [{ studentRelevance: record.studentRelevance }] : []
+    )))
+  };
+}
+
+function aggregateCalendarClassificationAudits(results: readonly CalendarIngestionResult[]): CalendarClassificationAudit {
+  const counts = results.reduce<StudentRelevanceAuditCounts>((total, result) => {
+    const current = result.classificationAudit?.counts;
+    if (!current) return total;
+    total.total += current.total;
+    total.relevant += current.relevant;
+    total.not_relevant += current.not_relevant;
+    total.uncertain += current.uncertain;
+    return total;
+  }, { total: 0, relevant: 0, not_relevant: 0, uncertain: 0 });
+  return {
+    mode: "shadow",
+    classificationVersion: STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
+    counts
+  };
 }
 
 export async function discoverAtuAcademicCalendarPdf(
@@ -796,6 +1035,7 @@ function toAtuAcademicEvent(row: AtuCalendarRow, universityId: string, academicY
     originalText: `${title} ${row.Aciklama ?? ""}`.trim(),
     sourcePage: 1,
     confidenceScore: 98,
+    ...classifyStudentRelevance({ title, ...(row.Aciklama ? { body: row.Aciklama } : {}) }),
     status: "approved",
     notificationRules: [
       { offsetDays: 7, enabled: true },
@@ -837,7 +1077,7 @@ export async function downloadPdf(
   const response = await safeOutboundRequest(sourceUrl, {
     timeoutMs,
     maximumRedirects: 5,
-    maximumResponseBytes: 50 * 1024 * 1024,
+    maximumResponseBytes: 25 * 1024 * 1024,
     headers: {
       Accept: "application/pdf,*/*;q=0.8",
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
@@ -926,21 +1166,6 @@ function requireOfficialCalendarSourceUrl(candidate: string, officialSourceUrl: 
   return candidate;
 }
 
-async function extractPdfText(data: Buffer): Promise<ExtractedPdfText> {
-  const parser = new PDFParse({ data });
-  try {
-    const result = await parser.getText();
-    const resultWithTotal = result as { text?: string; total?: number };
-    const parsedPageCount = Number(resultWithTotal.total);
-    return {
-      text: resultWithTotal.text ?? "",
-      pageCount: Number.isInteger(parsedPageCount) && parsedPageCount > 0 ? parsedPageCount : Math.max(1, (resultWithTotal.text?.match(/\f/g)?.length ?? 0) + 1)
-    };
-  } finally {
-    await parser.destroy();
-  }
-}
-
 function containsCalendarHint(title: string, link: string): boolean {
   const text = foldText(`${title} ${link}`);
   return (text.includes("akademik") && text.includes("takvim")) || text.includes("academic calendar") || text.includes("academic-calendar");
@@ -1002,6 +1227,12 @@ export function isUnitSpecificCalendarSource(source: { title?: string; sourceUrl
     /\biktisadi\s*ve\s*idari\s*bilimler\s*fakultesi\b/u,
     /\bfaculty\s*academic\s*calendar\b/u
   ].some((pattern) => pattern.test(text));
+}
+
+function compareCalendarPublicationWinner(left: AcademicCalendarRecord, right: AcademicCalendarRecord): number {
+  return right.version - left.version
+    || right.createdAt.getTime() - left.createdAt.getTime()
+    || right.id.localeCompare(left.id, "en-US");
 }
 
 export function inferAcademicYear(values: string[]): string | undefined {
@@ -1113,29 +1344,6 @@ function foldText(value: string): string {
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function isOcrProviderEnabled(): boolean {
-  return ["google_document_ai", "document_ai"].includes((process.env.OCR_PROVIDER ?? "").trim().toLocaleLowerCase("en-US"));
-}
-
-function parseDailyScheduleTimes(value: string): number[] {
-  return value
-    .split(",")
-    .map((part) => part.trim())
-    .map((part) => part.match(/^(\d{1,2}):(\d{2})$/u))
-    .filter((match): match is RegExpMatchArray => Boolean(match))
-    .map((match) => Number(match[1]) * 60 + Number(match[2]))
-    .filter((minutes) => minutes >= 0 && minutes < 24 * 60)
-    .sort((left, right) => left - right);
-}
-
-function millisecondsUntilNextDailyRun(scheduleTimes: number[], now = new Date()): number {
-  const turkeyOffsetMs = 3 * 60 * 60 * 1000;
-  const turkeyNow = new Date(now.getTime() + turkeyOffsetMs);
-  const elapsedTodayMs = ((turkeyNow.getUTCHours() * 60 + turkeyNow.getUTCMinutes()) * 60 + turkeyNow.getUTCSeconds()) * 1000 + turkeyNow.getUTCMilliseconds();
-  const todayTargetMs = scheduleTimes.map((minutes) => minutes * 60 * 1000).find((targetMs) => targetMs > elapsedTodayMs);
-  return (todayTargetMs ?? scheduleTimes[0]! * 60 * 1000 + 24 * 60 * 60 * 1000) - elapsedTodayMs;
 }
 
 async function runWithConcurrency<TInput, TOutput>(items: TInput[], concurrency: number, worker: (item: TInput) => Promise<TOutput>): Promise<TOutput[]> {

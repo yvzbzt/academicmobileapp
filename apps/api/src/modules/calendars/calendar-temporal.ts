@@ -1,6 +1,10 @@
 import { BadRequestException } from "@nestjs/common";
 import { ValidateBy, type ValidationOptions } from "class-validator";
 import type { AcademicEventDto, AcademicEventTemporalKind } from "../../../../../packages/shared/src/contracts.js";
+import {
+  STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
+  classifyStudentRelevance
+} from "../../domain/student-relevance-classifier.js";
 import type { AcademicEventRecord, CalendarTemporalFilterBoundary } from "./calendar.types.js";
 
 export const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/u;
@@ -270,7 +274,15 @@ export function toAcademicEventDto(event: AcademicEventRecord): AcademicEventDto
     timezone: event.timezone,
     academicYear: event.academicYear,
     term: event.term,
-    status: event.status
+    status: event.status,
+    ...(event.classificationVersion === STUDENT_RELEVANCE_CLASSIFICATION_VERSION
+      ? classifyStudentRelevance({
+          title: event.title,
+          ...(event.originalText || event.description || event.courseName
+            ? { body: event.originalText ?? event.description ?? event.courseName }
+            : {})
+        })
+      : {})
   };
 }
 

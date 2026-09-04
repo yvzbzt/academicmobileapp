@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import {
   GOOGLE_METADATA_TOKEN_URL,
   safeOutboundRequest
@@ -76,6 +77,13 @@ export class PdfOcrService {
     if (!pdfData) {
       this.logger.warn(`OCR skipped: PDF data is unavailable for source ${input.pdfSource.id}.`);
       return null;
+    }
+    if (
+      input.pdfSource.binaryIdentityVerified
+      && input.pdfSource.binarySha256
+      && createHash("sha256").update(pdfData).digest("hex") !== input.pdfSource.binarySha256
+    ) {
+      throw new Error("PDF_BINARY_IDENTITY_MISMATCH");
     }
 
     const accessToken = await readGoogleAccessToken();
@@ -164,7 +172,7 @@ export async function downloadPdfData(
   const response = await safeOutboundRequest(url, {
     timeoutMs: readPositiveInteger(process.env.OCR_SOURCE_TIMEOUT_MS, 20000),
     maximumRedirects: 5,
-    maximumResponseBytes: 50 * 1024 * 1024,
+    maximumResponseBytes: 25 * 1024 * 1024,
     headers: { Accept: "application/pdf,*/*;q=0.8" },
     validateUrl: (candidate, previousUrl) => {
       if (authority) {

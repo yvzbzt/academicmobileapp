@@ -14,32 +14,32 @@ Every source has:
 
 - `sourceUrl`
 - `parser` (`auto`, `rss`, `html`)
-- `status` (`active`, `paused`)
+- `status` (`active`, `inactive`)
 - optional `fallbackItems`
 - optional `priority`
 
-A student request resolves sources using university + faculty + department IDs and merges all active scopes.
+A student request resolves persisted items for all followed university, faculty, and department scopes. A user may follow no university, one university, or several universities; an empty scope returns an empty feed instead of triggering ingestion.
 
 ## 2. Retrieval Strategy
 
-Current request-time flow:
+Current flow:
 
-1. Resolve scoped source list.
-2. Fetch each source with timeout and parser selection.
-3. Parse and normalize into a common item shape.
-4. Deduplicate by link.
-5. Sort by `publishedAt` and return top N.
+1. The dedicated content worker resolves due sources.
+2. It fetches each source with timeout, authority checks, and conditional validators.
+3. It parses, normalizes, and deduplicates items into a complete staged snapshot.
+4. It atomically activates that snapshot.
+5. `GET /announcements/my` reads only the active persisted snapshot and performs no external fetch or ingestion write.
 
-This is acceptable for MVP and low traffic.
+Run the worker separately with `npm run start:content-worker`. It uses the existing NestJS and MongoDB repositories; no queue or additional infrastructure is required.
 
 ## 3. Scale Path (Recommended)
 
-Move from request-time scraping to background ingestion:
+Background ingestion uses:
 
-1. Scheduler enqueues source fetch jobs every few minutes.
-2. Workers fetch/parse and write normalized items to `announcement_items`.
-3. API `GET /announcements/my` becomes read-only over cached items.
-4. Add TTL and retention rules for old announcements.
+1. `ETag` and `Last-Modified` conditional requests where a source provides them.
+2. A SHA-256 content hash fallback when validators are unavailable.
+3. A processing-version marker so parser/rule changes can intentionally reprocess unchanged bytes.
+4. Source health, consecutive failure, last-success, and item-count diagnostics.
 
 Benefits:
 
@@ -52,10 +52,10 @@ Benefits:
 Per source resilience policy:
 
 - timeout budget (for example 5-7 seconds),
-- retry with exponential backoff,
-- circuit breaker after repeated failures,
-- fallback to `fallbackItems` when fetch fails,
-- mark unhealthy source status for admin review.
+- retain the last active trusted snapshot on timeout, parse failure, or activation failure,
+- reject empty responses instead of treating them as authoritative deletion,
+- mark degraded/failed source status for admin review,
+- retry safely from the worker without exposing a staged or partial snapshot.
 
 ## 5. Multi-Tenant Safety
 
@@ -78,7 +78,6 @@ Add admin controls for source lifecycle:
 
 ## 7. Future Enhancements
 
-- Language-aware relevance scoring (`announcement`, `notice`, `bulletin`, etc.).
-- Content fingerprint dedupe (title + date + semantic hash), not only link dedupe.
+- Evaluate the deterministic `studentRelevance`, topic, audience, action, deadline, urgency, and evidence-span shadow report before allowing those fields to influence ranking or visibility.
 - Per-scope max item quotas and pagination.
 - Optional push notifications for critical announcement categories.

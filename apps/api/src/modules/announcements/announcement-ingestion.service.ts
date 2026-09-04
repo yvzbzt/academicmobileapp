@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, OnApplicationBootstrap, OnModuleDestroy, Optional } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
 import { resolveSourceAuthorityContext, type ResolvedSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
@@ -7,8 +7,14 @@ import type { SourceAuthorityDecision, SourceAuthorityResource } from "../../dom
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchSourceItems, fetchSourceSnapshot, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
 import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
-import type { AnnouncementContentType, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus } from "./announcements.types.js";
+import { emptyAnnouncementPersistenceDelta, toPersistenceReference } from "./announcement-persistence.js";
+import type { AnnouncementContentType, AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
+import {
+  STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
+  summarizeStudentRelevanceAudit,
+  type StudentRelevanceAuditCounts
+} from "../../domain/student-relevance-classifier.js";
 
 export interface AnnouncementDiscoveryResult {
   universityId: string;
@@ -31,15 +37,22 @@ export interface AnnouncementIngestionResult {
   status: "healthy" | "degraded" | "failed";
   itemCount: number;
   sampleTitles: string[];
+  classificationAudit?: {
+    mode: "shadow";
+    classificationVersion: typeof STUDENT_RELEVANCE_CLASSIFICATION_VERSION;
+    counts: StudentRelevanceAuditCounts;
+  };
   error?: string;
 }
 
 export const YOK_ANNOUNCEMENT_SCOPE_ID = "yok-council-of-higher-education";
 export const YOK_ANNOUNCEMENT_SOURCE_URL = "https://www.yok.gov.tr/tr/announcements";
+export const ANNOUNCEMENT_PROCESSING_VERSION = "announcement-ingestion-v2";
+const ANNOUNCEMENT_NOTIFICATION_RETRY_PAGE_SIZE = 100;
+const ANNOUNCEMENT_NOTIFICATION_RETRY_MAX_ITEMS = 5_000;
 
 @Injectable()
-export class AnnouncementIngestionService implements OnApplicationBootstrap, OnModuleDestroy {
-  private timer: NodeJS.Timeout | null = null;
+export class AnnouncementIngestionService {
   private running = false;
   private staticSourcesPromise: Promise<void> | null = null;
 
@@ -48,18 +61,6 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     @Inject("AnnouncementRepository") private readonly announcementRepository: AnnouncementRepository,
     @Optional() @Inject(NotificationSchedulingService) private readonly notificationSchedulingService?: NotificationSchedulingService
   ) {}
-
-  onApplicationBootstrap() {
-    if (process.env.ANNOUNCEMENT_AUTO_INGEST_ENABLED !== "true") return;
-    const initialDelayMs = readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_INITIAL_DELAY_MS, 5000);
-    const schedulerTickMs = Math.max(30_000, readPositiveInteger(process.env.ANNOUNCEMENT_SCHEDULER_TICK_MS, 60_000));
-    this.timer = setInterval(() => void this.runScheduledCycle(), schedulerTickMs);
-    setTimeout(() => void this.runScheduledCycle(), initialDelayMs);
-  }
-
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
-  }
 
   async runSourceDiscovery(input: { limit?: number; offset?: number; concurrency?: number } = {}) {
     const universities = await this.listUniversities(input.limit ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_BATCH_SIZE, 205), input.offset ?? 0);
@@ -256,8 +257,9 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       })
       : missingSourceOwnerDecision(existing, requestedUrl, "registration");
     if (!decision.allowed || !decision.canonicalUrl) {
-      const quarantined = await this.announcementRepository.quarantineSource(existing.id, [decision.reasonCode]);
-      await this.retireSourceNotifications(quarantined ?? { ...existing, status: "inactive", trustStatus: "quarantined" });
+      const quarantined = await this.announcementRepository.quarantineSource(existing.id, [decision.reasonCode], existing);
+      if (!quarantined) throw new Error("ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED");
+      await this.retireSourceNotifications(quarantined);
       throw new BadRequestException(`Source authority validation failed: ${decision.reasonCode}.`);
     }
     const sourceUrl = decision.canonicalUrl;
@@ -424,7 +426,7 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     }));
   }
 
-  private async runScheduledCycle(): Promise<void> {
+  async runScheduledCycle(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
@@ -462,15 +464,25 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     if (!registrationDecision.allowed) {
       return this.quarantineIngestionSource(source, registrationDecision, checkedAt);
     }
+    let trustedSnapshotItemCount = source.itemCount ?? 0;
+    let healthFenceSnapshotId = source.activeSnapshotId;
     try {
+      if (source.itemCount === undefined) {
+        trustedSnapshotItemCount = (await this.announcementRepository.listItemsForSource(source.id, 1_000)).length;
+      }
       const snapshot = await fetchSourceSnapshot(
         source.sourceUrl,
         source.parser,
         readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
-        { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) }
+        { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) },
+        source.processingVersion === ANNOUNCEMENT_PROCESSING_VERSION
+          ? {
+              ...(source.etag ? { etag: source.etag } : {}),
+              ...(source.lastModified ? { lastModified: source.lastModified } : {}),
+              ...(source.contentHash ? { contentHash: source.contentHash } : {})
+            }
+          : {}
       );
-      const parsedItems = snapshot.items;
-      const items = toAnnouncementItems(source, parsedItems, checkedAt);
       const publicationDecision = evaluateSourceAuthority(authority!.context, {
         boundary: "publication",
         resource: sourceAuthorityResource(source.contentType),
@@ -480,6 +492,40 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       if (!publicationDecision.allowed) {
         return this.quarantineIngestionSource(source, publicationDecision, checkedAt);
       }
+      if (snapshot.fetchStatus === "not_modified") {
+        const currentSource = await this.currentFencedSource(source);
+        healthFenceSnapshotId = currentSource.activeSnapshotId;
+        const activeItems = await this.loadFencedActiveItems(currentSource);
+        trustedSnapshotItemCount = activeItems.length;
+        if (currentSource.activeSnapshotId && activeItems.length === 0) {
+          throw new Error("ANNOUNCEMENT_ACTIVE_SNAPSHOT_MISSING");
+        }
+        const retryDelta = notificationRetryDelta(currentSource, activeItems);
+        if (this.notificationSchedulingService && retryDelta.materiallyUpdated.length > 0) {
+          await this.notificationSchedulingService.syncTrustedAnnouncementSource(currentSource, retryDelta, checkedAt);
+        }
+        await this.announcementRepository.recordSourceCheck(source.id, {
+          healthStatus: "healthy",
+          lastCheckedAt: checkedAt,
+          lastSuccessAt: checkedAt,
+          consecutiveFailures: 0,
+          itemCount: activeItems.length,
+          ...(snapshot.etag ? { etag: snapshot.etag } : {}),
+          ...(snapshot.lastModified ? { lastModified: snapshot.lastModified } : {}),
+          ...(snapshot.contentHash ? { contentHash: snapshot.contentHash } : {}),
+          processingVersion: ANNOUNCEMENT_PROCESSING_VERSION
+        }, currentSource, currentSource.activeSnapshotId ?? null);
+        return {
+          sourceId: source.id,
+          sourceName: source.sourceName,
+          sourceUrl: source.sourceUrl,
+          status: "healthy",
+          itemCount: 0,
+          sampleTitles: []
+        };
+      }
+      const parsedItems = snapshot.items;
+      const items = toAnnouncementItems(source, parsedItems, checkedAt);
       const rejectedItemDecision = items
         .map((item) => evaluateSourceAuthority(authority!.context, {
           boundary: "publication",
@@ -490,26 +536,47 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
       if (rejectedItemDecision) {
         return this.quarantineIngestionSource(source, rejectedItemDecision, checkedAt);
       }
-      const authoritativeEmpty = parsedItems.length === 0;
-      const succeeded = items.length > 0 || authoritativeEmpty;
+      const succeeded = items.length > 0;
       if (succeeded) {
-        const delta = await this.announcementRepository.replaceItemsForSource(
-          source,
-          items,
-          authoritativeEmpty ? { authoritativeEmpty: true } : {}
-        );
+        const delta = await this.announcementRepository.replaceItemsForSource(source, items);
+        healthFenceSnapshotId = delta.snapshotId ?? source.activeSnapshotId;
+        trustedSnapshotItemCount = items.length;
         await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, checkedAt);
       }
       const status = succeeded ? "healthy" : "degraded";
+      const failures = succeeded ? 0 : (source.consecutiveFailures ?? 0) + 1;
+      const classificationAudit = succeeded ? {
+        mode: "shadow" as const,
+        classificationVersion: STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
+        counts: summarizeStudentRelevanceAudit(
+          items.flatMap((item) => item.studentRelevance
+            ? [{ studentRelevance: item.studentRelevance }]
+            : [])
+        )
+      } : undefined;
       await this.announcementRepository.recordSourceCheck(source.id, {
         healthStatus: status,
         lastCheckedAt: checkedAt,
         ...(succeeded ? { lastSuccessAt: checkedAt } : {}),
-        ...(succeeded ? {} : { lastError: "No trusted announcement items parsed." }),
-        consecutiveFailures: succeeded ? 0 : (source.consecutiveFailures ?? 0) + 1,
-        itemCount: items.length
-      });
-      return { sourceId: source.id, sourceName: source.sourceName, sourceUrl: source.sourceUrl, status, itemCount: items.length, sampleTitles: items.slice(0, 3).map((item) => item.title) };
+        ...(succeeded ? {} : { lastError: parsedItems.length === 0 ? "SOURCE_EMPTY_SNAPSHOT_REJECTED" : "No trusted announcement items parsed." }),
+        consecutiveFailures: failures,
+        itemCount: succeeded ? items.length : trustedSnapshotItemCount,
+        ...(succeeded && snapshot.etag ? { etag: snapshot.etag } : {}),
+        ...(succeeded && snapshot.lastModified ? { lastModified: snapshot.lastModified } : {}),
+        ...(succeeded && snapshot.contentHash ? { contentHash: snapshot.contentHash } : {}),
+        ...(succeeded && snapshot.contentHash && snapshot.contentHash !== source.contentHash ? { lastContentChangedAt: checkedAt } : {}),
+        ...(succeeded ? { processingVersion: ANNOUNCEMENT_PROCESSING_VERSION } : {})
+      }, source, healthFenceSnapshotId ?? null);
+      return {
+        sourceId: source.id,
+        sourceName: source.sourceName,
+        sourceUrl: source.sourceUrl,
+        status,
+        itemCount: succeeded ? items.length : 0,
+        sampleTitles: items.slice(0, 3).map((item) => item.title),
+        ...(classificationAudit ? { classificationAudit } : {}),
+        ...(succeeded ? {} : { error: parsedItems.length === 0 ? "SOURCE_EMPTY_SNAPSHOT_REJECTED" : "No trusted announcement items parsed." })
+      };
     } catch (error) {
       if (error instanceof SourceAuthorityError) {
         return this.quarantineIngestionSource(source, error.decision, checkedAt);
@@ -521,8 +588,8 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
         lastCheckedAt: checkedAt,
         lastError: message,
         consecutiveFailures: failures,
-        itemCount: 0
-      });
+        itemCount: trustedSnapshotItemCount
+      }, source, healthFenceSnapshotId ?? null);
       return { sourceId: source.id, sourceName: source.sourceName, sourceUrl: source.sourceUrl, status: failures >= 3 ? "failed" : "degraded", itemCount: 0, sampleTitles: [], error: message };
     }
   }
@@ -533,6 +600,43 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     scopeId: string
   ): Promise<ResolvedSourceAuthorityContext> {
     return resolveAuthorityForUniversityRecord(university, scopeType, scopeId);
+  }
+
+  private async currentFencedSource(expected: AnnouncementSourceRecord): Promise<AnnouncementSourceRecord> {
+    const current = await this.announcementRepository.findSourceById(expected.id);
+    if (!current || current.status !== "active" || current.trustStatus !== "trusted") {
+      throw new Error("ANNOUNCEMENT_SNAPSHOT_SOURCE_NOT_ACTIVE");
+    }
+    if (!sameAnnouncementSourceDefinition(current, expected)) {
+      throw new Error("ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED");
+    }
+    if ((current.activeSnapshotId?.trim() || undefined) !== (expected.activeSnapshotId?.trim() || undefined)) {
+      throw new Error("ANNOUNCEMENT_NOTIFICATION_SNAPSHOT_CONFLICT");
+    }
+    return current;
+  }
+
+  private async loadFencedActiveItems(source: AnnouncementSourceRecord): Promise<AnnouncementItem[]> {
+    const items: AnnouncementItem[] = [];
+    for (let offset = 0; offset < ANNOUNCEMENT_NOTIFICATION_RETRY_MAX_ITEMS; offset += ANNOUNCEMENT_NOTIFICATION_RETRY_PAGE_SIZE) {
+      const page = await this.announcementRepository.listItemsForSource(
+        source.id,
+        Math.min(ANNOUNCEMENT_NOTIFICATION_RETRY_PAGE_SIZE, ANNOUNCEMENT_NOTIFICATION_RETRY_MAX_ITEMS - offset),
+        offset
+      );
+      items.push(...page);
+      if (page.length < ANNOUNCEMENT_NOTIFICATION_RETRY_PAGE_SIZE) break;
+    }
+    if (items.length === ANNOUNCEMENT_NOTIFICATION_RETRY_MAX_ITEMS) {
+      const overflow = await this.announcementRepository.listItemsForSource(
+        source.id,
+        1,
+        ANNOUNCEMENT_NOTIFICATION_RETRY_MAX_ITEMS
+      );
+      if (overflow.length > 0) throw new Error("ANNOUNCEMENT_NOTIFICATION_RETRY_OVERFLOW");
+    }
+    await this.currentFencedSource(source);
+    return items;
   }
 
   private async resolveAuthorityForSource(source: AnnouncementSourceRecord): Promise<ResolvedSourceAuthorityContext | null> {
@@ -579,15 +683,16 @@ export class AnnouncementIngestionService implements OnApplicationBootstrap, OnM
     decision: SourceAuthorityDecision,
     checkedAt: Date
   ): Promise<AnnouncementIngestionResult> {
-    const quarantined = await this.announcementRepository.quarantineSource(source.id, [decision.reasonCode]);
+    const quarantined = await this.announcementRepository.quarantineSource(source.id, [decision.reasonCode], source);
+    if (!quarantined) throw new Error("ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED");
     await this.announcementRepository.recordSourceCheck(source.id, {
       healthStatus: "failed",
       lastCheckedAt: checkedAt,
       lastError: decision.reasonCode,
       consecutiveFailures: (source.consecutiveFailures ?? 0) + 1,
       itemCount: 0
-    });
-    await this.retireSourceNotifications(quarantined ?? { ...source, status: "inactive", trustStatus: "quarantined" });
+    }, source);
+    await this.retireSourceNotifications(quarantined);
     return {
       sourceId: source.id,
       sourceName: source.sourceName,
@@ -743,6 +848,41 @@ export interface ManualAnnouncementSourceUpdateInput {
   priority?: number;
   fetchIntervalMinutes?: number;
   status?: AnnouncementSourceStatus;
+}
+
+function notificationRetryDelta(
+  source: AnnouncementSourceRecord,
+  items: readonly AnnouncementItem[]
+): AnnouncementPersistenceDelta {
+  const delta = emptyAnnouncementPersistenceDelta();
+  const activeSnapshotId = source.activeSnapshotId?.trim() || undefined;
+  for (const item of items) {
+    if (activeSnapshotId && item.snapshotId !== activeSnapshotId) {
+      throw new Error("ANNOUNCEMENT_NOTIFICATION_SNAPSHOT_CONFLICT");
+    }
+    const reference = toPersistenceReference(item);
+    if (!reference) continue;
+    if (item.notificationEligibleFingerprint === reference.contentFingerprint) {
+      delta.materiallyUpdated.push(reference);
+    } else if (item.notificationProducedFingerprint === reference.contentFingerprint) {
+      delta.unchanged.push(reference);
+    }
+  }
+  return {
+    ...delta,
+    ...(activeSnapshotId ? { snapshotId: activeSnapshotId } : {})
+  };
+}
+
+function sameAnnouncementSourceDefinition(
+  current: AnnouncementSourceRecord,
+  expected: AnnouncementSourceRecord
+): boolean {
+  return current.sourceUrl === expected.sourceUrl
+    && current.parser === expected.parser
+    && (current.contentType ?? "announcement") === (expected.contentType ?? "announcement")
+    && current.sourceDefinitionVersion === expected.sourceDefinitionVersion
+    && current.notificationProducerVersion === expected.notificationProducerVersion;
 }
 
 function sourceAuthorityResource(contentType?: AnnouncementContentType): SourceAuthorityResource {
@@ -1297,12 +1437,25 @@ function summarizeDiscovery(results: AnnouncementDiscoveryResult[]) {
 }
 
 function summarizeIngestion(results: AnnouncementIngestionResult[]) {
+  const classificationCounts = results.reduce<StudentRelevanceAuditCounts>((counts, result) => {
+    if (!result.classificationAudit) return counts;
+    counts.total += result.classificationAudit.counts.total;
+    counts.relevant += result.classificationAudit.counts.relevant;
+    counts.not_relevant += result.classificationAudit.counts.not_relevant;
+    counts.uncertain += result.classificationAudit.counts.uncertain;
+    return counts;
+  }, { total: 0, relevant: 0, not_relevant: 0, uncertain: 0 });
   return {
     checkedSources: results.length,
     healthy: results.filter((result) => result.status === "healthy").length,
     degraded: results.filter((result) => result.status === "degraded").length,
     failed: results.filter((result) => result.status === "failed").length,
-    totalParsedItems: results.reduce((total, result) => total + result.itemCount, 0)
+    totalParsedItems: results.reduce((total, result) => total + result.itemCount, 0),
+    classificationAudit: {
+      mode: "shadow" as const,
+      classificationVersion: STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
+      counts: classificationCounts
+    }
   };
 }
 
@@ -1345,25 +1498,6 @@ function sourceInputFromRecord(source: AnnouncementSourceRecord) {
 function staticSourceIdentityKey(scopeType: AnnouncementSourceScope["scopeType"], scopeId: string, sourceUrl: string): string | null {
   const contentKey = canonicalAnnouncementSourceIdentityKey(sourceUrl);
   return contentKey ? `${scopeType}\u0000${scopeId}\u0000${contentKey}` : null;
-}
-
-function parseDailyScheduleTimes(value: string): number[] {
-  return value
-    .split(",")
-    .map((part) => part.trim())
-    .map((part) => part.match(/^(\d{1,2}):(\d{2})$/u))
-    .filter((match): match is RegExpMatchArray => Boolean(match))
-    .map((match) => Number(match[1]) * 60 + Number(match[2]))
-    .filter((minutes) => minutes >= 0 && minutes < 24 * 60)
-    .sort((left, right) => left - right);
-}
-
-function millisecondsUntilNextDailyRun(scheduleTimes: number[], now = new Date()): number {
-  const turkeyOffsetMs = 3 * 60 * 60 * 1000;
-  const turkeyNow = new Date(now.getTime() + turkeyOffsetMs);
-  const elapsedTodayMs = ((turkeyNow.getUTCHours() * 60 + turkeyNow.getUTCMinutes()) * 60 + turkeyNow.getUTCSeconds()) * 1000 + turkeyNow.getUTCMilliseconds();
-  const todayTargetMs = scheduleTimes.map((minutes) => minutes * 60 * 1000).find((targetMs) => targetMs > elapsedTodayMs);
-  return (todayTargetMs ?? scheduleTimes[0]! * 60 * 1000 + 24 * 60 * 60 * 1000) - elapsedTodayMs;
 }
 
 const nameStopWords = new Set([

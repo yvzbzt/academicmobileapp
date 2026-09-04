@@ -136,6 +136,12 @@ export async function safeOutboundRequest(
     }, requestHop);
 
     const location = firstHeaderValue(response.headers.location);
+    // 304 is a terminal conditional-GET result, not a redirect. Treating it as
+    // a redirect would incorrectly require a Location header and turn an
+    // unchanged trusted source into a fetch failure.
+    if (response.status === 304) {
+      return { ...response, finalUrl: currentUrl };
+    }
     if (response.status >= 300 && response.status < 400) {
       if (!location) throw new Error("OUTBOUND_REDIRECT_LOCATION_MISSING");
       const redirectUrl = validateOutboundUrl(location, currentUrl, options.validateUrl, providerPolicy);

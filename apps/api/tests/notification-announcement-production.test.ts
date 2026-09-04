@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AuthUserRecord } from "../src/modules/auth/auth.types.js";
+import { toPersistenceReference } from "../src/modules/announcements/announcement-persistence.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
-import type { AnnouncementItem, AnnouncementSourceRecord } from "../src/modules/announcements/announcements.types.js";
+import type { AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementRepository, AnnouncementSourceRecord } from "../src/modules/announcements/announcements.types.js";
 import { InMemoryNotificationRepository } from "../src/modules/notifications/in-memory-notification.repository.js";
 import { announcementDestinationFingerprint } from "../src/modules/notifications/notification-destination.js";
 import { NotificationWorkerService } from "../src/modules/notifications/notification-worker.service.js";
@@ -159,6 +160,210 @@ describe("announcement notification production", () => {
     expect(await notifications.listDueJobs(now, 10)).toEqual([]);
     expect((await notifications.listJobsByCalendar(`announcement-source:${source.id}`))[0]?.status).toBe("cancelled");
   });
+
+  it("does not let a stale snapshot sync retire or overwrite the newer snapshot jobs", async () => {
+    const snapshotA = "64a000000000000000000001";
+    const snapshotB = "64a000000000000000000002";
+    const baseSource: AnnouncementSourceRecord = {
+      ...sourceInput("university", "university-1", "source-snapshot-race"),
+      sourceDefinitionVersion: "64c000000000000000000001",
+      createdAt: new Date("2026-08-04T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-04T00:00:00.000Z")
+    };
+    const sourceA = { ...baseSource, activeSnapshotId: snapshotA };
+    const sourceB = { ...baseSource, activeSnapshotId: snapshotB };
+    const itemA = snapshotAnnouncementItem(sourceA, snapshotA, "Snapshot A announcement");
+    const itemB = snapshotAnnouncementItem(sourceB, snapshotB, "Snapshot B announcement");
+    const referenceA = toPersistenceReference(itemA);
+    const referenceB = toPersistenceReference(itemB);
+    if (!referenceA || !referenceB) throw new Error("Expected snapshot references.");
+
+    let currentSource = sourceA;
+    let currentItem = itemA;
+    const acknowledgedSnapshots: string[] = [];
+    const announcements = {
+      findSourceById: async (id: string) => id === currentSource.id ? currentSource : null,
+      findTrustedItemByIdInScope: async (input: { announcementId: string }) =>
+        input.announcementId === currentItem.id ? { source: currentSource, item: currentItem } : null,
+      acknowledgeNotificationProduction: async (references: typeof referenceA[]) => {
+        if (references.some((reference) => reference.snapshotId !== currentSource.activeSnapshotId)) return 0;
+        acknowledgedSnapshots.push(...references.flatMap((reference) => reference.snapshotId ? [reference.snapshotId] : []));
+        return references.length;
+      }
+    } as unknown as AnnouncementRepository;
+    const notifications = new FirstSyncGateNotificationRepository();
+    const scheduler = new NotificationSchedulingService(notifications, announcements);
+    const now = new Date("2026-08-04T10:30:00.000Z");
+    const deltaA: AnnouncementPersistenceDelta = {
+      created: [referenceA],
+      materiallyUpdated: [],
+      unchanged: [],
+      removed: [],
+      snapshotId: snapshotA
+    };
+    const deltaB: AnnouncementPersistenceDelta = {
+      created: [referenceB],
+      materiallyUpdated: [],
+      unchanged: [],
+      removed: [referenceA],
+      snapshotId: snapshotB,
+      previousSnapshotId: snapshotA
+    };
+
+    const staleSync = scheduler.syncTrustedAnnouncementSource(sourceA, deltaA, now);
+    await notifications.firstSyncStarted;
+
+    currentSource = sourceB;
+    currentItem = itemB;
+    await expect(scheduler.syncTrustedAnnouncementSource(sourceB, deltaB, now)).resolves.toEqual(
+      expect.objectContaining({ active: [expect.objectContaining({ title: itemB.title })] })
+    );
+
+    notifications.releaseFirstSync();
+    await expect(staleSync).rejects.toThrow("NOTIFICATION_PRODUCTION_SNAPSHOT_CONFLICT");
+
+    expect(acknowledgedSnapshots).toEqual([snapshotB]);
+    await expect(notifications.listDueJobs(now, 10)).resolves.toEqual([
+      expect.objectContaining({
+        calendarId: `announcement-source:${sourceB.id}:snapshot:${snapshotB}`,
+        title: itemB.title,
+        status: "scheduled"
+      })
+    ]);
+    await expect(notifications.listJobsByCalendar(
+      `announcement-source:${sourceA.id}:snapshot:${snapshotA}`
+    )).resolves.toEqual([
+      expect.objectContaining({ title: itemA.title, status: "cancelled" })
+    ]);
+  });
+
+  it("keeps reactivated snapshot jobs when stale quarantine cleanup arrives late", async () => {
+    const snapshotA = "64a000000000000000000021";
+    const snapshotB = "64a000000000000000000022";
+    const baseSource: AnnouncementSourceRecord = {
+      ...sourceInput("university", "university-1", "source-reactivation-race"),
+      sourceDefinitionVersion: "64c000000000000000000021",
+      createdAt: new Date("2026-08-04T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-04T00:00:00.000Z")
+    };
+    const sourceB = { ...baseSource, activeSnapshotId: snapshotB };
+    const itemB = snapshotAnnouncementItem(sourceB, snapshotB, "Reactivated snapshot B announcement");
+    const referenceB = toPersistenceReference(itemB);
+    if (!referenceB) throw new Error("Expected snapshot B reference.");
+    const announcements = {
+      findSourceById: async (id: string) => id === sourceB.id ? sourceB : null,
+      findTrustedItemByIdInScope: async (input: { announcementId: string }) =>
+        input.announcementId === itemB.id ? { source: sourceB, item: itemB } : null,
+      acknowledgeNotificationProduction: async () => 1
+    } as unknown as AnnouncementRepository;
+    const notifications = new InMemoryNotificationRepository();
+    const scheduler = new NotificationSchedulingService(notifications, announcements);
+    const now = new Date("2026-08-04T11:00:00.000Z");
+
+    await scheduler.syncTrustedAnnouncementSource(sourceB, {
+      created: [referenceB],
+      materiallyUpdated: [],
+      unchanged: [],
+      removed: [],
+      snapshotId: snapshotB,
+      previousSnapshotId: snapshotA
+    }, now);
+    await scheduler.syncTrustedAnnouncementSource({
+      ...baseSource,
+      activeSnapshotId: snapshotA,
+      status: "inactive",
+      trustStatus: "quarantined"
+    }, {
+      created: [],
+      materiallyUpdated: [],
+      unchanged: [],
+      removed: []
+    }, now);
+
+    await expect(notifications.listDueJobs(now, 10)).resolves.toEqual([
+      expect.objectContaining({
+        calendarId: `announcement-source:${sourceB.id}:snapshot:${snapshotB}`,
+        title: itemB.title,
+        status: "scheduled"
+      })
+    ]);
+  });
+
+  it("fences late cleanup when the same snapshot is reactivated under a new producer generation", async () => {
+    const snapshotB = "64a000000000000000000052";
+    const producerGenerationA = "64d000000000000000000051";
+    const producerGenerationB = "64d000000000000000000052";
+    const sourceA: AnnouncementSourceRecord = {
+      ...sourceInput("university", "university-1", "source-same-snapshot-reactivation"),
+      sourceDefinitionVersion: "64c000000000000000000051",
+      notificationProducerVersion: producerGenerationA,
+      activeSnapshotId: snapshotB,
+      createdAt: new Date("2026-08-04T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-04T00:00:00.000Z")
+    };
+    const sourceB = {
+      ...sourceA,
+      notificationProducerVersion: producerGenerationB,
+      updatedAt: new Date("2026-08-04T00:01:00.000Z")
+    };
+    const itemB = snapshotAnnouncementItem(sourceA, snapshotB, "Same snapshot announcement");
+    const referenceB = toPersistenceReference(itemB);
+    if (!referenceB) throw new Error("Expected same-snapshot reference.");
+    let currentSource = sourceA;
+    const announcements = {
+      findSourceById: async (id: string) => id === currentSource.id ? currentSource : null,
+      findTrustedItemByIdInScope: async (input: { announcementId: string }) =>
+        input.announcementId === itemB.id ? { source: currentSource, item: itemB } : null,
+      acknowledgeNotificationProduction: async () => 1
+    } as unknown as AnnouncementRepository;
+    const notifications = new TargetedRetireGateNotificationRepository();
+    const scheduler = new NotificationSchedulingService(notifications, announcements);
+    const now = new Date("2026-08-04T11:30:00.000Z");
+    const producerKeyA = `announcement-source:${sourceA.id}:generation:${producerGenerationA}:snapshot:${snapshotB}`;
+    const producerKeyB = `announcement-source:${sourceB.id}:generation:${producerGenerationB}:snapshot:${snapshotB}`;
+
+    await scheduler.syncTrustedAnnouncementSource(sourceA, {
+      created: [referenceB],
+      materiallyUpdated: [],
+      unchanged: [],
+      removed: [],
+      snapshotId: snapshotB
+    }, now);
+    notifications.gateNextRetirement(producerKeyA);
+    const staleCleanup = scheduler.syncTrustedAnnouncementSource({
+      ...sourceA,
+      status: "inactive",
+      trustStatus: "quarantined"
+    }, {
+      created: [],
+      materiallyUpdated: [],
+      unchanged: [],
+      removed: []
+    }, now);
+    await notifications.retirementStarted;
+
+    currentSource = sourceB;
+    await scheduler.syncTrustedAnnouncementSource(sourceB, {
+      created: [],
+      materiallyUpdated: [referenceB],
+      unchanged: [],
+      removed: [],
+      snapshotId: snapshotB
+    }, now);
+
+    notifications.releaseRetirement();
+    await staleCleanup;
+
+    await expect(notifications.listDueJobs(now, 10)).resolves.toEqual([
+      expect.objectContaining({
+        calendarId: producerKeyB,
+        producerKey: producerKeyB,
+        producerKeys: [producerKeyB],
+        title: itemB.title,
+        status: "scheduled"
+      })
+    ]);
+  });
 });
 
 class ResponseLossNotificationRepository extends InMemoryNotificationRepository {
@@ -171,6 +376,61 @@ class ResponseLossNotificationRepository extends InMemoryNotificationRepository 
       throw new Error("SIMULATED_SYNC_RESPONSE_LOSS");
     }
     return result;
+  }
+}
+
+class FirstSyncGateNotificationRepository extends InMemoryNotificationRepository {
+  private syncCalls = 0;
+  private signalFirstSyncStarted!: () => void;
+  private continueFirstSync!: () => void;
+  readonly firstSyncStarted = new Promise<void>((resolve) => {
+    this.signalFirstSyncStarted = resolve;
+  });
+  private readonly firstSyncRelease = new Promise<void>((resolve) => {
+    this.continueFirstSync = resolve;
+  });
+
+  releaseFirstSync(): void {
+    this.continueFirstSync();
+  }
+
+  override async syncProducedJobs(input: Parameters<InMemoryNotificationRepository["syncProducedJobs"]>[0]) {
+    this.syncCalls += 1;
+    if (this.syncCalls === 1) {
+      this.signalFirstSyncStarted();
+      await this.firstSyncRelease;
+    }
+    return super.syncProducedJobs(input);
+  }
+}
+
+class TargetedRetireGateNotificationRepository extends InMemoryNotificationRepository {
+  private targetProducerKey: string | undefined;
+  private didGate = false;
+  private signalRetirementStarted!: () => void;
+  private continueRetirement!: () => void;
+  readonly retirementStarted = new Promise<void>((resolve) => {
+    this.signalRetirementStarted = resolve;
+  });
+  private readonly retirementRelease = new Promise<void>((resolve) => {
+    this.continueRetirement = resolve;
+  });
+
+  gateNextRetirement(producerKey: string): void {
+    this.targetProducerKey = producerKey;
+  }
+
+  releaseRetirement(): void {
+    this.continueRetirement();
+  }
+
+  override async retireProducedJobs(producerKey: string): Promise<number> {
+    if (!this.didGate && producerKey === this.targetProducerKey) {
+      this.didGate = true;
+      this.signalRetirementStarted();
+      await this.retirementRelease;
+    }
+    return super.retireProducedJobs(producerKey);
   }
 }
 
@@ -215,6 +475,28 @@ function announcementItem(source: AnnouncementSourceRecord, id: string): Announc
     publicationTimeSource: "source",
     fetchedAt: "2026-08-04T08:00:00.000Z",
     trustStatus: "trusted"
+  };
+}
+
+function snapshotAnnouncementItem(
+  source: AnnouncementSourceRecord,
+  snapshotId: string,
+  title: string
+): AnnouncementItem {
+  const item = {
+    ...announcementItem(source, "item-stable"),
+    snapshotId,
+    title,
+    summary: `${title} summary`,
+    link: "https://www.example.edu.tr/announcements/stable-item",
+    canonicalUrl: "https://www.example.edu.tr/announcements/stable-item"
+  };
+  const reference = toPersistenceReference(item);
+  if (!reference) throw new Error("Expected a valid announcement item.");
+  return {
+    ...item,
+    contentFingerprint: reference.contentFingerprint,
+    notificationEligibleFingerprint: reference.contentFingerprint
   };
 }
 

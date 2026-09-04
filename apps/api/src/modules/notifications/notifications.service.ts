@@ -272,7 +272,6 @@ export class NotificationSchedulingService {
           status: "scheduled" as const
         }))
     );
-    await this.notificationRepository.retireSupersededProducerJobs(producerGroupKey, producerKey);
     const synced = await this.notificationRepository.syncProducedJobs({ producerKey, producerGroupKey, jobs });
     return synced.active;
   }
@@ -282,9 +281,19 @@ export class NotificationSchedulingService {
     delta: AnnouncementPersistenceDelta,
     now = new Date()
   ): Promise<{ active: NotificationJobRecord[]; retired: number }> {
-    const producerKey = `announcement-source:${source.id}`;
+    const producerGroupKey = announcementProducerGroupKey(source.id);
+    const snapshotId = announcementDeltaSnapshotId(delta);
+    const producerKey = snapshotId
+      ? announcementSnapshotProducerKey(source.id, snapshotId, source.notificationProducerVersion)
+      : producerGroupKey;
     if (source.status !== "active" || source.trustStatus !== "trusted" || !this.announcementRepository) {
-      return { active: [], retired: await this.notificationRepository.retireProducedJobs(producerKey) };
+      const retiredSnapshot = source.activeSnapshotId
+        ? await this.notificationRepository.retireProducedJobs(
+            announcementSnapshotProducerKey(source.id, source.activeSnapshotId, source.notificationProducerVersion)
+          )
+        : 0;
+      const retiredLegacy = await this.notificationRepository.retireProducedJobs(producerGroupKey);
+      return { active: [], retired: retiredSnapshot + retiredLegacy };
     }
 
     const producibleIds = new Set([...delta.created, ...delta.materiallyUpdated].map((reference) => reference.id));
@@ -322,14 +331,38 @@ export class NotificationSchedulingService {
     }
     const synced = await this.notificationRepository.syncProducedJobs({
       producerKey,
+      ...(snapshotId ? { producerGroupKey } : {}),
       jobs: producedJobs,
       retainJobs: retainedJobs
     });
+    if (snapshotId) {
+      const currentSource = await this.announcementRepository.findSourceById(source.id);
+      if (
+        !currentSource
+        || currentSource.status !== "active"
+        || currentSource.trustStatus !== "trusted"
+        || currentSource.activeSnapshotId !== snapshotId
+        || currentSource.sourceDefinitionVersion !== source.sourceDefinitionVersion
+        || currentSource.notificationProducerVersion !== source.notificationProducerVersion
+      ) {
+        await this.notificationRepository.retireProducedJobs(producerKey);
+        throw new Error("NOTIFICATION_PRODUCTION_SNAPSHOT_CONFLICT");
+      }
+    }
     if (referencesToAcknowledge.length > 0) {
       const acknowledged = await this.announcementRepository.acknowledgeNotificationProduction(referencesToAcknowledge);
-      if (acknowledged !== referencesToAcknowledge.length) throw new Error("NOTIFICATION_PRODUCTION_ACK_CONFLICT");
+      if (acknowledged !== referencesToAcknowledge.length) {
+        if (snapshotId) await this.notificationRepository.retireProducedJobs(producerKey);
+        throw new Error("NOTIFICATION_PRODUCTION_ACK_CONFLICT");
+      }
     }
-    return synced;
+    const previousProducerKey = delta.previousSnapshotId
+      ? announcementSnapshotProducerKey(source.id, delta.previousSnapshotId, source.notificationProducerVersion)
+      : snapshotId ? producerGroupKey : undefined;
+    const retiredPrevious = previousProducerKey && previousProducerKey !== producerKey
+      ? await this.notificationRepository.retireProducedJobs(previousProducerKey)
+      : 0;
+    return { active: synced.active, retired: synced.retired + retiredPrevious };
   }
 
   listCalendarJobs(calendarId: string) {
@@ -357,6 +390,31 @@ export class NotificationSchedulingService {
 }
 
 const YOK_SCOPE_ID = "yok-council-of-higher-education";
+
+function announcementProducerGroupKey(sourceId: string): string {
+  return `announcement-source:${sourceId}`;
+}
+
+function announcementSnapshotProducerKey(
+  sourceId: string,
+  snapshotId: string,
+  notificationProducerVersion?: string
+): string {
+  const generation = notificationProducerVersion?.trim();
+  return generation
+    ? `${announcementProducerGroupKey(sourceId)}:generation:${generation}:snapshot:${snapshotId}`
+    : `${announcementProducerGroupKey(sourceId)}:snapshot:${snapshotId}`;
+}
+
+function announcementDeltaSnapshotId(delta: AnnouncementPersistenceDelta): string | undefined {
+  const snapshotIds = new Set([
+    ...(delta.snapshotId ? [delta.snapshotId] : []),
+    ...[...delta.created, ...delta.materiallyUpdated, ...delta.unchanged]
+      .flatMap((reference) => reference.snapshotId ? [reference.snapshotId] : [])
+  ]);
+  if (snapshotIds.size > 1) throw new Error("NOTIFICATION_PRODUCTION_MIXED_SNAPSHOTS");
+  return [...snapshotIds][0];
+}
 
 function announcementNotificationCategory(source: AnnouncementSourceRecord) {
   if (source.scopeId === YOK_SCOPE_ID) return "yok_event" as const;
