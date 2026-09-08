@@ -27,6 +27,8 @@ apps/mobile-native/google-services.json
 apps/mobile-native/GoogleService-Info.plist
 
 # Local validation reports, screenshots, and logs
+/reports/
+/.tmp/
 ANDROID_*_BUILD_REPORT.md
 FIREBASE_LIVE_APP_VISUAL_REPORT.md
 NATIVE_CALENDAR_INTEGRATION_PREVIEW.png

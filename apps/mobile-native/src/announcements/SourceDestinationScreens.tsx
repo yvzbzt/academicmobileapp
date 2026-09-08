@@ -19,6 +19,7 @@ import {
 } from "../content/content-trust";
 import {
   compactContentProvenanceLabel,
+  contentDetailOpenActionLabel,
   contentTypeLabel,
   officialContentOpenActionLabel,
 } from "../content/content-provenance";
@@ -38,6 +39,7 @@ import {
 import { resolveContentFeedLayout } from "./feed-model";
 import {
   officialContentDomain,
+  resolveTrustedContentOpenTarget,
   shortContentCardExcerpt,
   trustedContentDestinationUrl,
 } from "./content-card";
@@ -528,9 +530,14 @@ function TrustedDestinationCard({
   const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
   const familyAndTypeLabel = `${contentTypeLabel(item)} · ${familyLabel}`;
   const provenanceLabel = compactContentProvenanceLabel(item);
+  const openTarget = resolveTrustedContentOpenTarget(item);
+  const opensDetail = openTarget?.kind === "detail";
+  const openActionLabel = opensDetail
+    ? contentDetailOpenActionLabel(item)
+    : officialContentOpenActionLabel(item);
   return (
     <Card
-      accessibilityLabel={`${item.sourceName}. ${familyAndTypeLabel} · ${provenanceLabel}. ${timestamp}. ${item.title}. ${officialContentOpenActionLabel(item)}.`}
+      accessibilityLabel={`${item.sourceName}. ${familyAndTypeLabel} · ${provenanceLabel}. ${timestamp}. ${item.title}. ${openActionLabel}.`}
       accessibilityRole="link"
       onPress={onPress}
       style={[
@@ -578,8 +585,8 @@ function TrustedDestinationCard({
       ) : null}
       {destinationDomain ? (
         <View style={[styles.metadataRow, { gap: theme.spacing.xs }]}>
-          <Text numberOfLines={1} style={[theme.typography.metaStrong, styles.flexOne, { color: theme.colors.text.link }]}>Resmî kaynak · {destinationDomain}</Text>
-          <Ionicons color={theme.colors.text.link} name="open-outline" size={18} />
+          <Text numberOfLines={1} style={[theme.typography.metaStrong, styles.flexOne, { color: theme.colors.text.link }]}>{opensDetail ? "Ayrıntıyı gör" : "Resmî kaynak"} · {destinationDomain}</Text>
+          <Ionicons color={theme.colors.text.link} name={opensDetail ? "chevron-forward" : "open-outline"} size={18} />
         </View>
       ) : null}
     </Card>

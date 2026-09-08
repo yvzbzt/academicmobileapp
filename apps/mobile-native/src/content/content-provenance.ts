@@ -15,6 +15,12 @@ const OPEN_ACTION_LABELS = {
   event: "Resmî etkinliği aç",
 } as const;
 
+const DETAIL_ACTION_LABELS = {
+  announcement: "Duyuru ayrıntısını aç",
+  news: "Haber ayrıntısını aç",
+  event: "Etkinlik ayrıntısını aç",
+} as const;
+
 const SCOPE_LABELS = {
   university: "Üniversite geneli",
   faculty: "Fakülte",
@@ -52,4 +58,10 @@ export function officialContentOpenActionLabel(
   record: Pick<TrustedMobileContentRecord, "contentType">,
 ): string {
   return OPEN_ACTION_LABELS[record.contentType ?? "announcement"];
+}
+
+export function contentDetailOpenActionLabel(
+  record: Pick<TrustedMobileContentRecord, "contentType">,
+): string {
+  return DETAIL_ACTION_LABELS[record.contentType ?? "announcement"];
 }

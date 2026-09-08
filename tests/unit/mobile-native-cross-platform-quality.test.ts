@@ -1,10 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { functionSource } from "../../apps/mobile-native/tests/helpers/source-inspection";
 import {
   contrastRatio,
   darkTheme,
   lightTheme,
+  referencePalette,
   type SemanticTheme,
 } from "../../apps/mobile-native/src/design-system/tokens";
 import { resolvePlatformAdaptation } from "../../apps/mobile-native/src/design-system/platform";
@@ -49,35 +51,35 @@ function expectMinimumContrast(
 
 describe("mobile-native Phase 11 cross-platform quality", () => {
   it("keeps route and visual-preview status bars aligned with their page backgrounds", () => {
-    const appSource = source("apps/mobile-native/App.tsx");
-    const routedStatusBarStart = appSource.indexOf("function RoutedStatusBar");
-    const appComponentStart = appSource.indexOf("export default function App", routedStatusBarStart);
-    const routedStatusBar = appSource.slice(routedStatusBarStart, appComponentStart);
+    const appSource = source("apps/mobile-native/src/app/MainApplication.tsx");
+    const previewSource = source("apps/mobile-native/src/app/ApplicationEntry.tsx");
+    const routedStatusBar = functionSource(appSource, "RoutedStatusBar");
 
     expect(appSource).toContain("<RoutedStatusBar activeRoute={controlledActiveRoute} />");
-    expect(routedStatusBarStart).toBeGreaterThanOrEqual(0);
     expect(routedStatusBar).toContain('const homeActive = activeRoute === "Home";');
-    expect(routedStatusBar).toContain('backgroundColor={homeActive ? "#0758E9" : "#FFFFFF"}');
+    expect(referencePalette.academicBlueDeep).toBe("#0758E9");
+    expect(referencePalette.white).toBe("#FFFFFF");
+    expect(routedStatusBar).toContain('backgroundColor={homeActive ? referencePalette.academicBlueDeep : referencePalette.white}');
     expect(routedStatusBar).toContain('style={homeActive ? "light" : "dark"}');
     expect(routedStatusBar).toContain("translucent={false}");
 
     const previewContracts = [
-      ["showPhase10ProfilePreview", "showPhase9CalendarPreview", "#FFFFFF", "dark"],
-      ["showPhase9CalendarPreview", "showPhase8ContentFeedPreview", "#FFFFFF", "dark"],
-      ["showPhase8ContentFeedPreview", "showPhase7HomePreview", "#FFFFFF", "dark"],
-      ["showPhase7HomePreview", "showPhase6AuthPreview", "#0758E9", "light"],
-      ["showPhase6AuthPreview", "showPhase5AppShellPreview", "#FFFFFF", "dark"],
+      ["showPhase10ProfilePreview", "showPhase9CalendarPreview", "white", "dark"],
+      ["showPhase9CalendarPreview", "showPhase8ContentFeedPreview", "white", "dark"],
+      ["showPhase8ContentFeedPreview", "showPhase7HomePreview", "white", "dark"],
+      ["showPhase7HomePreview", "showPhase6AuthPreview", "academicBlueDeep", "light"],
+      ["showPhase6AuthPreview", "showPhase5AppShellPreview", "white", "dark"],
     ] as const;
 
     for (const [startMarker, endMarker, backgroundColor, style] of previewContracts) {
-      const start = appSource.indexOf(`if (${startMarker})`);
-      const end = appSource.indexOf(`if (${endMarker})`, start);
-      const previewBlock = appSource.slice(start, end);
+      const start = previewSource.indexOf(`if (${startMarker})`);
+      const end = previewSource.indexOf(`if (${endMarker})`, start);
+      const previewBlock = previewSource.slice(start, end);
 
       expect(start, startMarker).toBeGreaterThanOrEqual(0);
       expect(end, endMarker).toBeGreaterThan(start);
       expect(previewBlock).toContain(
-        `<StatusBar backgroundColor="${backgroundColor}" style="${style}" translucent={false} />`,
+        `<StatusBar backgroundColor={referencePalette.${backgroundColor}} style="${style}" translucent={false} />`,
       );
     }
   });
@@ -278,12 +280,8 @@ describe("mobile-native Phase 11 cross-platform quality", () => {
   });
 
   it("retains canonicalized HTTP(S) external-link handling", () => {
-    const appSource = source("apps/mobile-native/App.tsx");
-    const start = appSource.indexOf("async function openAnnouncement");
-    const end = appSource.indexOf("function renderAnnouncementCard", start);
-    const implementation = appSource.slice(start, end);
+    const implementation = functionSource(source("apps/mobile-native/src/app/actions/content-navigation-actions.ts"), "openAnnouncement");
 
-    expect(start).toBeGreaterThanOrEqual(0);
     expect(implementation).toContain("canonicalizeOfficialAcademicUrl(link)");
     expect(implementation.indexOf("canonicalizeOfficialAcademicUrl(link)")).toBeLessThan(implementation.indexOf("Linking.canOpenURL"));
     expect(implementation).toContain("Linking.openURL(safeLink)");

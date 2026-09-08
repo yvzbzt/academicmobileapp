@@ -1,17 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
+import { functionSource, sourceBetween } from "../helpers/source-inspection";
 
 describe("mobile runtime performance contracts", () => {
-  const appSource = fs.readFileSync(path.resolve(__dirname, "../../App.tsx"), "utf8");
+  const bootstrapSource = applicationModule("actions/bootstrap-actions.ts");
+  const catalogSource = applicationModule("actions/catalog-actions.ts");
+  const effectsSource = applicationModule("useApplicationEffects.ts");
+  const derivedSource = applicationModule("useApplicationDerivedState.ts");
   const navigatorSource = fs.readFileSync(
     path.resolve(__dirname, "../../src/navigation/AppNavigator.tsx"),
     "utf8",
   );
   it("warms only Home data while the initial shell becomes interactive", () => {
-    const warmup = appSource.slice(
-      appSource.indexOf("function warmAuthenticatedContext"),
-      appSource.indexOf("async function bootstrapAuthenticatedContext"),
-    );
+    const warmup = functionSource(bootstrapSource, "warmAuthenticatedContext");
 
     expect(warmup).toContain("loadMyCalendar");
     expect(warmup).not.toContain("loadAnnouncements");
@@ -22,10 +23,7 @@ describe("mobile runtime performance contracts", () => {
   });
 
   it("starts the user announcement feed when the announcements experience becomes visible", () => {
-    const visibilityEffect = appSource.slice(
-      appSource.indexOf("const announcementsExperienceVisible"),
-      appSource.indexOf("const needsPublicCatalog"),
-    );
+    const visibilityEffect = sourceBetween(effectsSource, "const announcementsExperienceVisible", "const needsPublicCatalog");
     const userFeedLoad = visibilityEffect.indexOf("loadAnnouncements(undefined, registerUniversityId)");
     const deferredSecondaryStart = visibilityEffect.indexOf("InteractionManager.runAfterInteractions");
     const deferredSecondaryLoads = visibilityEffect.slice(deferredSecondaryStart);
@@ -40,22 +38,10 @@ describe("mobile runtime performance contracts", () => {
   });
 
   it("does not eager-load announcements while saving academic profile changes", () => {
-    const universitySelection = appSource.slice(
-      appSource.indexOf("async function selectUniversity"),
-      appSource.indexOf("async function selectFaculty"),
-    );
-    const facultySelection = appSource.slice(
-      appSource.indexOf("async function selectFaculty"),
-      appSource.indexOf("async function selectDepartment"),
-    );
-    const departmentSelection = appSource.slice(
-      appSource.indexOf("async function selectDepartment"),
-      appSource.indexOf("async function loadMyCalendar"),
-    );
-    const profileSave = appSource.slice(
-      appSource.indexOf("async function saveAcademicProfileSettings"),
-      appSource.indexOf("function renderAuthOnboardingScreen"),
-    );
+    const universitySelection = functionSource(catalogSource, "selectUniversity");
+    const facultySelection = functionSource(catalogSource, "selectFaculty");
+    const departmentSelection = functionSource(catalogSource, "selectDepartment");
+    const profileSave = functionSource(catalogSource, "saveAcademicProfileSettings");
 
     expect(universitySelection).not.toContain("loadAnnouncements");
     expect(facultySelection).not.toContain("loadAnnouncements");
@@ -64,10 +50,7 @@ describe("mobile runtime performance contracts", () => {
   });
 
   it("does not gate the main announcements tab on secondary feeds", () => {
-    const feedState = appSource.slice(
-      appSource.indexOf("const contentFeedHasRetainedData"),
-      appSource.indexOf("const yokAvailabilityMessage"),
-    );
+    const feedState = sourceBetween(derivedSource, "const contentFeedHasRetainedData", "const yokAvailabilityMessage");
 
     expect(feedState).toContain("const contentFeedAttempted = Boolean(announcements.attempted)");
     expect(feedState).toContain("contentFeedHasRetainedData && contentFeedSecondaryLoading");
@@ -75,10 +58,7 @@ describe("mobile runtime performance contracts", () => {
   });
 
   it("restores independent authenticated startup state concurrently", () => {
-    const hydration = appSource.slice(
-      appSource.indexOf("async function hydrateApplication"),
-      appSource.indexOf("async function restoreSession"),
-    );
+    const hydration = functionSource(bootstrapSource, "hydrateApplication");
 
     expect(hydration).toContain("restoreSession(storedSessionValue)");
     expect(hydration).toContain("const [contextReady] = await Promise.all([");
@@ -122,14 +102,19 @@ describe("mobile runtime performance contracts", () => {
   });
 
   it("does not block Google sign-in on a provider sign-out", () => {
-    const googleStart = appSource.indexOf("const nativeAuth = await enqueueGoogleSdkOperation");
-    const providerSignIn = appSource.indexOf("const result = await GoogleSignin.signIn()", googleStart);
-    const providerPreparation = appSource.slice(googleStart, providerSignIn);
+    const googleHandler = functionSource(applicationModule("actions/auth-actions.ts"), "handleGoogleAuth");
+    const googleStart = googleHandler.indexOf("const nativeAuth = await enqueueGoogleSdkOperation");
+    const providerSignIn = googleHandler.indexOf("const result = await GoogleSignin.signIn()", googleStart);
+    const providerPreparation = googleHandler.slice(googleStart, providerSignIn);
 
     expect(googleStart).toBeGreaterThan(0);
     expect(providerSignIn).toBeGreaterThan(googleStart);
     expect(providerPreparation).toContain("GoogleSignin.hasPlayServices");
     expect(providerPreparation).not.toContain("clearGoogleAccountSelection");
-    expect(appSource).toContain("offlineAccess: false");
+    expect(effectsSource).toContain("offlineAccess: false");
   });
 });
+
+function applicationModule(relativePath: string): string {
+  return fs.readFileSync(path.resolve(__dirname, `../../src/app/${relativePath}`), "utf8").replace(/\r\n?/gu, "\n");
+}

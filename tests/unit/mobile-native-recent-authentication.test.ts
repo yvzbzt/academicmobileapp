@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { functionSource } from "../../apps/mobile-native/tests/helpers/source-inspection";
 import {
   normalizeAccountAuthProvider,
   readRecentAuthenticationResponse,
@@ -57,15 +58,25 @@ describe("mobile native recent authentication", () => {
   });
 
   it("requests a fresh action-specific proof before each destructive call and never persists it", () => {
-    const source = readFileSync(resolve("apps/mobile-native/App.tsx"), "utf8");
+    const source = readFileSync(resolve("apps/mobile-native/src/app/actions/recent-auth-actions.ts"), "utf8");
+    const cleanup = readFileSync(resolve("apps/mobile-native/src/app/actions/account-cleanup-actions.ts"), "utf8");
     expect(source).toContain('"/auth/recent-authentication"');
     expect(source).toContain("const purpose = recentAuthenticationPurpose(action);");
     expect(source).toMatch(/const proof = await requestRecentAuthenticationProof\(\s*action,/u);
-    expect(source).toContain('headers: recentAuthenticationHeader(recentAuthenticationProof)');
-    expect(source.match(/headers: recentAuthenticationHeader\(recentAuthenticationProof\)/gu)).toHaveLength(2);
+    for (const action of ["deleteMyData", "deleteAccount"]) {
+      const destructiveCall = functionSource(source, action);
+      expect(destructiveCall.match(/headers: recentAuthenticationHeader\(recentAuthenticationProof\)/gu)).toHaveLength(1);
+    }
     expect(source).toContain('if (action === "data") await deleteMyData(proof)');
     expect(source).toContain('else await deleteAccount(proof)');
-    expect(source).not.toMatch(/(?:SecureStore|setStoredValue|persistSession)\([^\n]*proof/iu);
+    for (const implementation of [
+      source,
+      cleanup,
+      readFileSync(resolve("apps/mobile-native/src/app/actions/session-actions.ts"), "utf8"),
+      readFileSync(resolve("apps/mobile-native/src/app/app-storage.ts"), "utf8")
+    ]) {
+      expect(implementation).not.toMatch(/(?:SecureStore|setStoredValue|persistSession)\([^\n]*proof/iu);
+    }
   });
 
   it("uses the native semantic design system without defining a local color palette", () => {

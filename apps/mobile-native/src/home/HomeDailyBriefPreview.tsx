@@ -194,6 +194,7 @@ function basePreviewProps(scenario: HomeDailyBriefPreviewScenario): HomeDailyBri
     onCompleteProfile: () => undefined,
     onOpenAnnouncement: () => undefined,
     onOpenAnnouncements: () => undefined,
+    onOpenImportantItem: () => undefined,
     onOpenCalendar: () => undefined,
     onCreatePersonalEvent: () => undefined,
     onOpenGoogleCalendarSettings: () => undefined,

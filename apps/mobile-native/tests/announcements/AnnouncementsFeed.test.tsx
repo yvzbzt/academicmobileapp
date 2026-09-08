@@ -32,6 +32,7 @@ jest.mock("@react-navigation/native", () => ({ useScrollToTop: jest.fn() }));
 
 const callbacks = {
   onLoadMore: jest.fn(),
+  onOpenItem: jest.fn(),
   onOpenOfficialSource: jest.fn(),
   onOpenNotificationSettings: jest.fn(),
   onOpenSummerSchool: jest.fn(),
@@ -347,17 +348,17 @@ describe("Phase 8 Announcements feed", () => {
       {
         title: "Ders kayıt takvimi açıklandı",
         provenance: "Duyuru · Örnek Üniversitesi · Üniversite geneli",
-        openAction: "Resmî duyuruyu aç",
+        openAction: "Duyuru ayrıntısını aç",
       },
       {
         title: "Burs başvurusu belge listesi",
         provenance: "Haber · Örnek Üniversitesi · Fakülte · Mühendislik Fakültesi",
-        openAction: "Resmî haberi aç",
+        openAction: "Haber ayrıntısını aç",
       },
       {
         title: "Araştırma etkinliği",
         provenance: "Etkinlik · Örnek Üniversitesi · Bölüm · Bilgisayar Mühendisliği Bölümü",
-        openAction: "Resmî etkinliği aç",
+        openAction: "Etkinlik ayrıntısını aç",
       },
     ] as const;
     for (const { title, provenance, openAction } of expectedCards) {
@@ -371,7 +372,7 @@ describe("Phase 8 Announcements feed", () => {
     }
 
     const row = screen.getAllByRole("link", {
-      name: /Örnek Üniversitesi Öğrenci İşleri.*Ders kayıt takvimi açıklandı.*example\.edu\.tr.*Resmî duyuruyu aç/iu,
+      name: /Örnek Üniversitesi Öğrenci İşleri.*Ders kayıt takvimi açıklandı.*example\.edu\.tr.*Duyuru ayrıntısını aç/iu,
     })[0]!;
     expect(row).toHaveStyle({ minHeight: 148 });
     expect(within(row).getByText("Ders kayıt takvimi açıklandı"))
@@ -398,7 +399,8 @@ describe("Phase 8 Announcements feed", () => {
 
     expect(screen.getByText(shortSummary)).toBeOnTheScreen();
     expect(screen.queryByText(longSummary)).not.toBeOnTheScreen();
-    expect(screen.getAllByText("Resmî kaynağa git")).toHaveLength(3);
+    expect(screen.getAllByText("Ayrıntıyı gör")).toHaveLength(2);
+    expect(screen.getAllByText("Resmî kaynağa git")).toHaveLength(1);
   });
 
   it("classifies card dates without inventing an end date or a deadline", async () => {
@@ -552,7 +554,7 @@ describe("Phase 8 Announcements feed", () => {
     }
   });
 
-  it("keeps YÖK and Summer School reachable and opens the exact official item URL", async () => {
+  it("keeps YÖK and Summer School reachable and opens rich content in its in-app detail", async () => {
     await renderFeed(feedProps());
 
     fireEvent.press(screen.getByTestId("announcements-content-filter"));
@@ -565,14 +567,35 @@ describe("Phase 8 Announcements feed", () => {
     expect(callbacks.onOpenSummerSchool).toHaveBeenCalledTimes(1);
 
     fireEvent.press(screen.getByRole("link", {
-      name: /Ders kayıt takvimi açıklandı.*Resmî duyuruyu aç/iu,
+      name: /Ders kayıt takvimi açıklandı.*Duyuru ayrıntısını aç/iu,
     }));
-    expect(callbacks.onOpenOfficialSource).toHaveBeenCalledWith(
-      "https://example.edu.tr/duyurular/registration",
-    );
+    expect(callbacks.onOpenItem).toHaveBeenCalledWith(expect.objectContaining({
+      record: expect.objectContaining({ id: "registration" }),
+    }));
+    expect(callbacks.onOpenOfficialSource).not.toHaveBeenCalled();
 
     fireEvent.press(screen.getByRole("button", { name: "YÖK kaynak filtresi" }));
     expect(renderedTitles()).toEqual(["YÖK öğrenci bilgilendirmesi"]);
+  });
+
+  it("opens the exact official URL when a trusted item has no in-app detail fields", async () => {
+    await renderFeed(feedProps({
+      academicItems: [record("source-only", {
+        summary: undefined,
+        body: undefined,
+        keyDates: undefined,
+      })],
+      yokItems: [],
+      summerItems: [],
+    }));
+
+    fireEvent.press(screen.getByRole("link", {
+      name: /Güvenilir duyuru source-only.*Resmî duyuruyu aç/iu,
+    }));
+    expect(callbacks.onOpenOfficialSource).toHaveBeenCalledWith(
+      "https://example.edu.tr/duyurular/source-only",
+    );
+    expect(callbacks.onOpenItem).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -144,6 +144,7 @@ function createProductionHomeScreens(): AppScreenSlots {
         onCompleteProfile={jest.fn()}
         onOpenAnnouncement={jest.fn()}
         onOpenAnnouncements={jest.fn()}
+        onOpenImportantItem={jest.fn()}
         onOpenCalendar={jest.fn()}
         onCreatePersonalEvent={jest.fn()}
         onOpenGoogleCalendarSettings={jest.fn()}

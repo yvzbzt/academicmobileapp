@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { functionSource, sourceBetween } from "../../apps/mobile-native/tests/helpers/source-inspection";
 import { describe, expect, it } from "vitest";
 import {
   AUTH_ENDPOINTS,
@@ -28,11 +29,7 @@ describe("mobile authentication recovery contract", () => {
   it("uses the resend endpoint instead of registering the account again", () => {
     expect(AUTH_ENDPOINTS.resendVerificationCode).toBe("/auth/resend-verification-code");
     expect(AUTH_ENDPOINTS.resendVerificationCode).not.toBe(AUTH_ENDPOINTS.register);
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const resendHandler = appSource.slice(
-      appSource.indexOf("async function resendVerificationEmail"),
-      appSource.indexOf("async function handleVerifyEmail")
-    );
+    const resendHandler = functionSource(applicationModule("actions/verification-actions.ts"), "resendVerificationEmail");
     expect(resendHandler).toContain("AUTH_ENDPOINTS.resendVerificationCode");
     expect(resendHandler).not.toContain("AUTH_ENDPOINTS.register");
   });
@@ -76,15 +73,8 @@ describe("mobile authentication recovery contract", () => {
   });
 
   it("restores the device identity before refresh and resumes verification without restoring a password", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const hydrationHandler = appSource.slice(
-      appSource.indexOf("async function hydrateApplication"),
-      appSource.indexOf("async function restoreSession")
-    );
-    const verificationRestore = appSource.slice(
-      appSource.indexOf("async function restorePendingVerification"),
-      appSource.indexOf("async function restoreManualExams")
-    );
+    const hydrationHandler = functionSource(applicationModule("actions/bootstrap-actions.ts"), "hydrateApplication");
+    const verificationRestore = functionSource(applicationModule("actions/bootstrap-actions.ts"), "restorePendingVerification");
 
     expect(hydrationHandler).toContain("const [, storedWelcomeCompletion, storedSessionValue] = await Promise.all([");
     expect(hydrationHandler.indexOf("restoreDeviceId()"))
@@ -118,11 +108,7 @@ describe("mobile authentication recovery contract", () => {
       requirements: { minimumLength: true, confirmationMatches: false }
     });
 
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const authHandler = appSource.slice(
-      appSource.indexOf("async function handleAuth"),
-      appSource.indexOf("async function handleGoogleAuth")
-    );
+    const authHandler = functionSource(applicationModule("actions/auth-actions.ts"), "handleAuth");
     expect(authHandler).not.toContain("password.trim()");
     expect(authHandler).toContain('authMode === "register" ? registrationValidation : loginValidation');
     expect(authHandler).toContain("passwordConfirmation: registrationPasswordConfirmation");
@@ -130,27 +116,12 @@ describe("mobile authentication recovery contract", () => {
   });
 
   it("auto logs in after verification when the registration password is still in memory", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const verificationHandler = appSource.slice(
-      appSource.indexOf("async function handleVerifyEmail"),
-      appSource.indexOf("async function saveAcademicOnboarding")
-    );
-    const onboardingHandler = appSource.slice(
-      appSource.indexOf("async function saveAcademicOnboarding"),
-      appSource.indexOf("function openPasswordRecovery")
-    );
-    const rootSurfaceRouting = appSource.slice(
-      appSource.indexOf("const navigatorRootSurface"),
-      appSource.indexOf("const googleCalendarLive")
-    );
-    const authenticatedInvalidation = appSource.slice(
-      appSource.indexOf("function invalidateAuthenticatedWork"),
-      appSource.indexOf("async function activateSession")
-    );
-    const authenticatedMemoryClear = appSource.slice(
-      appSource.indexOf("function clearAuthenticatedMemory"),
-      appSource.indexOf("function reportCleanupResult")
-    );
+    const appSource = applicationModule("useApplicationDerivedState.ts");
+    const verificationHandler = functionSource(applicationModule("actions/verification-actions.ts"), "handleVerifyEmail");
+    const onboardingHandler = functionSource(applicationModule("actions/verification-actions.ts"), "saveAcademicOnboarding");
+    const rootSurfaceRouting = sourceBetween(applicationModule("useApplicationDerivedState.ts"), "const navigatorRootSurface", "const googleCalendarLive");
+    const authenticatedInvalidation = functionSource(applicationModule("actions/session-actions.ts"), "invalidateAuthenticatedWork");
+    const authenticatedMemoryClear = functionSource(applicationModule("actions/account-cleanup-actions.ts"), "clearAuthenticatedMemory");
 
     expect(verificationHandler).toContain("AUTH_ENDPOINTS.verifyEmail");
     expect(verificationHandler).toContain("AUTH_ENDPOINTS.login");
@@ -201,15 +172,8 @@ describe("mobile authentication recovery contract", () => {
   });
 
   it("releases authenticated routing after the mandatory profile and warms data recoverably", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const warmup = appSource.slice(
-      appSource.indexOf("function warmAuthenticatedContext"),
-      appSource.indexOf("async function bootstrapAuthenticatedContext")
-    );
-    const bootstrap = appSource.slice(
-      appSource.indexOf("async function bootstrapAuthenticatedContext"),
-      appSource.indexOf("async function handleAuth")
-    );
+    const warmup = functionSource(applicationModule("actions/bootstrap-actions.ts"), "warmAuthenticatedContext");
+    const bootstrap = functionSource(applicationModule("actions/bootstrap-actions.ts"), "bootstrapAuthenticatedContext");
 
     expect(warmup).toContain("void Promise.allSettled");
     expect(warmup).toContain("loadPreferences(token, ownerSnapshot)");
@@ -228,23 +192,14 @@ describe("mobile authentication recovery contract", () => {
   });
 
   it("gates protected continuation until the activated owner context is ready", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const appSource = applicationModule("useApplicationDerivedState.ts");
     const navigatorSource = readFileSync(
       new URL("../../apps/mobile-native/src/navigation/AppNavigator.tsx", import.meta.url),
       "utf8"
     );
-    const activationHandler = appSource.slice(
-      appSource.indexOf("async function activateSession"),
-      appSource.indexOf("async function clearExpiredSession")
-    );
-    const loginHandler = appSource.slice(
-      appSource.indexOf("async function handleAuth"),
-      appSource.indexOf("async function handleGoogleAuth")
-    );
-    const rootSurfaceRouting = appSource.slice(
-      appSource.indexOf("const navigatorRootSurface"),
-      appSource.indexOf("const googleCalendarLive")
-    );
+    const activationHandler = functionSource(applicationModule("actions/session-actions.ts"), "activateSession");
+    const loginHandler = functionSource(applicationModule("actions/auth-actions.ts"), "handleAuth");
+    const rootSurfaceRouting = sourceBetween(applicationModule("useApplicationDerivedState.ts"), "const navigatorRootSurface", "const googleCalendarLive");
     const requestEffectStart = navigatorSource.indexOf("if (!request) {");
     const requestEffect = navigatorSource.slice(
       requestEffectStart,
@@ -279,23 +234,13 @@ describe("mobile authentication recovery contract", () => {
   });
 
   it("keeps Phase 1 cleanup retry UI ahead of every auth and onboarding screen", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
     const feedbackSource = readFileSync(
       new URL("../../apps/mobile-native/src/design-system/primitives/Feedback.tsx", import.meta.url),
       "utf8"
     );
-    const cleanupRenderer = appSource.slice(
-      appSource.indexOf("function renderCleanupIssue"),
-      appSource.indexOf("function renderRoutedScreen")
-    );
-    const routedScreens = appSource.slice(
-      appSource.indexOf("function renderRoutedScreen"),
-      appSource.indexOf("const screens:")
-    );
-    const authAndOnboardingBoundary = routedScreens.slice(
-      0,
-      routedScreens.indexOf("const showsAuthHero")
-    );
+    const cleanupRenderer = functionSource(applicationModule("screens/auth-screens.tsx"), "renderCleanupIssue");
+    const routedScreens = functionSource(applicationModule("screens/auth-screens.tsx"), "renderRoutedScreen");
+    const authAndOnboardingBoundary = routedScreens;
 
     expect(cleanupRenderer).toContain("if (!cleanupIssue) return null;");
     expect(cleanupRenderer).toContain("<Banner");
@@ -311,19 +256,16 @@ describe("mobile authentication recovery contract", () => {
       /<Button compact label=\{actionLabel\}[^>]*onPress=\{onAction\}[^>]*variant="secondary" \/>/u,
     );
     expect(authAndOnboardingBoundary).toContain('AUTH_ROUTE_NAMES.has(route) || route === "AcademicOnboarding"');
-    expect(authAndOnboardingBoundary.indexOf("{renderCleanupIssue()}"))
+    expect(authAndOnboardingBoundary.indexOf("renderCleanupIssue()")).toBeGreaterThan(-1);
+    expect(authAndOnboardingBoundary.indexOf("renderCleanupIssue()"))
       .toBeLessThan(authAndOnboardingBoundary.indexOf("{renderAuthOnboardingScreen(route)}"));
-    expect(routedScreens.match(/renderCleanupIssue\(\)/gu)).toHaveLength(2);
+    expect(routedScreens.match(/renderCleanupIssue\(\)/gu)).toHaveLength(1);
     expect(authAndOnboardingBoundary).toContain('cleanupIssue?.action === "logout" ? null : renderCleanupIssue()');
     expect(cleanupRenderer.match(/retryFailedCleanup\(\)/gu)).toHaveLength(1);
   });
 
   it("preserves the disabled-account error before generic Google 401 recovery", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const googleHandler = appSource.slice(
-      appSource.indexOf("async function handleGoogleAuth"),
-      appSource.indexOf("async function resendVerificationEmail")
-    );
+    const googleHandler = functionSource(applicationModule("actions/auth-actions.ts"), "handleGoogleAuth");
     const disabledAccountBranch = googleHandler.indexOf('error.code === "disabled_account"');
     const genericUnauthorizedBranch = googleHandler.indexOf("error.status === 401");
 
@@ -336,19 +278,9 @@ describe("mobile authentication recovery contract", () => {
     expect(AUTH_ENDPOINTS.passwordRecoveryConfirm).toBe("/auth/password-recovery/confirm");
     expect(PASSWORD_RECOVERY_CODE_LENGTH).toBe(6);
 
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const requestHandler = appSource.slice(
-      appSource.indexOf("async function requestPasswordRecovery"),
-      appSource.indexOf("async function confirmPasswordRecovery")
-    );
-    const confirmHandler = appSource.slice(
-      appSource.indexOf("async function confirmPasswordRecovery"),
-      appSource.indexOf("function continuePasswordRecoveryCode")
-    );
-    const codeHandler = appSource.slice(
-      appSource.indexOf("function continuePasswordRecoveryCode"),
-      appSource.indexOf("function returnToPasswordRecoveryCode")
-    );
+    const requestHandler = functionSource(applicationModule("actions/password-recovery-actions.ts"), "requestPasswordRecovery");
+    const confirmHandler = functionSource(applicationModule("actions/password-recovery-actions.ts"), "confirmPasswordRecovery");
+    const codeHandler = functionSource(applicationModule("actions/password-recovery-actions.ts"), "continuePasswordRecoveryCode");
 
     expect(requestHandler).toContain("AUTH_ENDPOINTS.passwordRecoveryRequest");
     expect(requestHandler).toContain('body: JSON.stringify({ email: normalizedEmail })');
@@ -380,11 +312,8 @@ describe("mobile authentication recovery contract", () => {
     });
     expect(JSON.stringify(pending)).not.toMatch(/code|password|token/i);
 
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const recoveryHandlers = appSource.slice(
-      appSource.indexOf("function openPasswordRecovery"),
-      appSource.indexOf("async function openVerificationRecovery")
-    );
+    const appSource = applicationModule("actions/password-recovery-actions.ts");
+    const recoveryHandlers = appSource;
     expect(recoveryHandlers).not.toContain("setStoredValue");
     expect(recoveryHandlers).not.toContain("SecureStore");
     expect(recoveryHandlers).not.toContain("console.");
@@ -456,7 +385,7 @@ describe("mobile authentication recovery contract", () => {
   });
 
   it("provides reachable recovery, loading, cooldown, visibility, back, cancellation, and secret cleanup UI", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const appSource = applicationModule("screens/auth-screens.tsx");
     const authScreensSource = readFileSync(
       new URL("../../apps/mobile-native/src/auth/AuthScreens.tsx", import.meta.url),
       "utf8"
@@ -497,10 +426,7 @@ describe("mobile authentication recovery contract", () => {
       authScreensSource.indexOf("export function PasswordRecoveryConfirmScreen"),
       authScreensSource.indexOf("export interface AcademicOnboardingScreenProps")
     );
-    const authRouteMap = appSource.slice(
-      appSource.indexOf("function routeForAuthState"),
-      appSource.indexOf("function routeForLegacyTab")
-    );
+    const authRouteMap = functionSource(applicationModule("app-routes.ts"), "routeForAuthState");
 
     expect(loginScreen).toContain('label="Şifremi unuttum"');
     expect(loginScreen).toMatch(/onPress=\{\(\) => \{[\s\S]*?Keyboard\.dismiss\(\);[\s\S]*?props\.onForgotPassword\(\);[\s\S]*?\}\}/u);
@@ -548,11 +474,11 @@ describe("mobile authentication recovery contract", () => {
     expect(appSource).toContain("cancelPasswordRecovery()");
     expect(authScaffold).toContain("message={feedback.text}");
     expect(authScaffold).toContain("tone={feedback.tone}");
-    expect(appSource).toContain('if (!message || navigatorRootSurface !== "authenticated") return;');
+    expect(applicationModule("useApplicationEffects.ts")).toContain('if (!message || navigatorRootSurface !== "authenticated") return;');
 
-    const successCleanup = appSource.slice(
-      appSource.indexOf("async function confirmPasswordRecovery"),
-      appSource.indexOf("} catch (error)", appSource.indexOf("async function confirmPasswordRecovery"))
+    const successCleanup = sourceBetween(
+      functionSource(applicationModule("actions/password-recovery-actions.ts"), "confirmPasswordRecovery"),
+      "async function confirmPasswordRecovery", "} catch (error)"
     );
     expect(successCleanup).toContain('setPasswordRecoveryCode("")');
     expect(successCleanup).toContain('setNewPassword("")');
@@ -561,3 +487,7 @@ describe("mobile authentication recovery contract", () => {
     expect(successCleanup).toContain('setAuthStage("auth")');
   });
 });
+
+function applicationModule(relativePath: string): string {
+  return readFileSync(new URL(`../../apps/mobile-native/src/app/${relativePath}`, import.meta.url), "utf8").replace(/\r\n?/gu, "\n");
+}

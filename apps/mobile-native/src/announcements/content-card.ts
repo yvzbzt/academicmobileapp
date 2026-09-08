@@ -17,6 +17,10 @@ export interface ContentKeyDatePresentation {
   text: string;
 }
 
+export type TrustedContentOpenTarget =
+  | { kind: "detail" }
+  | { kind: "official_source"; url: string };
+
 export function shortContentCardExcerpt(
   record: Pick<TrustedMobileContentRecord, "summary">,
 ): string | null {
@@ -34,6 +38,23 @@ export function trustedContentDestinationUrl(
   if (!trusted) return null;
   return canonicalizeOfficialAcademicUrl(trusted.canonicalUrl)
     ?? canonicalizeOfficialAcademicUrl(trusted.link);
+}
+
+/**
+ * Rich source-owned fields justify an in-app detail screen. Title-only records
+ * hand off to the exact canonical item URL instead of showing an empty shell.
+ */
+export function resolveTrustedContentOpenTarget(
+  record: TrustedMobileContentRecord,
+): TrustedContentOpenTarget | null {
+  const trusted = admitTrustedContentRecord(record);
+  if (!trusted) return null;
+  const hasSummary = normalizeDisplayText(trusted.summary).length > 0;
+  const hasBody = (trusted.body ?? []).some((block) => normalizeDisplayText(block.text).length > 0);
+  const hasKeyDates = (trusted.keyDates ?? []).length > 0;
+  if (hasSummary || hasBody || hasKeyDates) return { kind: "detail" };
+  const url = trustedContentDestinationUrl(trusted);
+  return url ? { kind: "official_source", url } : null;
 }
 
 export function officialContentDomain(url: string): string {

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { functionSource, sourceBetween } from "../../apps/mobile-native/tests/helpers/source-inspection";
 import { describe, expect, it } from "vitest";
 import {
   AccountGenerationGuard,
@@ -151,22 +152,15 @@ describe("AccountGenerationGuard", () => {
   });
 
   it("guards the concrete native refresh, logout, and data-deletion settlement paths", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
-    const refreshHandler = appSource.slice(
-      appSource.indexOf("async function refreshAuthenticatedSession"),
-      appSource.indexOf("async function apiRequest")
-    );
-    const persistHandler = appSource.slice(
-      appSource.indexOf("async function persistSession"),
-      appSource.indexOf("async function persistPendingVerification")
-    );
-    const logoutHandler = appSource.slice(
-      appSource.indexOf("async function handleLogout"),
-      appSource.indexOf("function resetUserScopedState")
-    );
-    const dataDeletionHandler = appSource.slice(
-      appSource.indexOf("async function deleteMyData"),
-      appSource.indexOf("function confirmDeleteAccount")
+    const sessionSource = readFileSync(new URL("../../apps/mobile-native/src/app/actions/session-actions.ts", import.meta.url), "utf8");
+    const cleanupSource = readFileSync(new URL("../../apps/mobile-native/src/app/actions/account-cleanup-actions.ts", import.meta.url), "utf8");
+    const apiSource = readFileSync(new URL("../../apps/mobile-native/src/app/actions/api-actions.ts", import.meta.url), "utf8");
+    const refreshHandler = functionSource(apiSource, "refreshAuthenticatedSession");
+    const persistHandler = functionSource(sessionSource, "persistSession");
+    const logoutHandler = functionSource(cleanupSource, "handleLogout");
+    const dataDeletionHandler = functionSource(
+      readFileSync(new URL("../../apps/mobile-native/src/app/actions/recent-auth-actions.ts", import.meta.url), "utf8"),
+      "deleteMyData"
     );
 
     expect(refreshHandler).toContain("accountGuardRef.current.isCurrent(snapshot)");
@@ -188,19 +182,14 @@ describe("AccountGenerationGuard", () => {
 
 describe("native manual-exam hydration wiring", () => {
   it("does not persist or render an empty/pre-owner exam state during startup", () => {
-    const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+    const runtimeHostSource = readFileSync(new URL("../../apps/mobile-native/src/app/usePersonalCalendarRuntime.ts", import.meta.url), "utf8");
+    const derivedSource = readFileSync(new URL("../../apps/mobile-native/src/app/useApplicationDerivedState.ts", import.meta.url), "utf8");
     const runtimeSource = readFileSync(
       new URL("../../apps/mobile-native/src/calendar/personal-exam-runtime.ts", import.meta.url),
       "utf8"
     );
-    const runtimeWiring = appSource.slice(
-      appSource.indexOf("personalExamRuntimeRef.current = new PersonalExamRuntime"),
-      appSource.indexOf("const accessToken")
-    );
-    const visibilityGuard = appSource.slice(
-      appSource.indexOf("const visibleManualExams"),
-      appSource.indexOf("const extraExams")
-    );
+    const runtimeWiring = functionSource(runtimeHostSource, "usePersonalCalendarRuntime");
+    const visibilityGuard = sourceBetween(derivedSource, "const examCountdownItems", "const announcementFeed");
 
     expect(runtimeWiring).toContain("ownerGuard: accountGuardRef.current");
     expect(runtimeWiring).toContain("setItemAsync: (key, value) => enqueueStorageMutation");

@@ -16,8 +16,14 @@ export interface HomeAcademicEvent extends AcademicTemporalValue {
   title: string;
   category: string;
   courseName?: string;
+  description?: string;
   location?: string;
   timezone?: string;
+  universityId?: string;
+  facultyId?: string;
+  departmentId?: string;
+  sourceUrl?: string;
+  sourceLabel?: string;
 }
 
 export interface HomeManualExam {

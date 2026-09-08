@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -57,7 +57,103 @@ describe("Android Google authentication release preflight", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("effective release Web OAuth client override");
   });
+
+  it("keeps --app-source compatible with a standalone monolithic source fixture", () => {
+    const fixture = createFixture();
+    const standalone = join(fixture.directory, "App.tsx");
+    writeFileSync(standalone, [
+      `const DEFAULT_GOOGLE_WEB_CLIENT_ID = "${contract.webOauthClientId}";`,
+      "const GOOGLE_WEB_CLIENT_ID = DEFAULT_GOOGLE_WEB_CLIENT_ID;",
+      "GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });"
+    ].join("\n"), "utf8");
+    expect(runVerifier(fixture.googleServicesPath, fixture.envPath, undefined, standalone).status).toBe(0);
+  });
+
+  it("follows the connected entry, runtime and provider module for Google release configuration", () => {
+    const fixture = createModularSourceFixture();
+    expect(runVerifier(fixture.googleServicesPath, fixture.envPath, undefined, fixture.entryPath).status).toBe(0);
+  });
+
+  it("follows the stable Expo default re-export entry", () => {
+    const fixture = createModularSourceFixture();
+    const stableEntry = join(fixture.directory, "StableApp.tsx");
+    writeFileSync(stableEntry, 'export { default } from "./App";', "utf8");
+    expect(runVerifier(fixture.googleServicesPath, fixture.envPath, undefined, stableEntry).status).toBe(0);
+  });
+
+  it("runs when TypeScript is installed only in the native project dependency tree", () => {
+    const fixture = createModularSourceFixture();
+    const isolatedScripts = join(fixture.directory, "scripts");
+    const isolatedMobile = join(fixture.directory, "apps", "mobile-native");
+    const isolatedTypescript = join(isolatedMobile, "node_modules", "typescript");
+    mkdirSync(isolatedScripts, { recursive: true });
+    mkdirSync(isolatedTypescript, { recursive: true });
+    writeFileSync(join(isolatedMobile, "package.json"), '{"private":true}', "utf8");
+    // Load the installed compiler without creating any root-level node_modules in this fixture.
+    writeFileSync(join(isolatedTypescript, "index.js"),
+      `module.exports = require(${JSON.stringify(resolve("apps/mobile-native/node_modules/typescript"))});`, "utf8");
+    const isolatedVerifier = join(isolatedScripts, "verify-android-google-auth-config.mjs");
+    writeFileSync(isolatedVerifier, readFileSync(verifierPath, "utf8"), "utf8");
+    const result = runVerifier(fixture.googleServicesPath, fixture.envPath, undefined, fixture.entryPath, isolatedVerifier);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("preflight passed");
+  });
+
+  it("rejects a configured runtime that is imported but disconnected from the entry", () => {
+    const fixture = createModularSourceFixture();
+    writeFileSync(fixture.entryPath, 'import { start } from "./runtime";\nexport default function App() { return null; }', "utf8");
+    const result = runVerifier(fixture.googleServicesPath, fixture.envPath, undefined, fixture.entryPath);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("expected one connected GoogleSignin.configure runtime");
+  });
+
+  it("rejects a missing or unexported provider behind an otherwise connected runtime", () => {
+    const fixture = createModularSourceFixture();
+    writeFileSync(fixture.providerPath, [
+      `const DEFAULT_GOOGLE_WEB_CLIENT_ID = "${contract.webOauthClientId}";`,
+      "const GOOGLE_WEB_CLIENT_ID = DEFAULT_GOOGLE_WEB_CLIENT_ID;"
+    ].join("\n"), "utf8");
+    const result = runVerifier(fixture.googleServicesPath, fixture.envPath, undefined, fixture.entryPath);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("does not export its Web OAuth client");
+  });
+
+  it("does not accept a comment containing a disconnected Google configure call", () => {
+    const fixture = createModularSourceFixture();
+    writeFileSync(fixture.entryPath, "// GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });\nexport default function App() { return null; }", "utf8");
+    const result = runVerifier(fixture.googleServicesPath, fixture.envPath, undefined, fixture.entryPath);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("expected one connected GoogleSignin.configure runtime");
+  });
+
+  it("rejects a runtime argument that differs from a correct-looking configuration comment", () => {
+    const fixture = createModularSourceFixture();
+    writeFileSync(join(fixture.directory, "runtime.ts"), [
+      'import { GOOGLE_WEB_CLIENT_ID } from "./provider";',
+      "// webClientId: GOOGLE_WEB_CLIENT_ID",
+      'export function start() { GoogleSignin.configure({ webClientId: "wrong-client" }); }'
+    ].join("\n"), "utf8");
+    const result = runVerifier(fixture.googleServicesPath, fixture.envPath, undefined, fixture.entryPath);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("does not use the Web OAuth client");
+  });
 });
+
+function createModularSourceFixture() {
+  const fixture = createFixture();
+  const entryPath = join(fixture.directory, "App.tsx");
+  const providerPath = join(fixture.directory, "provider.ts");
+  writeFileSync(entryPath, 'import { start } from "./runtime";\nexport default function App() { start(); return null; }', "utf8");
+  writeFileSync(join(fixture.directory, "runtime.ts"), [
+    'import { GOOGLE_WEB_CLIENT_ID } from "./provider";',
+    "export function start() { GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID }); }"
+  ].join("\n"), "utf8");
+  writeFileSync(providerPath, [
+    `export const DEFAULT_GOOGLE_WEB_CLIENT_ID = "${contract.webOauthClientId}";`,
+    "export const GOOGLE_WEB_CLIENT_ID = DEFAULT_GOOGLE_WEB_CLIENT_ID;"
+  ].join("\n"), "utf8");
+  return { ...fixture, entryPath, providerPath };
+}
 
 function createFixture(options: {
   omitRole?: keyof ReleaseIdentity["androidOauthClients"];
@@ -100,7 +196,7 @@ function createFixture(options: {
   return { directory, googleServicesPath, envPath };
 }
 
-function runVerifier(googleServicesPath: string, envPath?: string, envDirectory?: string) {
+function runVerifier(googleServicesPath: string, envPath?: string, envDirectory?: string, sourcePath = appSourcePath, verifier = verifierPath) {
   const environment = { ...process.env };
   delete environment.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
   delete environment.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID;
@@ -108,11 +204,11 @@ function runVerifier(googleServicesPath: string, envPath?: string, envDirectory?
     ? ["--env-dir", envDirectory]
     : ["--env-file", envPath as string];
   return spawnSync(process.execPath, [
-    verifierPath,
+    verifier,
     "--contract", contractPath,
     "--app-config", appConfigPath,
     "--google-services", googleServicesPath,
-    "--app-source", appSourcePath,
+    "--app-source", sourcePath,
     ...envArguments
   ], {
     cwd: repoRoot,

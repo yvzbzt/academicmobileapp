@@ -42,6 +42,7 @@ import {
 } from "../content/content-trust";
 import {
   compactContentProvenanceLabel,
+  contentDetailOpenActionLabel,
   contentTypeLabel,
   officialContentOpenActionLabel,
 } from "../content/content-provenance";
@@ -59,6 +60,7 @@ import {
 import {
   officialContentDomain,
   primaryContentKeyDate,
+  resolveTrustedContentOpenTarget,
   shortContentCardExcerpt,
   trustedContentDestinationUrl,
 } from "./content-card";
@@ -135,6 +137,7 @@ export interface AnnouncementsFeedProps {
   onRetry?: () => void;
   onLoadMore?: () => void;
   onRetryPagination?: () => void;
+  onOpenItem: (item: ContentFeedItem) => void;
   onOpenOfficialSource: (url: string) => void | Promise<unknown>;
   onOpenYok?: () => void;
   onOpenSummerSchool?: () => void;
@@ -170,6 +173,7 @@ export function AnnouncementsFeed({
   onRetry,
   onLoadMore,
   onRetryPagination,
+  onOpenItem,
   onOpenOfficialSource,
   onOpenYok,
   onOpenSummerSchool,
@@ -315,6 +319,7 @@ export function AnnouncementsFeed({
   const renderItem: ListRenderItem<ContentFeedItem> = ({ item }) => (
     <FeedRow
       item={item}
+      onOpenItem={onOpenItem}
       onOpenOfficialSource={onOpenOfficialSource}
       stacked={layout.supportsLargeText}
     />
@@ -752,10 +757,12 @@ function SourceDestinationButton({
 
 function FeedRow({
   item,
+  onOpenItem,
   onOpenOfficialSource,
   stacked,
 }: {
   item: ContentFeedItem;
+  onOpenItem: (item: ContentFeedItem) => void;
   onOpenOfficialSource: (url: string) => void | Promise<unknown>;
   stacked: boolean;
 }) {
@@ -768,6 +775,16 @@ function FeedRow({
   const excerpt = shortContentCardExcerpt(record);
   const destinationUrl = trustedContentDestinationUrl(record);
   const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
+  const openTarget = resolveTrustedContentOpenTarget(record);
+  const opensDetail = openTarget?.kind === "detail";
+  const openActionLabel = opensDetail
+    ? contentDetailOpenActionLabel(record)
+    : officialContentOpenActionLabel(record);
+  const openItem = openTarget?.kind === "detail"
+    ? () => onOpenItem(item)
+    : openTarget?.kind === "official_source"
+      ? () => void onOpenOfficialSource(openTarget.url)
+      : undefined;
   const rowLabel = [
     record.sourceName,
     provenanceLabel,
@@ -776,15 +793,15 @@ function FeedRow({
     record.title,
     excerpt,
     destinationDomain,
-    destinationUrl ? officialContentOpenActionLabel(record) : "Resmî bağlantı kullanılamıyor",
+    openTarget ? openActionLabel : "Ayrıntı ve resmî bağlantı kullanılamıyor",
   ].filter(Boolean).join(". ");
 
   return (
     <Pressable
       accessibilityLabel={rowLabel}
-      accessibilityRole={destinationUrl ? "link" : undefined}
-      disabled={!destinationUrl}
-      onPress={destinationUrl ? () => void onOpenOfficialSource(destinationUrl) : undefined}
+      accessibilityRole={openTarget ? "link" : undefined}
+      disabled={!openTarget}
+      onPress={openItem}
       style={({ pressed }) => [styles.feedRow, pressed && styles.feedRowPressed]}
       testID={`announcement-feed-item-${item.key}`}
     >
@@ -881,14 +898,14 @@ function FeedRow({
             >
               {destinationDomain}
             </Text>
-            <Ionicons color={palette.accent} name="open-outline" size={17} />
+            <Ionicons color={palette.accent} name={opensDetail ? "chevron-forward" : "open-outline"} size={17} />
           </View>
         ) : null}
       </View>
       {destinationDomain ? (
-        <Text style={[theme.typography.navLabel, styles.feedLinkPrompt, { color: palette.accent }]}>Resmî kaynağa git</Text>
+        <Text style={[theme.typography.navLabel, styles.feedLinkPrompt, { color: palette.accent }]}>{opensDetail ? "Ayrıntıyı gör" : "Resmî kaynağa git"}</Text>
       ) : (
-        <Text style={[theme.typography.meta, styles.feedLinkPrompt, { color: REFERENCE_COLORS.secondary }]}>Resmî bağlantı kullanılamıyor</Text>
+        <Text style={[theme.typography.meta, styles.feedLinkPrompt, { color: REFERENCE_COLORS.secondary }]}>Ayrıntı ve resmî bağlantı kullanılamıyor</Text>
       )}
     </Pressable>
   );

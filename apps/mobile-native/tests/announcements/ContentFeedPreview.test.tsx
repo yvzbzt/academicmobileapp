@@ -236,7 +236,7 @@ describe("Phase 8 synthetic content-feed preview", () => {
     },
   );
 
-  it("keeps the feed mounted while explaining the production direct handoff", async () => {
+  it("opens rich feed content in-app and restores the mounted feed state on back", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     const view = await renderAsync(
       <ContentFeedPreview preference="light" scenario="search-results" />,
@@ -252,10 +252,11 @@ describe("Phase 8 synthetic content-feed preview", () => {
       );
       await Promise.resolve();
     });
-    expect(alert).toHaveBeenCalledWith(
-      "Resmî kaynak",
-      expect.stringMatching(/gerçek uygulamada.*doğrudan resmî bağlantıyı açar/iu),
-    );
+    expect(screen.getByRole("header", {
+      name: "Burs başvuruları için güncel belge listesi yayımlandı",
+    })).toBeOnTheScreen();
+    expect(alert).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByLabelText("Duyurulara geri dön"));
     expect(screen.getByDisplayValue("burs")).toBeOnTheScreen();
     await view.unmountAsync();
   });

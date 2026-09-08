@@ -421,7 +421,7 @@ export function ContentFeedPreview({
     yok: [],
     summerSchool: [],
   })[0]!;
-  const selectedItem: ContentFeedItem = initialDetail;
+  const [selectedItem, setSelectedItem] = useState<ContentFeedItem>(initialDetail);
   const [saved, setSaved] = useState(false);
 
   return (
@@ -444,6 +444,7 @@ export function ContentFeedPreview({
                   <PreviewFeedRoute
                     fixture={fixture}
                     navigation={navigation}
+                    onSelectItem={setSelectedItem}
                   />
                 )}
               </PreviewStack.Screen>
@@ -479,9 +480,11 @@ export function ContentFeedPreview({
 function PreviewFeedRoute({
   fixture,
   navigation,
+  onSelectItem,
 }: {
   fixture: ContentFeedPreviewFixture;
   navigation: NativeStackScreenProps<PreviewStackParamList, "Feed">["navigation"];
+  onSelectItem: (item: ContentFeedItem) => void;
 }) {
   const openedInitialDetail = useRef(false);
 
@@ -516,6 +519,10 @@ function PreviewFeedRoute({
       onRetry={() => undefined}
       onLoadMore={() => undefined}
       onRetryPagination={() => undefined}
+      onOpenItem={(item) => {
+        onSelectItem(item);
+        navigation.navigate("Detail");
+      }}
       onOpenOfficialSource={() => {
         Alert.alert(
           "Resmî kaynak",

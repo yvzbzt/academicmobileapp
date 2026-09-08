@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { functionSource } from "../../apps/mobile-native/tests/helpers/source-inspection";
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeHttpUrl,
@@ -464,74 +465,73 @@ describe("mobile native content trust", () => {
 });
 
 describe("mobile native content-state wiring", () => {
-  const appSource = readFileSync(new URL("../../apps/mobile-native/App.tsx", import.meta.url), "utf8");
+  const contentSource = applicationModule("actions/content-actions.ts");
+  const contentNavigationSource = applicationModule("actions/content-navigation-actions.ts");
+  const derivedSource = applicationModule("useApplicationDerivedState.ts");
+  const screensSource = applicationModule("screens/content-screens.tsx");
 
   it("refreshes both Summer payload ownership sources and does not render URL-less no-op pressables", () => {
-    const refreshHandler = appSource.slice(
-      appSource.indexOf("async function refreshSummerSchool"),
-      appSource.indexOf("async function loadPreferences")
-    );
+    const refreshHandler = functionSource(contentSource, "refreshSummerSchool");
+    const destinationScreens = readFileSync(new URL("../../apps/mobile-native/src/announcements/SourceDestinationScreens.tsx", import.meta.url), "utf8");
 
     expect(refreshHandler).toContain("loadMyCalendar(undefined, ownerSnapshot, true)");
     expect(refreshHandler).toContain("loadSummerSchool(undefined, undefined, ownerSnapshot, true)");
-    expect(appSource).not.toContain("item.sourceUrl ? void openAnnouncement(item.sourceUrl) : undefined");
-    expect(appSource).not.toContain("option.sourceUrl ? void openAnnouncement(option.sourceUrl) : undefined");
-    expect(appSource.match(/Resmî bağlantı mevcut değil\./gu)).toHaveLength(2);
-    expect(appSource).toContain("payload.announcementStatus?.failedSourceCount");
+    expect(screensSource).toContain("<SummerSchoolScreen");
+    expect(destinationScreens).not.toContain("item.sourceUrl ? void openAnnouncement(item.sourceUrl) : undefined");
+    expect(destinationScreens).not.toContain("option.sourceUrl ? void openAnnouncement(option.sourceUrl) : undefined");
+    expect(destinationScreens.match(/Resmî bağlantı mevcut değil\./gu)).toHaveLength(2);
+    expect(destinationScreens).toContain('onPress={item.requirement.sourceUrl ? () => void onOpenOfficialSource(item.requirement.sourceUrl!) : undefined}');
+    expect(destinationScreens).toContain('onPress={item.option.sourceUrl ? () => void onOpenOfficialSource(item.option.sourceUrl!) : undefined}');
+    expect(applicationModule("app-content.ts")).toContain("payload.announcementStatus?.failedSourceCount");
   });
 
   it("retains prior verified data after refresh errors and suppresses conflicting error/empty states", () => {
-    const loadableHandler = appSource.slice(
-      appSource.indexOf("async function withLoadable"),
-      appSource.indexOf("async function bootstrapAuthenticatedContext")
-    );
+    const loadableHandler = functionSource(applicationModule("actions/api-actions.ts"), "withLoadable");
 
     expect(loadableHandler).toContain("preserveDataOnRefresh && previous.data !== undefined");
     expect(loadableHandler).toContain("data: previous.data, error: message");
     expect(loadableHandler).toContain("stale: true");
-    expect(appSource).toContain("const contentFeedAttempted = Boolean(");
-    expect(appSource).toContain("announcements.attempted");
-    expect(appSource).toContain("yokAnnouncements.attempted");
-    expect(appSource).toContain("summerSchool.attempted");
-    expect(appSource).toContain("attempted={contentFeedAttempted}");
-    expect(appSource).toContain("refreshing={contentFeedLoading && contentFeedHasRetainedData}");
-    expect(appSource).toContain("`/announcements/my/trusted?limit=${limitOverride}`");
-    expect(appSource).toContain("`/announcements/yok/trusted?limit=${limitOverride}`");
-    expect(appSource).toContain("const nextLimit = nextContentFeedLimit(contentFeedLimit)");
-    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.beginRefresh()");
-    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.beginPagination()");
-    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.isCurrent(requestLease)");
-    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.captureGeneration()");
-    expect(appSource).toContain("contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)");
-    expect(appSource.match(/settleContentFeedLoading\(previous\)/gu)).toHaveLength(3);
-    expect(appSource).toContain("isOperationCurrent: () => boolean = () => true");
-    expect(appSource).toContain("onPress={() => void refreshContentFeed()}");
-    expect(appSource).toContain("Promise.allSettled([loadMyCalendar(), loadCourseSchedule(), loadUpcoming(), refreshContentFeed()])");
-    expect(appSource).not.toContain("onPress={() => void loadYokAnnouncements()}");
-    expect(appSource).toContain("Mevcut doğrulanmış kayıtlar korunuyor.");
-    expect(appSource).toContain("normalizeTrustedApiContentEnvelope");
+    expect(derivedSource).toContain("const contentFeedAttempted = Boolean(");
+    expect(derivedSource).toContain("announcements.attempted");
+    expect(applicationModule("useApplicationEffects.ts")).toContain("yokAnnouncements.attempted");
+    expect(applicationModule("useApplicationEffects.ts")).toContain("summerSchool.attempted");
+    expect(screensSource).toContain("attempted={contentFeedAttempted}");
+    expect(screensSource).toContain("refreshing={contentFeedLoading && contentFeedHasRetainedData}");
+    expect(contentSource).toContain("`/announcements/my/trusted?limit=${limitOverride}`");
+    expect(contentSource).toContain("`/announcements/yok/trusted?limit=${limitOverride}`");
+    expect(contentSource).toContain("const nextLimit = nextContentFeedLimit(contentFeedLimit)");
+    expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.beginRefresh()");
+    expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.beginPagination()");
+    expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.isCurrent(requestLease)");
+    expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.captureGeneration()");
+    expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)");
+    expect(functionSource(contentNavigationSource, "invalidateContentFeedOwnership").match(/settleContentFeedLoading\(previous\)/gu)).toHaveLength(3);
+    expect(loadableHandler).toContain("isOperationCurrent: () => boolean = () => true");
+    expect(screensSource).toContain("onRefresh={() => void refreshContentFeed()}");
+    expect(screensSource).toContain("Promise.allSettled([loadMyCalendar(), loadCourseSchedule(), loadUpcoming(), refreshContentFeed()])");
+    expect(screensSource).not.toContain("onPress={() => void loadYokAnnouncements()}");
+    expect(contentSource).toContain("Mevcut doğrulanmış kayıtlar korunuyor.");
+    expect(contentSource).toContain("normalizeTrustedApiContentEnvelope");
   });
 
   it("binds protected announcement detail routes to the requested trusted identifier", () => {
-    const protectedDetailHandler = appSource.slice(
-      appSource.indexOf("function loadProtectedAnnouncementDetail"),
-      appSource.indexOf("function openProtectedAppRoute")
-    );
+    const protectedDetailHandler = functionSource(contentNavigationSource, "loadProtectedAnnouncementDetail");
 
     expect(protectedDetailHandler).toContain("++announcementDetailRequestGenerationRef.current");
     expect(protectedDetailHandler).toContain("item.record.id === announcementId");
     expect(protectedDetailHandler).toContain("/announcements/my/trusted/${encodeURIComponent(announcementId)}");
     expect(protectedDetailHandler).toContain(".find((item) => item.id === announcementId)");
     expect(protectedDetailHandler).toContain("requestGeneration !== announcementDetailRequestGenerationRef.current");
-    expect(appSource).toContain("activeTrustedDetail.id === announcementDetailLoad.id");
-    expect(appSource.match(/invalidateContentFeedOwnership\(\);/gu)).toHaveLength(4);
+    expect(screensSource).toContain("activeTrustedDetail.id === announcementDetailLoad.id");
+    const invalidationCallSites = ["selectUniversity", "selectFaculty", "selectDepartment", "toggleFollowedUniversity"];
+    const catalogSource = applicationModule("actions/catalog-actions.ts");
+    for (const action of invalidationCallSites) {
+      expect(functionSource(catalogSource, action).match(/invalidateContentFeedOwnership\(\);/gu)).toHaveLength(1);
+    }
   });
 
   it("revalidates official HTTP(S) links at handoff and contains Linking failures", () => {
-    const openHandler = appSource.slice(
-      appSource.indexOf("async function openAnnouncement"),
-      appSource.indexOf("function renderAnnouncementCard")
-    );
+    const openHandler = functionSource(contentNavigationSource, "openAnnouncement");
 
     expect(openHandler).toContain("canonicalizeOfficialAcademicUrl(link)");
     expect(openHandler).toContain("try {");
@@ -540,6 +540,10 @@ describe("mobile native content-state wiring", () => {
     expect(openHandler).toContain("} catch {");
   });
 });
+
+function applicationModule(relativePath: string): string {
+  return readFileSync(new URL(`../../apps/mobile-native/src/app/${relativePath}`, import.meta.url), "utf8").replace(/\r\n?/gu, "\n");
+}
 
 function record(overrides: Partial<MobileContentRecordInput> = {}): MobileContentRecordInput {
   const candidate: MobileContentRecordInput = {

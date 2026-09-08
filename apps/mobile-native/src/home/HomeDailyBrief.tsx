@@ -56,11 +56,13 @@ import {
 import { academicCalendarDayNumber } from "../temporal/academic-temporal";
 import {
   officialContentDomain,
+  resolveTrustedContentOpenTarget,
   shortContentCardExcerpt,
   trustedContentDestinationUrl,
 } from "../announcements/content-card";
 import {
   compactContentProvenanceLabel,
+  contentDetailOpenActionLabel,
   contentTypeLabel,
   officialContentOpenActionLabel,
 } from "../content/content-provenance";
@@ -97,6 +99,7 @@ export interface HomeDailyBriefProps {
   onCompleteProfile: () => void;
   onOpenAnnouncement: (item: TrustedMobileContentRecord) => void;
   onOpenAnnouncements: () => void;
+  onOpenImportantItem: (item: HomeImportantItem) => void;
   onOpenCalendar: () => void;
   onCreatePersonalEvent: () => void;
   onOpenGoogleCalendarSettings: () => void;
@@ -282,7 +285,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
         nextItem.courseName,
         nextItem.location,
         heroBadgeLabel,
-        "Takvimi aç",
+        "Etkinlik ayrıntısını aç",
       ].filter(Boolean).join(". ") + "."
     : `Akademik takvimin. ${heroBadgeLabel}. Takvimi aç.`;
   const integration = resolveActionableIntegration({
@@ -321,7 +324,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
                   <CompactAgendaRow
                     event={event}
                     key={`${event.kind}:${event.id}`}
-                    onPress={props.onOpenCalendar}
+                    onPress={() => props.onOpenImportantItem(event)}
                   />
                 ))}
               </View>
@@ -477,7 +480,7 @@ export function HomeDailyBrief(props: HomeDailyBriefProps) {
               android_ripple={adaptation.pressFeedback === "ripple"
                 ? { color: theme.colors.state.pressed, borderless: false }
                 : undefined}
-              onPress={props.onOpenCalendar}
+              onPress={() => props.onOpenImportantItem(nextItem)}
               testID="home-focus-card"
               style={({ pressed }) => [
                 styles.planHero,
@@ -1211,7 +1214,7 @@ function CompactAgendaRow({
 
   return (
     <Pressable
-      accessibilityLabel={`${event.title}. ${agendaTypeLabel(event)}. ${temporalLabel}.${event.location ? ` ${event.location}.` : ""}`}
+      accessibilityLabel={`${event.title}. ${agendaTypeLabel(event)}. ${temporalLabel}.${event.location ? ` ${event.location}.` : ""} Etkinlik ayrıntısını aç.`}
       accessibilityRole="button"
       onPress={onPress}
       testID="home-agenda-card"
@@ -1356,7 +1359,11 @@ function AnnouncementCard({
   const destinationDomain = destinationUrl ? officialContentDomain(destinationUrl) : null;
   const provenanceLabel = compactContentProvenanceLabel(item);
   const typeLabel = contentTypeLabel(item);
-  const openActionLabel = officialContentOpenActionLabel(item);
+  const openTarget = resolveTrustedContentOpenTarget(item);
+  const opensDetail = openTarget?.kind === "detail";
+  const openActionLabel = opensDetail
+    ? contentDetailOpenActionLabel(item)
+    : officialContentOpenActionLabel(item);
   return (
     <Card
       accessibilityLabel={`${item.sourceName}. ${typeLabel}. ${provenanceLabel}. ${item.title}. ${contentTimestampLabel(item)}. ${openActionLabel}.`}
@@ -1426,14 +1433,14 @@ function AnnouncementCard({
             </Text>
           </View>
           {destinationDomain ? (
-            <Text numberOfLines={1} style={[theme.typography.navLabel, { color: REFERENCE_COLORS.blue }]}>Resmî kaynak · {destinationDomain}</Text>
+            <Text numberOfLines={1} style={[theme.typography.navLabel, { color: REFERENCE_COLORS.blue }]}>{opensDetail ? "Ayrıntıyı gör" : "Resmî kaynak"} · {destinationDomain}</Text>
           ) : null}
         </View>
         <Ionicons
           accessibilityElementsHidden
           color={REFERENCE_COLORS.blue}
           importantForAccessibility="no-hide-descendants"
-          name="open-outline"
+          name={opensDetail ? "chevron-forward" : "open-outline"}
           size={20}
         />
       </View>

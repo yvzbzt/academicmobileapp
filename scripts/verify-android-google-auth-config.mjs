@@ -2,8 +2,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// Release workflows install the native project independently of the repository root.
+const ts = createRequire(new URL("../apps/mobile-native/package.json", import.meta.url))("typescript");
 
 const GOOGLE_CLIENT_ID_PATTERN = /^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/iu;
 const CERTIFICATE_SHA1_PATTERN = /^(?:[a-f0-9]{2}:){19}[a-f0-9]{2}$/iu;
@@ -60,6 +63,7 @@ export function validateAndroidGoogleAuthConfiguration(input) {
   const appConfig = input.appConfig ?? {};
   const googleServices = input.googleServices ?? {};
   const appSource = typeof input.appSource === "string" ? input.appSource : "";
+  const googleRuntimeSource = input.googleRuntimeSource ?? appSource;
   const environment = input.environment ?? {};
 
   if (contract.schemaVersion !== 1) errors.push("release identity schemaVersion must be 1");
@@ -131,15 +135,19 @@ export function validateAndroidGoogleAuthConfiguration(input) {
     }
   }
 
-  if (!appSource.includes(`const DEFAULT_GOOGLE_WEB_CLIENT_ID = "${contract.webOauthClientId}";`)) {
+  if (input.defaultWebClientId !== undefined
+    ? input.defaultWebClientId !== contract.webOauthClientId
+    : !appSource.includes(`const DEFAULT_GOOGLE_WEB_CLIENT_ID = "${contract.webOauthClientId}";`)) {
     errors.push("App.tsx production Web OAuth fallback does not match the release identity");
   }
-  if (!appSource.includes("webClientId: GOOGLE_WEB_CLIENT_ID")) {
-    errors.push("App.tsx does not pass the Web OAuth client to GoogleSignin.configure");
+  if (!googleRuntimeSource.includes("webClientId: GOOGLE_WEB_CLIENT_ID")) {
+    errors.push("the connected Google runtime does not pass the Web OAuth client to GoogleSignin.configure");
   }
   if (
-    appSource.includes("DEFAULT_GOOGLE_ANDROID_CLIENT_ID")
-    || appSource.includes("EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID")
+    [appSource, googleRuntimeSource].some((source) => (
+      source.includes("DEFAULT_GOOGLE_ANDROID_CLIENT_ID")
+      || source.includes("EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID")
+    ))
   ) {
     errors.push("App.tsx must not treat an Android client ID as runtime configuration proof");
   }
@@ -152,6 +160,92 @@ export function validateAndroidGoogleAuthConfiguration(input) {
   }
 
   return errors;
+}
+
+/** Follow used runtime imports from the supplied entry; an orphan config cannot pass release checks. */
+export function readConnectedGoogleAuthSources(entryPath) {
+  const modules = new Map();
+  function readModule(path) {
+    if (modules.has(path)) return modules.get(path);
+    const source = readFileSync(path, "utf8");
+    const syntax = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true,
+      path.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const record = { source, imports: new Map(), configure: false, configureUsesWebClientId: false,
+      defaultWebClientId: null, exportsWebClientId: false };
+    modules.set(path, record);
+    const used = new Set();
+    function usesWebClientId(expression) {
+      if (ts.isParenthesizedExpression(expression)) return usesWebClientId(expression.expression);
+      if (ts.isConditionalExpression(expression)) {
+        return expression.condition.getText(syntax) === "GOOGLE_WEB_CLIENT_ID" && usesWebClientId(expression.whenTrue);
+      }
+      return ts.isObjectLiteralExpression(expression) && expression.properties.some((property) => (
+        ts.isSpreadAssignment(property) ? usesWebClientId(property.expression)
+          : ts.isPropertyAssignment(property) && property.name.getText(syntax) === "webClientId"
+            && property.initializer.getText(syntax) === "GOOGLE_WEB_CLIENT_ID"
+      ));
+    }
+    function visit(node) {
+      if (ts.isImportDeclaration(node) || ts.isTypeNode(node)) return;
+      if (ts.isIdentifier(node)) used.add(node.text);
+      if (ts.isCallExpression(node) && node.expression.getText(syntax) === "GoogleSignin.configure") {
+        record.configure = true;
+        const configuration = node.arguments[0];
+        record.configureUsesWebClientId = Boolean(configuration && usesWebClientId(configuration));
+      }
+      if (ts.isVariableDeclaration(node) && node.name.getText(syntax) === "DEFAULT_GOOGLE_WEB_CLIENT_ID"
+        && node.initializer && ts.isStringLiteral(node.initializer)) {
+        record.defaultWebClientId = node.initializer.text;
+      }
+      if (ts.isVariableStatement(node) && node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+        record.exportsWebClientId ||= node.declarationList.declarations.some((declaration) =>
+          declaration.name.getText(syntax) === "GOOGLE_WEB_CLIENT_ID");
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(syntax);
+    function resolveModule(specifier) {
+      const base = resolve(dirname(path), specifier);
+      const importedPath = [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}/index.ts`, `${base}/index.tsx`]
+        .find((candidate) => /\.[cm]?[jt]sx?$/u.test(candidate) && existsSync(candidate));
+      if (!importedPath) throw new Error("a connected mobile runtime import is missing");
+      return importedPath;
+    }
+    for (const statement of syntax.statements) {
+      if (ts.isExportDeclaration(statement) && !statement.isTypeOnly && statement.moduleSpecifier
+        && ts.isStringLiteral(statement.moduleSpecifier) && statement.moduleSpecifier.text.startsWith(".")) {
+        readModule(resolveModule(statement.moduleSpecifier.text));
+        continue;
+      }
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+      const specifier = statement.moduleSpecifier.text;
+      const clause = statement.importClause;
+      if (!specifier.startsWith(".") || !clause || clause.isTypeOnly) continue;
+      const bindings = [
+        ...(clause.name ? [{ name: clause.name }] : []),
+        ...(clause.namedBindings && ts.isNamedImports(clause.namedBindings)
+          ? clause.namedBindings.elements.filter((binding) => !binding.isTypeOnly)
+          : clause.namedBindings ? [clause.namedBindings] : [])
+      ].filter((binding) => used.has(binding.name.text));
+      if (bindings.length === 0) continue;
+      const importedPath = resolveModule(specifier);
+      for (const binding of bindings) record.imports.set(binding.name.text, importedPath);
+      readModule(importedPath);
+    }
+    return record;
+  }
+  readModule(resolve(entryPath));
+  const runtimes = [...modules.values()].filter((record) => record.configure);
+  if (runtimes.length !== 1) throw new Error("expected one connected GoogleSignin.configure runtime");
+  const runtime = runtimes[0];
+  if (!runtime.configureUsesWebClientId) throw new Error("the connected Google runtime does not use the Web OAuth client");
+  const config = runtime.imports.has("GOOGLE_WEB_CLIENT_ID")
+    ? modules.get(runtime.imports.get("GOOGLE_WEB_CLIENT_ID"))
+    : runtime;
+  if (config !== runtime && !config.exportsWebClientId) {
+    throw new Error("the connected Google provider does not export its Web OAuth client");
+  }
+  return { appSource: config.source, googleRuntimeSource: runtime.source, defaultWebClientId: config.defaultWebClientId };
 }
 
 function requireNonEmptyString(value, label, errors) {
@@ -209,7 +303,7 @@ export function runCli(argumentsList = process.argv.slice(2), processEnvironment
     contract: readJson(contractPath, "Android release identity"),
     appConfig: readJson(appConfigPath, "Expo app config"),
     googleServices: readJson(googleServicesPath, "google-services.json"),
-    appSource: readFileSync(appSourcePath, "utf8"),
+    ...readConnectedGoogleAuthSources(appSourcePath),
     environment
   });
   if (errors.length > 0) {

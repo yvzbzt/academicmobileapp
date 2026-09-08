@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { functionSource } from "../../apps/mobile-native/tests/helpers/source-inspection";
 import {
   PROFILE_SECTION_ORDER,
   commitAcademicProfileDraft,
@@ -311,17 +312,12 @@ describe("Phase 10 Profile and Settings contracts", () => {
 
   it("wires the routed production screens, one academic commit, truthful delivery, and dual preview gate", () => {
     const appSource = readFileSync(
-      new URL("../../apps/mobile-native/App.tsx", import.meta.url),
+      new URL("../../apps/mobile-native/src/app/MainApplication.tsx", import.meta.url),
       "utf8",
     ).replaceAll("\r\n", "\n");
-    const academicSave = appSource.slice(
-      appSource.indexOf("async function saveAcademicProfileSettings"),
-      appSource.indexOf("function renderAuthOnboardingScreen"),
-    );
-    const profileRoutes = appSource.slice(
-      appSource.indexOf("const profileOverviewScreen"),
-      appSource.indexOf("const routeLeaveGuard"),
-    );
+    const academicSave = functionSource(applicationModule("actions/catalog-actions.ts"), "saveAcademicProfileSettings");
+    const profileRoutes = applicationModule("screens/profile-screens.tsx");
+    const previewEntry = applicationModule("ApplicationEntry.tsx");
 
     expect(appSource).toContain("Profile: profileOverviewScreen");
     expect(appSource).toContain("AcademicProfileSettings: academicProfileSettingsScreen");
@@ -332,10 +328,10 @@ describe("Phase 10 Profile and Settings contracts", () => {
     expect(academicSave).toContain('method: "PATCH"');
     expect(academicSave.match(/method: "PATCH"/gu)).toHaveLength(1);
     expect(academicSave).toContain("const authoritativeDraft = result.draft");
-    expect(appSource).toContain("preferenceEnabled: notificationLifecycle.preferenceEnabled");
-    expect(appSource).toContain("dirty={notificationPreferenceDirty}");
+    expect(applicationModule("useApplicationDerivedState.ts")).toContain("preferenceEnabled: notificationLifecycle.preferenceEnabled");
+    expect(profileRoutes).toContain("dirty={notificationPreferenceDirty}");
     expect(profileRoutes).toContain('onBack={() => requestAppRoute("Profile")}');
-    expect(appSource).toContain("connectionExists={Boolean(googleCalendarIntegration)}");
+    expect(profileRoutes).toContain("connectionExists={Boolean(googleCalendarIntegration)}");
     expect(profileRoutes).toContain("email={email}");
     expect(profileRoutes).toContain("fullName={fullName}");
     expect(profileRoutes).not.toContain("email={session.user.email}");
@@ -351,30 +347,20 @@ describe("Phase 10 Profile and Settings contracts", () => {
     expect(appSource).not.toContain(
       'controlledActiveRoute === "AcademicProfileSettings" && academicProfileDirty',
     );
-    expect(appSource).toContain("__DEV__\n    && process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW === \"1\"");
-    expect(appSource.indexOf("if (showPhase10ProfilePreview)")).toBeLessThan(
-      appSource.indexOf("if (showPhase9CalendarPreview)"),
+    expect(previewEntry).toContain("__DEV__\n    && process.env.EXPO_PUBLIC_PHASE10_PROFILE_PREVIEW === \"1\"");
+    expect(previewEntry.indexOf("if (showPhase10ProfilePreview)")).toBeLessThan(
+      previewEntry.indexOf("if (showPhase9CalendarPreview)"),
     );
-    expect(appSource).not.toContain("EXPO_PUBLIC_PHASE11");
+    expect(previewEntry).not.toContain("EXPO_PUBLIC_PHASE11");
   });
 
   it("keeps additional-university follows deduplicated, owner-scoped, and limited to announcement refresh", () => {
-    const appSource = readFileSync(
-      new URL("../../apps/mobile-native/App.tsx", import.meta.url),
-      "utf8",
-    ).replaceAll("\r\n", "\n");
-    const toggleFollow = appSource.slice(
-      appSource.indexOf("async function toggleFollowedUniversity"),
-      appSource.indexOf("function disableNotificationDeliveryFailClosed"),
-    );
-    const resetUserState = appSource.slice(
-      appSource.indexOf("function resetUserScopedState"),
-      appSource.indexOf("function clearAuthenticatedMemory"),
-    );
+    const toggleFollow = functionSource(applicationModule("actions/catalog-actions.ts"), "toggleFollowedUniversity");
+    const resetUserState = functionSource(applicationModule("actions/account-cleanup-actions.ts"), "resetUserScopedState");
 
-    expect(appSource).toContain("selectAdditionalUniversityFollows(");
-    expect(appSource).toContain("followedUniversityCount={additionalFollowedUniversities.length}");
-    expect(appSource).toContain("followed={additionalFollowedUniversities}");
+    expect(applicationModule("useApplicationDerivedState.ts")).toContain("selectAdditionalUniversityFollows(");
+    expect(applicationModule("screens/profile-screens.tsx")).toContain("followedUniversityCount={additionalFollowedUniversities.length}");
+    expect(applicationModule("screens/profile-screens.tsx")).toContain("followed={additionalFollowedUniversities}");
     expect(toggleFollow).toContain("const ownerSnapshot = accountGuardRef.current.capture()");
     expect(toggleFollow).toContain('{ method: "POST", body: JSON.stringify({ universityId }) }');
     expect(toggleFollow).toContain('{ method: "DELETE" }');
@@ -436,3 +422,7 @@ describe("Phase 10 Profile and Settings contracts", () => {
     );
   });
 });
+
+function applicationModule(relativePath: string): string {
+  return readFileSync(new URL(`../../apps/mobile-native/src/app/${relativePath}`, import.meta.url), "utf8").replace(/\r\n?/gu, "\n");
+}

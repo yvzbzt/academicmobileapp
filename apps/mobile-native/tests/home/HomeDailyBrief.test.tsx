@@ -28,6 +28,7 @@ const callbacks = {
   onOpenAccountMenu: jest.fn(),
   onOpenAnnouncement: jest.fn(),
   onOpenAnnouncements: jest.fn(),
+  onOpenImportantItem: jest.fn(),
   onOpenCalendar: jest.fn(),
   onCreatePersonalEvent: jest.fn(),
   onOpenGoogleCalendarSettings: jest.fn(),
@@ -258,6 +259,18 @@ describe("Phase 7 Home daily brief", () => {
     expect(screen.getAllByText(/Ağu/u).length).toBeGreaterThan(0);
   });
 
+  it("passes the exact highlighted event instead of opening the generic calendar", async () => {
+    await renderHome(props());
+
+    fireEvent.press(screen.getByTestId("home-focus-card"));
+
+    expect(callbacks.onOpenImportantItem).toHaveBeenCalledWith(expect.objectContaining({
+      id: "event-today",
+      date: new Date(2026, 7, 1, 13).toISOString(),
+    }));
+    expect(callbacks.onOpenCalendar).not.toHaveBeenCalled();
+  });
+
   it("keeps the editorial card header inline at a regular phone width", async () => {
     mockWindowDimensions.mockReturnValue({
       fontScale: 1,
@@ -336,7 +349,11 @@ describe("Phase 7 Home daily brief", () => {
       expect.stringContaining("31 Ağustos 2026 – 4 Eylül 2026"),
     );
     fireEvent.press(rangeCard);
-    expect(callbacks.onOpenCalendar).toHaveBeenCalledTimes(1);
+    expect(callbacks.onOpenImportantItem).toHaveBeenCalledWith(expect.objectContaining({
+      id: "all-day-range",
+      date: "2026-08-31",
+    }));
+    expect(callbacks.onOpenCalendar).not.toHaveBeenCalled();
   });
 
   it("keeps past starts out of future Home surfaces and removes page-count copy", async () => {
@@ -483,7 +500,7 @@ describe("Phase 7 Home daily brief", () => {
 
     expect(screen.getByTestId("home-focus-card")).toHaveProp(
       "accessibilityLabel",
-      expect.stringMatching(/Veri Yapıları Final Sınavı.*Sınav.*13:00.*15:00.*3 saat kaldı.*Takvimi aç/u),
+      expect.stringMatching(/Veri Yapıları Final Sınavı.*Sınav.*13:00.*15:00.*3 saat kaldı.*Etkinlik ayrıntısını aç/u),
     );
   });
 
@@ -726,7 +743,7 @@ describe("Phase 7 Home daily brief", () => {
       title: "Akademik bilgilendirme duyurusu",
       sourceName: "Öğrenci İşleri Daire Başkanlığı",
       provenance: "Örnek Üniversitesi · Üniversite geneli",
-      openAction: "Resmî duyuruyu aç",
+      openAction: "Duyuru ayrıntısını aç",
       hierarchy: {
         scopeType: "university" as const,
         scopeId: "university-1",
@@ -738,7 +755,7 @@ describe("Phase 7 Home daily brief", () => {
       title: "Kampüs araştırmaları haberi",
       sourceName: "Mühendislik Fakültesi Haber Merkezi",
       provenance: "Örnek Üniversitesi · Fakülte · Mühendislik Fakültesi",
-      openAction: "Resmî haberi aç",
+      openAction: "Haber ayrıntısını aç",
       hierarchy: {
         scopeType: "faculty" as const,
         scopeId: "faculty-1",
@@ -752,7 +769,7 @@ describe("Phase 7 Home daily brief", () => {
       title: "Teknoloji buluşması etkinliği",
       sourceName: "Bilgisayar Mühendisliği Bölümü",
       provenance: "Örnek Üniversitesi · Bölüm · Bilgisayar Mühendisliği Bölümü",
-      openAction: "Resmî etkinliği aç",
+      openAction: "Etkinlik ayrıntısını aç",
       hierarchy: {
         scopeType: "department" as const,
         scopeId: "department-1",
@@ -795,12 +812,26 @@ describe("Phase 7 Home daily brief", () => {
     expect(card.props.accessibilityLabel).toContain(openAction);
   });
 
-  it("exposes the announcement card as an official-source link and keeps the list destination", async () => {
+  it("opens rich announcement cards through the content selection callback and keeps the list destination", async () => {
     await renderHome(props());
-    fireEvent.press(screen.getAllByRole("link", { name: /Öğrenci İşleri Daire Başkanlığı.*Resmî duyuruyu aç/ })[0]);
+    fireEvent.press(screen.getAllByRole("link", { name: /Öğrenci İşleri Daire Başkanlığı.*Duyuru ayrıntısını aç/ })[0]);
     expect(callbacks.onOpenAnnouncement).toHaveBeenCalledWith(expect.objectContaining({ id: "announcement-1" }));
     fireEvent.press(screen.getByRole("button", { name: "Tümünü aç" }));
     expect(callbacks.onOpenAnnouncements).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels title-only announcement cards for an exact official-source handoff", async () => {
+    await renderHome(props({
+      announcements: [content({ summary: undefined, body: undefined, keyDates: undefined })],
+    }));
+
+    const card = screen.getByRole("link", {
+      name: /Öğrenci İşleri Daire Başkanlığı.*Resmî duyuruyu aç/,
+    });
+    fireEvent.press(card);
+    expect(callbacks.onOpenAnnouncement).toHaveBeenCalledWith(expect.objectContaining({
+      canonicalUrl: "https://example.edu.tr/duyuru/kayit",
+    }));
   });
 
   it("has headings, logical labels, busy state, long-title wrapping, and no duplicate primary-tab cards", async () => {
