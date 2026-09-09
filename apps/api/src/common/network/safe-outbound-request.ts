@@ -23,6 +23,7 @@ export type SafeOutboundHttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
 export type SafeOutboundProviderPolicy =
   | "public"
   | "apple-jwks"
+  | "google-oauth-token"
   | "google-oauth-tokeninfo"
   | "google-document-ai"
   | "google-metadata-token"
@@ -61,6 +62,7 @@ const DEFAULT_MAXIMUM_REQUEST_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAXIMUM_RESPONSE_BYTES = 5 * 1024 * 1024;
 const GOOGLE_METADATA_ADDRESS = "169.254.169.254";
 export const GOOGLE_METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
+export const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
 export const YOK_ATLAS_SEARCH_URL = "https://yokatlas.yok.gov.tr/api/tercih-kilavuz/search";
 
@@ -336,6 +338,19 @@ function validateRequestPolicy(input: {
       });
       if (input.body) throw new Error("OUTBOUND_PROVIDER_BODY_FORBIDDEN");
       return;
+    case "google-oauth-token":
+      requireProviderRequest(input, {
+        method: "POST",
+        maximumRedirects: 0,
+        maximumRequestBytes: 64 * 1024,
+        maximumResponseBytes: 32 * 1024,
+        timeoutMs: 10_000
+      });
+      if (!input.body) throw new Error("OUTBOUND_PROVIDER_BODY_REQUIRED");
+      if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/iu.test(readHeader(input.headers, "content-type") ?? "")) {
+        throw new Error("OUTBOUND_PROVIDER_CONTENT_TYPE_REQUIRED");
+      }
+      return;
     case "google-document-ai":
       requireProviderRequest(input, {
         method: "POST",
@@ -460,6 +475,9 @@ function requireProviderPolicyUrl(
       }
       return url.toString();
     }
+    case "google-oauth-token":
+      if (url.toString() !== GOOGLE_OAUTH_TOKEN_URL) throw new Error("OUTBOUND_GOOGLE_AUTHORITY_FORBIDDEN");
+      return url.toString();
     case "google-document-ai": {
       const location = url.pathname.match(/^\/v1\/projects\/[^/]+\/locations\/([^/]+)\/processors\/[^/]+(?::process|\/processorVersions\/[^/]+:process)$/u)?.[1];
       if (

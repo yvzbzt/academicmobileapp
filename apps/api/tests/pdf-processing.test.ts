@@ -507,7 +507,7 @@ describe("PdfProcessingService", () => {
         studentRelevance: "relevant",
         topic: "course_registration",
         deadline: "unknown",
-        classificationVersion: "student-relevance-rules-v1"
+        classificationVersion: "student-relevance-rules-v2"
       })
     );
     expect(result.extractedEvents[0]?.evidenceSpans).not.toHaveLength(0);

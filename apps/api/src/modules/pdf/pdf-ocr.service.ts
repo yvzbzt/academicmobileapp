@@ -1,7 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { createHash } from "node:crypto";
+import { createHash, createSign } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import {
   GOOGLE_METADATA_TOKEN_URL,
+  GOOGLE_OAUTH_TOKEN_URL,
   safeOutboundRequest
 } from "../../common/network/safe-outbound-request.js";
 import {
@@ -54,6 +56,14 @@ interface DocumentAiResponse {
     message?: string;
   };
 }
+
+interface GoogleServiceAccountCredentials {
+  type: "service_account";
+  client_email: string;
+  private_key: string;
+}
+
+let cachedServiceAccountToken: { credentialsPath: string; token: string; expiresAt: number } | undefined;
 
 @Injectable()
 export class PdfOcrService {
@@ -145,6 +155,31 @@ export async function readGoogleAccessToken(): Promise<string | undefined> {
   const explicit = process.env.GOOGLE_OAUTH_ACCESS_TOKEN;
   if (explicit?.trim()) return explicit.trim();
 
+  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  if (credentialsPath) {
+    const cached = cachedServiceAccountToken;
+    if (cached?.credentialsPath === credentialsPath && cached.expiresAt > Date.now() + 60_000) {
+      return cached.token;
+    }
+    try {
+      const file = await stat(credentialsPath);
+      if (!file.isFile() || file.size <= 0 || file.size > 128 * 1024) return undefined;
+      const credentials = parseGoogleServiceAccountCredentials(await readFile(credentialsPath, "utf8"));
+      if (!credentials) return undefined;
+      const access = await exchangeGoogleServiceAccountAccessToken(credentials);
+      if (access) {
+        cachedServiceAccountToken = {
+          credentialsPath,
+          token: access.token,
+          expiresAt: Date.now() + Math.min(3_600, Math.max(60, access.expiresInSeconds)) * 1_000
+        };
+        return access.token;
+      }
+    } catch {
+      return undefined;
+    }
+  }
+
   try {
     const response = await safeOutboundRequest(GOOGLE_METADATA_TOKEN_URL, {
       timeoutMs: 2_500,
@@ -162,6 +197,76 @@ export async function readGoogleAccessToken(): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+export async function exchangeGoogleServiceAccountAccessToken(
+  credentials: GoogleServiceAccountCredentials,
+  now = new Date()
+): Promise<{ token: string; expiresInSeconds: number } | undefined> {
+  if (!isGoogleServiceAccountCredentials(credentials)) return undefined;
+  const issuedAt = Math.floor(now.getTime() / 1_000) - 30;
+  const header = base64UrlJson({ alg: "RS256", typ: "JWT" });
+  const claims = base64UrlJson({
+    iss: credentials.client_email,
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+    aud: GOOGLE_OAUTH_TOKEN_URL,
+    iat: issuedAt,
+    exp: issuedAt + 3_600
+  });
+  const unsignedAssertion = `${header}.${claims}`;
+  let signature: string;
+  try {
+    signature = createSign("RSA-SHA256").update(unsignedAssertion).end().sign(credentials.private_key, "base64url");
+  } catch {
+    return undefined;
+  }
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion: `${unsignedAssertion}.${signature}`
+  }).toString();
+  const response = await safeOutboundRequest(GOOGLE_OAUTH_TOKEN_URL, {
+    timeoutMs: 10_000,
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+    maximumRedirects: 0,
+    maximumRequestBytes: 64 * 1024,
+    maximumResponseBytes: 32 * 1024,
+    providerPolicy: "google-oauth-token"
+  });
+  if (response.status < 200 || response.status >= 300) return undefined;
+  try {
+    const parsed = JSON.parse(response.body.toString("utf8")) as { access_token?: unknown; expires_in?: unknown };
+    const token = typeof parsed.access_token === "string" ? parsed.access_token.trim() : "";
+    const expiresInSeconds = typeof parsed.expires_in === "number" && Number.isFinite(parsed.expires_in)
+      ? Math.floor(parsed.expires_in)
+      : 3_600;
+    return token ? { token, expiresInSeconds } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseGoogleServiceAccountCredentials(value: string): GoogleServiceAccountCredentials | undefined {
+  try {
+    const parsed = JSON.parse(value) as Partial<GoogleServiceAccountCredentials>;
+    return isGoogleServiceAccountCredentials(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isGoogleServiceAccountCredentials(value: Partial<GoogleServiceAccountCredentials>): value is GoogleServiceAccountCredentials {
+  return value.type === "service_account"
+    && typeof value.client_email === "string"
+    && /^[^\s@]+@[^\s@]+\.iam\.gserviceaccount\.com$/u.test(value.client_email)
+    && typeof value.private_key === "string"
+    && value.private_key.includes("-----BEGIN PRIVATE KEY-----")
+    && value.private_key.includes("-----END PRIVATE KEY-----");
+}
+
+function base64UrlJson(value: object): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }
 
 export async function downloadPdfData(

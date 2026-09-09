@@ -298,9 +298,10 @@ function studentRelevanceSchemaFields() {
       type: String,
       required: false,
       enum: [
-        "academic_calendar", "course_registration", "exam", "scholarship", "internship", "exchange",
-        "graduation", "tuition", "housing", "student_event", "personnel_recruitment", "procurement",
-        "internal_operations", "unknown"
+        "academic_calendar", "admission", "course_registration", "course_schedule", "double_major_minor",
+        "education_opportunity", "exam", "horizontal_transfer", "scholarship", "internship", "exchange",
+        "graduation", "tuition", "housing", "competition", "student_achievement", "student_event",
+        "personnel_recruitment", "procurement", "internal_operations", "unknown"
       ]
     },
     audience: {
@@ -330,7 +331,7 @@ function studentRelevanceSchemaFields() {
       required: false,
       default: undefined
     },
-    classificationVersion: { type: String, required: false, enum: ["student-relevance-rules-v1"] }
+    classificationVersion: { type: String, required: false, enum: ["student-relevance-rules-v2"] }
   };
 }
 

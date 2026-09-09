@@ -146,6 +146,53 @@ services:
         max-size: 10m
         max-file: "5"
 
+  content-worker:
+    image: anssoft-backend:2026-07-17
+    container_name: anssoft-content-worker
+    restart: unless-stopped
+    stop_grace_period: 30s
+    init: true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    command:
+      - node
+      - dist/apps/api/src/main.content-worker.js
+    environment:
+      NODE_ENV: production
+      TZ: Europe/Istanbul
+      CONTENT_INGESTION_WORKER_ENABLED: "true"
+      MONGODB_URI: mongodb://${MONGO_APP_USERNAME}:${MONGO_APP_PASSWORD}@anssoft-mongodb:27017/${MONGO_APP_DATABASE}?authSource=${MONGO_APP_DATABASE}
+      MONGODB_SELECTION_TIMEOUT_MS: "5000"
+      ANNOUNCEMENT_AUTO_INGEST_ENABLED: ${ANNOUNCEMENT_AUTO_INGEST_ENABLED:-false}
+      ANNOUNCEMENT_INGEST_BATCH_SIZE: ${ANNOUNCEMENT_INGEST_BATCH_SIZE:-50}
+      ANNOUNCEMENT_INGEST_CONCURRENCY: ${ANNOUNCEMENT_INGEST_CONCURRENCY:-4}
+      CALENDAR_AUTO_INGEST_ENABLED: ${CALENDAR_AUTO_INGEST_ENABLED:-false}
+      OCR_PROVIDER: ${OCR_PROVIDER:-}
+      GOOGLE_DOCUMENT_AI_PROCESSOR_NAME: ${GOOGLE_DOCUMENT_AI_PROCESSOR_NAME:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+    volumes:
+      - ./secrets:/run/secrets:ro
+    networks:
+      internal: {}
+      egress:
+        gw_priority: 1
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    cpus: "1.00"
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
 networks:
   internal:
     name: anssoft-internal

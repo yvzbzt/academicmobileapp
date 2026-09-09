@@ -80,7 +80,7 @@
       [
         "expo-secure-store",
         {
-          "configureAndroidBackup": false,
+          "configureAndroidBackup": true,
           "faceIDPermission": false
         }
       ],

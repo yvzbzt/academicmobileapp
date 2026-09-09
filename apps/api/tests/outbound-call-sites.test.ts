@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { generateKeyPairSync } from "node:crypto";
 import {
   fetchJsonWithTimeout,
   loadTurkiyeCatalogFromYokAtlas
@@ -11,7 +12,7 @@ import {
 } from "../src/common/network/safe-outbound-request.js";
 import { verifyGoogleOAuthIdToken } from "../src/modules/auth/firebase-google-identity.verifier.js";
 import { fetchText } from "../src/modules/announcements/announcement-parser.js";
-import { PdfOcrService, readGoogleAccessToken } from "../src/modules/pdf/pdf-ocr.service.js";
+import { exchangeGoogleServiceAccountAccessToken, PdfOcrService, readGoogleAccessToken } from "../src/modules/pdf/pdf-ocr.service.js";
 import type { PdfSourceRecord } from "../src/modules/pdf/pdf.types.js";
 import { fetchConfiguredSearchResults } from "../src/modules/source-discovery/academic-source-discovery.service.js";
 
@@ -346,6 +347,7 @@ describe("Google provider and metadata outbound call sites", () => {
 
   it("reads a metadata token only from the fixed link-local endpoint with the required header", async () => {
     vi.stubEnv("GOOGLE_OAUTH_ACCESS_TOKEN", undefined);
+    vi.stubEnv("GOOGLE_APPLICATION_CREDENTIALS", undefined);
     const requestHop = vi.fn(async (
       url: string,
       pinnedAddress: ResolvedOutboundAddress,
@@ -371,6 +373,7 @@ describe("Google provider and metadata outbound call sites", () => {
 
   it("does not follow a metadata redirect", async () => {
     vi.stubEnv("GOOGLE_OAUTH_ACCESS_TOKEN", undefined);
+    vi.stubEnv("GOOGLE_APPLICATION_CREDENTIALS", undefined);
     const requestHop = vi.fn(async (
       _url: string,
       pinnedAddress: ResolvedOutboundAddress
@@ -386,6 +389,49 @@ describe("Google provider and metadata outbound call sites", () => {
     });
 
     await expect(readGoogleAccessToken()).resolves.toBeUndefined();
+    expect(requestHop).toHaveBeenCalledTimes(1);
+  });
+
+  it("exchanges a service-account assertion only at the fixed Google OAuth token endpoint", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const requestHop = vi.fn(async (
+      url: string,
+      pinnedAddress: ResolvedOutboundAddress,
+      input: RequestHopInput
+    ): Promise<SafeOutboundHopResponse> => {
+      expect(url).toBe("https://oauth2.googleapis.com/token");
+      expect(input).toEqual(expect.objectContaining({
+        method: "POST",
+        maximumResponseBytes: 32 * 1024,
+        providerPolicy: "google-oauth-token"
+      }));
+      expect(input.headers).toEqual(expect.objectContaining({
+        "Content-Type": "application/x-www-form-urlencoded"
+      }));
+      const parameters = new URLSearchParams(input.body?.toString("utf8"));
+      expect(parameters.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:jwt-bearer");
+      const assertion = parameters.get("assertion")?.split(".") ?? [];
+      expect(assertion).toHaveLength(3);
+      expect(JSON.parse(Buffer.from(assertion[1]!, "base64url").toString("utf8"))).toEqual(expect.objectContaining({
+        iss: "document-ai@example-project.iam.gserviceaccount.com",
+        scope: "https://www.googleapis.com/auth/cloud-platform",
+        aud: "https://oauth2.googleapis.com/token"
+      }));
+      return jsonResponse({ access_token: "service-account-token", expires_in: 3600 }, pinnedAddress.address);
+    });
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [firstPublicAddress],
+      requestHop
+    });
+
+    await expect(exchangeGoogleServiceAccountAccessToken({
+      type: "service_account",
+      client_email: "document-ai@example-project.iam.gserviceaccount.com",
+      private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString()
+    }, new Date("2026-09-09T12:00:00.000Z"))).resolves.toEqual({
+      token: "service-account-token",
+      expiresInSeconds: 3600
+    });
     expect(requestHop).toHaveBeenCalledTimes(1);
   });
 

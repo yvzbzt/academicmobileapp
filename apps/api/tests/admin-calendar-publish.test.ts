@@ -126,7 +126,7 @@ describe("AdminCalendarService", () => {
     expect(draft.events[0]).toEqual(expect.objectContaining({
       studentRelevance: "relevant",
       topic: "course_registration",
-      classificationVersion: "student-relevance-rules-v1"
+      classificationVersion: "student-relevance-rules-v2"
     }));
 
     await adminService.publishCalendar(draft.calendar.id, "admin-1");
@@ -274,7 +274,7 @@ describe("AdminCalendarService", () => {
     expect(draft.calendar.version).toBe(1);
     expect(draft.events).toHaveLength(2);
     expect(draft.events.every((event) => event.status === "approved")).toBe(true);
-    expect(draft.events.every((event) => event.classificationVersion === "student-relevance-rules-v1")).toBe(true);
+    expect(draft.events.every((event) => event.classificationVersion === "student-relevance-rules-v2")).toBe(true);
   });
 
   it("binds reused semantic events to the PDF snapshot selected for the draft", async () => {

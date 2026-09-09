@@ -320,9 +320,25 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
 }
 
 function compareAnnouncementItems(left: AnnouncementItem, right: AnnouncementItem): number {
-  const leftTime = Math.max(...[left.publishedAt, left.sourceUpdatedAt, left.discoveredAt].map((value) => value ? Date.parse(value) : 0).filter(Number.isFinite), 0);
-  const rightTime = Math.max(...[right.publishedAt, right.sourceUpdatedAt, right.discoveredAt].map((value) => value ? Date.parse(value) : 0).filter(Number.isFinite), 0);
-  return rightTime - leftTime;
+  const leftSourceTime = announcementSourceTime(left);
+  const rightSourceTime = announcementSourceTime(right);
+  if (leftSourceTime !== rightSourceTime) return rightSourceTime - leftSourceTime;
+  const leftDiscoveredAt = parseAnnouncementTime(left.discoveredAt);
+  const rightDiscoveredAt = parseAnnouncementTime(right.discoveredAt);
+  return rightDiscoveredAt - leftDiscoveredAt || left.id.localeCompare(right.id, "en-US");
+}
+
+function announcementSourceTime(item: AnnouncementItem): number {
+  return Math.max(
+    parseAnnouncementTime(item.publishedAt),
+    parseAnnouncementTime(item.sourceUpdatedAt),
+    parseAnnouncementTime(item.publishedDate ? `${item.publishedDate}T12:00:00+03:00` : undefined)
+  );
+}
+
+function parseAnnouncementTime(value: string | undefined): number {
+  const parsed = value ? Date.parse(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function savedAnnouncementKey(userId: string, announcementId: string): string {

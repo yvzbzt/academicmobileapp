@@ -8,6 +8,42 @@ import {
 } from "../src/domain/student-relevance-classifier.js";
 
 describe("student relevance classifier", () => {
+  it.each([
+    ["Yatay Geçiş Başvuru Duyurusu", "relevant", "horizontal_transfer"],
+    ["Çift Anadal ve Yandal Başvuruları", "relevant", "double_major_minor"],
+    ["Özel Yetenek Sınavı ile Yerleşen Öğrencilerin Dikkatine", "relevant", "admission"],
+    ["Lisansüstü Programlara Başvuru Duyurusu", "relevant", "admission"],
+    ["Uluslararası Öğrenci Başvuruları", "relevant", "admission"],
+    ["2026 Üniversite Tercih Rehberi", "relevant", "admission"],
+    ["Ders kayıtları ve kayıt yenileme takvimi", "relevant", "course_registration"],
+    ["Bilgisayar Mühendisliği haftalık ders programı", "relevant", "course_schedule"],
+    ["Final sınav programı ilan edildi", "relevant", "exam"],
+    ["Başarı bursu programı başvuruları", "relevant", "scholarship"],
+    ["Barcelona'da staj yapan öğrencimiz", "relevant", "internship"],
+    ["Erasmus değişim programı başvuruları", "relevant", "exchange"],
+    ["Mezuniyet töreni başvurusu", "relevant", "graduation"],
+    ["Öğrenim ücreti ödeme tarihleri", "relevant", "tuition"],
+    ["Öğrenci yurdu başvuruları", "relevant", "housing"],
+    ["2026-2027 akademik takvim", "relevant", "academic_calendar"],
+    ["Sertifika eğitim programı başvuruları", "relevant", "education_opportunity"],
+    ["Teknofest yarışması finalistleri", "relevant", "competition"],
+    ["Öğrencilerimizin projesi büyük ödül aldı", "relevant", "student_achievement"],
+    ["Öğrencilere yönelik kariyer paneli", "relevant", "student_event"],
+    ["Öğretim Elemanı Alım İlanı", "not_relevant", "personnel_recruitment"],
+    ["Mühendislik Fakültesi Ar. Gör. Alımı Ön Değerlendirme Sonuçları", "not_relevant", "personnel_recruitment"],
+    ["Doktora Sonrası Araştırmacı İstihdamı Çağrısı", "not_relevant", "personnel_recruitment"],
+    ["12 Üniversite için Rektör Başvuru İlanı", "not_relevant", "personnel_recruitment"],
+    ["2026 yılı ihale ilanı", "not_relevant", "procurement"],
+    ["Senato kurulu kararı", "not_relevant", "internal_operations"],
+    ["2026 EUS Kontenjan Talep Toplama", "not_relevant", "internal_operations"],
+    ["Üniversitemiz akreditasyon başarısı", "uncertain", "unknown"],
+    ["Dumansız Kampüs Uygulama Rehberi", "uncertain", "unknown"],
+    ["Uluslararası araştırma projesi desteği", "uncertain", "unknown"],
+    ["Genel bilgilendirme", "uncertain", "unknown"]
+  ] as const)("classifies the launch-readiness corpus: %s", (title, studentRelevance, topic) => {
+    expect(classifyStudentRelevance({ title })).toMatchObject({ studentRelevance, topic });
+  });
+
   it("produces evidence-backed student metadata without needing university context", () => {
     const input: ClassifyStudentRelevanceInput = {
       title: "Tüm öğrenciler için ders kaydı duyurusu",
@@ -28,6 +64,12 @@ describe("student relevance classifier", () => {
     });
     expect(result.evidenceSpans.length).toBeGreaterThan(0);
     expectEvidenceToBeExactAndBounded(input, result.evidenceSpans);
+  });
+
+  it("does not broaden a prospective-student notice to all students", () => {
+    expect(classifyStudentRelevance({
+      title: "Ek yerleştirme ile yerleşen öğrencilerin dikkatine"
+    }).audience).toEqual(["prospective_students"]);
   });
 
   it.each([

@@ -6,7 +6,7 @@ import {
   type ResolvedOutboundAddress,
   type SafeOutboundHopResponse
 } from "../src/common/network/safe-outbound-request.js";
-import { ANNOUNCEMENT_PROCESSING_VERSION, AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, isSourceDue, YOK_ANNOUNCEMENT_SCOPE_ID } from "../src/modules/announcements/announcement-ingestion.service.js";
+import { ANNOUNCEMENT_PROCESSING_VERSION, AnnouncementIngestionService, discoverAnnouncementSourceForUniversity, isSourceDue, runAnnouncementSourcesWithConcurrency, YOK_ANNOUNCEMENT_SCOPE_ID } from "../src/modules/announcements/announcement-ingestion.service.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
 import {
   cleanText,
@@ -47,6 +47,80 @@ afterEach(() => {
 });
 
 describe("announcement discovery and ingestion", () => {
+  it("serializes fetches to the same host while using concurrency across different hosts", async () => {
+    const now = new Date();
+    const source = (id: string, sourceUrl: string): AnnouncementSourceRecord => ({
+      id,
+      scopeType: "university",
+      scopeId: sampleUniversity.id,
+      sourceName: id,
+      sourceUrl,
+      canonicalUrl: sourceUrl,
+      contentType: "announcement",
+      parser: "auto",
+      priority: 1,
+      status: "active",
+      trustStatus: "trusted",
+      createdAt: now,
+      updatedAt: now
+    });
+    const sources = [
+      source("same-a", "https://news.example.edu.tr/a"),
+      source("other", "https://announcements.other.edu.tr/a"),
+      source("same-b", "https://news.example.edu.tr/b")
+    ];
+    const activeByHost = new Map<string, number>();
+    let maxGlobal = 0;
+    let activeGlobal = 0;
+
+    const results = await runAnnouncementSourcesWithConcurrency(sources, 3, async (candidate) => {
+      const host = new URL(candidate.sourceUrl).hostname;
+      const hostActive = (activeByHost.get(host) ?? 0) + 1;
+      activeByHost.set(host, hostActive);
+      activeGlobal += 1;
+      maxGlobal = Math.max(maxGlobal, activeGlobal);
+      expect(hostActive).toBe(1);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeByHost.set(host, hostActive - 1);
+      activeGlobal -= 1;
+      return candidate.id;
+    });
+
+    expect(results).toEqual(["same-a", "other", "same-b"]);
+    expect(maxGlobal).toBeGreaterThan(1);
+  });
+
+  it("bounds each scheduled cycle to the configured source batch size", async () => {
+    vi.stubEnv("ANNOUNCEMENT_INGEST_BATCH_SIZE", "2");
+    const repository = new InMemoryAnnouncementRepository();
+    for (let index = 0; index < 3; index += 1) {
+      await repository.upsertSource({
+        scopeType: "university",
+        scopeId: `${sampleUniversity.id}-${index}`,
+        sourceName: `Source ${index}`,
+        sourceUrl: `https://source-${index}.example.edu.tr/announcements`,
+        contentType: "announcement",
+        parser: "auto",
+        priority: 1,
+        status: "active",
+        trustStatus: "trusted"
+      });
+    }
+    const service = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
+    const ingest = vi.spyOn(service, "ingestSource").mockImplementation(async (candidate) => ({
+      sourceId: candidate.id,
+      sourceName: candidate.sourceName,
+      sourceUrl: candidate.sourceUrl,
+      status: "healthy",
+      itemCount: 0,
+      sampleTitles: []
+    }));
+
+    await service.runScheduledCycle();
+
+    expect(ingest).toHaveBeenCalledTimes(2);
+  });
+
   it("provisions registry candidates as inactive quarantine without mutating an explicitly approved source", async () => {
     const tekirdag: UniversityRecord = {
       id: "tekirdag-namik-kemal-universitesi",
@@ -158,7 +232,7 @@ describe("announcement discovery and ingestion", () => {
         totalParsedItems: 0,
         classificationAudit: {
           mode: "shadow",
-          classificationVersion: "student-relevance-rules-v1",
+          classificationVersion: "student-relevance-rules-v2",
           counts: { total: 0, relevant: 0, not_relevant: 0, uncertain: 0 }
         }
       },
@@ -345,7 +419,7 @@ describe("announcement discovery and ingestion", () => {
       etag: '"v1"',
       lastModified: "Wed, 02 Sep 2026 08:00:00 GMT",
       contentHash: expect.stringMatching(/^[a-f\d]{64}$/u),
-      processingVersion: "announcement-ingestion-v2",
+      processingVersion: ANNOUNCEMENT_PROCESSING_VERSION,
       itemCount: 1,
       healthStatus: "healthy"
     });
@@ -1089,6 +1163,8 @@ describe("announcement discovery and ingestion", () => {
       "Geçmiş Duyurular",
       "Tüm Duyurular",
       "Devamını Oku",
+      "İletişim",
+      "AGÜ NEWS",
       "1 / 10",
       "Sayfa 2 / 10",
       "6 of 10 --",

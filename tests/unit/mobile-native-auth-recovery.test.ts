@@ -430,8 +430,8 @@ describe("mobile authentication recovery contract", () => {
 
     expect(loginScreen).toContain('label="Şifremi unuttum"');
     expect(loginScreen).toMatch(/onPress=\{\(\) => \{[\s\S]*?Keyboard\.dismiss\(\);[\s\S]*?props\.onForgotPassword\(\);[\s\S]*?\}\}/u);
-    expect(loginScreen).toContain('autoComplete="email"');
-    expect(loginScreen).toContain('autoComplete="password"');
+    expect(loginScreen).toContain('autoComplete={Platform.OS === "ios" ? "username" : "email"}');
+    expect(loginScreen).toContain('autoComplete={Platform.OS === "ios" ? "current-password" : "password"}');
     expect(loginScreen).not.toContain('label="Beni hatırla"');
     expect(registrationScreen.match(/autoComplete="new-password"/gu)).toHaveLength(2);
     expect(registrationScreen).toContain("KVKK Aydınlatma Metni");
@@ -469,9 +469,9 @@ describe("mobile authentication recovery contract", () => {
     expect(appSource).toContain('case "PasswordRecoveryRequest":');
     expect(appSource).toContain('case "PasswordRecoveryCode":');
     expect(appSource).toContain('case "PasswordRecoveryConfirm":');
-    expect(appSource).toContain("returnToPasswordRecoveryRequest()");
-    expect(appSource).toContain("returnToPasswordRecoveryCode()");
-    expect(appSource).toContain("cancelPasswordRecovery()");
+    expect(appSource).toContain("onBack={returnToPasswordRecoveryRequest}");
+    expect(appSource).toContain("onBack={returnToPasswordRecoveryCode}");
+    expect(appSource).toContain("onCancel={cancelPasswordRecovery}");
     expect(authScaffold).toContain("message={feedback.text}");
     expect(authScaffold).toContain("tone={feedback.tone}");
     expect(applicationModule("useApplicationEffects.ts")).toContain('if (!message || navigatorRootSurface !== "authenticated") return;');

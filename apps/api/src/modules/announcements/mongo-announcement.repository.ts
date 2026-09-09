@@ -656,7 +656,7 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
     if (legacySourceIds.length > 0 && legacyLimit > 0) {
       const documents = await (await this.model("AnnouncementItem", announcementItemSchema))
         .find({ sourceId: { $in: legacySourceIds }, trustStatus: "trusted" })
-        .sort({ discoveredAt: -1, sourceUpdatedAt: -1, publishedAt: -1 })
+        .sort({ publishedAt: -1, sourceUpdatedAt: -1, publishedDate: -1, discoveredAt: -1 })
         .limit(legacyLimit);
       visibleItems.push(...documents.map((document) => toDomainRecord<AnnouncementItem>(document)));
     }

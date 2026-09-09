@@ -47,7 +47,7 @@ export interface AnnouncementIngestionResult {
 
 export const YOK_ANNOUNCEMENT_SCOPE_ID = "yok-council-of-higher-education";
 export const YOK_ANNOUNCEMENT_SOURCE_URL = "https://www.yok.gov.tr/tr/announcements";
-export const ANNOUNCEMENT_PROCESSING_VERSION = "announcement-ingestion-v2";
+export const ANNOUNCEMENT_PROCESSING_VERSION = `announcement-ingestion-v3+${STUDENT_RELEVANCE_CLASSIFICATION_VERSION}` as const;
 const ANNOUNCEMENT_NOTIFICATION_RETRY_PAGE_SIZE = 100;
 const ANNOUNCEMENT_NOTIFICATION_RETRY_MAX_ITEMS = 5_000;
 
@@ -93,7 +93,11 @@ export class AnnouncementIngestionService {
 
   async runIngestion(input: { limit?: number; offset?: number; concurrency?: number } = {}) {
     const sources = await this.announcementRepository.listAllSources({ status: "active", limit: input.limit ?? 1000, offset: input.offset ?? 0 });
-    const results = await runWithConcurrency(sources, input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6), (source) => this.ingestSource(source));
+    const results = await runAnnouncementSourcesWithConcurrency(
+      sources,
+      input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
+      (source) => this.ingestSource(source)
+    );
     return { summary: summarizeIngestion(results), results };
   }
 
@@ -160,7 +164,7 @@ export class AnnouncementIngestionService {
       limit: input.limit ?? 1000,
       offset: input.offset ?? 0
     });
-    const results = await runWithConcurrency(
+    const results = await runAnnouncementSourcesWithConcurrency(
       sources,
       input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
       (source) => this.ingestSource(source)
@@ -436,9 +440,11 @@ export class AnnouncementIngestionService {
         await this.runDiscoveryAndIngestion();
         return;
       }
-      const dueSources = activeSources.filter((source) => isSourceDue(source));
+      const dueSources = activeSources
+        .filter((source) => isSourceDue(source))
+        .slice(0, readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_BATCH_SIZE, 50));
       if (dueSources.length === 0) return;
-      await runWithConcurrency(
+      await runAnnouncementSourcesWithConcurrency(
         dueSources,
         readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
         (source) => this.ingestSource(source)
@@ -1473,6 +1479,42 @@ async function runWithConcurrency<TInput, TOutput>(items: TInput[], concurrency:
     }
   }));
   return results;
+}
+
+export async function runAnnouncementSourcesWithConcurrency<TOutput>(
+  sources: readonly AnnouncementSourceRecord[],
+  concurrency: number,
+  worker: (source: AnnouncementSourceRecord) => Promise<TOutput>
+): Promise<TOutput[]> {
+  const sourcesByHost = new Map<string, Array<{ index: number; source: AnnouncementSourceRecord }>>();
+  sources.forEach((source, index) => {
+    let host: string;
+    try {
+      host = new URL(source.canonicalUrl ?? source.sourceUrl).hostname.toLocaleLowerCase("en-US");
+    } catch {
+      host = `invalid-source-${source.id}`;
+    }
+    const bucket = sourcesByHost.get(host) ?? [];
+    bucket.push({ index, source });
+    sourcesByHost.set(host, bucket);
+  });
+
+  const groupedResults = await runWithConcurrency(
+    [...sourcesByHost.values()],
+    concurrency,
+    async (bucket) => {
+      const results: Array<{ index: number; value: TOutput }> = [];
+      for (const entry of bucket) {
+        results.push({ index: entry.index, value: await worker(entry.source) });
+      }
+      return results;
+    }
+  );
+
+  return groupedResults
+    .flat()
+    .sort((left, right) => left.index - right.index)
+    .map((result) => result.value);
 }
 
 function readPositiveInteger(value: string | undefined, fallback: number): number {

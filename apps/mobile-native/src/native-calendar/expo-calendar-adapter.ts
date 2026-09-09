@@ -1,4 +1,5 @@
 import type * as ExpoCalendar from "expo-calendar";
+import { referencePalette } from "../design-system/tokens";
 import {
   DEFAULT_NATIVE_CALENDAR_TIMEZONE,
   calendarDateToISOString,
@@ -24,7 +25,7 @@ import type {
   NativeCalendarWritableCalendar
 } from "./types";
 
-export const NATIVE_CALENDAR_APP_COLOR = "#1463F3";
+export const NATIVE_CALENDAR_APP_COLOR = referencePalette.academicBlue;
 
 export type ExpoCalendarAdapterOptions = {
   calendarModule?: typeof ExpoCalendar;

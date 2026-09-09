@@ -187,7 +187,9 @@ const navigationTitles = new Set([
   "footer",
   "gecmis duyurular",
   "gezinti",
+  "iletisim",
   "menu",
+  "news",
   "onceki",
   "sayfa alti",
   "sayfa sonu",
@@ -268,7 +270,8 @@ export function isNavigationContentTitle(value: string): boolean {
   return /^(?:devamini oku|onceki|sonraki)(?:\s+(?:sayfa|kayit|duyuru|haber|etkinlik|\d+))*$/u.test(title)
     || /^(?:sayfa\s+)?\d+(?:\s*\/\s*\d+)?$/u.test(title)
     || /^\d+\s+of\s+\d+$/u.test(title)
-    || /^\d+(?:\s+\d+)+$/u.test(title);
+    || /^\d+(?:\s+\d+)+$/u.test(title)
+    || /^[\p{L}\p{N}]{2,12}\s+news$/u.test(title);
 }
 
 export function normalizeTrustedContentCollection(
@@ -478,12 +481,16 @@ function normalizeTrustedContentRecord(
   const summary = normalizeDisplayText(record.summary);
   const body = normalizeContentBodyBlocks(record.body);
   const keyDates = normalizeContentKeyDates(record.keyDates);
-  const publishedDate = record.publicationKind === "date" ? validDateOnly(record.publishedDate) : undefined;
-  const publishedAt = record.publicationKind === "date" ? undefined : validIsoTimestamp(record.publishedAt);
-  const publicationKind = publishedDate ? "date" as const : publishedAt ? "timestamp" as const : undefined;
-  const sourceUpdatedAt = validIsoTimestamp(record.sourceUpdatedAt);
-  const discoveredAt = validIsoTimestamp(record.discoveredAt);
   const fetchedAt = validIsoTimestamp(record.fetchedAt);
+  const publishedDate = record.publicationKind === "date" ? validDateOnly(record.publishedDate) : undefined;
+  const candidatePublishedAt = record.publicationKind === "date" ? undefined : validIsoTimestamp(record.publishedAt);
+  const publishedAt = candidatePublishedAt && candidatePublishedAt !== fetchedAt ? candidatePublishedAt : undefined;
+  const publicationKind = publishedDate ? "date" as const : publishedAt ? "timestamp" as const : undefined;
+  const candidateSourceUpdatedAt = validIsoTimestamp(record.sourceUpdatedAt);
+  const sourceUpdatedAt = candidateSourceUpdatedAt && candidateSourceUpdatedAt !== fetchedAt
+    ? candidateSourceUpdatedAt
+    : undefined;
+  const discoveredAt = validIsoTimestamp(record.discoveredAt);
   const {
     canonicalUrl: _canonicalUrl,
     canonicalUrlAliases: _canonicalUrlAliases,

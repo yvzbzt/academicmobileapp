@@ -1,17 +1,24 @@
-export const STUDENT_RELEVANCE_CLASSIFICATION_VERSION = "student-relevance-rules-v1" as const;
+export const STUDENT_RELEVANCE_CLASSIFICATION_VERSION = "student-relevance-rules-v2" as const;
 
 export type StudentRelevance = "relevant" | "not_relevant" | "uncertain";
 
 export type StudentContentTopic =
   | "academic_calendar"
+  | "admission"
   | "course_registration"
+  | "course_schedule"
+  | "double_major_minor"
+  | "education_opportunity"
   | "exam"
+  | "horizontal_transfer"
   | "scholarship"
   | "internship"
   | "exchange"
   | "graduation"
   | "tuition"
   | "housing"
+  | "competition"
+  | "student_achievement"
   | "student_event"
   | "personnel_recruitment"
   | "procurement"
@@ -123,7 +130,7 @@ const exclusionRules: readonly Rule<Exclude<StudentContentTopic, "unknown">>[] =
   {
     value: "personnel_recruitment",
     ruleId: "exclusion.personnel-recruitment",
-    pattern: /(?:akademik|idari|s[oö]zle[sş]meli)\s+personel\s+al[ıi]m[ıi]?|personel\s+al[ıi]m\s+ilan[ıi]|(?:[oö][gğ]retim\s+(?:[uü]yesi|eleman[ıi])|i[sş][cç]i|memur)\s+al[ıi]m\s+ilan[ıi]|kadro\s+ilan[ıi]|g[oö]revde\s+y[uü]kselme/iu
+    pattern: /(?:akademik|idari|s[oö]zle[sş]meli)\s+personel\s+al[ıi]m[ıi]?|personel\s+al[ıi]m\s+[iİ]lan[ıi]|(?:[oö][gğ]retim\s+(?:[uü]yesi|eleman[ıi])|ara[sş]t[ıi]rma\s+g[oö]revlisi|ar\.?\s*g[oö]r\.?|[iİ][sş][cç]i|memur).{0,48}(?:al[ıi]m|[iİ]stihdam|[oö]n\s+de[gğ]erlendirme|sonu[cç])|doktora\s+sonras[ıi]\s+ara[sş]t[ıi]rmac[ıi]\s+[iİ]stihdam[ıi]|nitelikli\s+ara[sş]t[ıi]rmac[ıi]lar.{0,80}g[oö]revlendirilmesi|rekt[oö]r\s+ba[sş]vuru\s+[iİ]lan[ıi]|kadro\s+[iİ]lan[ıi]|g[oö]revde\s+y[uü]kselme/iu
   },
   {
     value: "procurement",
@@ -133,28 +140,35 @@ const exclusionRules: readonly Rule<Exclude<StudentContentTopic, "unknown">>[] =
   {
     value: "internal_operations",
     ruleId: "exclusion.internal-operations",
-    pattern: /(?:kurum|birim|personel)\s+i[cç]i|y[oö]netim\s+kurulu\s+karar[ıi]|senato\s+karar[ıi]|resm[iî]\s+yaz[ıi][sş]ma|ta[sş][ıi]n[ıi]r\s+(?:kay[ıi]t|i[sş]lemi)|harcama\s+yetkilisi/iu
+    pattern: /(?:kurum|birim|personel)\s+[iİ][cç]i|y[oö]netim\s+kurulu\s+karar[ıi]|senato(?:\s+kurulu)?\s+karar[ıi]|resm[iî]\s+yaz[ıi][sş]ma|ta[sş][ıi]n[ıi]r\s+(?:kay[ıi]t|[iİ][sş]lemi)|harcama\s+yetkilisi|kontenjan\s+talep\s+toplama/iu
   }
 ];
 
 const topicRules: readonly Rule<Exclude<StudentContentTopic, "personnel_recruitment" | "procurement" | "internal_operations" | "unknown">>[] = [
+  { value: "horizontal_transfer", ruleId: "topic.horizontal-transfer", pattern: /yatay\s+ge[cç]i[sş]/iu },
+  { value: "double_major_minor", ruleId: "topic.double-major-minor", pattern: /(?:[cç]ift\s+anadal|yandal|\b[cç]ap\b)/iu },
+  { value: "admission", ruleId: "topic.admission", pattern: /(?:[oö]zel\s+yetenek\s+s[ıi]nav[ıi]|(?:ek\s+)?yerle[sş]en\s+[oö][gğ]renci|[oö][gğ]renci\s+kabul[uü]|uluslararas[ıi]\s+[oö][gğ]renci\s+ba[sş]vuru|yeni\s+kay[ıi]t|lisans[uü]st[uü]\s+programlara?\s+ba[sş]vuru|tercih\s+rehberi|ek\s+yerle[sş]tirme)/iu },
   { value: "course_registration", ruleId: "topic.course-registration-label", pattern: /(?:ders\s+kay(?:i|\u0131)t(?:lar(?:i|\u0131))?|kay(?:i|\u0131)t\s+yenileme)/iu },
   { value: "exam", ruleId: "topic.exam-label", pattern: /(?:vize|final|b(?:u|\u00fc)t(?:u|\u00fc)nleme)\s+s(?:i|\u0131)nav(?:i|\u0131)?/iu },
   { value: "course_registration", ruleId: "topic.course-registration", pattern: /(?:ders\s+(?:kayd[ıi]|se[cç]imi)|kay[ıi]t\s+yenileme|ders\s+ekle(?:me)?\s*[/-]?\s*b[ıi]rak(?:ma)?)/iu },
-  { value: "exam", ruleId: "topic.exam", pattern: /(?:s[ıi]nav\s+(?:program[ıi]|takvimi|sonu[cç]lar[ıi])|vize\s+program[ıi]|final\s+program[ıi]|b[uü]t[uü]nleme\s+s[ıi]nav[ıi])/iu },
-  { value: "scholarship", ruleId: "topic.scholarship", pattern: /(?:[oö][gğ]renci\s+bursu|burs\s+ba[sş]vurusu|maddi\s+destek\s+ba[sş]vurusu)/iu },
-  { value: "internship", ruleId: "topic.internship", pattern: /(?:staj\s+(?:ba[sş]vurusu|duyurusu|takvimi)|i[sş]yeri\s+e[gğ]itimi)/iu },
+  { value: "course_schedule", ruleId: "topic.course-schedule", pattern: /(?:ders|haftal[ıi]k)\s+program[ıi]|ders\s+program[ıi]/iu },
+  { value: "exam", ruleId: "topic.exam", pattern: /(?:s[ıi]nav\s+(?:program[ıi]|takvimi|tarihi|sonu[cç]lar[ıi])|(?:[oö]zel\s+yetenek|vize|final|b[uü]t[uü]nleme|tek\s+ders|muafiyet|yeterli(?:k|lik))\s+s[ıi]nav[ıi]?)/iu },
+  { value: "scholarship", ruleId: "topic.scholarship", pattern: /(?:[oö][gğ]renci\s+bursu|\bburs(?:u|lar[ıi]|\s+program[ıi]|\s+ba[sş]vurusu)|fellowship|maddi\s+destek\s+ba[sş]vurusu)/iu },
+  { value: "internship", ruleId: "topic.internship", pattern: /(?:\bstaj(?:\s+(?:ba[sş]vurusu|duyurusu|takvimi|yapan))?|i[sş]yeri\s+e[gğ]itimi)/iu },
   { value: "exchange", ruleId: "topic.exchange", pattern: /(?:erasmus|farabi|mevlana)\s+(?:ba[sş]vurusu|program[ıi]|de[gğ]i[sş]im)/iu },
   { value: "graduation", ruleId: "topic.graduation", pattern: /(?:mezuniyet\s+(?:ba[sş]vurusu|t[oö]reni|i[sş]lemleri)|diploma\s+teslimi)/iu },
   { value: "tuition", ruleId: "topic.tuition", pattern: /(?:[oö][gğ]renim\s+[uü]creti|katk[ıi]\s+pay[ıi]|har[cç]\s+[oö]deme)/iu },
   { value: "housing", ruleId: "topic.housing", pattern: /(?:[oö][gğ]renci\s+yurdu|yurt\s+ba[sş]vurusu|bar[ıi]nma\s+deste[gğ]i)/iu },
   { value: "academic_calendar", ruleId: "topic.academic-calendar", pattern: /(?:akademik\s+takvim|e[gğ]itim\s+[oö][gğ]retim\s+takvimi)/iu },
-  { value: "student_event", ruleId: "topic.student-event", pattern: /(?:[oö][gğ]renci(?:lere|lerimize)?\s+y[oö]nelik\s+(?:seminer|konferans|panel|at[oö]lye|s[oö]yle[sş]i)|[oö][gğ]renci\s+kul[uü]b[uü]\s+etkinli[gğ]i)/iu }
+  { value: "education_opportunity", ruleId: "topic.education-opportunity", pattern: /(?:e[gğ]itim|sertifika|uzmanl[ıi]k|kurs)\s+program[ıi].{0,80}ba[sş]vuru|(?:kurs|e[gğ]itim)\s+ba[sş]vurular[ıi]/iu },
+  { value: "competition", ruleId: "topic.competition", pattern: /(?:yar[ıi][sş]ma|teknofest|olimpiyat|hackathon|proje\s+fuar[ıi])/iu },
+  { value: "student_achievement", ruleId: "topic.student-achievement", pattern: /[oö][gğ]renci(?:miz|lerimiz|lerinin|lerden).{0,80}(?:ba[sş]ar[ıi]|[oö]d[uü]l|derece|final(?:de|e)|proje)/iu },
+  { value: "student_event", ruleId: "topic.student-event", pattern: /(?:[oö][gğ]renci(?:lere|lerimize)?\s+y[oö]nelik.{0,40}(?:seminer|konferans|panel|at[oö]lye|s[oö]yle[sş]i)|[oö][gğ]renci\s+kul[uü]b[uü]\s+etkinli[gğ]i)/iu }
 ];
 
 const audienceRules: readonly Rule<StudentAudience>[] = [
   { value: "all_students", ruleId: "audience.all-students", pattern: /(?:t[uü]m\s+[oö][gğ]renciler|[oö][gğ]rencilerimizin\s+dikkatine)/iu },
-  { value: "prospective_students", ruleId: "audience.prospective-students", pattern: /aday\s+[oö][gğ]renciler/iu },
+  { value: "prospective_students", ruleId: "audience.prospective-students", pattern: /(?:aday\s+[oö][gğ]renciler|(?:ek\s+)?yerle[sş]en\s+[oö][gğ]renciler|tercih\s+rehberi|yurtd[ıi][sş][ıi]ndan\s+[oö][gğ]renci\s+kabul[uü]|uluslararas[ıi]\s+[oö][gğ]renci\s+ba[sş]vuru)/iu },
   { value: "associate_students", ruleId: "audience.associate-students", pattern: /[oö]n\s*lisans\s+[oö][gğ]rencileri/iu },
   { value: "master_students", ruleId: "audience.master-students", pattern: /y[uü]ksek\s+lisans\s+[oö][gğ]rencileri/iu },
   { value: "doctoral_students", ruleId: "audience.doctoral-students", pattern: /doktora\s+[oö][gğ]rencileri/iu },
@@ -169,7 +183,7 @@ const actionRules: readonly Rule<Exclude<StudentActionType, "unknown">>[] = [
   { value: "pay", ruleId: "action.pay", pattern: /(?:[oö]deme\s+yap|[uü]cret(?:in)?\s+[oö]de|har[cç]\s+yat[ıi]r)/iu },
   { value: "submit", ruleId: "action.submit", pattern: /(?:belge|form|dilek[cç]e)\s+(?:teslim\s+et|y[uü]kle|g[oö]nder)/iu },
   { value: "attend", ruleId: "action.attend", pattern: /(?:kat[ıi]l[ıi]m|kat[ıi]lmak|davetlisiniz)/iu },
-  { value: "review", ruleId: "action.review", pattern: /(?:sonu[cç]lar[ıi]\s+incele|listeyi\s+kontrol|ilan\s+edildi)/iu }
+  { value: "review", ruleId: "action.review", pattern: /(?:sonu[cç]lar[ıi](?:\s+incele)?|listeyi\s+kontrol|ilan\s+edildi|kontenjanlar[ıi]|(?:s[ıi]nav|kay[ıi]t)\s+takvimi|(?:s[ıi]nav|ders)\s+program[ıi]|tercih\s+rehberi)/iu }
 ];
 
 const urgencyRules: readonly Rule<Exclude<StudentContentUrgency, "normal" | "unknown">>[] = [

@@ -383,7 +383,7 @@ describe("safe calendar ingestion", () => {
       eventCount: 1,
       classificationAudit: {
         mode: "shadow",
-        classificationVersion: "student-relevance-rules-v1",
+        classificationVersion: "student-relevance-rules-v2",
         counts: { total: 1, relevant: 1, not_relevant: 0, uncertain: 0 }
       }
     });
@@ -391,7 +391,7 @@ describe("safe calendar ingestion", () => {
     expect(toAcademicEventDto(stored!)).toEqual(expect.objectContaining({
       studentRelevance: "relevant",
       topic: "course_registration",
-      classificationVersion: "student-relevance-rules-v1"
+      classificationVersion: "student-relevance-rules-v2"
     }));
   });
 });

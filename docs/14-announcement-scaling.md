@@ -30,7 +30,11 @@ Current flow:
 4. It atomically activates that snapshot.
 5. `GET /announcements/my` reads only the active persisted snapshot and performs no external fetch or ingestion write.
 
-Run the worker separately with `npm run start:content-worker`. It uses the existing NestJS and MongoDB repositories; no queue or additional infrastructure is required.
+Run the worker separately with `npm run start:content-worker`. The Hetzner Compose file also defines a separate `content-worker` process. It uses the existing NestJS and MongoDB repositories; no queue or additional infrastructure is required.
+
+Production ingestion flags default to `false`. Before enabling them, recover adequate disk headroom, deploy the worker while ingestion is disabled, and verify that it remains healthy. Start a canary with `ANNOUNCEMENT_INGEST_BATCH_SIZE=25` and `ANNOUNCEMENT_INGEST_CONCURRENCY=2`, review source-health and shadow-classification counts, then increase gradually to the documented defaults. Do not enable a full crawl on a nearly full host.
+
+Scanned-PDF OCR additionally requires `OCR_PROVIDER=google_document_ai`, a Document AI processor name, and a service account referenced by `GOOGLE_APPLICATION_CREDENTIALS` with permission to invoke that processor. Mobile Google Sign-In credentials are unrelated to server-side OCR. The worker obtains and caches short-lived Google access tokens; no long-lived access token needs to be stored in the environment.
 
 ## 3. Scale Path (Recommended)
 
@@ -40,6 +44,7 @@ Background ingestion uses:
 2. A SHA-256 content hash fallback when validators are unavailable.
 3. A processing-version marker so parser/rule changes can intentionally reprocess unchanged bytes.
 4. Source health, consecutive failure, last-success, and item-count diagnostics.
+5. A bounded source batch and same-host serialization so one cycle cannot send concurrent requests to the same university host.
 
 Benefits:
 

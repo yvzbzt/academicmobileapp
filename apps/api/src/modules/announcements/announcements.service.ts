@@ -301,7 +301,7 @@ function presentTrustedItems(items: AnnouncementItem[], sources: AnnouncementSou
       sourceRelationships: mergeSourceRelationships(existing, presented)
     });
   }
-  return [...unique.values()].sort((left, right) => contentTimestamp(right) - contentTimestamp(left));
+  return [...unique.values()].sort(comparePresentedContentRecency);
 }
 
 function toContentCollection(
@@ -326,13 +326,19 @@ function persistedFailedSourceCount(sources: AnnouncementSourceRecord[]): number
   ).length;
 }
 
-function contentTimestamp(item: TrustedAcademicContentDto): number {
-  const sourceTimestamp = Math.max(...[
+function comparePresentedContentRecency(left: TrustedAcademicContentDto, right: TrustedAcademicContentDto): number {
+  const sourceDifference = sourceContentTimestamp(right) - sourceContentTimestamp(left);
+  if (sourceDifference) return sourceDifference;
+  const discoveryDifference = parseContentTimestamp(right.discoveredAt) - parseContentTimestamp(left.discoveredAt);
+  return discoveryDifference || left.id.localeCompare(right.id, "en-US");
+}
+
+function sourceContentTimestamp(item: TrustedAcademicContentDto): number {
+  return Math.max(...[
     item.publishedAt,
     item.sourceUpdatedAt,
     item.publishedDate ? `${item.publishedDate}T12:00:00+03:00` : undefined
   ].map(parseContentTimestamp), 0);
-  return sourceTimestamp > 0 ? sourceTimestamp : parseContentTimestamp(item.discoveredAt);
 }
 
 function parseContentTimestamp(value: string | undefined): number {

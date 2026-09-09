@@ -106,6 +106,7 @@ describe("trusted announcement API contract", () => {
     const body = await controller.getMyAnnouncements({ id: "student-1", role: "student" } as AuthenticatedUser, query);
 
     expect(body).toHaveLength(4);
+    expect(body.at(-1)?.id).toBe("crawl-only");
     expect(body.find((item) => item.id === "trusted")).toEqual(expect.objectContaining({
       sourceName: "Ankara & Üniversitesi",
       title: "Araştırma & Geliştirme Duyurusu",

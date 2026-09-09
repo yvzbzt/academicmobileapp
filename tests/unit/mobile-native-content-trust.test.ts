@@ -34,6 +34,8 @@ describe("mobile native content trust", () => {
     "Bağlı Kuruluşlar",
     "Geçmiş Duyurular",
     "Tüm Duyurular",
+    "İletişim",
+    "AGÜ NEWS",
     "Devamını Oku",
     "Menu",
     "Menü",
@@ -118,6 +120,24 @@ describe("mobile native content trust", () => {
       .toBe("Yayın tarihi belirtilmemiş");
     expect(contentTimestampLabel({ publishedAt: "0000-01-01T00:00:00.000Z" }))
       .toBe("Yayın tarihi belirtilmemiş");
+  });
+
+  it("removes legacy crawler timestamps that were copied into source date fields", () => {
+    const crawlerTimestamp = "2026-07-27T14:04:34.055Z";
+    const collection = normalizeTrustedApiContentEnvelope({
+      items: [record({
+        id: "legacy-crawler-date",
+        publishedAt: crawlerTimestamp,
+        sourceUpdatedAt: crawlerTimestamp,
+        discoveredAt: crawlerTimestamp,
+        fetchedAt: crawlerTimestamp
+      })]
+    });
+
+    expect(collection.items).toHaveLength(1);
+    expect(collection.items[0]).not.toHaveProperty("publishedAt");
+    expect(collection.items[0]).not.toHaveProperty("sourceUpdatedAt");
+    expect(contentTimestampLabel(collection.items[0]!)).toBe("Yayın tarihi belirtilmemiş");
   });
 
   it("filters unsafe, rejected, quarantined, and navigation records and deduplicates canonical URLs", () => {

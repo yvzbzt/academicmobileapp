@@ -56,6 +56,7 @@ describe("Phase 4 typed route graph", () => {
       "AcademicProfileSettings",
       "FollowedUniversitiesSettings",
       "NotificationSettings",
+      "AppleCalendarSettings",
       "GoogleCalendarSettings",
       "AccountDataSettings"
     ]);

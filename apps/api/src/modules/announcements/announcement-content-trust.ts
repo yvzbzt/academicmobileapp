@@ -115,10 +115,12 @@ const navigationTitles = new Set([
   "gezinti",
   "geri",
   "home",
+  "iletisim",
   "haber",
   "haberler",
   "ileri",
   "menu",
+  "news",
   "next",
   "onceki",
   "previous",
@@ -363,6 +365,7 @@ export function isNavigationOrChromeTitle(input: string | undefined): boolean {
   if (/^(?:page|sayfa)\s*\d+(?:\s+\d+)?$/u.test(folded)) return true;
   if (/^(?:devamini oku|read more|show more|daha fazla)(?:\s+.*)?$/u.test(folded)) return true;
   if (/^(?:onceki|sonraki|previous|next)(?:\s+(?:sayfa|page))?$/u.test(folded)) return true;
+  if (/^[\p{L}\p{N}]{2,12}\s+news$/u.test(folded)) return true;
   return false;
 }
 
