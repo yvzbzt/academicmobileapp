@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   fetchJsonWithTimeout,
-  loadTurkiyeCatalogFromYokAtlas
+  loadTurkiyeCatalogFromYokAtlas,
+  type TurkiyeCatalogSeed
 } from "../src/bootstrap/yok-atlas-catalog-importer.js";
 import {
   setSafeOutboundRequestDependenciesForTesting,
@@ -29,6 +31,25 @@ afterEach(() => {
 
 describe("YOK Atlas outbound call site", () => {
   it("uses the pinned boundary with its exact POST body, headers, timeout, and response limit", async () => {
+    const bundled = JSON.parse(readFileSync(new URL("../src/bootstrap/turkiye-catalog-seed.json", import.meta.url), "utf8")) as TurkiyeCatalogSeed;
+    const supplementalIds = new Set(bundled.activeInstitutionSupplement?.universityIds ?? []);
+    const legacyRows = bundled.universities
+      .filter((university) => !supplementalIds.has(university.slug))
+      .map((university, index) => {
+        const faculty = university.faculties.find((candidate) => candidate.departments.length > 0);
+        const department = faculty?.departments[0];
+        if (!faculty || !department) throw new Error(`TEST_CATALOG_UNIT_MISSING:${university.slug}`);
+        return {
+          universiteId: index + 1,
+          universiteAdi: university.name,
+          uniIlKodu: 6,
+          uniIlAdi: university.city,
+          universiteTuru: university.type === "state" ? "DEVLET" : "VAKIF",
+          fymkAdi: faculty.name,
+          birimGrupAdi: department.name,
+          birimTuruAdi: department.educationLevel === "associate" ? "ÖNLİSANS" : "LİSANS"
+        };
+      });
     const requestHop = vi.fn(async (
       url: string,
       pinnedAddress: ResolvedOutboundAddress,
@@ -49,7 +70,7 @@ describe("YOK Atlas outbound call site", () => {
         universiteId: [],
         ilKodu: []
       }));
-      return jsonResponse([], pinnedAddress.address);
+      return jsonResponse(legacyRows, pinnedAddress.address);
     });
     setSafeOutboundRequestDependenciesForTesting({
       resolveHostname: async () => [firstPublicAddress],
@@ -58,8 +79,18 @@ describe("YOK Atlas outbound call site", () => {
 
     await expect(loadTurkiyeCatalogFromYokAtlas(1_000)).resolves.toEqual(expect.objectContaining({
       source: "yok_atlas",
-      sourceRowCount: 0,
-      includedRowCount: 0
+      sourceRowCount: 205,
+      includedRowCount: 205,
+      universities: expect.arrayContaining([
+        expect.objectContaining({
+          slug: "turk-japon-bilim-ve-teknoloji-universitesi",
+          websiteUrl: "https://www.tju.edu.tr/"
+        }),
+        expect.objectContaining({
+          slug: "turkiye-uluslararasi-islam-bilim-ve-teknoloji-universitesi",
+          websiteUrl: "https://www.tibu.edu.tr/"
+        })
+      ])
     }));
     expect(requestHop).toHaveBeenCalledTimes(1);
   });

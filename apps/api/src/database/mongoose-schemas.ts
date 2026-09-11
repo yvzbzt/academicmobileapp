@@ -6,6 +6,21 @@ export const userSchema = new Schema(
     email: { type: String, required: true, trim: true },
     emailLookupHash: { type: String, required: false, select: false },
     credentialGeneration: { type: Number, required: true, default: 0, min: 0 },
+    refreshTokenFamilyRegistrationRevision: { type: Number, required: true, default: 0, min: 0, select: false },
+    authUserOperationLeases: {
+      type: [{
+        _id: false,
+        id: { type: String, required: true, maxlength: 64 },
+        expiresAt: { type: Date, required: true }
+      }],
+      required: false,
+      default: undefined,
+      select: false
+    },
+    deletionCleanupPending: { type: Boolean, required: false, default: false, select: false },
+    deletionCleanupClaimId: { type: String, required: false, maxlength: 64, select: false },
+    deletionCleanupLeaseUntil: { type: Date, required: false, select: false },
+    deletionCleanupCompletedAt: { type: Date, required: false, select: false },
     passwordRecoveryAttempt: {
       tokenHash: { type: String, required: false },
       credentialGeneration: { type: Number, required: false, min: 0 },
@@ -71,6 +86,47 @@ export const refreshTokenSchema = new Schema(
 refreshTokenSchema.index({ tokenHash: 1 }, { unique: true, name: "refresh_tokens_hash_unique" });
 refreshTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "refresh_tokens_expires_ttl" });
 refreshTokenSchema.index({ familyId: 1, revokedAt: 1 }, { name: "refresh_tokens_family_revocation" });
+
+export const refreshTokenFamilySchema = new Schema(
+  {
+    _id: { type: String, required: true },
+    userId: { type: String, required: true, index: true },
+    credentialGeneration: { type: Number, required: true, default: 0, min: 0 },
+    registrationRevision: { type: Number, required: true, min: 1 },
+    activeTokenHash: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+    deviceInstallationHash: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+    expiresAt: { type: Date, required: true },
+    status: { type: String, required: true, enum: ["active", "revoked"], default: "active", index: true },
+    cleanupPending: { type: Boolean, required: true, default: false },
+    cleanupClaimId: { type: String, required: false, maxlength: 64 },
+    cleanupLeaseUntil: { type: Date, required: false },
+    notificationSendLeases: {
+      type: [{
+        _id: false,
+        id: { type: String, required: true, maxlength: 64 },
+        expiresAt: { type: Date, required: true }
+      }],
+      required: false,
+      default: undefined
+    },
+    revokedAt: { type: Date, required: false },
+    cleanupCompletedAt: { type: Date, required: false }
+  },
+  { collection: "refresh_token_families", timestamps: true }
+);
+
+refreshTokenFamilySchema.index(
+  { userId: 1, status: 1 },
+  { name: "refresh_token_families_user_status" }
+);
+refreshTokenFamilySchema.index(
+  { status: 1, cleanupPending: 1, cleanupLeaseUntil: 1, updatedAt: 1 },
+  { name: "refresh_token_families_cleanup_queue" }
+);
+refreshTokenFamilySchema.index(
+  { status: 1, expiresAt: 1 },
+  { name: "refresh_token_families_active_expiry" }
+);
 
 export const emailVerificationTokenSchema = new Schema(
   {
@@ -250,11 +306,25 @@ export const announcementSourceSchema = new Schema(
   {
     scopeType: { type: String, required: true, enum: ["university", "faculty", "department"], index: true },
     scopeId: { type: String, required: true, index: true },
+    ownerUniversityId: { type: String, required: false, trim: true, maxlength: 240, index: true },
+    ownerFacultyId: { type: String, required: false, trim: true, maxlength: 240, index: true },
     sourceName: { type: String, required: true, trim: true },
     sourceUrl: { type: String, required: true, trim: true },
     canonicalUrl: { type: String, required: false, trim: true },
     contentType: { type: String, required: false, enum: ["announcement", "news", "event"], default: "announcement", index: true },
     parser: { type: String, required: true, enum: ["auto", "rss", "html"], default: "auto" },
+    parserConfig: {
+      type: {
+        itemSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        titleSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        linkSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        dateSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        contentSelector: { type: String, required: false, trim: true, maxlength: 300 }
+      },
+      required: false,
+      default: undefined,
+      _id: false
+    },
     priority: { type: Number, required: true, default: 10 },
     status: { type: String, required: true, enum: ["active", "inactive"], default: "active", index: true },
     homepageUrl: { type: String, required: false, trim: true },
@@ -270,22 +340,125 @@ export const announcementSourceSchema = new Schema(
     contentHash: { type: String, required: false, match: /^[a-f\d]{64}$/u },
     lastContentChangedAt: { type: Date, required: false },
     activeSnapshotId: { type: String, required: false },
+    snapshotStateRevision: { type: Number, required: false, min: 0, default: 0 },
+    pendingSnapshotId: { type: String, required: false },
+    pendingSnapshotRevision: { type: Number, required: false, min: 1 },
+    pendingSnapshotExpiresAt: { type: Date, required: false },
+    snapshotIntentRevision: { type: Number, required: false, min: 0, default: 0 },
     sourceDefinitionVersion: { type: String, required: false, maxlength: 64 },
     notificationProducerVersion: { type: String, required: false, maxlength: 64 },
     processingVersion: { type: String, required: false, maxlength: 96 },
     fetchIntervalMinutes: { type: Number, required: false, min: 5, max: 10080, default: 180 },
     discoveredAt: { type: Date, required: false },
     trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
+    approvalPending: { type: Boolean, required: false, default: false, index: true },
     trustReasonCodes: [{ type: String, required: false }],
-    duplicateOfId: { type: String, required: false }
+    duplicateOfId: { type: String, required: false },
+    reviewedBy: { type: String, required: false, index: true },
+    reviewedAt: { type: Date, required: false },
+    reviewNote: { type: String, required: false, trim: true, maxlength: 1000 },
+    verificationEvidence: {
+      type: {
+        status: { type: String, required: true, enum: ["verified"] },
+        schemaVersion: { type: Number, required: true, enum: [4] },
+        verifierVersion: { type: String, required: true, enum: ["authority-pinned-browser-and-raw-v9"] },
+        runId: { type: String, required: true, maxlength: 120 },
+        manifestHash: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+        universityId: { type: String, required: true, maxlength: 240 },
+        unitType: { type: String, required: true, enum: ["university", "faculty", "department"] },
+        scopeId: { type: String, required: true, maxlength: 720 },
+        sourceType: { type: String, required: true, enum: ["announcement", "news", "event", "academic_calendar", "course_schedule", "exam_schedule"] },
+        sourceUrl: { type: String, required: true, maxlength: 2048 },
+        finalUrl: { type: String, required: true, maxlength: 2048 },
+        browserFinalUrl: { type: String, required: true, maxlength: 2048 },
+        rawFinalUrl: { type: String, required: true, maxlength: 2048 },
+        discoveryMethod: { type: String, required: true, enum: ["canonical_registry", "academic_unit_registry", "navigation", "sitemap", "internal_search", "catalog_unit_homepage", "catalog_unit_navigation", "catalog_unit_sitemap"] },
+        selector: { type: String, required: false, maxlength: 512 },
+        publicationScope: { type: String, required: true, enum: ["university", "faculty_shared", "department_specific", "university_system"] },
+        httpStatus: { type: Number, required: true, min: 200, max: 299 },
+        contentType: { type: String, required: true, maxlength: 256 },
+        officialDomain: { type: Boolean, required: true, enum: [true] },
+        semanticMatch: { type: Boolean, required: true, enum: [true] },
+        semanticReasons: { type: [{ type: String, maxlength: 300 }], required: true, validate: [(value: unknown[]) => value.length <= 32, "semanticReasons exceeds limit"] },
+        parserProfile: { type: String, required: false, enum: ["auto", "rss", "html"] },
+        parserCompatible: { type: Boolean, required: true, enum: [true] },
+        parserItemCount: { type: Number, required: true, min: 0, max: 100000 },
+        listingItemCount: { type: Number, required: false, min: 0, max: 100000 },
+        sampleItemUrls: { type: [{ type: String, maxlength: 2048 }], required: true, validate: [(value: unknown[]) => value.length <= 10, "sampleItemUrls exceeds limit"] },
+        sampleDetails: {
+          type: [{
+            _id: false,
+            url: { type: String, required: true, maxlength: 2048 },
+            finalUrl: { type: String, required: false, maxlength: 2048 },
+            title: { type: String, required: false, maxlength: 500 },
+            status: { type: String, required: true, enum: ["verified", "rejected", "blocked", "request_failed"] },
+            httpStatus: { type: Number, required: false, min: 100, max: 599 },
+            reasonCodes: { type: [{ type: String, maxlength: 200 }], required: false, validate: [(value: unknown[]) => value.length <= 16, "reasonCodes exceeds limit"] }
+          }],
+          required: false,
+          validate: [(value: unknown[]) => value.length <= 2, "sampleDetails exceeds limit"]
+        },
+        browserNetworkProofs: {
+          type: [{
+            _id: false,
+            hostname: { type: String, required: true, maxlength: 253 },
+            addresses: { type: [{ type: String, maxlength: 64 }], required: true, validate: [(value: unknown[]) => value.length >= 1 && value.length <= 32, "addresses exceeds limit"] }
+          }],
+          required: true,
+          validate: [(value: unknown[]) => value.length >= 1 && value.length <= 128, "browserNetworkProofs exceeds limit"]
+        },
+        verifiedAt: { type: String, required: true, maxlength: 64 },
+        finalRevalidatedAt: { type: String, required: true, maxlength: 64 },
+        sha256: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+        evidencePath: { type: String, required: true, maxlength: 512, match: /^(?:evidence\/html\/[a-f\d]{64}\.html\.gz|evidence\/documents\/[a-f\d]{64}\.[a-z\d]{1,10})$/u },
+        parserInputSha256: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+        parserEvidencePath: { type: String, required: true, maxlength: 512, match: /^evidence\/html\/[a-f\d]{64}\.html\.gz$/u }
+      },
+      required: false,
+      default: undefined,
+      _id: false
+    }
   },
   { collection: "announcement_sources", timestamps: true }
 );
 
 announcementSourceSchema.index({ scopeType: 1, scopeId: 1, status: 1 }, { name: "announcement_sources_scope_status" });
-announcementSourceSchema.index({ sourceUrl: 1, scopeType: 1, scopeId: 1 }, { unique: true, name: "announcement_sources_unique_scope_url" });
-announcementSourceSchema.index({ canonicalUrl: 1, scopeType: 1, scopeId: 1 }, { name: "announcement_sources_canonical_scope" });
+announcementSourceSchema.index(
+  { sourceUrl: 1, scopeType: 1, scopeId: 1, contentType: 1 },
+  { unique: true, name: "announcement_sources_unique_scope_url_content" }
+);
+announcementSourceSchema.index(
+  { canonicalUrl: 1, scopeType: 1, scopeId: 1, contentType: 1 },
+  { name: "announcement_sources_canonical_scope_content" }
+);
 announcementSourceSchema.index({ status: 1, lastCheckedAt: 1 }, { name: "announcement_sources_due_checks" });
+
+export const universityCalendarSourceProfileSchema = new Schema(
+  {
+    universityId: { type: String, required: true, trim: true, maxlength: 240, unique: true, index: true },
+    sourceUrl: { type: String, required: true, trim: true, maxlength: 2048 },
+    parser: { type: String, required: true, enum: ["auto", "rss", "html"], default: "auto" },
+    parserConfig: {
+      type: {
+        itemSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        titleSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        linkSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        dateSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        contentSelector: { type: String, required: false, trim: true, maxlength: 300 }
+      },
+      required: false,
+      default: undefined,
+      _id: false
+    },
+    status: { type: String, required: true, enum: ["active", "inactive"], default: "inactive", index: true },
+    healthStatus: { type: String, required: false, enum: ["pending", "healthy", "degraded", "failed"] },
+    lastCheckedAt: { type: Date, required: false },
+    lastSuccessAt: { type: Date, required: false },
+    lastError: { type: String, required: false, trim: true, maxlength: 2000 },
+    itemCount: { type: Number, required: false, min: 0 }
+  },
+  { collection: "university_calendar_source_profiles", timestamps: true }
+);
 
 function studentRelevanceSchemaFields() {
   const supportedAudiences = [
@@ -335,6 +508,30 @@ function studentRelevanceSchemaFields() {
   };
 }
 
+const announcementLlmReviewFailureSchema = new Schema(
+  {
+    disposition: { type: String, required: true, enum: ["retry_scheduled", "manual_review"] },
+    reasonCode: {
+      type: String,
+      required: true,
+      enum: ["provider_unavailable", "provider_refusal", "configuration_unavailable", "retry_exhausted"]
+    },
+    attemptCount: { type: Number, required: true, min: 1, max: 4 },
+    lastAttemptedAt: { type: String, required: true, maxlength: 32 },
+    retryAfter: { type: String, required: false, maxlength: 32 }
+  },
+  { _id: false }
+);
+
+const announcementLlmReviewClaimSchema = new Schema(
+  {
+    ownerId: { type: String, required: true, maxlength: 64 },
+    claimedAt: { type: String, required: true, maxlength: 32 },
+    expiresAt: { type: String, required: true, maxlength: 32 }
+  },
+  { _id: false }
+);
+
 export const announcementItemSchema = new Schema(
   {
     sourceId: { type: String, required: true, index: true },
@@ -349,6 +546,7 @@ export const announcementItemSchema = new Schema(
     canonicalUrlAliases: [{ type: String, required: false, trim: true }],
     officialSourceUrl: { type: String, required: false, trim: true },
     contentFingerprint: { type: String, required: false, trim: true, index: true },
+    adjudicationFingerprint: { type: String, required: false, trim: true, match: /^[a-f\d]{64}$/u },
     notificationEligibleFingerprint: { type: String, required: false, trim: true },
     notificationProducedFingerprint: { type: String, required: false, trim: true },
     publicationKind: { type: String, required: false, enum: ["date", "timestamp"] },
@@ -376,7 +574,16 @@ export const announcementItemSchema = new Schema(
     trustStatus: { type: String, required: false, enum: ["trusted", "rejected", "quarantined"], default: "quarantined", index: true },
     trustReasonCodes: [{ type: String, required: false }],
     dedupeKey: { type: String, required: false, trim: true, index: true },
-    duplicateOfId: { type: String, required: false }
+    duplicateOfId: { type: String, required: false },
+    reviewStatus: { type: String, required: false, enum: ["pending_review", "approved", "rejected"], default: "pending_review", index: true },
+    reviewRevision: { type: String, required: false, trim: true },
+    reviewedBy: { type: String, required: false, index: true },
+    reviewedAt: { type: String, required: false },
+    reviewNote: { type: String, required: false, trim: true, maxlength: 1000 },
+    humanOverride: { type: Schema.Types.Mixed, required: false },
+    llmClassification: { type: Schema.Types.Mixed, required: false },
+    llmReviewFailure: { type: announcementLlmReviewFailureSchema, required: false, default: undefined },
+    llmReviewClaim: { type: announcementLlmReviewClaimSchema, required: false, default: undefined }
   },
   { collection: "announcement_items", timestamps: true }
 );
@@ -386,14 +593,48 @@ announcementItemSchema.index({ sourceId: 1, canonicalUrl: 1 }, { name: "announce
 announcementItemSchema.index({ trustStatus: 1, dedupeKey: 1 }, { name: "announcement_items_trust_dedupe" });
 announcementItemSchema.index({ scopeType: 1, scopeId: 1 }, { name: "announcement_items_scope" });
 announcementItemSchema.index({ scopeType: 1, scopeId: 1, contentFingerprint: 1 }, { name: "announcement_items_scope_fingerprint" });
+announcementItemSchema.index({ reviewStatus: 1, discoveredAt: -1 }, { name: "announcement_items_review_queue" });
 
 export const announcementSnapshotSchema = new Schema(
   {
     sourceId: { type: String, required: true },
+    sourceRevision: { type: Number, required: false, min: 0 },
     items: { type: [Schema.Types.Mixed], required: true, default: undefined },
-    snapshotHash: { type: String, required: true, match: /^[a-f\d]{64}$/u }
+    snapshotHash: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+    activationLeaseUntil: { type: Date, required: false },
+    nextRetentionCheckAt: { type: Date, required: false },
+    purgeAfter: { type: Date, required: false }
   },
   { collection: "announcement_snapshots", timestamps: true }
+);
+
+announcementSnapshotSchema.index(
+  { "items.id": 1, createdAt: -1 },
+  { name: "announcement_snapshots_review_item_lookup" }
+);
+announcementSnapshotSchema.index(
+  { nextRetentionCheckAt: 1, createdAt: 1, purgeAfter: 1, activationLeaseUntil: 1 },
+  { name: "announcement_snapshots_retention_candidates" }
+);
+announcementSnapshotSchema.index(
+  { purgeAfter: 1 },
+  { expireAfterSeconds: 0, name: "announcement_snapshots_purge_after_ttl" }
+);
+
+export const contentLlmSettingsSchema = new Schema(
+  {
+    _id: { type: String, required: true },
+    enabled: { type: Boolean, required: true, default: false },
+    provider: { type: String, required: true, enum: ["openai"], default: "openai" },
+    model: { type: String, required: true, trim: true, maxlength: 128 },
+    encryptedApiKey: { type: String, required: false },
+    keyLastFour: { type: String, required: false, maxlength: 4 },
+    lastTestStatus: { type: String, required: false, enum: ["untested", "success", "failed"], default: "untested" },
+    lastTestedAt: { type: Date, required: false },
+    revision: { type: Number, required: false, min: 0 },
+    updatedBy: { type: String, required: false, index: true }
+  },
+  { collection: "content_llm_settings", timestamps: true }
 );
 
 export const savedAnnouncementSchema = new Schema(
@@ -428,6 +669,42 @@ export const academicCalendarSchema = new Schema(
 
 academicCalendarSchema.index({ universityId: 1, academicYear: 1, version: -1 }, { name: "calendars_university_year_version" });
 academicCalendarSchema.index({ universityId: 1, academicYear: 1, status: 1 }, { name: "calendars_published_lookup" });
+export const academicUnitScheduleSourceSchema = new Schema(
+  {
+    key: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+    universityId: { type: String, required: true, index: true },
+    facultyId: { type: String, required: true, index: true },
+    departmentId: { type: String, required: true, index: true },
+    scheduleType: { type: String, required: true, enum: ["course_schedule", "exam_schedule"], index: true },
+    sourceUrl: { type: String, required: true, maxlength: 2048 },
+    sourceUrlHash: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+    verifiedFinalUrl: { type: String, required: true, maxlength: 2048 },
+    verifiedFinalUrlHash: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+    definitionHash: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+    evidenceHash: { type: String, required: true, match: /^[a-f\d]{64}$/u },
+    evidence: { type: Schema.Types.Mixed, required: true },
+    lifecycle: {
+      type: String,
+      required: true,
+      enum: ["ready", "processing", "review_required", "quarantined", "materializing", "staged", "published", "rejected", "disabled"],
+      index: true
+    },
+    revision: { type: Number, required: true, min: 0 },
+    processingLeaseUntil: { type: Date, required: false, index: true },
+    reviewResult: { type: Schema.Types.Mixed, required: false },
+    reviewDecision: { type: Schema.Types.Mixed, required: false }
+  },
+  { collection: "academic_unit_schedule_sources", timestamps: true }
+);
+
+academicUnitScheduleSourceSchema.index(
+  { key: 1 },
+  { unique: true, name: "academic_unit_schedule_sources_key_unique" }
+);
+academicUnitScheduleSourceSchema.index(
+  { universityId: 1, departmentId: 1, scheduleType: 1, lifecycle: 1, updatedAt: -1 },
+  { name: "academic_unit_schedule_sources_review_queue" }
+);
 
 export const academicEventSchema = new Schema(
   {
@@ -473,6 +750,10 @@ export const academicEventSchema = new Schema(
     description: { type: String, required: false },
     location: { type: String, required: false, trim: true, maxlength: 240 },
     scheduleSeriesId: { type: String, required: false, index: true },
+    scheduleReviewKey: { type: String, required: false, match: /^[a-f\d]{64}$/u, index: true },
+    scheduleCandidateKey: { type: String, required: false, match: /^[a-f\d]{64}$/u },
+    scheduleSourceId: { type: String, required: false },
+    scheduleRowNumber: { type: Number, required: false, min: 1, max: 20000 },
     temporalKind: { type: String, required: false, enum: ["date", "timestamp"], index: true },
     endTemporalKind: { type: String, required: false, enum: ["date", "timestamp"] },
     dateOnlyStart: { type: String, required: false, match: /^\d{4}-\d{2}-\d{2}$/u, index: true },
@@ -502,6 +783,10 @@ export const academicEventSchema = new Schema(
 academicEventSchema.index({ universityId: 1, status: 1, startDate: 1 }, { name: "events_university_status_start" });
 academicEventSchema.index({ universityId: 1, category: 1, startDate: 1 }, { name: "events_category_date" });
 academicEventSchema.index({ scheduleSeriesId: 1, status: 1 }, { name: "events_schedule_series_status" });
+academicEventSchema.index(
+  { scheduleCandidateKey: 1 },
+  { unique: true, sparse: true, name: "events_schedule_candidate_unique" }
+);
 
 export const pdfSourceSchema = new Schema(
   {
@@ -580,6 +865,22 @@ export const deviceTokenSchema = new Schema(
     token: { type: String, required: true },
     tokenLookupHash: { type: String, required: false, select: false },
     installationHash: { type: String, required: false },
+    sessionFamilyId: { type: String, required: false, maxlength: 128 },
+    sessionCredentialGeneration: { type: Number, required: false, min: 0 },
+    sessionRegistrationRevision: { type: Number, required: false, min: 1 },
+    registrationVersion: { type: String, required: false, maxlength: 64 },
+    registrationEpoch: { type: Number, required: false, min: 1 },
+    notificationSendLeases: {
+      type: [{
+        _id: false,
+        id: { type: String, required: true, maxlength: 64 },
+        registrationVersion: { type: String, required: true, maxlength: 64 },
+        registrationEpoch: { type: Number, required: true, min: 1 },
+        expiresAt: { type: Date, required: true }
+      }],
+      required: false,
+      default: undefined
+    },
     status: { type: String, required: true, enum: ["active", "disabled"], default: "active", index: true },
     lastSeenAt: { type: Date, required: true }
   },
@@ -660,7 +961,7 @@ export const notificationJobSchema = new Schema(
     lastFailureReason: {
       type: String,
       required: false,
-      enum: ["provider_unavailable", "provider_rejected", "destination_unavailable", "destination_changed", "worker_interrupted"]
+      enum: ["provider_unavailable", "provider_rejected", "destination_unavailable", "destination_changed", "send_authorization_busy", "worker_interrupted"]
     },
     exhaustedAt: { type: Date, required: false },
     processingClaimId: { type: String, required: false },
@@ -721,7 +1022,7 @@ export const notificationDeliverySchema = new Schema(
     failureReason: {
       type: String,
       required: false,
-      enum: ["invalid_token", "provider_unavailable", "provider_rejected", "scope_mismatch", "preference_disabled", "quiet_hours", "destination_unavailable", "device_registration_stale", "provider_outcome_unknown"]
+      enum: ["invalid_token", "provider_unavailable", "provider_rejected", "scope_mismatch", "preference_disabled", "quiet_hours", "destination_unavailable", "device_registration_stale", "send_authorization_busy", "provider_outcome_unknown"]
     },
     deliveredAt: { type: Date, required: false },
     finalizedAt: { type: Date, required: false }

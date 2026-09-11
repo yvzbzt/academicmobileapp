@@ -1,14 +1,20 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
-import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource } from "../../bootstrap/verified-source-registry.js";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { readFile } from "node:fs/promises";
+import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource, type VerifiedRegistrySourceEvidence } from "../../bootstrap/verified-source-registry.js";
 import { resolveSourceAuthorityContext, type ResolvedSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import { evaluateSourceAuthority, SourceAuthorityError, type SourceAuthorityContext } from "../../domain/source-authority-enforcement.js";
 import type { SourceAuthorityDecision, SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
-import { fetchSourceItems, fetchSourceSnapshot, fetchText, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
-import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
+import { fetchSourceItems, fetchSourceSnapshot, fetchText, parseConfiguredAnnouncementHtml, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
+import { ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION, canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, toPersistenceReference } from "./announcement-persistence.js";
-import type { AnnouncementContentType, AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceParser, AnnouncementSourceRecord, AnnouncementSourceScope, AnnouncementSourceStatus } from "./announcements.types.js";
+import {
+  assertAnnouncementSourceVerificationEvidenceMatchesDefinition,
+  normalizeAnnouncementSourceVerificationEvidence
+} from "./announcement-source-evidence.js";
+import { sameAnnouncementSourceParserConfig } from "./announcements.types.js";
+import type { AnnouncementAdminSourceListQuery, AnnouncementContentType, AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceEditFence, AnnouncementSourceParser, AnnouncementSourceParserConfig, AnnouncementSourceRecord, AnnouncementSourceReviewFence, AnnouncementSourceScope, AnnouncementSourceStatus, AnnouncementSourceVerificationEvidence, AnnouncementTrustStatus, UniversityCalendarSourceProfileRecord, UpsertUniversityCalendarSourceProfileInput } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 import {
   STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
@@ -45,16 +51,74 @@ export interface AnnouncementIngestionResult {
   error?: string;
 }
 
+export interface AnnouncementSourcePreviewResult {
+  sourceId: string;
+  sourceName: string;
+  sourceUrl: string;
+  finalUrl?: string;
+  status: "healthy" | "degraded" | "failed";
+  parsedItemCount: number;
+  acceptedItemCount: number;
+  testedAt: string;
+  samples: Array<{
+    title: string;
+    url: string;
+    publishedAt?: string;
+    publishedDate?: string;
+    summary?: string;
+    body?: AnnouncementItem["body"];
+  }>;
+  error?: string;
+  activationStatus?: "not_requested" | "active" | "inactive";
+  activationError?: string;
+  detectedContentType?: string;
+}
+
+export type UniversityContentSourceType = AnnouncementContentType | "academic_calendar";
+
+export interface UniversityContentSourceProfileInput {
+  sourceUrl: string;
+  sourceName?: string;
+  parser: AnnouncementSourceParser;
+  parserConfig?: AnnouncementSourceParserConfig;
+  status?: AnnouncementSourceStatus;
+}
+
+export interface AnnouncementRegistryProvisionResult {
+  created: number;
+  skipped: number;
+  evidenceAttached: number;
+  evidenceConflicts: number;
+  total: number;
+}
+
+export interface AnnouncementSourceReviewRequest {
+  expectedSourceDefinitionVersion: string;
+  expectedCanonicalUrl: string;
+  expectedTrustStatus: AnnouncementTrustStatus;
+  expectedSourceStatus: AnnouncementSourceStatus;
+  expectedApprovalPending: boolean;
+  note?: string;
+}
+
+export type AnnouncementAdminSourceQueryInput = Omit<
+  AnnouncementAdminSourceListQuery,
+  "limit" | "offset"
+> & {
+  limit?: number;
+  offset?: number;
+};
+
 export const YOK_ANNOUNCEMENT_SCOPE_ID = "yok-council-of-higher-education";
 export const YOK_ANNOUNCEMENT_SOURCE_URL = "https://www.yok.gov.tr/tr/announcements";
-export const ANNOUNCEMENT_PROCESSING_VERSION = `announcement-ingestion-v3+${STUDENT_RELEVANCE_CLASSIFICATION_VERSION}` as const;
+export const ANNOUNCEMENT_PROCESSING_VERSION = `announcement-ingestion-v5+${ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION}+${STUDENT_RELEVANCE_CLASSIFICATION_VERSION}` as const;
 const ANNOUNCEMENT_NOTIFICATION_RETRY_PAGE_SIZE = 100;
 const ANNOUNCEMENT_NOTIFICATION_RETRY_MAX_ITEMS = 5_000;
 
 @Injectable()
 export class AnnouncementIngestionService {
   private running = false;
-  private staticSourcesPromise: Promise<void> | null = null;
+  private staticSourcesPromise: Promise<AnnouncementRegistryProvisionResult> | null = null;
 
   constructor(
     @Inject("CatalogRepository") private readonly catalogRepository: CatalogRepository,
@@ -63,7 +127,7 @@ export class AnnouncementIngestionService {
   ) {}
 
   async runSourceDiscovery(input: { limit?: number; offset?: number; concurrency?: number } = {}) {
-    const universities = await this.listUniversities(input.limit ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_BATCH_SIZE, 205), input.offset ?? 0);
+    const universities = await this.listUniversities(input.limit ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_BATCH_SIZE, 5_000), input.offset ?? 0);
     const discoveryResults = await runWithConcurrency(
       universities,
       input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_DISCOVERY_CONCURRENCY, 4),
@@ -82,7 +146,9 @@ export class AnnouncementIngestionService {
       ...(input.offset ? { offset: input.offset } : {}),
       ...(input.concurrency ? { concurrency: input.concurrency } : {})
     });
-    const ingestion = await this.runIngestion({ ...(input.concurrency ? { concurrency: input.concurrency } : {}) });
+    const ingestion = input.refreshSources
+      ? await this.runIngestionAcrossAllPages(input.concurrency)
+      : await this.runIngestion({ ...(input.concurrency ? { concurrency: input.concurrency } : {}) });
     return {
       discovery: discovery.summary,
       ingestion: summarizeIngestion(ingestion.results),
@@ -92,7 +158,11 @@ export class AnnouncementIngestionService {
   }
 
   async runIngestion(input: { limit?: number; offset?: number; concurrency?: number } = {}) {
-    const sources = await this.announcementRepository.listAllSources({ status: "active", limit: input.limit ?? 1000, offset: input.offset ?? 0 });
+    const sources = (await this.announcementRepository.listAllSources({
+      status: "active",
+      limit: input.limit ?? 1000,
+      offset: input.offset ?? 0
+    })).filter((source) => source.approvalPending !== true);
     const results = await runAnnouncementSourcesWithConcurrency(
       sources,
       input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
@@ -101,21 +171,224 @@ export class AnnouncementIngestionService {
     return { summary: summarizeIngestion(results), results };
   }
 
+  private async runIngestionAcrossAllPages(concurrency?: number) {
+    const sources = await this.listAllActiveSources();
+    const results = await runAnnouncementSourcesWithConcurrency(
+      sources,
+      concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
+      (source) => this.ingestSource(source)
+    );
+    return { summary: summarizeIngestion(results), results };
+  }
+
+  private async listAllActiveSources(): Promise<AnnouncementSourceRecord[]> {
+    const sources: AnnouncementSourceRecord[] = [];
+    const pageSize = 1_000;
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await this.announcementRepository.listAllSources({ status: "active", limit: pageSize, offset });
+      sources.push(...page.filter((source) => source.approvalPending !== true));
+      if (page.length < pageSize) return sources;
+    }
+  }
+
   async listSources(input: { status?: "active" | "inactive"; limit?: number; offset?: number } = {}) {
     return this.announcementRepository.listAllSources(input);
   }
 
   async listSourcesForAdmin(
     access: AdminUniversityAccess,
-    input: { status?: "active" | "inactive"; limit?: number; offset?: number } = {}
+    input: AnnouncementAdminSourceQueryInput = {}
   ) {
-    if (access.kind === "global") return this.listSources(input);
-    return this.announcementRepository.listSourcesByScopeSet({
-      scopes: await this.listAnnouncementScopesForUniversity(access.universityId),
-      ...(input.status ? { status: input.status } : {}),
-      limit: Math.min(Math.max(input.limit ?? 1000, 1), 1000),
-      offset: Math.max(input.offset ?? 0, 0)
+    const query = normalizeAdminSourceListQuery(input);
+    const sources = access.kind === "global"
+      ? await this.announcementRepository.listAdminSources(query)
+      : await this.announcementRepository.listAdminSourcesByScopeSet({
+          ...query,
+          scopes: await this.listAnnouncementScopesForUniversity(access.universityId)
+        });
+    return sources.map(presentSourceForAdmin);
+  }
+
+  async listUniversityContentSourceProfilesForAdmin(access: AdminUniversityAccess) {
+    const inventory = await loadUniversityContentSourceInventory();
+    const universities = access.kind === "global"
+      ? inventory.universities
+      : inventory.universities.filter((university) => university.universityId === access.universityId);
+    const universityIds = universities.map((university) => university.universityId);
+    const sources = access.kind === "global"
+      ? await this.announcementRepository.listAdminSources({ scopeType: "university", limit: 1_000, offset: 0 })
+      : await this.announcementRepository.listAdminSourcesByScopeSet({
+          scopeType: "university",
+          scopes: [{ scopeType: "university", scopeId: access.universityId }],
+          limit: 1_000,
+          offset: 0
+        });
+    const sourceBySlot = new Map<string, AnnouncementSourceRecord>();
+    for (const source of sources) {
+      const key = `${source.scopeId}\u0000${source.contentType ?? "announcement"}`;
+      if (!sourceBySlot.has(key)) sourceBySlot.set(key, source);
+    }
+    const calendars = new Map(
+      (await this.announcementRepository.listUniversityCalendarSourceProfiles(universityIds))
+        .map((profile) => [profile.universityId, profile] as const)
+    );
+    return {
+      summary: {
+        ...inventory.summary,
+        returnedUniversities: universities.length,
+        returnedSourceSlots: universities.reduce((total, university) => total + university.slots.length, 0)
+      },
+      universities: universities.map((university) => ({
+        universityId: university.universityId,
+        universityName: university.universityName,
+        city: university.city,
+        authority: university.authority,
+        slots: university.slots.map((slot) => {
+          const suggestedUrl = slot.sourceUrl ?? slot.candidateUrl;
+          if (slot.contentType === "academic_calendar") {
+            const configured = calendars.get(university.universityId);
+            return {
+              ...slot,
+              suggestedUrl,
+              sourceUrl: configured?.sourceUrl ?? suggestedUrl,
+              parser: configured?.parser ?? slot.parser,
+              parserConfig: configured?.parserConfig,
+              status: configured?.status ?? "inactive",
+              trustStatus: configured ? "configured" as const : "needs_review" as const,
+              lastTest: presentProfileTest(configured),
+              adminPath: "/admin/calendars"
+            };
+          }
+          const source = sourceBySlot.get(`${university.universityId}\u0000${slot.contentType}`);
+          return {
+            ...slot,
+            suggestedUrl,
+            sourceId: source?.id,
+            sourceName: source?.sourceName,
+            sourceUrl: source?.sourceUrl ?? suggestedUrl,
+            parser: source?.parser ?? slot.parser,
+            parserConfig: source?.parserConfig,
+            status: source?.status ?? "inactive",
+            trustStatus: source?.trustStatus ?? "quarantined",
+            reviewStatus: source ? presentSourceForAdmin(source).reviewStatus : "pending_review",
+            lastTest: presentProfileTest(source)
+          };
+        })
+      }))
+    };
+  }
+
+  async saveUniversityContentSourceProfileForAdmin(
+    access: AdminUniversityAccess,
+    universityId: string,
+    contentType: UniversityContentSourceType,
+    input: UniversityContentSourceProfileInput
+  ) {
+    assertUniversityTarget(access, universityId);
+    assertUniversityContentSourceType(contentType);
+    const university = await this.catalogRepository.findUniversityById(universityId);
+    if (!university || university.status !== "active") throw new NotFoundException("University not found.");
+    if (contentType === "academic_calendar") {
+      const authority = await this.resolveAuthority(university, "university", university.id);
+      const decision = evaluateSourceAuthority(authority.context, {
+        boundary: "registration",
+        resource: "academic_calendar",
+        url: input.sourceUrl
+      });
+      if (!decision.allowed || !decision.canonicalUrl) {
+        throw new BadRequestException(`Source authority validation failed: ${decision.reasonCode}.`);
+      }
+      return this.announcementRepository.upsertUniversityCalendarSourceProfile({
+        universityId,
+        sourceUrl: decision.canonicalUrl,
+        parser: input.parser,
+        ...(input.parserConfig ? { parserConfig: input.parserConfig } : {}),
+        status: input.status ?? "inactive",
+        healthStatus: "pending"
+      });
+    }
+    const existing = (await this.announcementRepository.listAdminSources({
+      scopeType: "university",
+      contentType,
+      limit: 1_000,
+      offset: 0
+    })).find((source) => source.scopeId === universityId);
+    if (!existing) {
+      return this.createManualSourceForAdmin(access, {
+        scopeType: "university",
+        universityId,
+        sourceName: input.sourceName?.trim() || `${university.name} ${contentTypeLabel(contentType)}`,
+        sourceUrl: input.sourceUrl,
+        contentType,
+        parser: input.parser,
+        ...(input.parserConfig ? { parserConfig: input.parserConfig } : {}),
+        priority: 50,
+        fetchIntervalMinutes: 180
+      });
+    }
+    return this.updateManualSourceForAdmin(access, existing.id, {
+      expectedSourceDefinitionVersion: existing.sourceDefinitionVersion ?? "",
+      expectedCanonicalUrl: existing.canonicalUrl ?? existing.sourceUrl,
+      expectedTrustStatus: existing.trustStatus ?? "quarantined",
+      expectedSourceStatus: existing.status,
+      expectedApprovalPending: existing.approvalPending === true,
+      expectedUpdatedAt: existing.updatedAt.toISOString(),
+      sourceName: input.sourceName?.trim() || existing.sourceName,
+      sourceUrl: input.sourceUrl,
+      contentType,
+      parser: input.parser,
+      ...(input.parserConfig ? { parserConfig: input.parserConfig } : {}),
+      ...(input.status ? { status: input.status } : {})
     });
+  }
+
+  async previewUniversityContentSourceProfileForAdmin(
+    access: AdminUniversityAccess,
+    universityId: string,
+    contentType: UniversityContentSourceType,
+    input: { activateWhenHealthy?: boolean } = {},
+    actorId?: string
+  ) {
+    assertUniversityTarget(access, universityId);
+    assertUniversityContentSourceType(contentType);
+    if (contentType !== "academic_calendar") {
+      const source = (await this.announcementRepository.listAdminSources({
+        scopeType: "university",
+        contentType,
+        limit: 1_000,
+        offset: 0
+      })).find((candidate) => candidate.scopeId === universityId);
+      if (!source) throw new NotFoundException("Content source profile has not been configured.");
+      const preview = await this.previewSource(source);
+      if (!input.activateWhenHealthy) return { ...preview, activationStatus: "not_requested" as const };
+      if (preview.status !== "healthy") {
+        const quarantined = await this.announcementRepository.quarantineSource(source.id, ["preview_failed"], source);
+        if (quarantined) await this.retireSourceNotifications(quarantined);
+        return { ...preview, activationStatus: "inactive" as const };
+      }
+      if (!actorId) throw new BadRequestException("Activating a source profile requires an administrator identity.");
+      const current = await this.announcementRepository.findSourceById(source.id);
+      if (!current) throw new NotFoundException("Content source profile has not been configured.");
+      try {
+        const activated = await this.approveSourceForAdmin(
+          access,
+          current.id,
+          actorId,
+          {
+            ...sourceReviewFenceFromRecord(current),
+            expectedSourceDefinitionVersion: current.sourceDefinitionVersion ?? ""
+          }
+        );
+        return { ...preview, activationStatus: "active" as const, source: activated.source };
+      } catch (error) {
+        return {
+          ...preview,
+          activationStatus: "inactive" as const,
+          activationError: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+    return this.previewUniversityCalendarSource(universityId, input.activateWhenHealthy === true);
   }
 
   async createManualSourceForAdmin(access: AdminUniversityAccess, input: ManualAnnouncementSourceInput) {
@@ -128,14 +401,140 @@ export class AnnouncementIngestionService {
     return this.updateManualSource(id, input);
   }
 
-  async deactivateManualSourceForAdmin(access: AdminUniversityAccess, id: string) {
-    await this.getSourceForAdmin(access, id);
-    return this.deactivateManualSource(id);
+  async deactivateManualSourceForAdmin(
+    access: AdminUniversityAccess,
+    id: string,
+    input: AnnouncementSourceReviewRequest
+  ) {
+    const existing = await this.getSourceForAdmin(access, id);
+    const requestedFence = sourceReviewFenceFromRequest(input);
+    assertSourceMatchesReviewFence(existing, requestedFence);
+    const source = await this.announcementRepository.deactivateSource(id, {
+      ...requestedFence,
+      expectedReviewedAt: existing.reviewedAt ?? null
+    });
+    if (!source) throw sourceReviewConflict();
+    await this.retireSourceNotifications(source);
+    return source;
   }
 
   async ingestSourceByIdForAdmin(access: AdminUniversityAccess, id: string) {
     await this.getSourceForAdmin(access, id);
     return this.ingestSourceById(id);
+  }
+
+  async previewSourceByIdForAdmin(access: AdminUniversityAccess, id: string) {
+    const source = await this.getSourceForAdmin(access, id);
+    return this.previewSource(source);
+  }
+
+  async getSourceForAdminAccess(access: AdminUniversityAccess, id: string): Promise<AnnouncementSourceRecord> {
+    return this.getSourceForAdmin(access, id);
+  }
+
+  async approveSourceForAdmin(
+    access: AdminUniversityAccess,
+    id: string,
+    actorId: string,
+    input: AnnouncementSourceReviewRequest
+  ) {
+    const existing = await this.getSourceForAdmin(access, id);
+    const requestedReviewFence = sourceReviewFenceFromRequest(input);
+    assertSourceMatchesReviewFence(existing, requestedReviewFence);
+    if (hasActiveSourceApprovalLease(existing)) throw sourceReviewConflict();
+    const reviewFence: AnnouncementSourceReviewFence = {
+      ...requestedReviewFence,
+      expectedReviewedAt: existing.reviewedAt ?? null
+    };
+    const authority = await this.resolveAuthorityForSource(existing);
+    const decision = authority
+      ? evaluateSourceAuthority(authority.context, {
+        boundary: "registration",
+        resource: sourceAuthorityResource(existing.contentType),
+        url: existing.sourceUrl
+      })
+      : missingSourceOwnerDecision(existing, existing.sourceUrl, "registration");
+    if (!decision.allowed || !decision.canonicalUrl) {
+      const quarantined = await this.announcementRepository.reviewSource(existing.id, {
+        decision: "quarantine",
+        reviewedBy: actorId,
+        reviewedAt: new Date(),
+        ...(input.note ? { reviewNote: input.note } : {}),
+        trustReasonCodes: [decision.reasonCode]
+      }, reviewFence);
+      if (!quarantined) throw sourceReviewConflict();
+      await this.retireSourceNotificationsForReview(quarantined);
+      throw new BadRequestException(`Source authority validation failed: ${decision.reasonCode}.`);
+    }
+    // Retire the observed producer before approval can rotate its generation.
+    // The pending-state retirement below closes the other side of the race
+    // against an already-running notification sync.
+    await this.retireSourceNotificationsForReview(existing);
+    const source = await this.announcementRepository.reviewSource(existing.id, {
+      decision: "approve",
+      reviewedBy: actorId,
+      reviewedAt: new Date(),
+      ...(input.note ? { reviewNote: input.note } : {})
+    }, reviewFence);
+    if (!source) throw sourceReviewConflict();
+    await this.retireSourceNotificationsForReview(source);
+    let ingestion: AnnouncementIngestionResult;
+    try {
+      ingestion = await this.ingestSource(source);
+    } catch {
+      await this.quarantineFailedSourceApproval(source);
+      throw new BadRequestException("Announcement source approval failed its ingestion health check.");
+    }
+    if (ingestion.status !== "healthy") {
+      await this.quarantineFailedSourceApproval(source);
+      throw new BadRequestException("Announcement source approval failed its ingestion health check.");
+    }
+    const currentSource = await this.announcementRepository.findSourceById(source.id);
+    if (
+      !currentSource
+      || currentSource.status !== "active"
+      || currentSource.trustStatus !== "trusted"
+      || currentSource.approvalPending !== true
+      || currentSource.healthStatus !== "healthy"
+      || (currentSource.itemCount ?? 0) <= 0
+      || !sameAnnouncementSourceDefinition(currentSource, source)
+      || canonicalizeContentUrl(currentSource.canonicalUrl ?? currentSource.sourceUrl) !== reviewFence.expectedCanonicalUrl
+    ) throw sourceReviewConflict();
+    const publishedSource = await this.announcementRepository.completeSourceApproval(
+      currentSource.id,
+      source,
+      currentSource.activeSnapshotId ?? null
+    );
+    if (!publishedSource) throw sourceReviewConflict();
+    await this.schedulePublishedSourceNotifications(publishedSource);
+    return {
+      source: presentSourceForAdmin(publishedSource),
+      ingestion
+    };
+  }
+
+  async rejectSourceForAdmin(
+    access: AdminUniversityAccess,
+    id: string,
+    actorId: string,
+    input: AnnouncementSourceReviewRequest
+  ) {
+    const existing = await this.getSourceForAdmin(access, id);
+    const requestedReviewFence = sourceReviewFenceFromRequest(input);
+    assertSourceMatchesReviewFence(existing, requestedReviewFence);
+    const reviewFence: AnnouncementSourceReviewFence = {
+      ...requestedReviewFence,
+      expectedReviewedAt: existing.reviewedAt ?? null
+    };
+    const rejected = await this.announcementRepository.reviewSource(existing.id, {
+      decision: "reject",
+      reviewedBy: actorId,
+      reviewedAt: new Date(),
+      ...(input.note ? { reviewNote: input.note } : {})
+    }, reviewFence);
+    if (!rejected) throw sourceReviewConflict();
+    await this.retireSourceNotificationsForReview(rejected);
+    return presentSourceForAdmin(rejected);
   }
 
   async runSourceDiscoveryForAdmin(
@@ -161,12 +560,34 @@ export class AnnouncementIngestionService {
     if (access.kind === "global") return this.runIngestion(input);
     const sources = await this.listSourcesForAdmin(access, {
       status: "active",
+      trustStatus: "trusted",
       limit: input.limit ?? 1000,
       offset: input.offset ?? 0
     });
     const results = await runAnnouncementSourcesWithConcurrency(
-      sources,
+      sources.filter((source) => source.approvalPending !== true),
       input.concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
+      (source) => this.ingestSource(source)
+    );
+    return { summary: summarizeIngestion(results), results };
+  }
+
+  private async runIngestionForAdminAcrossAllPages(access: AdminUniversityAccess, concurrency?: number) {
+    const sources: AnnouncementSourceRecord[] = [];
+    const pageSize = 1_000;
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await this.listSourcesForAdmin(access, {
+        status: "active",
+        trustStatus: "trusted",
+        limit: pageSize,
+        offset
+      });
+      sources.push(...page.filter((source) => source.approvalPending !== true));
+      if (page.length < pageSize) break;
+    }
+    const results = await runAnnouncementSourcesWithConcurrency(
+      sources,
+      concurrency ?? readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_CONCURRENCY, 6),
       (source) => this.ingestSource(source)
     );
     return { summary: summarizeIngestion(results), results };
@@ -178,11 +599,13 @@ export class AnnouncementIngestionService {
   ) {
     if (access.kind === "global") return this.runDiscoveryAndIngestion(input);
     const discovery = await this.runSourceDiscoveryForAdmin(access, input);
-    const ingestion = await this.runIngestionForAdmin(access, {
-      ...(input.limit ? { limit: input.limit } : {}),
-      ...(input.offset !== undefined ? { offset: input.offset } : {}),
-      ...(input.concurrency ? { concurrency: input.concurrency } : {})
-    });
+    const ingestion = input.refreshSources
+      ? await this.runIngestionForAdminAcrossAllPages(access, input.concurrency)
+      : await this.runIngestionForAdmin(access, {
+          ...(input.limit ? { limit: input.limit } : {}),
+          ...(input.offset !== undefined ? { offset: input.offset } : {}),
+          ...(input.concurrency ? { concurrency: input.concurrency } : {})
+        });
     return {
       discovery: discovery.summary,
       ingestion: ingestion.summary,
@@ -203,10 +626,13 @@ export class AnnouncementIngestionService {
       await this.insertRejectedCandidate({
         scopeType: input.scopeType,
         scopeId: scope.scopeId,
+        ownerUniversityId: scope.ownerUniversityId,
+        ...(scope.ownerFacultyId ? { ownerFacultyId: scope.ownerFacultyId } : {}),
         sourceName: input.sourceName,
         sourceUrl: decision.canonicalUrl ?? input.sourceUrl,
         contentType: input.contentType,
         parser: input.parser,
+        ...(input.parserConfig ? { parserConfig: input.parserConfig } : {}),
         priority: input.priority,
         homepageUrl: scope.homepageUrl,
         discoveryMethod: "manual",
@@ -222,35 +648,51 @@ export class AnnouncementIngestionService {
     const sourceHomepageUrl = isOfficialContentUrl(decision.canonicalUrl, scope.homepageUrl)
       ? scope.homepageUrl
       : homepageFromUrl(decision.canonicalUrl) ?? scope.homepageUrl;
-    const source = await this.announcementRepository.upsertSource({
+    const source = await this.announcementRepository.insertQuarantinedSourceCandidate({
       scopeType: input.scopeType,
       scopeId: scope.scopeId,
+      ownerUniversityId: scope.ownerUniversityId,
+      ...(scope.ownerFacultyId ? { ownerFacultyId: scope.ownerFacultyId } : {}),
       sourceName: input.sourceName,
       sourceUrl: decision.canonicalUrl,
       contentType: input.contentType,
       parser: input.parser,
+      ...(input.parserConfig ? { parserConfig: input.parserConfig } : {}),
       priority: input.priority,
-      status: "active",
       homepageUrl: sourceHomepageUrl,
       discoveryMethod: "manual",
       healthStatus: "pending",
       consecutiveFailures: 0,
       itemCount: 0,
       fetchIntervalMinutes: input.fetchIntervalMinutes,
-      // This admin-only command is the explicit approval boundary. Automated
-      // discovery and registry provisioning use insertQuarantinedSourceCandidate.
-      trustStatus: "trusted"
+      trustReasonCodes: []
     });
-    const ingestion = await this.ingestSource(source);
-    return { source: await this.announcementRepository.findSourceById(source.id) ?? source, ingestion };
+    return { source: presentSourceForAdmin(source), ingestion: null };
   }
 
   async updateManualSource(id: string, input: ManualAnnouncementSourceUpdateInput) {
     const existing = await this.announcementRepository.findSourceById(id);
     if (!existing) throw new NotFoundException("Announcement source not found.");
+    const editFence = sourceEditFenceFromRequest(input);
+    assertSourceMatchesEditFence(existing, editFence);
+    const {
+      expectedSourceDefinitionVersion: _expectedSourceDefinitionVersion,
+      expectedCanonicalUrl: _expectedCanonicalUrl,
+      expectedTrustStatus: _expectedTrustStatus,
+      expectedSourceStatus: _expectedSourceStatus,
+      expectedApprovalPending: _expectedApprovalPending,
+      expectedUpdatedAt: _expectedUpdatedAt,
+      ...requestedUpdates
+    } = input;
+    void _expectedSourceDefinitionVersion;
+    void _expectedCanonicalUrl;
+    void _expectedTrustStatus;
+    void _expectedSourceStatus;
+    void _expectedApprovalPending;
+    void _expectedUpdatedAt;
     const definedInput = Object.fromEntries(
-      Object.entries(input).filter(([, value]) => value !== undefined)
-    ) as ManualAnnouncementSourceUpdateInput;
+      Object.entries(requestedUpdates).filter(([, value]) => value !== undefined)
+    ) as ManualAnnouncementSourceMutableUpdate;
     const authority = await this.resolveAuthorityForSource(existing);
     const requestedUrl = input.sourceUrl ?? existing.sourceUrl;
     const decision = authority
@@ -261,8 +703,14 @@ export class AnnouncementIngestionService {
       })
       : missingSourceOwnerDecision(existing, requestedUrl, "registration");
     if (!decision.allowed || !decision.canonicalUrl) {
-      const quarantined = await this.announcementRepository.quarantineSource(existing.id, [decision.reasonCode], existing);
-      if (!quarantined) throw new Error("ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED");
+      const quarantined = await this.announcementRepository.updateSource(existing.id, {
+        ...sourceInputFromRecord(existing),
+        status: "inactive",
+        trustStatus: "quarantined",
+        approvalPending: false,
+        trustReasonCodes: [...new Set([...(existing.trustReasonCodes ?? []), decision.reasonCode])].sort()
+      }, editFence);
+      if (!quarantined) throw sourceReviewConflict();
       await this.retireSourceNotifications(quarantined);
       throw new BadRequestException(`Source authority validation failed: ${decision.reasonCode}.`);
     }
@@ -272,17 +720,33 @@ export class AnnouncementIngestionService {
     const sourceHomepageUrl = isOfficialContentUrl(sourceUrl, homepageUrl)
       ? homepageUrl
       : homepageFromUrl(sourceUrl) ?? homepageUrl;
-    const updated = await this.announcementRepository.upsertSource({
-      ...sourceInputFromRecord(existing),
-      id: existing.id,
+    const requestedStatus = definedInput.status ?? existing.status;
+    const definitionChanged = sourceUrl !== existing.sourceUrl
+      || (input.contentType !== undefined && input.contentType !== existing.contentType)
+      || (input.parser !== undefined && input.parser !== existing.parser)
+      || (input.parserConfig !== undefined && !sameAnnouncementSourceParserConfig(input.parserConfig, existing.parserConfig));
+    const requiresReview = existing.trustStatus !== "trusted"
+      || definitionChanged
+      || (existing.status !== "active" && requestedStatus === "active");
+    const status = requiresReview ? "inactive" : requestedStatus;
+    const persistedInput = sourceInputFromRecord(existing);
+    // Browser/crawler evidence attests to one exact processing definition.
+    // A human URL/parser/type correction must be re-verified rather than
+    // displaying the old evidence beside the new source.
+    if (definitionChanged) delete persistedInput.verificationEvidence;
+    const updated = await this.announcementRepository.updateSource(existing.id, {
+      ...persistedInput,
       ...definedInput,
       sourceUrl,
       homepageUrl: sourceHomepageUrl,
       discoveryMethod: "manual",
-      trustStatus: "trusted",
+      status,
+      trustStatus: requiresReview ? "quarantined" : "trusted",
+      approvalPending: requiresReview || status !== "active" ? false : existing.approvalPending ?? false,
       trustReasonCodes: []
-    });
-    if (updated.status !== "active") {
+    }, editFence);
+    if (!updated) throw sourceReviewConflict();
+    if (updated.status !== "active" || updated.trustStatus !== "trusted") {
       await this.retireSourceNotifications(updated);
       return { source: updated, ingestion: null };
     }
@@ -290,56 +754,269 @@ export class AnnouncementIngestionService {
     return { source: await this.announcementRepository.findSourceById(updated.id) ?? updated, ingestion };
   }
 
-  async deactivateManualSource(id: string) {
-    const source = await this.announcementRepository.deactivateSource(id);
-    if (!source) throw new NotFoundException("Announcement source not found.");
-    await this.retireSourceNotifications(source);
-    return source;
-  }
-
   async ingestSourceById(id: string) {
     const source = await this.announcementRepository.findSourceById(id);
     if (!source) throw new NotFoundException("Announcement source not found.");
     if (source.status !== "active") throw new BadRequestException("Inactive sources cannot be ingested.");
+    if (source.approvalPending === true) {
+      throw new BadRequestException("Pending source approval must be retried from the source review action.");
+    }
     return this.ingestSource(source);
+  }
+
+  async previewSource(source: AnnouncementSourceRecord): Promise<AnnouncementSourcePreviewResult> {
+    const testedAt = new Date();
+    const authority = await this.resolveAuthorityForSource(source);
+    try {
+      const registration = authority
+        ? evaluateSourceAuthority(authority.context, {
+            boundary: "registration",
+            resource: sourceAuthorityResource(source.contentType),
+            url: source.sourceUrl
+          })
+        : missingSourceOwnerDecision(source, source.sourceUrl, "registration");
+      if (!registration.allowed) throw new Error(registration.reasonCode);
+      const snapshot = await fetchSourceSnapshot(
+        source.sourceUrl,
+        source.parser,
+        readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
+        { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) },
+        {},
+        source.contentType,
+        source.parserConfig
+      );
+      const publication = evaluateSourceAuthority(authority!.context, {
+        boundary: "publication",
+        resource: sourceAuthorityResource(source.contentType),
+        url: source.sourceUrl,
+        finalRedirectUrl: snapshot.finalUrl
+      });
+      if (!publication.allowed) throw new Error(publication.reasonCode);
+      const acceptedItems = toAnnouncementItems(source, snapshot.items, testedAt);
+      const status = acceptedItems.length > 0 ? "healthy" as const : "degraded" as const;
+      const error = acceptedItems.length > 0
+        ? undefined
+        : snapshot.items.length === 0 ? "SOURCE_EMPTY_SNAPSHOT_REJECTED" : "No trusted announcement items parsed.";
+      await this.announcementRepository.recordSourceCheck(source.id, status === "healthy" ? {
+        healthStatus: status,
+        lastCheckedAt: testedAt,
+        lastSuccessAt: testedAt,
+        consecutiveFailures: 0
+      } : {
+        healthStatus: status,
+        lastCheckedAt: testedAt,
+        lastError: error!,
+        consecutiveFailures: (source.consecutiveFailures ?? 0) + 1
+      }, source);
+      return {
+        sourceId: source.id,
+        sourceName: source.sourceName,
+        sourceUrl: source.sourceUrl,
+        finalUrl: snapshot.finalUrl,
+        status,
+        parsedItemCount: snapshot.items.length,
+        acceptedItemCount: acceptedItems.length,
+        testedAt: testedAt.toISOString(),
+        samples: snapshot.items.slice(0, 10).map((item) => ({
+          title: item.title,
+          url: item.link,
+          ...(item.publishedAt ? { publishedAt: item.publishedAt.toISOString() } : {}),
+          ...(item.publishedDate ? { publishedDate: item.publishedDate } : {}),
+          ...(item.summary ? { summary: item.summary } : {}),
+          ...(item.body?.length ? { body: item.body } : {})
+        })),
+        ...(error ? { error } : {})
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.announcementRepository.recordSourceCheck(source.id, {
+        healthStatus: "failed",
+        lastCheckedAt: testedAt,
+        lastError: message,
+        consecutiveFailures: (source.consecutiveFailures ?? 0) + 1
+      }, source);
+      return {
+        sourceId: source.id,
+        sourceName: source.sourceName,
+        sourceUrl: source.sourceUrl,
+        status: "failed",
+        parsedItemCount: 0,
+        acceptedItemCount: 0,
+        testedAt: testedAt.toISOString(),
+        samples: [],
+        error: message
+      };
+    }
+  }
+
+  private async previewUniversityCalendarSource(
+    universityId: string,
+    activateWhenHealthy: boolean
+  ): Promise<AnnouncementSourcePreviewResult> {
+    const profile = await this.announcementRepository.findUniversityCalendarSourceProfile(universityId);
+    if (!profile) throw new NotFoundException("Academic calendar source profile has not been configured.");
+    const university = await this.catalogRepository.findUniversityById(universityId);
+    if (!university || university.status !== "active") throw new NotFoundException("University not found.");
+    const testedAt = new Date();
+    try {
+      const authority = await this.resolveAuthority(university, "university", university.id);
+      const response = await fetchText(profile.sourceUrl, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000), {
+        accept: "text/html,application/pdf;q=0.9,*/*;q=0.8",
+        authority: authority.context,
+        resource: "academic_calendar",
+        maximumResponseBytes: 5 * 1024 * 1024
+      });
+      const directDocument = /^(?:application\/pdf|application\/octet-stream)(?:\s*;|$)/iu.test(response.contentType ?? "")
+        || /\.pdf(?:$|[?#])/iu.test(response.finalUrl);
+      const configuredItems = !directDocument && profile.parserConfig?.itemSelector
+        ? parseConfiguredAnnouncementHtml(response.text, response.finalUrl, profile.parserConfig, "academic_calendar")
+        : [];
+      if (!directDocument && profile.parserConfig?.itemSelector && configuredItems.length === 0) {
+        throw new Error("SOURCE_HTML_SELECTOR_LAYOUT_INVALID");
+      }
+      const title = cleanText(response.text.match(/<title\b[^>]*>([\s\S]*?)<\/title>/iu)?.[1]) || "Akademik Takvim";
+      const samples = configuredItems.length > 0
+        ? configuredItems.slice(0, 10).map((item) => ({
+            title: item.title,
+            url: item.link,
+            ...(item.publishedAt ? { publishedAt: item.publishedAt.toISOString() } : {}),
+            ...(item.publishedDate ? { publishedDate: item.publishedDate } : {}),
+            ...(item.summary ? { summary: item.summary } : {}),
+            ...(item.body?.length ? { body: item.body } : {})
+          }))
+        : [{ title, url: response.finalUrl }];
+      await this.announcementRepository.upsertUniversityCalendarSourceProfile({
+        ...calendarProfileInput(profile),
+        status: activateWhenHealthy ? "active" : profile.status,
+        healthStatus: "healthy",
+        lastCheckedAt: testedAt,
+        lastSuccessAt: testedAt,
+        itemCount: samples.length
+      });
+      return {
+        sourceId: profile.id,
+        sourceName: `${university.name} Akademik Takvim`,
+        sourceUrl: profile.sourceUrl,
+        finalUrl: response.finalUrl,
+        status: "healthy",
+        parsedItemCount: samples.length,
+        acceptedItemCount: samples.length,
+        testedAt: testedAt.toISOString(),
+        samples,
+        activationStatus: activateWhenHealthy ? "active" : "not_requested",
+        ...(response.contentType ? { detectedContentType: response.contentType } : {})
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.announcementRepository.upsertUniversityCalendarSourceProfile({
+        ...calendarProfileInput(profile),
+        status: activateWhenHealthy ? "inactive" : profile.status,
+        healthStatus: "failed",
+        lastCheckedAt: testedAt,
+        lastError: message,
+        itemCount: 0
+      });
+      return {
+        sourceId: profile.id,
+        sourceName: `${university.name} Akademik Takvim`,
+        sourceUrl: profile.sourceUrl,
+        status: "failed",
+        parsedItemCount: 0,
+        acceptedItemCount: 0,
+        testedAt: testedAt.toISOString(),
+        samples: [],
+        error: message,
+        activationStatus: activateWhenHealthy ? "inactive" : "not_requested"
+      };
+    }
   }
 
   /**
    * Explicitly provisions registry candidates for later review. Runtime startup,
    * ingestion, and read paths must never call this method.
    */
-  async provisionStaticAnnouncementSources(): Promise<void> {
-    this.staticSourcesPromise ??= this.upsertStaticAnnouncementSources();
-    return this.staticSourcesPromise;
+  async provisionStaticAnnouncementSources(): Promise<AnnouncementRegistryProvisionResult> {
+    if (this.staticSourcesPromise) return this.staticSourcesPromise;
+    const provision = this.upsertStaticAnnouncementSources();
+    this.staticSourcesPromise = provision;
+    try {
+      return await provision;
+    } finally {
+      if (this.staticSourcesPromise === provision) this.staticSourcesPromise = null;
+    }
   }
 
-  private async upsertStaticAnnouncementSources(): Promise<void> {
-    const existingSourceKeys = new Set((await this.announcementRepository.listAllSources({ limit: 5_000, offset: 0 }))
-      .map((source) => staticSourceIdentityKey(source.scopeType, source.scopeId, source.canonicalUrl ?? source.sourceUrl))
-      .filter((key): key is string => Boolean(key)));
+  private async upsertStaticAnnouncementSources(): Promise<AnnouncementRegistryProvisionResult> {
+    const existingSources: AnnouncementSourceRecord[] = [];
+    const sourcePageSize = 1_000;
+    for (let offset = 0; ; offset += sourcePageSize) {
+      const page = await this.announcementRepository.listAllSources({ limit: sourcePageSize, offset });
+      existingSources.push(...page);
+      if (page.length < sourcePageSize) break;
+    }
+    const existingSourcesByKey = new Map(existingSources.flatMap((source) => {
+      const key = staticSourceIdentityKey(
+        source.scopeType,
+        source.scopeId,
+        source.contentType,
+        source.canonicalUrl ?? source.sourceUrl
+      );
+      return key ? [[key, source] as const] : [];
+    }));
+    const result: AnnouncementRegistryProvisionResult = {
+      created: 0,
+      skipped: 0,
+      evidenceAttached: 0,
+      evidenceConflicts: 0,
+      total: 0
+    };
     const provisionIfMissing = async (
       input: Parameters<AnnouncementRepository["insertQuarantinedSourceCandidate"]>[0],
       authority: ResolvedSourceAuthorityContext
     ): Promise<void> => {
+      result.total += 1;
       const decision = evaluateSourceAuthority(authority.context, {
         boundary: "registration",
         resource: sourceAuthorityResource(input.contentType),
         url: input.sourceUrl
       });
       const sourceUrl = decision.canonicalUrl ?? canonicalizeContentUrl(input.sourceUrl);
-      if (!sourceUrl) return;
+      if (!sourceUrl) {
+        result.skipped += 1;
+        return;
+      }
       const candidate = {
         ...input,
         sourceUrl,
         trustReasonCodes: decision.allowed ? [] : [decision.reasonCode]
       };
-      const key = staticSourceIdentityKey(candidate.scopeType, candidate.scopeId, candidate.sourceUrl);
-      if (!key || existingSourceKeys.has(key)) return;
-      existingSourceKeys.add(key);
+      if (candidate.verificationEvidence) {
+        assertVerificationEvidenceMatchesCandidate(candidate.verificationEvidence, candidate, authority.context);
+      }
+      const key = staticSourceIdentityKey(candidate.scopeType, candidate.scopeId, candidate.contentType, candidate.sourceUrl);
+      if (!key) {
+        result.skipped += 1;
+        return;
+      }
+      const existing = existingSourcesByKey.get(key);
+      if (existing) {
+        if (candidate.verificationEvidence) {
+          const attachment = await this.announcementRepository.attachVerificationEvidenceIfMissing(
+            existing.id,
+            candidate.verificationEvidence
+          );
+          if (attachment?.outcome === "attached") result.evidenceAttached += 1;
+          if (attachment?.outcome === "conflict") result.evidenceConflicts += 1;
+          if (attachment) existingSourcesByKey.set(key, attachment.source);
+        }
+        result.skipped += 1;
+        return;
+      }
       try {
-        await this.announcementRepository.insertQuarantinedSourceCandidate(candidate);
+        const persisted = await this.announcementRepository.insertQuarantinedSourceCandidate(candidate);
+        existingSourcesByKey.set(key, persisted);
+        result.created += 1;
       } catch (error) {
-        existingSourceKeys.delete(key);
         throw error;
       }
     };
@@ -347,6 +1024,7 @@ export class AnnouncementIngestionService {
     await provisionIfMissing({
       scopeType: "university",
       scopeId: YOK_ANNOUNCEMENT_SCOPE_ID,
+      ownerUniversityId: YOK_ANNOUNCEMENT_SCOPE_ID,
       sourceName: "YÖK Duyuruları",
       sourceUrl: YOK_ANNOUNCEMENT_SOURCE_URL,
       contentType: "announcement",
@@ -361,31 +1039,36 @@ export class AnnouncementIngestionService {
       scopeId: YOK_ANNOUNCEMENT_SCOPE_ID
     }));
 
+    const provisionConcurrency = readPositiveInteger(process.env.ANNOUNCEMENT_REGISTRY_PROVISION_CONCURRENCY, 8);
     const verifiedSources = await listVerifiedUniversitySources();
-    await Promise.all(verifiedSources.map(async (source) => {
+    await runWithConcurrency(verifiedSources, provisionConcurrency, async (source) => {
       const university = await this.catalogRepository.findUniversityById(source.universityId);
       if (!university) return;
       const definitions = verifiedContentSourceDefinitions(source);
       const officialHomepage = university.websiteUrl ?? knownOfficialUniversityUrls(university.id)[0] ?? knownOfficialUniversityUrls(university.slug)[0];
       if (!officialHomepage) return;
-      await Promise.all(definitions
-        .map(async (definition) => provisionIfMissing({
+      const authority = await this.resolveAuthority(university, "university", university.id);
+      for (const definition of definitions) {
+        await provisionIfMissing({
           scopeType: "university",
           scopeId: source.universityId,
+          ownerUniversityId: source.universityId,
           sourceName: `${source.universityName} ${definition.label}`,
           sourceUrl: definition.url,
           contentType: definition.contentType,
+          ...(definition.verificationEvidence ? { verificationEvidence: definition.verificationEvidence } : {}),
           parser: "auto",
           priority: definition.priority,
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: "manual"
-        }, await this.resolveAuthority(university, "university", university.id))));
-    }));
+        }, authority);
+      }
+    });
 
     const verifiedAcademicUnitSources = await listVerifiedAcademicUnitSources();
     const facultyCache = new Map<string, Promise<FacultyRecord[]>>();
     const departmentCache = new Map<string, Promise<DepartmentRecord[]>>();
-    await Promise.all(verifiedAcademicUnitSources.map(async (source) => {
+    await runWithConcurrency(verifiedAcademicUnitSources, provisionConcurrency, async (source) => {
       const scopeId = source.scopeType === "department" ? source.departmentId : source.facultyId;
       if (!scopeId) return;
       const university = await this.catalogRepository.findUniversityById(source.universityId);
@@ -411,37 +1094,45 @@ export class AnnouncementIngestionService {
       const officialHomepage = source.websiteUrl && isOfficialContentUrl(source.websiteUrl, universityAuthority)
         ? source.websiteUrl
         : universityAuthority;
-      await Promise.all(definitions
-        .map(async (definition) => {
+      const authority = await this.resolveAuthority(university, source.scopeType, scopeId);
+      for (const definition of definitions) {
         const unitName = source.scopeType === "department" ? source.departmentName ?? "Bölüm" : source.facultyName ?? "Fakülte";
         const sourceName = `${source.universityName ?? source.universityId} ${unitName} ${definition.label}`;
-        return provisionIfMissing({
+        await provisionIfMissing({
           scopeType: source.scopeType,
           scopeId,
+          ownerUniversityId: source.universityId,
+          ...(source.scopeType === "department" && source.facultyId ? { ownerFacultyId: source.facultyId } : {}),
           sourceName,
           sourceUrl: definition.url,
           contentType: definition.contentType,
+          ...(definition.verificationEvidence ? { verificationEvidence: definition.verificationEvidence } : {}),
           parser: "auto",
           priority: definition.priority + (source.scopeType === "department" ? 15 : 10),
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: "manual"
-        }, await this.resolveAuthority(university, source.scopeType, scopeId));
-      }));
-    }));
+        }, authority);
+      }
+    });
+    return result;
   }
 
   async runScheduledCycle(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
-      const activeSources = await this.announcementRepository.listAllSources({ status: "active", limit: 1000, offset: 0 });
-      const universitySources = activeSources.filter((source) => source.scopeId !== YOK_ANNOUNCEMENT_SCOPE_ID);
-      if (universitySources.length === 0 || process.env.ANNOUNCEMENT_REFRESH_SOURCES === "true") {
-        await this.runDiscoveryAndIngestion();
+      await this.announcementRepository.reconcileSnapshotRetention?.();
+      // Discovery creates quarantined candidates and is intentionally an
+      // operator-triggered workflow. Running it whenever no source has yet
+      // been approved would recrawl the complete university catalog on every
+      // scheduler tick in a fresh deployment.
+      if (process.env.ANNOUNCEMENT_REFRESH_SOURCES === "true") {
+        await this.runDiscoveryAndIngestion({ refreshSources: true });
         return;
       }
-      const dueSources = activeSources
+      const dueSources = (await this.listAllActiveSources())
         .filter((source) => isSourceDue(source))
+        .sort(compareScheduledSourceDueOrder)
         .slice(0, readPositiveInteger(process.env.ANNOUNCEMENT_INGEST_BATCH_SIZE, 50));
       if (dueSources.length === 0) return;
       await runAnnouncementSourcesWithConcurrency(
@@ -459,6 +1150,7 @@ export class AnnouncementIngestionService {
       throw new BadRequestException("Only active, trusted announcement sources can be ingested.");
     }
     const checkedAt = new Date();
+    const approvalPending = source.approvalPending === true;
     const authority = await this.resolveAuthorityForSource(source);
     const registrationDecision = authority
       ? evaluateSourceAuthority(authority.context, {
@@ -473,7 +1165,7 @@ export class AnnouncementIngestionService {
     let trustedSnapshotItemCount = source.itemCount ?? 0;
     let healthFenceSnapshotId = source.activeSnapshotId;
     try {
-      if (source.itemCount === undefined) {
+      if (!approvalPending && source.itemCount === undefined) {
         trustedSnapshotItemCount = (await this.announcementRepository.listItemsForSource(source.id, 1_000)).length;
       }
       const snapshot = await fetchSourceSnapshot(
@@ -481,13 +1173,15 @@ export class AnnouncementIngestionService {
         source.parser,
         readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
         { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) },
-        source.processingVersion === ANNOUNCEMENT_PROCESSING_VERSION
+        !approvalPending && source.processingVersion === ANNOUNCEMENT_PROCESSING_VERSION
           ? {
               ...(source.etag ? { etag: source.etag } : {}),
               ...(source.lastModified ? { lastModified: source.lastModified } : {}),
               ...(source.contentHash ? { contentHash: source.contentHash } : {})
             }
-          : {}
+          : {},
+        source.contentType,
+        source.parserConfig
       );
       const publicationDecision = evaluateSourceAuthority(authority!.context, {
         boundary: "publication",
@@ -503,11 +1197,11 @@ export class AnnouncementIngestionService {
         healthFenceSnapshotId = currentSource.activeSnapshotId;
         const activeItems = await this.loadFencedActiveItems(currentSource);
         trustedSnapshotItemCount = activeItems.length;
-        if (currentSource.activeSnapshotId && activeItems.length === 0) {
+        if (activeItems.length === 0) {
           throw new Error("ANNOUNCEMENT_ACTIVE_SNAPSHOT_MISSING");
         }
         const retryDelta = notificationRetryDelta(currentSource, activeItems);
-        if (this.notificationSchedulingService && retryDelta.materiallyUpdated.length > 0) {
+        if (!approvalPending && this.notificationSchedulingService && retryDelta.materiallyUpdated.length > 0) {
           await this.notificationSchedulingService.syncTrustedAnnouncementSource(currentSource, retryDelta, checkedAt);
         }
         await this.announcementRepository.recordSourceCheck(source.id, {
@@ -547,7 +1241,9 @@ export class AnnouncementIngestionService {
         const delta = await this.announcementRepository.replaceItemsForSource(source, items);
         healthFenceSnapshotId = delta.snapshotId ?? source.activeSnapshotId;
         trustedSnapshotItemCount = items.length;
-        await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, checkedAt);
+        if (!approvalPending) {
+          await this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, delta, checkedAt);
+        }
       }
       const status = succeeded ? "healthy" : "degraded";
       const failures = succeeded ? 0 : (source.consecutiveFailures ?? 0) + 1;
@@ -645,8 +1341,27 @@ export class AnnouncementIngestionService {
     return items;
   }
 
+  private async schedulePublishedSourceNotifications(source: AnnouncementSourceRecord): Promise<void> {
+    if (!this.notificationSchedulingService) return;
+    try {
+      const items = await this.loadFencedActiveItems(source);
+      const retryDelta = notificationRetryDelta(source, items);
+      if (retryDelta.materiallyUpdated.length > 0) {
+        await this.notificationSchedulingService.syncTrustedAnnouncementSource(source, retryDelta, new Date());
+      }
+    } catch {
+      // Publication is already committed. Eligible fingerprints remain
+      // unacknowledged, so the normal ingestion retry path can schedule them
+      // without reopening or hiding the healthy source.
+    }
+  }
+
   private async resolveAuthorityForSource(source: AnnouncementSourceRecord): Promise<ResolvedSourceAuthorityContext | null> {
     if (source.scopeType === "university" && source.scopeId === YOK_ANNOUNCEMENT_SCOPE_ID) {
+      if (
+        (source.ownerUniversityId !== undefined && source.ownerUniversityId !== YOK_ANNOUNCEMENT_SCOPE_ID)
+        || source.ownerFacultyId !== undefined
+      ) return null;
       return resolveSourceAuthorityContext({
         universityId: YOK_ANNOUNCEMENT_SCOPE_ID,
         ownerAcademicEntityId: YOK_ANNOUNCEMENT_SCOPE_ID,
@@ -654,11 +1369,36 @@ export class AnnouncementIngestionService {
         scopeId: YOK_ANNOUNCEMENT_SCOPE_ID
       });
     }
-    if (source.scopeType === "university") {
-      const university = await this.catalogRepository.findUniversityById(source.scopeId);
-      return university ? this.resolveAuthority(university, "university", university.id) : null;
+    if (source.ownerUniversityId !== undefined || source.ownerFacultyId !== undefined) {
+      if (!source.ownerUniversityId) return null;
+      const university = await this.catalogRepository.findUniversityById(source.ownerUniversityId);
+      if (!university || university.status !== "active") return null;
+      if (source.scopeType === "university") {
+        if (source.ownerUniversityId !== source.scopeId || source.ownerFacultyId !== undefined) return null;
+        return this.resolveAuthority(university, "university", source.scopeId);
+      }
+      const faculties = await this.catalogRepository.listFaculties(source.ownerUniversityId, "active");
+      if (source.scopeType === "faculty") {
+        if (source.ownerFacultyId !== undefined || !faculties.some((faculty) => faculty.id === source.scopeId && faculty.universityId === source.ownerUniversityId)) return null;
+        return this.resolveAuthority(university, "faculty", source.scopeId);
+      }
+      if (!source.ownerFacultyId) return null;
+      const faculty = faculties.find((candidate) => candidate.id === source.ownerFacultyId && candidate.universityId === source.ownerUniversityId);
+      if (!faculty) return null;
+      const department = (await this.catalogRepository.listDepartments(source.ownerFacultyId, "active"))
+        .find((candidate) => candidate.id === source.scopeId
+          && candidate.facultyId === source.ownerFacultyId
+          && candidate.universityId === source.ownerUniversityId);
+      return department ? this.resolveAuthority(university, "department", department.id) : null;
     }
 
+    // Controlled compatibility path for records created before immutable
+    // ownership fields existed. Any partially populated owner metadata above
+    // fails closed instead of falling back to a national scan.
+    if (source.scopeType === "university") {
+      const university = await this.catalogRepository.findUniversityById(source.scopeId);
+      return university?.status === "active" ? this.resolveAuthority(university, "university", university.id) : null;
+    }
     const universities = await this.catalogRepository.listUniversities({ status: "active", limit: 5_000, offset: 0 });
     for (const university of universities) {
       const faculties = await this.catalogRepository.listFaculties(university.id, "active");
@@ -731,6 +1471,7 @@ export class AnnouncementIngestionService {
         await this.insertRejectedCandidate({
           scopeType: "university",
           scopeId: university.id,
+          ownerUniversityId: university.id,
           sourceName: `${university.name} Duyurular`,
           sourceUrl: registrationDecision.canonicalUrl ?? result.sourceUrl,
           contentType: "announcement",
@@ -756,6 +1497,7 @@ export class AnnouncementIngestionService {
     await this.announcementRepository.insertQuarantinedSourceCandidate({
       scopeType: "university",
       scopeId: university.id,
+      ownerUniversityId: university.id,
       sourceName: `${university.name} Duyurular`,
       sourceUrl: registrationDecision.canonicalUrl,
       contentType: "announcement",
@@ -799,7 +1541,42 @@ export class AnnouncementIngestionService {
     return source;
   }
 
-  private async resolveManualScope(input: ManualAnnouncementSourceInput): Promise<{ scopeId: string; homepageUrl: string; university: UniversityRecord }> {
+  private async quarantineFailedSourceApproval(source: AnnouncementSourceRecord): Promise<void> {
+    const fence = sourceReviewFenceFromRecord(source);
+    let quarantined = await this.announcementRepository.reviewSource(source.id, {
+      decision: "quarantine"
+    }, fence);
+    if (!quarantined) {
+      const current = await this.announcementRepository.findSourceById(source.id);
+      if (
+        current
+        && current.status === "inactive"
+        && current.trustStatus === "quarantined"
+        && sameAnnouncementSourceDefinition(current, source)
+        && canonicalizeContentUrl(current.canonicalUrl ?? current.sourceUrl) === fence.expectedCanonicalUrl
+      ) {
+        quarantined = current;
+      }
+    }
+    if (!quarantined) throw sourceReviewConflict();
+    await this.retireSourceNotificationsForReview(quarantined);
+  }
+
+  private async retireSourceNotificationsForReview(source: AnnouncementSourceRecord): Promise<void> {
+    try {
+      await this.retireSourceNotifications(source);
+    } catch {
+      throw new ConflictException("Announcement source changed safely, but notification retirement must be retried.");
+    }
+  }
+
+  private async resolveManualScope(input: ManualAnnouncementSourceInput): Promise<{
+    scopeId: string;
+    homepageUrl: string;
+    university: UniversityRecord;
+    ownerUniversityId: string;
+    ownerFacultyId?: string;
+  }> {
     const university = await this.catalogRepository.findUniversityById(input.universityId);
     const universityHomepage = university
       ? university.websiteUrl ?? knownOfficialUniversityUrls(university.id)[0] ?? knownOfficialUniversityUrls(university.slug)[0]
@@ -808,7 +1585,7 @@ export class AnnouncementIngestionService {
       throw new BadRequestException("Selected university has no verified active website.");
     }
     if (input.scopeType === "university") {
-      return { scopeId: university.id, homepageUrl: universityHomepage, university };
+      return { scopeId: university.id, homepageUrl: universityHomepage, university, ownerUniversityId: university.id };
     }
     const faculty = (await this.catalogRepository.listFaculties(university.id, "active"))
       .find((candidate) => candidate.id === input.facultyId);
@@ -816,14 +1593,22 @@ export class AnnouncementIngestionService {
     const facultyHomepage = faculty.websiteUrl && isOfficialContentUrl(faculty.websiteUrl, universityHomepage)
       ? faculty.websiteUrl
       : universityHomepage;
-    if (input.scopeType === "faculty") return { scopeId: faculty.id, homepageUrl: facultyHomepage, university };
+    if (input.scopeType === "faculty") {
+      return { scopeId: faculty.id, homepageUrl: facultyHomepage, university, ownerUniversityId: university.id };
+    }
     const department = (await this.catalogRepository.listDepartments(faculty.id, "active"))
       .find((candidate) => candidate.id === input.departmentId && candidate.universityId === university.id);
     if (!department) throw new BadRequestException("Selected department does not belong to the faculty.");
     const departmentHomepage = department.websiteUrl && isOfficialContentUrl(department.websiteUrl, facultyHomepage)
       ? department.websiteUrl
       : facultyHomepage;
-    return { scopeId: department.id, homepageUrl: departmentHomepage, university };
+    return {
+      scopeId: department.id,
+      homepageUrl: departmentHomepage,
+      university,
+      ownerUniversityId: university.id,
+      ownerFacultyId: faculty.id
+    };
   }
 
   private retireSourceNotifications(source: AnnouncementSourceRecord): Promise<unknown> {
@@ -842,18 +1627,29 @@ export interface ManualAnnouncementSourceInput {
   sourceUrl: string;
   contentType: AnnouncementContentType;
   parser: AnnouncementSourceParser;
+  parserConfig?: AnnouncementSourceParserConfig;
   priority: number;
   fetchIntervalMinutes: number;
 }
 
-export interface ManualAnnouncementSourceUpdateInput {
+export interface ManualAnnouncementSourceMutableUpdate {
   sourceName?: string;
   sourceUrl?: string;
   contentType?: AnnouncementContentType;
   parser?: AnnouncementSourceParser;
+  parserConfig?: AnnouncementSourceParserConfig;
   priority?: number;
   fetchIntervalMinutes?: number;
   status?: AnnouncementSourceStatus;
+}
+
+export interface ManualAnnouncementSourceUpdateInput extends ManualAnnouncementSourceMutableUpdate {
+  expectedSourceDefinitionVersion: string;
+  expectedCanonicalUrl: string;
+  expectedTrustStatus: AnnouncementTrustStatus;
+  expectedSourceStatus: AnnouncementSourceStatus;
+  expectedApprovalPending: boolean;
+  expectedUpdatedAt: string;
 }
 
 function notificationRetryDelta(
@@ -886,9 +1682,85 @@ function sameAnnouncementSourceDefinition(
 ): boolean {
   return current.sourceUrl === expected.sourceUrl
     && current.parser === expected.parser
+    && sameAnnouncementSourceParserConfig(current.parserConfig, expected.parserConfig)
     && (current.contentType ?? "announcement") === (expected.contentType ?? "announcement")
     && current.sourceDefinitionVersion === expected.sourceDefinitionVersion
-    && current.notificationProducerVersion === expected.notificationProducerVersion;
+    && current.notificationProducerVersion === expected.notificationProducerVersion
+    && (current.approvalPending === true) === (expected.approvalPending === true)
+    && (current.reviewedAt?.getTime() ?? null) === (expected.reviewedAt?.getTime() ?? null);
+}
+
+function sourceReviewFenceFromRequest(input: AnnouncementSourceReviewRequest): AnnouncementSourceReviewFence {
+  const expectedCanonicalUrl = canonicalizeContentUrl(input.expectedCanonicalUrl);
+  if (!expectedCanonicalUrl) throw new BadRequestException("Announcement source review fence is invalid.");
+  const expectedSourceDefinitionVersion = input.expectedSourceDefinitionVersion.trim() || undefined;
+  return {
+    expectedCanonicalUrl,
+    ...(expectedSourceDefinitionVersion ? { expectedSourceDefinitionVersion } : {}),
+    expectedTrustStatus: input.expectedTrustStatus,
+    expectedSourceStatus: input.expectedSourceStatus,
+    expectedApprovalPending: input.expectedApprovalPending
+  };
+}
+
+function sourceReviewFenceFromRecord(source: AnnouncementSourceRecord): AnnouncementSourceReviewFence {
+  const expectedCanonicalUrl = canonicalizeContentUrl(source.canonicalUrl ?? source.sourceUrl);
+  if (!expectedCanonicalUrl) throw new BadRequestException("Announcement source review fence is invalid.");
+  return {
+    expectedCanonicalUrl,
+    ...(source.sourceDefinitionVersion ? { expectedSourceDefinitionVersion: source.sourceDefinitionVersion } : {}),
+    expectedTrustStatus: source.trustStatus ?? "quarantined",
+    expectedSourceStatus: source.status,
+    expectedApprovalPending: source.approvalPending === true,
+    expectedReviewedAt: source.reviewedAt ?? null
+  };
+}
+
+function sourceEditFenceFromRequest(input: ManualAnnouncementSourceUpdateInput): AnnouncementSourceEditFence {
+  const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
+  if (!Number.isFinite(expectedUpdatedAt.getTime())) {
+    throw new BadRequestException("Announcement source edit fence is invalid.");
+  }
+  return {
+    ...sourceReviewFenceFromRequest(input),
+    expectedUpdatedAt
+  };
+}
+
+function assertSourceMatchesReviewFence(
+  source: AnnouncementSourceRecord,
+  fence: AnnouncementSourceReviewFence
+): void {
+  const canonicalUrl = canonicalizeContentUrl(source.canonicalUrl ?? source.sourceUrl);
+  const expectedVersion = fence.expectedSourceDefinitionVersion?.trim() || undefined;
+  if (
+    canonicalUrl !== fence.expectedCanonicalUrl
+    || source.sourceDefinitionVersion !== expectedVersion
+    || (source.trustStatus ?? "quarantined") !== fence.expectedTrustStatus
+    || source.status !== fence.expectedSourceStatus
+    || (source.approvalPending === true) !== fence.expectedApprovalPending
+  ) throw sourceReviewConflict();
+}
+
+function assertSourceMatchesEditFence(
+  source: AnnouncementSourceRecord,
+  fence: AnnouncementSourceEditFence
+): void {
+  assertSourceMatchesReviewFence(source, fence);
+  if (source.updatedAt.getTime() !== fence.expectedUpdatedAt.getTime()) throw sourceReviewConflict();
+}
+
+function sourceReviewConflict(): ConflictException {
+  return new ConflictException("Announcement source changed after it was loaded. Refresh the source and retry.");
+}
+
+const SOURCE_APPROVAL_LEASE_MS = 15 * 60_000;
+
+function hasActiveSourceApprovalLease(source: AnnouncementSourceRecord): boolean {
+  return source.approvalPending === true
+    && source.reviewedAt instanceof Date
+    && Number.isFinite(source.reviewedAt.getTime())
+    && Date.now() - source.reviewedAt.getTime() < SOURCE_APPROVAL_LEASE_MS;
 }
 
 function sourceAuthorityResource(contentType?: AnnouncementContentType): SourceAuthorityResource {
@@ -1146,12 +2018,135 @@ function homepageFromUrl(input: string): string | undefined {
   }
 }
 
-function verifiedContentSourceDefinitions(source: { announcementUrl?: string; newsUrl?: string; eventUrl?: string }): Array<{ contentType: AnnouncementContentType; label: string; url: string; priority: number }> {
+function verifiedContentSourceDefinitions(source: {
+  announcementUrl?: string;
+  newsUrl?: string;
+  eventUrl?: string;
+  verificationByField?: Partial<Record<"announcementUrl" | "newsUrl" | "eventUrl", VerifiedRegistrySourceEvidence>>;
+}): Array<{
+  contentType: AnnouncementContentType;
+  label: string;
+  url: string;
+  priority: number;
+  verificationEvidence?: AnnouncementSourceVerificationEvidence;
+}> {
   return [
-    source.announcementUrl ? { contentType: "announcement" as const, label: "Duyurular", url: source.announcementUrl, priority: 30 } : null,
-    source.newsUrl ? { contentType: "news" as const, label: "Haberler", url: source.newsUrl, priority: 25 } : null,
-    source.eventUrl ? { contentType: "event" as const, label: "Etkinlikler", url: source.eventUrl, priority: 24 } : null
-  ].filter((definition): definition is { contentType: AnnouncementContentType; label: string; url: string; priority: number } => Boolean(definition));
+    source.announcementUrl ? {
+      contentType: "announcement" as const,
+      label: "Duyurular",
+      url: source.announcementUrl,
+      priority: 30,
+      ...(source.verificationByField?.announcementUrl
+        ? { verificationEvidence: toAnnouncementSourceVerificationEvidence(source.verificationByField.announcementUrl) }
+        : {})
+    } : null,
+    source.newsUrl ? {
+      contentType: "news" as const,
+      label: "Haberler",
+      url: source.newsUrl,
+      priority: 25,
+      ...(source.verificationByField?.newsUrl
+        ? { verificationEvidence: toAnnouncementSourceVerificationEvidence(source.verificationByField.newsUrl) }
+        : {})
+    } : null,
+    source.eventUrl ? {
+      contentType: "event" as const,
+      label: "Etkinlikler",
+      url: source.eventUrl,
+      priority: 24,
+      ...(source.verificationByField?.eventUrl
+        ? { verificationEvidence: toAnnouncementSourceVerificationEvidence(source.verificationByField.eventUrl) }
+        : {})
+    } : null
+  ].filter((definition): definition is NonNullable<typeof definition> => Boolean(definition));
+}
+
+function toAnnouncementSourceVerificationEvidence(input: VerifiedRegistrySourceEvidence): AnnouncementSourceVerificationEvidence {
+  if (input.sourceType !== "announcement" && input.sourceType !== "news" && input.sourceType !== "event") {
+    throw new Error("ANNOUNCEMENT_SOURCE_VERIFICATION_TYPE_INVALID");
+  }
+  return {
+    status: "verified",
+    schemaVersion: input.schemaVersion,
+    verifierVersion: input.verifierVersion,
+    runId: input.runId,
+    manifestHash: input.manifestHash,
+    universityId: input.universityId,
+    unitType: input.unitType,
+    scopeId: input.scopeId,
+    sourceType: input.sourceType,
+    sourceUrl: input.sourceUrl,
+    finalUrl: input.finalUrl,
+    browserFinalUrl: input.browserFinalUrl,
+    rawFinalUrl: input.rawFinalUrl,
+    discoveryMethod: input.discoveryMethod,
+    ...(input.selector ? { selector: input.selector } : {}),
+    publicationScope: input.publicationScope,
+    httpStatus: input.httpStatus,
+    contentType: input.contentType,
+    officialDomain: true,
+    semanticMatch: true,
+    semanticReasons: input.semanticReasons,
+    parserProfile: "auto",
+    parserCompatible: input.parserCompatible,
+    parserItemCount: input.parserItemCount,
+    ...(input.listingItemCount !== undefined ? { listingItemCount: input.listingItemCount } : {}),
+    sampleItemUrls: input.sampleItemUrls,
+    sampleDetails: input.sampleDetails.map((detail) => ({
+      url: detail.url,
+      ...(detail.finalUrl ? { finalUrl: detail.finalUrl } : {}),
+      ...(detail.title ? { title: detail.title } : {}),
+      status: detail.status,
+      ...(detail.httpStatus !== undefined ? { httpStatus: detail.httpStatus } : {}),
+      reasonCodes: detail.reasonCodes
+    })),
+    browserNetworkProofs: input.browserNetworkProofs.map((proof) => ({
+      hostname: proof.hostname,
+      addresses: [...proof.addresses]
+    })),
+    verifiedAt: input.verifiedAt,
+    finalRevalidatedAt: input.finalRevalidatedAt,
+    sha256: input.sha256,
+    evidencePath: input.evidencePath,
+    ...(input.parserInputSha256 ? { parserInputSha256: input.parserInputSha256 } : {}),
+    ...(input.parserEvidencePath ? { parserEvidencePath: input.parserEvidencePath } : {})
+  };
+}
+
+function assertVerificationEvidenceMatchesCandidate(
+  evidence: AnnouncementSourceVerificationEvidence,
+  source: Pick<AnnouncementSourceRecord, "sourceUrl" | "canonicalUrl" | "contentType" | "scopeType" | "scopeId" | "ownerUniversityId">,
+  authority: SourceAuthorityContext
+): void {
+  assertAnnouncementSourceVerificationEvidenceMatchesDefinition(source, evidence);
+  for (const url of [
+    evidence.sourceUrl,
+    evidence.finalUrl,
+    evidence.browserFinalUrl,
+    evidence.rawFinalUrl,
+    ...evidence.sampleItemUrls
+  ]) {
+    const decision = evaluateSourceAuthority(authority, {
+      boundary: "registration",
+      resource: sourceAuthorityResource(source.contentType),
+      url
+    });
+    if (!decision.allowed || !decision.canonicalUrl) {
+      throw new Error(`ANNOUNCEMENT_SOURCE_VERIFICATION_AUTHORITY_MISMATCH:${decision.reasonCode}`);
+    }
+  }
+  for (const detail of evidence.sampleDetails ?? []) {
+    for (const url of [detail.url, detail.finalUrl].filter((value): value is string => Boolean(value))) {
+      const decision = evaluateSourceAuthority(authority, {
+        boundary: "registration",
+        resource: sourceAuthorityResource(source.contentType),
+        url
+      });
+      if (!decision.allowed || !decision.canonicalUrl) {
+        throw new Error(`ANNOUNCEMENT_SOURCE_VERIFICATION_SAMPLE_AUTHORITY_MISMATCH:${decision.reasonCode}`);
+      }
+    }
+  }
 }
 
 export function isLikelyAcademicScopePage(html: string, finalUrl: string, university: UniversityRecord, scope: { faculty?: FacultyRecord; department?: DepartmentRecord }): boolean {
@@ -1529,6 +2524,23 @@ export function isSourceDue(source: AnnouncementSourceRecord, now = new Date()):
   return now.getTime() - source.lastCheckedAt.getTime() >= intervalMinutes * 60_000;
 }
 
+export function compareScheduledSourceDueOrder(
+  left: AnnouncementSourceRecord,
+  right: AnnouncementSourceRecord
+): number {
+  const leftCheckedAt = validTimestamp(left.lastCheckedAt);
+  const rightCheckedAt = validTimestamp(right.lastCheckedAt);
+  if (leftCheckedAt === undefined && rightCheckedAt !== undefined) return -1;
+  if (leftCheckedAt !== undefined && rightCheckedAt === undefined) return 1;
+  if (leftCheckedAt !== rightCheckedAt) return (leftCheckedAt ?? 0) - (rightCheckedAt ?? 0);
+  return left.id.localeCompare(right.id, "en-US");
+}
+
+function validTimestamp(value: Date | undefined): number | undefined {
+  const timestamp = value?.getTime();
+  return timestamp !== undefined && Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
 function sourceInputFromRecord(source: AnnouncementSourceRecord) {
   const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...input } = source;
   void _id;
@@ -1537,9 +2549,145 @@ function sourceInputFromRecord(source: AnnouncementSourceRecord) {
   return input;
 }
 
-function staticSourceIdentityKey(scopeType: AnnouncementSourceScope["scopeType"], scopeId: string, sourceUrl: string): string | null {
+function presentSourceForAdmin(source: AnnouncementSourceRecord) {
+  const verified = source.trustStatus === "trusted" && source.approvalPending !== true;
+  let currentEvidence: AnnouncementSourceVerificationEvidence | undefined;
+  if (source.verificationEvidence) {
+    try {
+      currentEvidence = normalizeAnnouncementSourceVerificationEvidence(source.verificationEvidence);
+      if (currentEvidence) assertAnnouncementSourceVerificationEvidenceMatchesDefinition(source, currentEvidence);
+    } catch {
+      currentEvidence = undefined;
+    }
+  }
+  const evidence = currentEvidence ?? (source.approvalPending === true
+    ? {
+        status: "blocked" as const,
+        sourceType: source.contentType ?? "announcement",
+        sourceUrl: source.sourceUrl,
+        finalUrl: source.canonicalUrl ?? source.sourceUrl,
+        discoveryMethod: source.discoveryMethod ?? "manual",
+        semanticReasons: ["approval_health_check_incomplete"]
+      }
+    : undefined);
+  const { verificationEvidence: _verificationEvidence, ...presentedSource } = source;
+  void _verificationEvidence;
+  return {
+    ...presentedSource,
+    reviewStatus: verified
+      ? "trusted" as const
+      : source.trustStatus === "rejected" ? "rejected" as const : "pending_review" as const,
+    ...(evidence
+      ? { evidence, verification: evidence }
+      : {})
+  };
+}
+
+function normalizeAdminSourceListQuery(input: AnnouncementAdminSourceQueryInput): AnnouncementAdminSourceListQuery {
+  const search = input.search?.trim().slice(0, 200);
+  return {
+    limit: boundedInteger(input.limit, 1_000, 1, 1_000),
+    offset: boundedInteger(input.offset, 0, 0, 1_000_000),
+    ...(input.status ? { status: input.status } : {}),
+    ...(input.trustStatus ? { trustStatus: input.trustStatus } : {}),
+    ...(input.contentType ? { contentType: input.contentType } : {}),
+    ...(input.scopeType ? { scopeType: input.scopeType } : {}),
+    ...(search ? { search } : {})
+  };
+}
+
+function boundedInteger(value: number | undefined, fallback: number, minimum: number, maximum: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(Math.trunc(value), minimum), maximum);
+}
+
+interface UniversityContentSourceInventorySlot {
+  contentType: UniversityContentSourceType;
+  sourceUrl?: string;
+  candidateUrl?: string;
+  status: string;
+  resolution: string;
+  sourceStatus: string;
+  evidenceStatus: string;
+  parser: AnnouncementSourceParser;
+  siteStructure: Record<string, unknown>;
+}
+
+interface UniversityContentSourceInventory {
+  schemaVersion: 1;
+  generatedAt: string;
+  summary: Record<string, unknown>;
+  universities: Array<{
+    universityId: string;
+    universityName: string;
+    city?: string;
+    authority: Record<string, unknown>;
+    slots: UniversityContentSourceInventorySlot[];
+  }>;
+}
+
+let universityContentSourceInventoryPromise: Promise<UniversityContentSourceInventory> | null = null;
+
+async function loadUniversityContentSourceInventory(): Promise<UniversityContentSourceInventory> {
+  universityContentSourceInventoryPromise ??= readFile(
+    new URL("../../bootstrap/university-content-source-inventory.json", import.meta.url),
+    "utf8"
+  ).then((text) => {
+    const inventory = JSON.parse(text.replace(/^\uFEFF/u, "")) as UniversityContentSourceInventory;
+    const slotCount = inventory.universities?.reduce((total, university) => total + (university.slots?.length ?? 0), 0);
+    if (inventory.schemaVersion !== 1 || inventory.universities?.length !== 208 || slotCount !== 832) {
+      throw new Error("UNIVERSITY_CONTENT_SOURCE_INVENTORY_INVALID");
+    }
+    for (const university of inventory.universities) {
+      if (university.slots.length !== 4) throw new Error("UNIVERSITY_CONTENT_SOURCE_INVENTORY_SLOT_COUNT_INVALID");
+      for (const slot of university.slots) assertUniversityContentSourceType(slot.contentType);
+    }
+    return inventory;
+  });
+  return universityContentSourceInventoryPromise;
+}
+
+function assertUniversityContentSourceType(value: string): asserts value is UniversityContentSourceType {
+  if (!["announcement", "news", "event", "academic_calendar"].includes(value)) {
+    throw new BadRequestException("Unsupported university content source type.");
+  }
+}
+
+function presentProfileTest(source: Pick<
+  AnnouncementSourceRecord,
+  "healthStatus" | "lastCheckedAt" | "lastSuccessAt" | "lastError" | "itemCount"
+> | UniversityCalendarSourceProfileRecord | undefined) {
+  return {
+    status: source?.healthStatus ?? "not_tested",
+    ...(source?.lastCheckedAt ? { checkedAt: source.lastCheckedAt.toISOString() } : {}),
+    ...(source?.lastSuccessAt ? { successAt: source.lastSuccessAt.toISOString() } : {}),
+    ...(source?.itemCount !== undefined ? { itemCount: source.itemCount } : {}),
+    ...(source?.lastError ? { error: source.lastError } : {})
+  };
+}
+
+function calendarProfileInput(profile: UniversityCalendarSourceProfileRecord): UpsertUniversityCalendarSourceProfileInput {
+  return {
+    universityId: profile.universityId,
+    sourceUrl: profile.sourceUrl,
+    parser: profile.parser,
+    ...(profile.parserConfig ? { parserConfig: profile.parserConfig } : {}),
+    status: profile.status
+  };
+}
+
+function contentTypeLabel(contentType: AnnouncementContentType): string {
+  return contentType === "news" ? "Haberler" : contentType === "event" ? "Etkinlikler" : "Duyurular";
+}
+
+function staticSourceIdentityKey(
+  scopeType: AnnouncementSourceScope["scopeType"],
+  scopeId: string,
+  contentType: AnnouncementContentType | undefined,
+  sourceUrl: string
+): string | null {
   const contentKey = canonicalAnnouncementSourceIdentityKey(sourceUrl);
-  return contentKey ? `${scopeType}\u0000${scopeId}\u0000${contentKey}` : null;
+  return contentKey ? `${scopeType}\u0000${scopeId}\u0000${contentType ?? "announcement"}\u0000${contentKey}` : null;
 }
 
 const nameStopWords = new Set([

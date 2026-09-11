@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { listVerifiedAcademicUnitSources, listVerifiedUniversitySources } from "../../bootstrap/verified-source-registry.js";
 import { AuditService } from "../audit/audit.service.js";
-import type { CatalogRepository, CatalogStatus, DepartmentRecord, FacultyRecord, UniversityRecord, UniversityType, EducationLevel } from "./catalog.types.js";
+import type { CatalogRepository, CatalogStatus, DepartmentRecord, FacultyRecord, UniversityRecord, UniversityType, EducationLevel, VerifiedSourceUrlFill } from "./catalog.types.js";
 import { createSlug } from "./slug.js";
 
 @Injectable()
@@ -38,6 +39,155 @@ export class CatalogService {
     return this.catalogRepository.listDepartments(facultyId, "active");
   }
 
+  async syncFinalVerifiedSourceRegistry() {
+    const [universities, academicUnits] = await Promise.all([
+      listVerifiedUniversitySources(),
+      listVerifiedAcademicUnitSources()
+    ]);
+    const result = {
+      examinedEvidence: 0,
+      filled: 0,
+      unchanged: 0,
+      conflicts: 0,
+      missingOwners: 0,
+      conflictSamples: [] as Array<{
+        scopeType: "university" | "faculty" | "department";
+        scopeId: string;
+        field: string;
+        reason: "value_mismatch" | "concurrent_change";
+      }>
+    };
+    const apply = async <TField extends VerifiedSourceUrlFill["field"]>(input: {
+      scopeType: "university" | "faculty" | "department";
+      scopeId: string;
+      current: Partial<Record<TField, string>>;
+      definitions: Array<{ targetField: TField; url: string | undefined; evidenceFinalUrl: string | undefined }>;
+    }): Promise<void> => {
+      for (const definition of input.definitions) {
+        if (!definition.url || definition.evidenceFinalUrl !== definition.url) continue;
+        result.examinedEvidence += 1;
+        const current = input.current[definition.targetField];
+        if (current && current !== definition.url) {
+          result.conflicts += 1;
+          if (result.conflictSamples.length < 100) result.conflictSamples.push({
+            scopeType: input.scopeType,
+            scopeId: input.scopeId,
+            field: definition.targetField,
+            reason: "value_mismatch"
+          });
+          continue;
+        }
+        const matched = await this.catalogRepository.compareAndFillVerifiedSourceUrl?.({
+          scopeType: input.scopeType,
+          scopeId: input.scopeId,
+          field: definition.targetField,
+          expectedValue: current || null,
+          verifiedUrl: definition.url
+        } as VerifiedSourceUrlFill);
+        if (matched === undefined) throw new Error("CATALOG_VERIFIED_SOURCE_CAS_UNSUPPORTED");
+        if (matched) {
+          if (current) result.unchanged += 1;
+          else result.filled += 1;
+        } else {
+          result.conflicts += 1;
+          if (result.conflictSamples.length < 100) result.conflictSamples.push({
+            scopeType: input.scopeType,
+            scopeId: input.scopeId,
+            field: definition.targetField,
+            reason: "concurrent_change"
+          });
+        }
+      }
+    };
+
+    await runCatalogTasks(universities.map((source) => async () => {
+      const university = await this.catalogRepository.findUniversityById(source.universityId);
+      if (!university) {
+        result.missingOwners += 1;
+        return;
+      }
+      await apply({
+        scopeType: "university",
+        scopeId: university.id,
+        current: university,
+        definitions: [
+          { targetField: "announcementUrl", url: source.announcementUrl, evidenceFinalUrl: source.verificationByField?.announcementUrl?.finalUrl },
+          { targetField: "academicCalendarUrl", url: source.calendarUrl, evidenceFinalUrl: source.verificationByField?.calendarUrl?.finalUrl }
+        ]
+      });
+    }));
+
+    const facultyCache = new Map<string, Promise<Map<string, FacultyRecord>>>();
+    const departmentCache = new Map<string, Promise<Map<string, DepartmentRecord>>>();
+    const facultiesFor = (universityId: string) => {
+      let request = facultyCache.get(universityId);
+      if (!request) {
+        request = this.catalogRepository.listFaculties(universityId).then((items) => new Map(items.map((item) => [item.id, item])));
+        facultyCache.set(universityId, request);
+      }
+      return request;
+    };
+    const departmentsFor = (facultyId: string) => {
+      let request = departmentCache.get(facultyId);
+      if (!request) {
+        request = this.catalogRepository.listDepartments(facultyId).then((items) => new Map(items.map((item) => [item.id, item])));
+        departmentCache.set(facultyId, request);
+      }
+      return request;
+    };
+    await runCatalogTasks(academicUnits.map((source) => async () => {
+      if (!source.facultyId) {
+        result.missingOwners += 1;
+        return;
+      }
+      if (source.scopeType === "faculty") {
+        const faculty = (await facultiesFor(source.universityId)).get(source.facultyId);
+        if (!faculty) {
+          result.missingOwners += 1;
+          return;
+        }
+        await apply({
+          scopeType: "faculty",
+          scopeId: faculty.id,
+          current: faculty,
+          definitions: [
+            { targetField: "websiteUrl", url: source.websiteUrl, evidenceFinalUrl: source.verificationByField?.websiteUrl?.finalUrl },
+            { targetField: "announcementUrl", url: source.announcementUrl, evidenceFinalUrl: source.verificationByField?.announcementUrl?.finalUrl }
+          ]
+        });
+        return;
+      }
+      if (!source.departmentId) {
+        result.missingOwners += 1;
+        return;
+      }
+      const department = (await departmentsFor(source.facultyId)).get(source.departmentId);
+      if (!department || department.universityId !== source.universityId) {
+        result.missingOwners += 1;
+        return;
+      }
+      await apply({
+        scopeType: "department",
+        scopeId: department.id,
+        current: department,
+        definitions: [
+          { targetField: "websiteUrl", url: source.websiteUrl, evidenceFinalUrl: source.verificationByField?.websiteUrl?.finalUrl },
+          { targetField: "announcementUrl", url: source.announcementUrl, evidenceFinalUrl: source.verificationByField?.announcementUrl?.finalUrl },
+          { targetField: "courseScheduleUrl", url: source.courseScheduleUrl, evidenceFinalUrl: source.verificationByField?.courseScheduleUrl?.finalUrl },
+          { targetField: "examScheduleUrl", url: source.examScheduleUrl, evidenceFinalUrl: source.verificationByField?.examScheduleUrl?.finalUrl }
+        ]
+      });
+    }));
+    await this.recordCatalogAudit("catalog.verified_sources.synced", "catalog", "turkiye", {
+      examinedEvidence: result.examinedEvidence,
+      filled: result.filled,
+      unchanged: result.unchanged,
+      conflicts: result.conflicts,
+      missingOwners: result.missingOwners
+    });
+    return result;
+  }
+
   async createUniversity(input: { name: string; city: string; type: UniversityType; websiteUrl?: string; announcementUrl?: string; academicCalendarUrl?: string; logoUrl?: string; emailDomains?: string[] }): Promise<UniversityRecord> {
     try {
       const university = await this.catalogRepository.createUniversity({
@@ -60,16 +210,16 @@ export class CatalogService {
     }
   }
 
-  async updateUniversity(id: string, input: { name?: string; city?: string; type?: UniversityType; status?: CatalogStatus; websiteUrl?: string; announcementUrl?: string; academicCalendarUrl?: string; logoUrl?: string; emailDomains?: string[] }): Promise<UniversityRecord> {
+  async updateUniversity(id: string, input: { name?: string; city?: string; type?: UniversityType; status?: CatalogStatus; websiteUrl?: string | null; announcementUrl?: string | null; academicCalendarUrl?: string | null; logoUrl?: string | null; emailDomains?: string[] }): Promise<UniversityRecord> {
     const updated = await this.catalogRepository.updateUniversity(id, {
       ...(input.name ? { name: input.name.trim(), slug: createSlug(input.name) } : {}),
       ...(input.city ? { city: input.city.trim() } : {}),
       ...(input.type ? { type: input.type } : {}),
       ...(input.status ? { status: input.status } : {}),
-      ...(input.websiteUrl ? { websiteUrl: input.websiteUrl } : {}),
-      ...(input.announcementUrl ? { announcementUrl: input.announcementUrl } : {}),
-      ...(input.academicCalendarUrl ? { academicCalendarUrl: input.academicCalendarUrl } : {}),
-      ...(input.logoUrl ? { logoUrl: input.logoUrl } : {}),
+      ...(input.websiteUrl !== undefined ? { websiteUrl: input.websiteUrl } : {}),
+      ...(input.announcementUrl !== undefined ? { announcementUrl: input.announcementUrl } : {}),
+      ...(input.academicCalendarUrl !== undefined ? { academicCalendarUrl: input.academicCalendarUrl } : {}),
+      ...(input.logoUrl !== undefined ? { logoUrl: input.logoUrl } : {}),
       ...(input.emailDomains ? { emailDomains: normalizeDomains(input.emailDomains) } : {})
     });
     if (!updated) throw new NotFoundException("University not found.");
@@ -108,12 +258,12 @@ export class CatalogService {
     return faculty;
   }
 
-  async updateFaculty(id: string, input: { name?: string; status?: CatalogStatus; websiteUrl?: string; announcementUrl?: string }): Promise<FacultyRecord> {
+  async updateFaculty(id: string, input: { name?: string; status?: CatalogStatus; websiteUrl?: string | null; announcementUrl?: string | null }): Promise<FacultyRecord> {
     const updated = await this.catalogRepository.updateFaculty(id, {
       ...(input.name ? { name: input.name.trim(), slug: createSlug(input.name) } : {}),
       ...(input.status ? { status: input.status } : {}),
-      ...(input.websiteUrl ? { websiteUrl: input.websiteUrl } : {}),
-      ...(input.announcementUrl ? { announcementUrl: input.announcementUrl } : {})
+      ...(input.websiteUrl !== undefined ? { websiteUrl: input.websiteUrl } : {}),
+      ...(input.announcementUrl !== undefined ? { announcementUrl: input.announcementUrl } : {})
     });
     if (!updated) throw new NotFoundException("Faculty not found.");
     await this.recordCatalogAudit("catalog.faculty.updated", "faculty", updated.id, { updatedFields: Object.keys(input) });
@@ -141,15 +291,15 @@ export class CatalogService {
     return department;
   }
 
-  async updateDepartment(id: string, input: { name?: string; educationLevel?: EducationLevel; status?: CatalogStatus; websiteUrl?: string; announcementUrl?: string; courseScheduleUrl?: string; examScheduleUrl?: string }): Promise<DepartmentRecord> {
+  async updateDepartment(id: string, input: { name?: string; educationLevel?: EducationLevel; status?: CatalogStatus; websiteUrl?: string | null; announcementUrl?: string | null; courseScheduleUrl?: string | null; examScheduleUrl?: string | null }): Promise<DepartmentRecord> {
     const updated = await this.catalogRepository.updateDepartment(id, {
       ...(input.name ? { name: input.name.trim(), slug: createSlug(input.name) } : {}),
       ...(input.educationLevel ? { educationLevel: input.educationLevel } : {}),
       ...(input.status ? { status: input.status } : {}),
-      ...(input.websiteUrl ? { websiteUrl: input.websiteUrl } : {}),
-      ...(input.announcementUrl ? { announcementUrl: input.announcementUrl } : {}),
-      ...(input.courseScheduleUrl ? { courseScheduleUrl: input.courseScheduleUrl } : {}),
-      ...(input.examScheduleUrl ? { examScheduleUrl: input.examScheduleUrl } : {})
+      ...(input.websiteUrl !== undefined ? { websiteUrl: input.websiteUrl } : {}),
+      ...(input.announcementUrl !== undefined ? { announcementUrl: input.announcementUrl } : {}),
+      ...(input.courseScheduleUrl !== undefined ? { courseScheduleUrl: input.courseScheduleUrl } : {}),
+      ...(input.examScheduleUrl !== undefined ? { examScheduleUrl: input.examScheduleUrl } : {})
     });
     if (!updated) throw new NotFoundException("Department not found.");
     await this.recordCatalogAudit("catalog.department.updated", "department", updated.id, { updatedFields: Object.keys(input) });
@@ -165,6 +315,16 @@ export class CatalogService {
       metadata
     });
   }
+}
+
+async function runCatalogTasks(tasks: Array<() => Promise<void>>, concurrency = 8): Promise<void> {
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, async () => {
+    while (cursor < tasks.length) {
+      const task = tasks[cursor++];
+      if (task) await task();
+    }
+  }));
 }
 
 function normalizeDomain(domain: string): string {

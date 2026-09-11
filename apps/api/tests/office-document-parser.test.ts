@@ -48,6 +48,37 @@ describe("office document parser", () => {
       "Final Sinavlari\t05.01.2027\t10:00"
     ]);
   });
+
+  it("rejects encrypted and unsupported-compression entries fail closed", () => {
+    const encrypted = createZip({ "word/document.xml": "hello" });
+    encrypted.writeUInt16LE(1, 6);
+    encrypted.writeUInt16LE(1, encrypted.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])) + 8);
+    expect(() => parseOfficeDocument({ fileName: "bad.docx", data: encrypted })).toThrow("ENCRYPTED_ZIP_ENTRY_FORBIDDEN");
+
+    const unsupported = createZip({ "word/document.xml": "hello" });
+    unsupported.writeUInt16LE(99, 8);
+    unsupported.writeUInt16LE(99, unsupported.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])) + 10);
+    expect(() => parseOfficeDocument({ fileName: "bad.docx", data: unsupported })).toThrow("ZIP_COMPRESSION_METHOD_UNSUPPORTED");
+
+    const unsupportedFlag = createZip({ "word/document.xml": "hello" });
+    unsupportedFlag.writeUInt16LE(0x0040, 6);
+    unsupportedFlag.writeUInt16LE(0x0040, unsupportedFlag.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])) + 8);
+    expect(() => parseOfficeDocument({ fileName: "bad.docx", data: unsupportedFlag })).toThrow("ZIP_GENERAL_PURPOSE_FLAG_UNSUPPORTED");
+  });
+
+  it("rejects zip bombs from declared size, ratio, and out-of-bounds offsets before inflate", () => {
+    const oversized = createZip({ "word/document.xml": "hello" });
+    oversized.writeUInt32LE(17 * 1024 * 1024, oversized.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])) + 24);
+    expect(() => parseOfficeDocument({ fileName: "bad.docx", data: oversized })).toThrow("ZIP_ENTRY_SIZE_LIMIT");
+
+    const ratio = createZip({ "word/document.xml": "hello" });
+    ratio.writeUInt32LE(1_000_000, ratio.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])) + 24);
+    expect(() => parseOfficeDocument({ fileName: "bad.docx", data: ratio })).toThrow("ZIP_COMPRESSION_RATIO_LIMIT");
+
+    const invalidOffset = createZip({ "word/document.xml": "hello" });
+    invalidOffset.writeUInt32LE(invalidOffset.length + 100, invalidOffset.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])) + 42);
+    expect(() => parseOfficeDocument({ fileName: "bad.docx", data: invalidOffset })).toThrow("INVALID_ZIP_LOCAL_HEADER");
+  });
 });
 
 function createZip(entries: Record<string, string>): Buffer {

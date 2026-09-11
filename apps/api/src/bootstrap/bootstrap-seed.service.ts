@@ -3,6 +3,7 @@ import type { AuthRepository } from "../modules/auth/auth.types.js";
 import type { CatalogRepository, FacultyRecord, UniversityRecord } from "../modules/catalog/catalog.types.js";
 import { PasswordHasher } from "../modules/auth/password-hasher.js";
 import { loadBundledTurkiyeCatalogSeed, loadTurkiyeCatalogFromYokAtlas, type CatalogSeedDepartment, type CatalogSeedFaculty, type CatalogSeedUniversity, type TurkiyeCatalogSeed } from "./yok-atlas-catalog-importer.js";
+import { izmirKonakStableUniversityId } from "./yok-active-institution-supplement.js";
 
 @Injectable()
 export class BootstrapSeedService implements OnApplicationBootstrap {
@@ -124,13 +125,26 @@ export class BootstrapSeedService implements OnApplicationBootstrap {
 
   private async findOrCreateUniversity(seed: CatalogSeedUniversity, universitiesBySlug: Map<string, UniversityRecord>): Promise<{ record: UniversityRecord; created: boolean }> {
     const existing = universitiesBySlug.get(seed.slug);
-    if (existing) return { record: existing, created: false };
+    if (existing) {
+      const updates: Partial<Pick<UniversityRecord, "name" | "websiteUrl">> = {};
+      if (seed.slug === izmirKonakStableUniversityId && existing.name !== seed.name) updates.name = seed.name;
+      if (seed.websiteUrl && existing.websiteUrl !== seed.websiteUrl) updates.websiteUrl = seed.websiteUrl;
+      if (Object.keys(updates).length > 0) {
+        const updated = await this.catalogRepository.updateUniversity(existing.id, updates);
+        if (updated) {
+          universitiesBySlug.set(updated.slug, updated);
+          return { record: updated, created: false };
+        }
+      }
+      return { record: existing, created: false };
+    }
     try {
       const record = await this.catalogRepository.createUniversity({
         name: seed.name,
         slug: seed.slug,
         city: seed.city,
         type: seed.type,
+        ...(seed.websiteUrl ? { websiteUrl: seed.websiteUrl } : {}),
         status: "active"
       });
       universitiesBySlug.set(record.slug, record);
@@ -146,7 +160,16 @@ export class BootstrapSeedService implements OnApplicationBootstrap {
 
   private async findOrCreateFaculty(universityId: string, seed: CatalogSeedFaculty, facultiesBySlug: Map<string, FacultyRecord>): Promise<{ record: FacultyRecord; created: boolean }> {
     const existing = facultiesBySlug.get(seed.slug);
-    if (existing) return { record: existing, created: false };
+    if (existing) {
+      if (seed.slug === izmirKonakStableUniversityId && existing.name !== seed.name) {
+        const updated = await this.catalogRepository.updateFaculty(existing.id, { name: seed.name });
+        if (updated) {
+          facultiesBySlug.set(updated.slug, updated);
+          return { record: updated, created: false };
+        }
+      }
+      return { record: existing, created: false };
+    }
     try {
       const record = await this.catalogRepository.createFaculty({
         universityId,

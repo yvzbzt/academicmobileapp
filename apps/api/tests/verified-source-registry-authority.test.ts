@@ -20,12 +20,13 @@ describe("verified source authority registry", () => {
   it("binds every catalog university deterministically and quarantines only unresolved owners", async () => {
     const authorities = await listVerifiedSourceAuthorities();
 
-    expect(authorities).toHaveLength(205);
-    expect(authorities.filter((authority) => authority.status === "verified")).toHaveLength(204);
+    expect(authorities).toHaveLength(208);
+    expect(authorities.filter((authority) => authority.status === "verified")).toHaveLength(207);
     expect(authorities.filter((authority) => authority.status === "quarantined")).toEqual([
       expect.objectContaining({
-        universityId: "izmir-kavram-meslek-yuksekokulu",
+        universityId: "anka-teknoloji-universitesi",
         authorityDomains: [],
+        authorityUrls: [],
         reasonCodes: ["owner_evidence_missing"]
       })
     ]);
@@ -53,6 +54,18 @@ describe("verified source authority registry", () => {
     await expect(findVerifiedSourceAuthority("izmir-yuksek-teknoloji-enstitusu")).resolves.toEqual(expect.objectContaining({
       authorityDomains: ["iyte.edu.tr"]
     }));
+    await expect(findVerifiedSourceAuthority("izmir-kavram-meslek-yuksekokulu")).resolves.toEqual(expect.objectContaining({
+      authorityDomains: ["konak.edu.tr"],
+      evidence: [{ type: "YOK_HOMEPAGE", url: "https://www.konak.edu.tr/" }]
+    }));
+    await expect(findVerifiedSourceAuthority("turk-japon-bilim-ve-teknoloji-universitesi")).resolves.toEqual(expect.objectContaining({
+      authorityDomains: ["tju.edu.tr"],
+      evidence: [{ type: "CURATED_CATALOG_BINDING", url: "https://www.tju.edu.tr/" }]
+    }));
+    await expect(findVerifiedSourceAuthority("turkiye-uluslararasi-islam-bilim-ve-teknoloji-universitesi")).resolves.toEqual(expect.objectContaining({
+      authorityDomains: ["tibu.edu.tr"],
+      evidence: [{ type: "YOK_HOMEPAGE", url: "https://www.tibu.edu.tr/" }]
+    }));
 
     const authorities = await listVerifiedSourceAuthorities();
     const domains = authorities.flatMap((authority) => authority.authorityDomains);
@@ -62,6 +75,29 @@ describe("verified source authority registry", () => {
   it("removes cross-institution university URLs from operational fields without losing raw evidence", async () => {
     const sources = await listVerifiedUniversitySources();
     const byId = new Map(sources.map((source) => [source.universityId, source]));
+
+    expect(sources).toHaveLength(208);
+    expect(byId.get("turk-japon-bilim-ve-teknoloji-universitesi")).toEqual(expect.objectContaining({
+      websiteUrl: "https://www.tju.edu.tr/",
+      announcementUrl: "https://www.tju.edu.tr/tr/announcements",
+      newsUrl: "https://www.tju.edu.tr/tr/news",
+      eventUrl: "https://www.tju.edu.tr/tr/events",
+      calendarUrl: "https://tju.edu.tr/tr/calendar"
+    }));
+    expect(byId.get("turkiye-uluslararasi-islam-bilim-ve-teknoloji-universitesi")).toEqual(expect.objectContaining({
+      websiteUrl: "https://www.tibu.edu.tr/",
+      announcementUrl: "https://tibu.edu.tr/category/duyurular/",
+      newsUrl: "https://tibu.edu.tr/category/haberler/"
+    }));
+    expect(byId.get("anka-teknoloji-universitesi")).not.toHaveProperty("websiteUrl");
+    expect(byId.get("izmir-kavram-meslek-yuksekokulu")).toEqual(expect.objectContaining({
+      universityName: "İZMİR KONAK MESLEK YÜKSEKOKULU",
+      websiteUrl: "https://www.konak.edu.tr/",
+      announcementUrl: "https://www.konak.edu.tr/duyurular",
+      newsUrl: "https://www.konak.edu.tr/haberler",
+      eventUrl: "https://www.konak.edu.tr/etkinlikler",
+      calendarUrl: "https://www.konak.edu.tr/akademik/akademik-takvim"
+    }));
 
     expect(byId.get("ankara-bilim-universitesi")).toEqual(expect.objectContaining({
       announcementUrl: "https://ankarabilim.edu.tr/duyurular",
@@ -132,7 +168,7 @@ describe("verified source authority registry", () => {
   it("accounts for every checked-in URL as operational or quarantined", async () => {
     const universitySources = await listVerifiedUniversitySources();
     const academicUnitSources = await listVerifiedAcademicUnitSources();
-    const universityFields = ["announcementUrl", "newsUrl", "eventUrl", "calendarUrl", "summerSchoolUrl"] as const;
+    const universityFields = ["websiteUrl", "announcementUrl", "newsUrl", "eventUrl", "calendarUrl", "summerSchoolUrl"] as const;
     const academicUnitFields = ["websiteUrl", "announcementUrl", "newsUrl", "eventUrl", "courseScheduleUrl", "examScheduleUrl"] as const;
     const rawUniversityCount = universitySources.reduce((total, source) => total + Object.keys(source.rawUrls ?? {}).length, 0);
     const rawAcademicUnitCount = academicUnitSources.reduce((total, source) => total + Object.keys(source.rawUrls ?? {}).length, 0);
@@ -148,8 +184,8 @@ describe("verified source authority registry", () => {
       ...academicUnitSources.flatMap((source) => source.quarantinedSources ?? [])
     ];
 
-    expect({ rawUniversityCount, rawAcademicUnitCount }).toEqual({ rawUniversityCount: 623, rawAcademicUnitCount: 6146 });
-    expect(operationalCount + quarantined.length).toBe(6769);
+    expect({ rawUniversityCount, rawAcademicUnitCount }).toEqual({ rawUniversityCount: 636, rawAcademicUnitCount: 6146 });
+    expect(operationalCount + quarantined.length).toBe(6782);
     expect(quarantined).toHaveLength(167);
     expect(new Set(quarantined.map((source) => source.id)).size).toBe(quarantined.length);
   });

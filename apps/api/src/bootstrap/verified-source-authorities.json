@@ -240,6 +240,16 @@
       "reasonCodes": []
     },
     {
+      "universityId": "anka-teknoloji-universitesi",
+      "status": "quarantined",
+      "authorityDomains": [],
+      "authorityUrls": [],
+      "evidence": [],
+      "reasonCodes": [
+        "owner_evidence_missing"
+      ]
+    },
+    {
       "universityId": "ankara-bilim-universitesi",
       "status": "verified",
       "authorityDomains": [
@@ -2061,13 +2071,20 @@
     },
     {
       "universityId": "izmir-kavram-meslek-yuksekokulu",
-      "status": "quarantined",
-      "authorityDomains": [],
-      "authorityUrls": [],
-      "evidence": [],
-      "reasonCodes": [
-        "owner_evidence_missing"
-      ]
+      "status": "verified",
+      "authorityDomains": [
+        "konak.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.konak.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.konak.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
     },
     {
       "universityId": "izmir-tinaztepe-universitesi",
@@ -3316,6 +3333,40 @@
         {
           "type": "YOK_HOMEPAGE",
           "url": "https://www.thk.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "turk-japon-bilim-ve-teknoloji-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "tju.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.tju.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "CURATED_CATALOG_BINDING",
+          "url": "https://www.tju.edu.tr/"
+        }
+      ],
+      "reasonCodes": []
+    },
+    {
+      "universityId": "turkiye-uluslararasi-islam-bilim-ve-teknoloji-universitesi",
+      "status": "verified",
+      "authorityDomains": [
+        "tibu.edu.tr"
+      ],
+      "authorityUrls": [
+        "https://www.tibu.edu.tr/"
+      ],
+      "evidence": [
+        {
+          "type": "YOK_HOMEPAGE",
+          "url": "https://www.tibu.edu.tr/"
         }
       ],
       "reasonCodes": []

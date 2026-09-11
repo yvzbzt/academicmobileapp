@@ -43,7 +43,7 @@ export type StudentActionType =
   | "submit"
   | "unknown";
 
-export type StudentContentUrgency = "critical" | "high" | "normal" | "unknown";
+export type StudentContentUrgency = "critical" | "high" | "normal" | "low" | "unknown";
 
 export type StudentEvidenceTargetField =
   | "studentRelevance"

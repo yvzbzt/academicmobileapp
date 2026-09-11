@@ -140,8 +140,14 @@ describe("mongoIndexDefinitions", () => {
     expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         collection: "announcement_sources",
-        keys: { canonicalUrl: 1, scopeType: 1, scopeId: 1 },
-        name: "announcement_sources_canonical_scope"
+        keys: { sourceUrl: 1, scopeType: 1, scopeId: 1, contentType: 1 },
+        name: "announcement_sources_unique_scope_url_content",
+        unique: true
+      }),
+      expect.objectContaining({
+        collection: "announcement_sources",
+        keys: { canonicalUrl: 1, scopeType: 1, scopeId: 1, contentType: 1 },
+        name: "announcement_sources_canonical_scope_content"
       }),
       expect.objectContaining({
         collection: "announcement_items",
@@ -152,6 +158,47 @@ describe("mongoIndexDefinitions", () => {
         collection: "announcement_items",
         keys: { trustStatus: 1, dedupeKey: 1 },
         name: "announcement_items_trust_dedupe"
+      })
+    ]));
+  });
+
+  it("contains the refresh-family account revocation index", () => {
+    expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collection: "refresh_token_families",
+        keys: { userId: 1, status: 1 },
+        name: "refresh_token_families_user_status"
+      }),
+      expect.objectContaining({
+        collection: "refresh_token_families",
+        keys: { status: 1, cleanupPending: 1, cleanupLeaseUntil: 1, updatedAt: 1 },
+        name: "refresh_token_families_cleanup_queue"
+      }),
+      expect.objectContaining({
+        collection: "refresh_token_families",
+        keys: { status: 1, expiresAt: 1 },
+        name: "refresh_token_families_active_expiry"
+      })
+    ]));
+  });
+
+  it("contains announcement snapshot lookup, bounded retention, and TTL indexes", () => {
+    expect(mongoIndexDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collection: "announcement_snapshots",
+        keys: { "items.id": 1, createdAt: -1 },
+        name: "announcement_snapshots_review_item_lookup"
+      }),
+      expect.objectContaining({
+        collection: "announcement_snapshots",
+        keys: { nextRetentionCheckAt: 1, createdAt: 1, purgeAfter: 1, activationLeaseUntil: 1 },
+        name: "announcement_snapshots_retention_candidates"
+      }),
+      expect.objectContaining({
+        collection: "announcement_snapshots",
+        keys: { purgeAfter: 1 },
+        ttlSeconds: 0,
+        name: "announcement_snapshots_purge_after_ttl"
       })
     ]));
   });

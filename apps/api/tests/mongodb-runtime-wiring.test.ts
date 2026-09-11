@@ -175,6 +175,7 @@ describe("MongoDB-only runtime repository wiring", () => {
           slug: "test-university",
           city: "Ankara",
           type: "state",
+          websiteUrl: "https://www.test-university.edu.tr/",
           faculties: [
             {
               name: "Engineering Faculty",
@@ -189,10 +190,53 @@ describe("MongoDB-only runtime repository wiring", () => {
     vi.spyOn(loader, "loadCatalogSeedSource").mockResolvedValue({ source });
 
     const first = await service.seedCatalog();
+    await catalogRepository.updateUniversity("test-university", { websiteUrl: "https://stale.example/" });
     const second = await service.seedCatalog();
 
     expect(first).toEqual(expect.objectContaining({ created: true, createdUniversities: 1, createdFaculties: 1, createdDepartments: 1 }));
     expect(second).toEqual(expect.objectContaining({ created: false, createdUniversities: 0, createdFaculties: 0, createdDepartments: 0 }));
-    expect(await catalogRepository.listUniversities({ limit: 10, offset: 0 })).toHaveLength(1);
+    expect(await catalogRepository.listUniversities({ limit: 10, offset: 0 })).toEqual([
+      expect.objectContaining({ websiteUrl: "https://www.test-university.edu.tr/" })
+    ]);
+  });
+
+  it("updates the renamed İzmir Konak record without changing its stable ID", async () => {
+    vi.stubEnv("BOOTSTRAP_CATALOG_SEED_ENABLED", "true");
+    const catalogRepository = new InMemoryCatalogRepository();
+    await catalogRepository.createUniversity({
+      name: "İZMİR KAVRAM MESLEK YÜKSEKOKULU",
+      slug: "izmir-kavram-meslek-yuksekokulu",
+      city: "İZMİR",
+      type: "foundation",
+      status: "active"
+    });
+    const service = new BootstrapSeedService(new InMemoryAuthRepository(), catalogRepository, new PasswordHasher());
+    const source: TurkiyeCatalogSeed = {
+      source: "yok_atlas",
+      sourceUrl: "https://example.test/catalog",
+      sourceRowCount: 1,
+      includedRowCount: 1,
+      universities: [{
+        name: "İZMİR KONAK MESLEK YÜKSEKOKULU",
+        slug: "izmir-kavram-meslek-yuksekokulu",
+        city: "İZMİR",
+        type: "foundation",
+        websiteUrl: "https://www.konak.edu.tr/",
+        faculties: []
+      }]
+    };
+    const loader = service as unknown as { loadCatalogSeedSource(): Promise<{ source: TurkiyeCatalogSeed }> };
+    vi.spyOn(loader, "loadCatalogSeedSource").mockResolvedValue({ source });
+
+    await service.seedCatalog();
+
+    expect(await catalogRepository.listUniversities({ limit: 10, offset: 0 })).toEqual([
+      expect.objectContaining({
+        id: "izmir-kavram-meslek-yuksekokulu",
+        slug: "izmir-kavram-meslek-yuksekokulu",
+        name: "İZMİR KONAK MESLEK YÜKSEKOKULU",
+        websiteUrl: "https://www.konak.edu.tr/"
+      })
+    ]);
   });
 });

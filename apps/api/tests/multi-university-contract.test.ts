@@ -199,6 +199,7 @@ describe("multi-university student contract", () => {
         publicationTimeSource: "source"
       }])
     ]);
+    await approveAllReviewFixtures(fixture.announcementRepository);
 
     const response = await fixture.announcements.getMyAnnouncementsCollection(fixture.student.id, 10);
     expect(response.items.find((item) => item.id === "faculty-news")).toMatchObject({
@@ -328,6 +329,7 @@ async function createFixture() {
   await seedAnnouncement(announcementRepository, universities.first, "First followed announcement", "2026-08-23T08:00:00.000Z", "2026-08-26T08:00:00.000Z", itemIds);
   await seedAnnouncement(announcementRepository, universities.second, "Second followed announcement", "2026-08-21T08:00:00.000Z", "2026-08-25T08:00:00.000Z", itemIds);
   await seedAnnouncement(announcementRepository, universities.third, "Third followed announcement", "2026-08-24T08:00:00.000Z", "2026-08-24T08:00:00.000Z", itemIds);
+  await approveAllReviewFixtures(announcementRepository);
 
   return {
     auth,
@@ -399,6 +401,19 @@ async function seedAnnouncement(
     discoveredAt,
     fetchedAt: "2026-08-27T08:00:00.000Z"
   }]);
+}
+
+async function approveAllReviewFixtures(repository: InMemoryAnnouncementRepository): Promise<void> {
+  const items = await repository.listReviewItems({ limit: 1_000 });
+  for (const item of items) {
+    if (!item.contentFingerprint) throw new Error(`Fixture ${item.id} is missing contentFingerprint.`);
+    const result = await repository.updateReviewItem(item.id, { reviewStatus: "approved" }, {
+      ...(item.snapshotId ? { expectedSnapshotId: item.snapshotId } : {}),
+      expectedContentFingerprint: item.contentFingerprint,
+      ...(item.reviewRevision ? { expectedReviewRevision: item.reviewRevision } : {})
+    });
+    if (!result) throw new Error(`Fixture ${item.id} could not be approved.`);
+  }
 }
 
 function calendarEvent(calendarId: string, universityId: string, title: string, startDate: string) {

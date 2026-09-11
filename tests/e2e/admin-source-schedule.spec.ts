@@ -78,10 +78,20 @@ test("admin manages scoped announcement sources and dynamic ingestion cadence", 
   await createForm.getByLabel("Yenileme (dakika)").fill("90");
   await createForm.getByRole("button", { name: /Kaynağı Ekle/ }).click();
 
-  await expect(page.getByText("Duyuru kaynağı eklendi ve ilk veri alımı çalıştırıldı")).toBeVisible();
+  await expect(page.getByText("Duyuru kaynağı inceleme kuyruğuna eklendi")).toBeVisible();
   let editor = page.locator("form.sourceEditor").filter({ hasText: "Bölüm Duyuruları" });
   await expect(editor).toBeVisible();
+  await expect(editor.getByText(/Bekliyor · 0 kayıt/)).toBeVisible();
+  await expect(editor.getByText("Karantinada", { exact: true })).toBeVisible();
+  await expect(editor.getByRole("button", { name: /Şimdi Tara/ })).toBeDisabled();
+
+  await editor.getByLabel("Bölüm Duyuruları inceleme notu").fill("Resmî bölüm sayfası doğrulandı");
+  await editor.getByRole("button", { name: /Güvenilir Olarak Onayla/ }).click();
+  await expect(page.getByText("Kaynak güvenilir olarak onaylandı")).toBeVisible();
+  editor = page.locator("form.sourceEditor").filter({ hasText: "Bölüm Duyuruları" });
   await expect(editor.getByText(/Sağlıklı · 3 kayıt/)).toBeVisible();
+  await expect(editor.getByText("Güvenilir", { exact: true })).toBeVisible();
+  await expect(editor.getByRole("button", { name: /Şimdi Tara/ })).toBeEnabled();
 
   await editor.getByLabel("Yenileme dakikası").fill("45");
   await editor.getByRole("button", { name: /Kaydet/ }).click();
@@ -112,6 +122,16 @@ test("admin manages scoped announcement sources and dynamic ingestion cadence", 
       facultyId: faculty.id,
       departmentId: department.id,
       fetchIntervalMinutes: 90
+    })
+  }));
+  expect(writes).toContainEqual(expect.objectContaining({
+    method: "POST",
+    path: "/admin/announcements/sources/source-1/approve",
+    body: expect.objectContaining({
+      expectedTrustStatus: "quarantined",
+      expectedSourceStatus: "inactive",
+      expectedApprovalPending: false,
+      note: "Resmî bölüm sayfası doğrulandı"
     })
   }));
   expect(writes).toContainEqual(expect.objectContaining({
@@ -225,6 +245,33 @@ async function handleMockApi(request: IncomingMessage, response: ServerResponse)
   if (request.method === "GET" && url.pathname === `/faculties/${faculty.id}/departments`) return sendJson(response, [department]);
   if (request.method === "GET" && url.pathname === "/admin/users/unassociated-email-domains") return sendJson(response, []);
   if (request.method === "GET" && url.pathname === "/admin/users/academic-unit-suggestions") return sendJson(response, []);
+  if (request.method === "GET" && url.pathname === "/admin/source-coverage") {
+    return sendJson(response, {
+      total: 0,
+      items: [],
+      summary: {
+        catalog: { universities: 208, academicUnits: 17_360, faculties: 2_932, departments: 14_428 },
+        filteredAcademicUnits: 0,
+        filteredSourceSlots: 0,
+        byResolution: { missing: 0, quarantined: 0, verified: 0, legacy_unverified: 0 },
+        bySourceType: {}
+      }
+    });
+  }
+  if (request.method === "GET" && url.pathname === "/admin/calendars/schedule-sources") return sendJson(response, []);
+  if (request.method === "GET" && url.pathname === "/admin/announcements/review-items") {
+    return sendJson(response, { items: [], total: 0, limit: 50, offset: 0, hasMore: false });
+  }
+  if (request.method === "GET" && url.pathname === "/admin/announcements/llm-settings") {
+    return sendJson(response, {
+      enabled: false,
+      provider: "openai",
+      model: "gpt-5-mini",
+      apiKeyConfigured: false,
+      lastTestStatus: "untested",
+      revision: 0
+    });
+  }
 
   if (request.method === "GET" && url.pathname === "/admin/announcements/sources") return sendJson(response, announcementSources);
   if (request.method === "POST" && url.pathname === "/admin/announcements/sources") {
@@ -238,13 +285,33 @@ async function handleMockApi(request: IncomingMessage, response: ServerResponse)
       parser: body.parser,
       priority: body.priority,
       fetchIntervalMinutes: body.fetchIntervalMinutes,
-      status: "active",
-      healthStatus: "healthy",
-      itemCount: 3,
-      lastCheckedAt: "2026-08-13T10:00:00.000Z"
+      canonicalUrl: body.sourceUrl,
+      sourceDefinitionVersion: "source-definition-1",
+      status: "inactive",
+      trustStatus: "quarantined",
+      approvalPending: false,
+      healthStatus: "pending",
+      itemCount: 0,
+      updatedAt: "2026-08-13T09:59:00.000Z"
     };
     announcementSources = [source];
     return sendJson(response, source, 201);
+  }
+  if (request.method === "POST" && url.pathname === "/admin/announcements/sources/source-1/approve") {
+    announcementSources = announcementSources.map((source) => ({
+      ...source,
+      status: "active",
+      trustStatus: "trusted",
+      approvalPending: false,
+      healthStatus: "healthy",
+      itemCount: 3,
+      lastCheckedAt: "2026-08-13T10:00:00.000Z",
+      updatedAt: "2026-08-13T10:00:00.000Z"
+    }));
+    return sendJson(response, {
+      source: announcementSources[0],
+      ingestion: { status: "healthy", itemCount: 3 }
+    });
   }
   if (request.method === "PUT" && url.pathname === "/admin/announcements/sources/source-1") {
     announcementSources = announcementSources.map((source) => ({ ...source, ...body }));

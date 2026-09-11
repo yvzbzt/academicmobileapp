@@ -36,6 +36,7 @@ describe("saved announcement contract", () => {
       link: "https://example.edu.tr/announcements/registration-dates",
       fetchedAt: new Date().toISOString()
     }]);
+    await approveAllReviewItems(repository, source.id);
 
     const controller = new AnnouncementsController(new AnnouncementsService(authRepository(), repository));
     const owner = { id: "student-1", role: "student" } as AuthenticatedUser;
@@ -55,6 +56,15 @@ describe("saved announcement contract", () => {
       .toEqual({ announcementId: "announcement-1", saved: false });
     expect(await controller.getMySavedAnnouncementStatus(owner, "announcement-1"))
       .toEqual(first);
+
+    const approved = await repository.findReviewItemById("announcement-1");
+    if (!approved?.item.contentFingerprint) throw new Error("Expected approved announcement.");
+    await repository.updateReviewItem("announcement-1", { reviewStatus: "rejected" }, {
+      expectedContentFingerprint: approved.item.contentFingerprint,
+      ...(approved.item.reviewRevision ? { expectedReviewRevision: approved.item.reviewRevision } : {})
+    });
+    expect(await controller.getMySavedAnnouncementStatus(owner, "announcement-1"))
+      .toEqual({ announcementId: "announcement-1", saved: false });
   });
 
   it("fails closed when a student tries to save an announcement outside their trusted academic scope", async () => {
@@ -134,6 +144,16 @@ describe("saved announcement contract", () => {
       .resolves.toBeNull();
   });
 });
+
+async function approveAllReviewItems(repository: InMemoryAnnouncementRepository, sourceId: string) {
+  for (const item of await repository.listReviewItems({ sourceIds: [sourceId] })) {
+    if (!item.contentFingerprint) throw new Error("Expected content fingerprint.");
+    await repository.updateReviewItem(item.id, { reviewStatus: "approved" }, {
+      expectedContentFingerprint: item.contentFingerprint,
+      ...(item.reviewRevision ? { expectedReviewRevision: item.reviewRevision } : {})
+    });
+  }
+}
 
 function authRepository(): AuthRepository {
   const now = new Date();

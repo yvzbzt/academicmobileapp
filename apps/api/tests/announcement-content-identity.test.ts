@@ -21,6 +21,7 @@ describe("announcement logical content identity", () => {
     await repository.replaceItemsForSource(universityB, [content(universityB, "university-b", "iki", fetchedAt)]);
     await repository.replaceItemsForSource(faculty, [content(faculty, "faculty-item", "uc", fetchedAt)]);
     await repository.replaceItemsForSource(event, [content(event, "event-item", "event", fetchedAt)]);
+    await approveAllReviewFixtures(repository);
 
     const service = new AnnouncementsService(authRepository(), repository);
     const collection = await service.getMyAnnouncements("student-1", 20);
@@ -109,6 +110,7 @@ describe("announcement logical content identity", () => {
     const source = await createSource(repository, "university", "university-1", "refresh", "announcement");
     const staleFetchedAt = "2026-07-01T00:00:00.000Z";
     const created = await repository.replaceItemsForSource(source, [content(source, "stable-real-id", "old-url", staleFetchedAt)]);
+    await approveAllReviewFixtures(repository);
     await repository.acknowledgeNotificationProduction(created.created);
     await repository.replaceItemsForSource(source, [content(source, "transient-alias-id", "current-url", staleFetchedAt)]);
 
@@ -157,6 +159,7 @@ describe("announcement logical content identity", () => {
       link: "https://www.yok.gov.tr/duyurular/yok-item"
     }]);
     await repository.replaceItemsForSource(other, [content(other, "other-university-id", "other-item", new Date().toISOString())]);
+    await approveAllReviewFixtures(repository);
     const service = new AnnouncementsService(authRepository(), repository);
 
     await expect(service.getMyTrustedAnnouncement("student-1", "yok-real-id"))
@@ -169,6 +172,7 @@ describe("announcement logical content identity", () => {
     const repository = new InMemoryAnnouncementRepository();
     const source = await createSource(repository, "university", "university-1", "empty", "announcement");
     const created = await repository.replaceItemsForSource(source, [content(source, "persisted-empty-id", "old", "2026-07-01T00:00:00.000Z")]);
+    await approveAllReviewFixtures(repository);
     await repository.acknowledgeNotificationProduction(created.created);
     const emptySnapshot = announcementParser.parseFetchedSourceItems("[]", source.sourceUrl, "auto");
     expect(emptySnapshot).toEqual([]);
@@ -192,6 +196,7 @@ describe("announcement logical content identity", () => {
     const repository = new InMemoryAnnouncementRepository();
     const source = await createSource(repository, "university", "university-1", `invalid-${parser}`, "announcement");
     await repository.replaceItemsForSource(source, [content(source, "retained-id", "retained", "2026-07-01T00:00:00.000Z")]);
+    await approveAllReviewFixtures(repository);
     vi.spyOn(announcementParser, "fetchSourceItems").mockImplementation(async () =>
       announcementParser.parseFetchedSourceItems(body, source.sourceUrl, parser));
     const syncTrustedAnnouncementSource = vi.fn(async (..._args: unknown[]) => undefined);
@@ -249,6 +254,19 @@ function content(
     fetchedAt,
     trustStatus: "trusted"
   };
+}
+
+async function approveAllReviewFixtures(repository: InMemoryAnnouncementRepository): Promise<void> {
+  const items = await repository.listReviewItems({ limit: 1_000 });
+  for (const item of items) {
+    if (!item.contentFingerprint) throw new Error(`Fixture ${item.id} is missing contentFingerprint.`);
+    const result = await repository.updateReviewItem(item.id, { reviewStatus: "approved" }, {
+      ...(item.snapshotId ? { expectedSnapshotId: item.snapshotId } : {}),
+      expectedContentFingerprint: item.contentFingerprint,
+      ...(item.reviewRevision ? { expectedReviewRevision: item.reviewRevision } : {})
+    });
+    if (!result) throw new Error(`Fixture ${item.id} could not be approved.`);
+  }
 }
 
 function authRepository(): AuthRepository {

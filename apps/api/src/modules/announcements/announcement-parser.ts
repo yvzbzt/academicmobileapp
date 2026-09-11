@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import tls from "node:tls";
+import { load } from "cheerio";
 import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
 import {
   requireSourceAuthority,
@@ -23,7 +24,13 @@ import {
   sanitizeAcademicContentBody,
   toIsoString
 } from "./announcement-content-trust.js";
-import type { AnnouncementItem, AnnouncementSourceParser, AnnouncementSourceRecord } from "./announcements.types.js";
+import type {
+  AnnouncementContentType,
+  AnnouncementItem,
+  AnnouncementSourceParserConfig,
+  AnnouncementSourceParser,
+  AnnouncementSourceRecord
+} from "./announcements.types.js";
 
 ensureCrawlerSystemCa();
 
@@ -60,6 +67,8 @@ export interface FetchTextInput {
   resource?: SourceAuthorityResource;
   etag?: string;
   lastModified?: string;
+  maximumRedirects?: number;
+  maximumResponseBytes?: number;
 }
 
 export interface SourceSnapshotValidators {
@@ -75,15 +84,28 @@ export interface FetchedText {
   etag?: string;
   lastModified?: string;
   contentHash?: string;
+  contentType?: string;
 }
+
+export const ANNOUNCEMENT_DETAIL_MAX_ITEMS = 6;
+export const ANNOUNCEMENT_DETAIL_CONCURRENCY = 2;
+export const ANNOUNCEMENT_DETAIL_MAX_RESPONSE_BYTES = 512 * 1024;
+export const ANNOUNCEMENT_DETAIL_MAX_TIMEOUT_MS = 4_000;
+const ANNOUNCEMENT_HTML_MAX_ANCHORS = 2_000;
+const ANNOUNCEMENT_HTML_MAX_ANCESTORS = 32;
+const ANNOUNCEMENT_HTML_ROW_EVIDENCE_RADIUS = 16 * 1024;
+const CHROME_IDENTITY_TOKEN_SOURCE = "(?:(?:breadcrumb|footer|menu|nav|navbar|navigation|pagination|pager|sidebar)(?:[-_][a-z0-9][a-z0-9_-]*)?|page[-_]numbers|related[-_]links|(?:site|main|primary|mobile|global|top|bottom|brand|header|page)[-_](?:footer|menu|nav|navbar|navigation|sidebar)(?:[-_][a-z0-9][a-z0-9_-]*)?|(?:drop|fast|dropdown|mega|quick)[-_]menu(?:[-_][a-z0-9][a-z0-9_-]*)?)";
+const CHROME_IDENTITY_TOKEN = new RegExp(`^${CHROME_IDENTITY_TOKEN_SOURCE}$`, "iu");
 
 export async function fetchSourceItems(
   sourceUrl: string,
   parser: AnnouncementSourceParser,
   timeoutMs = 7000,
-  authorityContext?: SourceAuthorityFetchContext
+  authorityContext?: SourceAuthorityFetchContext,
+  contentType?: AnnouncementContentType,
+  parserConfig?: AnnouncementSourceParserConfig
 ): Promise<ParsedAnnouncementItem[]> {
-  return (await fetchSourceSnapshot(sourceUrl, parser, timeoutMs, authorityContext)).items;
+  return (await fetchSourceSnapshot(sourceUrl, parser, timeoutMs, authorityContext, {}, contentType, parserConfig)).items;
 }
 
 export async function fetchSourceSnapshot(
@@ -91,7 +113,9 @@ export async function fetchSourceSnapshot(
   parser: AnnouncementSourceParser,
   timeoutMs = 7000,
   authorityContext?: SourceAuthorityFetchContext,
-  validators: SourceSnapshotValidators = {}
+  validators: SourceSnapshotValidators = {},
+  contentType?: AnnouncementContentType,
+  parserConfig?: AnnouncementSourceParserConfig
 ): Promise<FetchedSourceSnapshot> {
   const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
   const atuSnapshot = await fetchAtuContentItems(officialSourceUrl, timeoutMs, authorityContext, validators);
@@ -126,8 +150,12 @@ export async function fetchSourceSnapshot(
       contentHash: body.contentHash
     };
   }
+  const parsedItems = parseFetchedSourceItems(body.text, body.finalUrl, parser, contentType, parserConfig).slice(0, 30);
+  const items = authorityContext && isGenericHtmlSnapshot(body.text, body.finalUrl, parser)
+    ? await hydrateGenericAnnouncementDetails(parsedItems, body.finalUrl, timeoutMs, authorityContext)
+    : parsedItems;
   return {
-    items: parseFetchedSourceItems(body.text, body.finalUrl, parser).slice(0, 30),
+    items,
     finalUrl: body.finalUrl,
     fetchStatus: "fetched",
     ...(body.etag ? { etag: body.etag } : {}),
@@ -139,7 +167,9 @@ export async function fetchSourceSnapshot(
 export function parseFetchedSourceItems(
   input: string,
   sourceUrl: string,
-  parser: AnnouncementSourceParser
+  parser: AnnouncementSourceParser,
+  contentType?: AnnouncementContentType,
+  parserConfig?: AnnouncementSourceParserConfig
 ): ParsedAnnouncementItem[] {
   if (parser === "auto" && looksLikeJson(input)) {
     const items = parseJsonAnnouncements(input, sourceUrl);
@@ -153,9 +183,14 @@ export function parseFetchedSourceItems(
     if (items.length > 0 || !/<(?:item|entry)\b/iu.test(input)) return items;
     throw new Error("SOURCE_FEED_ITEMS_INVALID");
   }
+  if (parserConfig?.itemSelector?.trim()) {
+    const items = parseConfiguredAnnouncementHtml(input, sourceUrl, parserConfig);
+    if (items.length > 0) return items;
+    throw new Error("SOURCE_HTML_SELECTOR_LAYOUT_INVALID");
+  }
   if (isYokSourceUrl(sourceUrl)) return parseYokAnnouncementHtml(input, sourceUrl);
   if (isAnkaraUniversitySourceUrl(sourceUrl)) return parseAnkaraUniversityAnnouncementHtml(input, sourceUrl);
-  const items = parseGenericAnnouncementHtml(input, sourceUrl);
+  const items = parseGenericAnnouncementHtml(input, sourceUrl, contentType);
   if (items.length > 0 || isExplicitEmptyHtmlSnapshot(input)) return items;
   throw new Error("SOURCE_HTML_LAYOUT_INVALID");
 }
@@ -252,8 +287,175 @@ export function parseAnkaraUniversityAnnouncementHtml(input: string, sourceUrl =
   return parseHtmlDocument(input, sourceUrl, "ankara");
 }
 
-export function parseGenericAnnouncementHtml(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
-  return parseHtmlDocument(input, sourceUrl, "generic");
+export function parseGenericAnnouncementHtml(
+  input: string,
+  sourceUrl: string,
+  contentType?: AnnouncementContentType
+): ParsedAnnouncementItem[] {
+  return parseHtmlDocument(input, sourceUrl, "generic", contentType);
+}
+
+/** Uses admin-maintained CSS selectors when a university changes its listing layout. */
+export function parseConfiguredAnnouncementHtml(
+  input: string,
+  sourceUrl: string,
+  config: AnnouncementSourceParserConfig,
+  profileType: AnnouncementContentType | "academic_calendar" = "announcement"
+): ParsedAnnouncementItem[] {
+  const itemSelector = config.itemSelector?.trim();
+  if (!itemSelector) return [];
+  const officialSourceUrl = canonicalizeContentUrl(sourceUrl);
+  if (!officialSourceUrl || !isOfficialContentUrl(officialSourceUrl, officialSourceUrl)) return [];
+  try {
+    const $ = load(input);
+    const results: ParsedAnnouncementItem[] = [];
+    $(itemSelector).slice(0, 80).each((_index, element) => {
+      const row = $(element);
+      const titleSelector = config.titleSelector?.trim();
+      const linkSelector = config.linkSelector?.trim();
+      const dateSelector = config.dateSelector?.trim();
+      const contentSelector = config.contentSelector?.trim();
+      const titleNode = titleSelector
+        ? (row.is(titleSelector) ? row : row.find(titleSelector).first())
+        : row.is("a") ? row : row.find("h1,h2,h3,h4,h5,h6,a").first();
+      const linkNode = linkSelector
+        ? (row.is(linkSelector) ? row : row.find(linkSelector).first())
+        : titleNode.is("a") ? titleNode : titleNode.find("a").first().add(row.find("a").first()).first();
+      const rawTitle = titleNode.text();
+      const href = linkNode.attr("href") ?? linkNode.find("a").first().attr("href");
+      if (!rawTitle || !href) return;
+      const dateText = dateSelector
+        ? (row.is(dateSelector) ? row : row.find(dateSelector).first()).text()
+        : "";
+      const contentNode = contentSelector
+        ? (row.is(contentSelector) ? row : row.find(contentSelector).first())
+        : undefined;
+      const publication = dateText ? parsePublicationMaybe(normalizeDisplayText(dateText, 200)) : undefined;
+      const summary = contentNode ? normalizeDisplayText(contentNode.text(), 1_200) : undefined;
+      const richBody = contentNode?.html() ?? undefined;
+      const candidate: ParsedItemCandidate = {
+        rawTitle,
+        link: href,
+        ...(publication ?? {}),
+        ...(summary ? { summary } : {}),
+        ...(richBody ? { richBody } : {})
+      };
+      const item = profileType === "academic_calendar"
+        ? finalizeConfiguredCalendarItem(candidate, officialSourceUrl)
+        : finalizeParsedItem(candidate, officialSourceUrl);
+      if (item) results.push(item);
+    });
+    return dedupeParsedItems(results);
+  } catch (error) {
+    if (error instanceof Error && error.message === "SOURCE_HTML_SELECTOR_LAYOUT_INVALID") throw error;
+    throw new Error(`SOURCE_HTML_SELECTOR_INVALID:${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function finalizeConfiguredCalendarItem(
+  input: ParsedItemCandidate,
+  officialSourceUrl: string
+): ParsedAnnouncementItem | null {
+  const title = normalizeDisplayText(input.rawTitle, 500);
+  const link = canonicalizeContentUrl(input.link, officialSourceUrl);
+  if (!title || !link || !isOfficialContentUrl(link, officialSourceUrl)) return null;
+  const summary = normalizeDisplayText(input.summary, 1_200);
+  const body = sanitizeAcademicContentBody(input.richBody ?? input.summary);
+  const keyDates = extractAcademicContentKeyDates(body);
+  return {
+    title,
+    rawTitle: title,
+    link,
+    ...(input.publicationKind === "date" && input.publishedDate
+      ? { publicationKind: "date", publishedDate: input.publishedDate }
+      : input.publishedAt ? { publicationKind: "timestamp", publishedAt: input.publishedAt } : {}),
+    ...(summary ? { summary } : {}),
+    ...(body.length ? { body } : {}),
+    ...(keyDates.length ? { keyDates } : {})
+  };
+}
+
+/** Parses one generic detail page without trusting it to change source ownership. */
+export function parseGenericAnnouncementDetailHtml(
+  input: string,
+  detailUrl: string,
+  officialSourceUrl: string,
+  listingItem: ParsedAnnouncementItem
+): ParsedAnnouncementItem | null {
+  const document = stripChromeRegions(input, "generic");
+  const content = selectGenericDetailContent(document);
+  const detailTitle = extractGenericDetailTitle(content, document);
+  const rawTitle = detailTitle && !isLowValueAnchorTitle(detailTitle)
+    ? detailTitle
+    : listingItem.rawTitle ?? listingItem.title;
+  const timestamps = extractHtmlTimestamps(content, rawTitle, officialSourceUrl);
+  const listingPublication = publicationFromParsedItem(listingItem);
+  const summary = extractGenericDetailSummary(content, document);
+  return finalizeParsedItem({
+    rawTitle,
+    link: detailUrl,
+    ...(listingPublication ?? timestamps.publication),
+    ...(timestamps.sourceUpdatedAt ?? listingItem.sourceUpdatedAt
+      ? { sourceUpdatedAt: timestamps.sourceUpdatedAt ?? listingItem.sourceUpdatedAt }
+      : {}),
+    ...(summary ? { summary } : listingItem.summary ? { summary: listingItem.summary } : {}),
+    ...(content ? { richBody: content } : {})
+  }, officialSourceUrl);
+}
+
+export async function hydrateGenericAnnouncementDetails(
+  items: readonly ParsedAnnouncementItem[],
+  officialSourceUrl: string,
+  timeoutMs: number,
+  authorityContext: SourceAuthorityFetchContext
+): Promise<ParsedAnnouncementItem[]> {
+  const hydrated = [...items];
+  const candidates = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => isDetailHydrationCandidate(item, officialSourceUrl))
+    .slice(0, ANNOUNCEMENT_DETAIL_MAX_ITEMS);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(ANNOUNCEMENT_DETAIL_CONCURRENCY, candidates.length) },
+    async () => {
+      while (nextIndex < candidates.length) {
+        const candidate = candidates[nextIndex];
+        nextIndex += 1;
+        if (!candidate) continue;
+        try {
+          const decision = requireSourceAuthority(authorityContext.authority, {
+            boundary: "fetch",
+            resource: authorityContext.resource,
+            url: candidate.item.link
+          });
+          if (!decision.canonicalUrl) continue;
+          const response = await fetchTextWithSafeRequest(
+            decision.canonicalUrl,
+            Math.min(Math.max(timeoutMs, 1), ANNOUNCEMENT_DETAIL_MAX_TIMEOUT_MS),
+            {
+              ...authorityContext,
+              accept: "text/html,application/xhtml+xml;q=0.9",
+              maximumRedirects: 2,
+              maximumResponseBytes: ANNOUNCEMENT_DETAIL_MAX_RESPONSE_BYTES
+            }
+          );
+          if (response.contentType && !/^(?:text\/html|application\/xhtml\+xml)(?:\s*;|$)/iu.test(response.contentType)) continue;
+          const detail = parseGenericAnnouncementDetailHtml(
+            response.text,
+            response.finalUrl,
+            officialSourceUrl,
+            candidate.item
+          );
+          if (detail) hydrated[candidate.index] = mergeListingAndDetailItem(candidate.item, detail);
+        } catch {
+          // A single unsafe, redirected, oversized, slow, or malformed detail
+          // page must not discard the already-validated listing snapshot.
+        }
+      }
+    }
+  );
+  await Promise.all(workers);
+  return hydrated;
 }
 
 export function containsAnnouncementHint(title: string, link: string): boolean {
@@ -310,7 +512,7 @@ export function parseJsonAnnouncements(input: string, sourceUrl: string): Parsed
   }
 
   const items: ParsedAnnouncementItem[] = [];
-  collectJsonAnnouncementItems(data, sourceUrl, items, 0);
+  collectJsonAnnouncementItems(data, sourceUrl, items, 0, Array.isArray(data));
   return dedupeParsedItems(items);
 }
 
@@ -332,28 +534,80 @@ type ParsedPublication =
   | { publicationKind: "date"; publishedDate: string }
   | { publicationKind: "timestamp"; publishedAt: Date };
 
-function parseHtmlDocument(input: string, sourceUrl: string, profile: HtmlParserProfile): ParsedAnnouncementItem[] {
+function parseHtmlDocument(
+  input: string,
+  sourceUrl: string,
+  profile: HtmlParserProfile,
+  contentType?: AnnouncementContentType
+): ParsedAnnouncementItem[] {
   const officialSourceUrl = canonicalizeContentUrl(sourceUrl);
   if (!officialSourceUrl || !isOfficialContentUrl(officialSourceUrl, officialSourceUrl)) return [];
-  const document = stripChromeRegions(input, profile);
-  const anchors = [...document.matchAll(/<a\b([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/giu)];
+  const document = stripNonContentRegions(input);
+  const anchors: RegExpMatchArray[] = [];
+  for (const anchor of document.matchAll(/<a\b([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/giu)) {
+    anchors.push(anchor);
+    if (anchors.length >= ANNOUNCEMENT_HTML_MAX_ANCHORS) break;
+  }
+  const anchorAncestors = buildAnchorAncestorChains(document, anchors.map((anchor) => anchor.index ?? 0));
+  const expectedContentType = contentType ?? inferListingContentType(officialSourceUrl);
+  const linkOccurrences = new Map<string, number>();
+  for (const anchor of anchors) {
+    const attributes = `${anchor[1] ?? ""} ${anchor[3] ?? ""}`;
+    const rawHref = normalizeDisplayText(anchor[2], 2_048);
+    const href = profile === "generic"
+      ? resolveBandirmaEventListingHref(rawHref, attributes, officialSourceUrl, expectedContentType) ?? rawHref
+      : rawHref;
+    const link = canonicalizeContentUrl(href, officialSourceUrl);
+    const key = link ? canonicalContentKey(link) : null;
+    if (key) linkOccurrences.set(key, (linkOccurrences.get(key) ?? 0) + 1);
+  }
   const results: ParsedAnnouncementItem[] = [];
 
   for (const anchor of anchors) {
     const attributes = `${anchor[1] ?? ""} ${anchor[3] ?? ""}`;
     if (isChromeAnchor(attributes)) continue;
-    const href = normalizeDisplayText(anchor[2], 2_048);
-    const rawTitle = anchor[4] ?? "";
-    const normalizedTitle = normalizeDisplayText(rawTitle, 500);
+    const rawHref = normalizeDisplayText(anchor[2], 2_048);
+    const href = profile === "generic"
+      ? resolveBandirmaEventListingHref(rawHref, attributes, officialSourceUrl, expectedContentType) ?? rawHref
+      : rawHref;
+    const ancestors = anchorAncestors.get(anchor.index ?? 0) ?? [];
+    if (ancestors.some((ancestor) => isChromeHtmlAncestor(ancestor, profile))) continue;
+    let rawTitle = anchor[4] ?? "";
+    let normalizedTitle = normalizeDisplayText(rawTitle, 500);
+    if (profile === "generic" && (!normalizedTitle || isLowValueAnchorTitle(normalizedTitle))) {
+      rawTitle = extractAnchorMetadataTitle(attributes, anchor[4] ?? "") ?? rawTitle;
+      normalizedTitle = normalizeDisplayText(rawTitle, 500);
+    }
+    if (profile === "generic" && (!normalizedTitle || isLowValueAnchorTitle(normalizedTitle))) {
+      rawTitle = extractGenericContentRowTitle(document, anchor.index ?? 0, ancestors) ?? rawTitle;
+      normalizedTitle = normalizeDisplayText(rawTitle, 500);
+    }
     if (!href || !normalizedTitle || isLowValueAnchorTitle(normalizedTitle)) continue;
 
     const candidateUrl = canonicalizeContentUrl(href, officialSourceUrl);
     if (!candidateUrl) continue;
-    if (!containsAnnouncementHint(normalizedTitle, candidateUrl) && !containsAnnouncementHint("", officialSourceUrl)) continue;
-
-    const context = findContainingContentBlock(document, anchor.index ?? 0) ?? anchor[0];
+    if (profile === "generic" && canonicalContentKey(candidateUrl) === canonicalContentKey(officialSourceUrl)) continue;
+    const context = boundedHtmlContext(document, anchor.index ?? 0, ancestors, anchor[0]);
     const timestamps = extractHtmlTimestamps(context, normalizedTitle, officialSourceUrl);
     const summary = extractHtmlSummary(context);
+    if (profile === "generic") {
+      const key = canonicalContentKey(candidateUrl);
+      if (!hasGenericListingItemEvidence({
+        title: normalizedTitle,
+        candidateUrl,
+        ...(expectedContentType ? { expectedContentType } : {}),
+        context,
+        anchorHtml: anchor[0],
+        document,
+        anchorIndex: anchor.index ?? 0,
+        ancestors,
+        linkOccurrences: key ? linkOccurrences.get(key) ?? 0 : 0,
+        timestamps,
+        ...(summary ? { summary } : {})
+      })) continue;
+    } else if (!containsAnnouncementHint(normalizedTitle, candidateUrl) && !containsAnnouncementHint("", officialSourceUrl)) {
+      continue;
+    }
     const item = finalizeParsedItem({
       rawTitle,
       link: candidateUrl,
@@ -366,6 +620,214 @@ function parseHtmlDocument(input: string, sourceUrl: string, profile: HtmlParser
   }
 
   return dedupeParsedItems(results);
+}
+
+function hasGenericListingItemEvidence(input: {
+  title: string;
+  candidateUrl: string;
+  expectedContentType?: AnnouncementContentType;
+  context: string;
+  anchorHtml: string;
+  document: string;
+  anchorIndex: number;
+  ancestors: HtmlAncestor[];
+  linkOccurrences: number;
+  timestamps: { publication: ParsedPublication | Record<string, never>; sourceUpdatedAt?: Date };
+  summary?: string;
+}): boolean {
+  if (input.ancestors.some((ancestor) => isChromeHtmlAncestor(ancestor))) return false;
+  const candidateTypes = listingContentTypes(`${input.title} ${input.candidateUrl}`, input.candidateUrl);
+  if (input.expectedContentType && candidateTypes.has(input.expectedContentType)) return true;
+  if (!input.expectedContentType) return candidateTypes.size > 0;
+
+  const pathTypes = listingContentTypes(input.candidateUrl, input.candidateUrl);
+  if (pathTypes.size > 0 && !pathTypes.has(input.expectedContentType)) return false;
+  const contentAncestors = input.ancestors;
+  if (contentAncestors.some((ancestor) => ancestor.tag === "article")) return true;
+  const rowAncestor = [...contentAncestors].reverse().find(isContentRowAncestor);
+  if (rowAncestor) {
+    const rowWindow = boundedHtmlAncestorContent(input.document, input.anchorIndex, rowAncestor);
+    if (isTypedContentRowAncestor(rowAncestor) || hasGenericContentRowSignal(rowWindow)) return true;
+  }
+  if (input.context === input.anchorHtml) {
+    return input.linkOccurrences > 1 && contentAncestors.some((ancestor) => /^h[1-6]$/u.test(ancestor.tag));
+  }
+  if (/^\s*<article\b/iu.test(input.context)) return true;
+  if (/^\s*<(?:li|section|div)\b[^>]*(?:class|id)=["'][^"']*(?:announcement|duyuru|news|haber|event|etkinlik|post|entry|content[-_ ]?item)[^"']*["']/iu.test(input.context)) {
+    return true;
+  }
+  if (Object.keys(input.timestamps.publication).length > 0 || input.timestamps.sourceUpdatedAt || input.summary) return true;
+  return /\b(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-]20\d{2}\b/u.test(normalizeDisplayText(input.context, 5_000));
+}
+
+function inferListingContentType(sourceUrl: string): AnnouncementContentType | undefined {
+  const types = listingContentTypes(sourceUrl, sourceUrl);
+  return types.size === 1 ? [...types][0] : undefined;
+}
+
+function listingContentTypes(value: string, url: string): Set<AnnouncementContentType> {
+  const folded = foldAnchorTitle(value);
+  const words = new Set(folded.split(" "));
+  const types = new Set<AnnouncementContentType>();
+  if (["duyuru", "duyurular", "duyurusu", "announcement", "announcements", "notice", "notices", "ilan", "ilanlar"].some((word) => words.has(word))) {
+    types.add("announcement");
+  }
+  if (["haber", "haberler", "news"].some((word) => words.has(word))) types.add("news");
+  if (["etkinlik", "etkinlikler", "event", "events"].some((word) => words.has(word))) types.add("event");
+  try {
+    const pathSegments = new URL(url).pathname.split("/").filter(Boolean).map(foldAnchorTitle);
+    if (pathSegments.includes("d")) types.add("announcement");
+    if (pathSegments.includes("h")) types.add("news");
+    if (pathSegments.includes("e")) types.add("event");
+  } catch {
+    // The caller already canonicalizes candidate URLs; an invalid URL has no hint.
+  }
+  return types;
+}
+
+interface HtmlAncestor {
+  tag: string;
+  attributes: string;
+  start: number;
+  end?: number;
+}
+
+function buildAnchorAncestorChains(input: string, anchorIndexes: number[]): Map<number, HtmlAncestor[]> {
+  const indexes = [...anchorIndexes].sort((left, right) => left - right);
+  const result = new Map<number, HtmlAncestor[]>();
+  const stack: HtmlAncestor[] = [];
+  const voidElements = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+  let nextAnchor = 0;
+  let overflowDepth = 0;
+  for (const token of input.matchAll(/<(\/?)\s*([a-z][\w-]*)\b([^>]*)>/giu)) {
+    const tokenIndex = token.index ?? 0;
+    while ((indexes[nextAnchor] ?? Number.POSITIVE_INFINITY) <= tokenIndex) {
+      result.set(indexes[nextAnchor]!, overflowDepth > 0
+        ? [...stack, { tag: "ancestor-depth-overflow", attributes: "", start: tokenIndex }]
+        : [...stack]);
+      nextAnchor += 1;
+    }
+    const tag = (token[2] ?? "").toLocaleLowerCase("en-US");
+    if (token[1]) {
+      if (overflowDepth > 0) {
+        overflowDepth -= 1;
+        continue;
+      }
+      const matching = stack.map((ancestor) => ancestor.tag).lastIndexOf(tag);
+      if (matching >= 0) {
+        stack[matching]!.end = tokenIndex + token[0].length;
+        stack.splice(matching);
+      }
+      continue;
+    }
+    const attributes = token[3] ?? "";
+    if (!voidElements.has(tag) && !/\/\s*$/u.test(attributes)) {
+      if (stack.length >= ANNOUNCEMENT_HTML_MAX_ANCESTORS) overflowDepth += 1;
+      else stack.push({ tag, attributes, start: tokenIndex });
+    }
+  }
+  while (nextAnchor < indexes.length) {
+    result.set(indexes[nextAnchor]!, [...stack]);
+    nextAnchor += 1;
+  }
+  return result;
+}
+
+function isChromeHtmlAncestor(ancestor: HtmlAncestor, profile: HtmlParserProfile = "generic"): boolean {
+  if (ancestor.tag === "ancestor-depth-overflow") return true;
+  if (["nav", "footer", "aside"].includes(ancestor.tag)) return true;
+  const role = foldAnchorTitle(readHtmlAttribute(ancestor.attributes, "role") ?? "");
+  if (["banner", "contentinfo", "menu", "menubar", "navigation"].includes(role)) return true;
+  return [readHtmlAttribute(ancestor.attributes, "class"), readHtmlAttribute(ancestor.attributes, "id")]
+    .filter((value): value is string => Boolean(value))
+    .flatMap((value) => value.split(/\s+/u))
+    .some((value) => isChromeIdentityToken(value, profile));
+}
+
+function isChromeIdentityToken(value: string, profile: HtmlParserProfile = "generic"): boolean {
+  const token = normalizeDisplayText(value, 200).toLocaleLowerCase("en-US");
+  if (CHROME_IDENTITY_TOKEN.test(token)) return true;
+  if (profile === "yok") return ["quick-links", "quick_links", "corporate-links", "corporate_links", "bagli-kurulus", "bagli_kurulus"].includes(token);
+  return profile === "ankara" && ["widget-area", "widget_area"].includes(token);
+}
+
+function isTypedContentRowAncestor(ancestor: HtmlAncestor): boolean {
+  const identityWords = new Set(foldAnchorTitle([
+    readHtmlAttribute(ancestor.attributes, "class"),
+    readHtmlAttribute(ancestor.attributes, "id")
+  ].filter(Boolean).join(" ")).split(" "));
+  return ["announcement", "duyuru", "news", "haber", "event", "etkinlik"].some((word) => identityWords.has(word))
+    && ["item", "card", "row"].some((word) => identityWords.has(word));
+}
+
+function isContentRowAncestor(ancestor: HtmlAncestor): boolean {
+  if (isTypedContentRowAncestor(ancestor)) return true;
+  const classes = readClassNames(ancestor.attributes);
+  return ["item", "card", "post", "entry", "row", "media", "well", "cbp-item"].some((name) => classes.has(name));
+}
+
+function hasGenericContentRowSignal(input: string): boolean {
+  return /<(?:time)\b|(?:class|id)=["'][^"']*(?:date|tarih|summary|excerpt|description|ozet)[^"']*["']/iu.test(input)
+    || /\b(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-]20\d{2}\b/u.test(normalizeDisplayText(input, 5_000));
+}
+
+function extractGenericContentRowTitle(input: string, anchorIndex: number, ancestors: HtmlAncestor[]): string | undefined {
+  if (ancestors.some((ancestor) => isChromeHtmlAncestor(ancestor))) return undefined;
+  const rowAncestor = [...ancestors].reverse().find(isContentRowAncestor);
+  if (!rowAncestor) return undefined;
+  const beforeAnchor = input.slice(
+    Math.max(rowAncestor.start, anchorIndex - ANNOUNCEMENT_HTML_ROW_EVIDENCE_RADIUS),
+    anchorIndex
+  );
+  const rawTitle = [...beforeAnchor.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/giu)].at(-1)?.[1];
+  const normalizedTitle = normalizeDisplayText(rawTitle, 500);
+  return normalizedTitle && !isLowValueAnchorTitle(normalizedTitle) ? rawTitle : undefined;
+}
+
+function resolveBandirmaEventListingHref(
+  href: string,
+  attributes: string,
+  sourceUrl: string,
+  contentType?: AnnouncementContentType
+): string | undefined {
+  if (contentType !== "event" || href.toLocaleLowerCase("tr-TR") !== "#secilietkinlikdetay") return undefined;
+  const source = new URL(sourceUrl);
+  if (source.hostname !== "bandirma.edu.tr" && !source.hostname.endsWith(".bandirma.edu.tr")) return undefined;
+  if (!readClassNames(attributes).has("etkinliklink")) return undefined;
+  const segments = source.pathname.split("/").filter(Boolean);
+  if (segments.length !== 4 || segments[2]?.toLocaleLowerCase("tr-TR") !== "etkinlik" || segments[3]?.toLocaleLowerCase("tr-TR") !== "liste") {
+    return undefined;
+  }
+  const id = readHtmlAttribute(attributes, "data-id") ?? "";
+  const slug = readHtmlAttribute(attributes, "data-slug") ?? "";
+  const language = readHtmlAttribute(attributes, "data-lang") ?? "";
+  const unit = readHtmlAttribute(attributes, "data-birimseo") ?? "";
+  if (!/^\d{1,12}$/u.test(id) || !/^[a-z0-9-]{1,300}$/iu.test(slug) || language !== segments[0] || unit !== segments[1]) {
+    return undefined;
+  }
+  source.pathname = `${source.pathname.replace(/\/$/u, "")}/${slug}-${id}`;
+  source.hash = "";
+  return source.toString();
+}
+
+function boundedHtmlAncestorContent(input: string, anchorIndex: number, ancestor: HtmlAncestor): string {
+  if (ancestor.end === undefined) return "";
+  return input.slice(
+    Math.max(ancestor.start, anchorIndex - ANNOUNCEMENT_HTML_ROW_EVIDENCE_RADIUS),
+    Math.min(ancestor.end, anchorIndex + ANNOUNCEMENT_HTML_ROW_EVIDENCE_RADIUS)
+  );
+}
+
+function boundedHtmlContext(
+  input: string,
+  anchorIndex: number,
+  ancestors: HtmlAncestor[],
+  anchorHtml: string
+): string {
+  const contentAncestor = [...ancestors].reverse().find((ancestor) => (
+    ancestor.tag === "article" || ancestor.tag === "li" || isContentRowAncestor(ancestor)
+  ));
+  return contentAncestor ? boundedHtmlAncestorContent(input, anchorIndex, contentAncestor) || anchorHtml : anchorHtml;
 }
 
 export function assertSourceAdapterLayout(
@@ -435,6 +897,7 @@ function readClassNames(attributes: string): Set<string> {
 function finalizeParsedItem(input: ParsedItemCandidate, officialSourceUrl: string): ParsedAnnouncementItem | null {
   const normalizedTitle = normalizeDisplayText(input.rawTitle, 500);
   if (!normalizedTitle || isLowValueAnchorTitle(normalizedTitle) || isNavigationOrChromeTitle(normalizedTitle)) return null;
+  if (isListingNavigationUrl(input.link)) return null;
   const decision = evaluateContentTrust({
     rawTitle: input.rawTitle,
     url: input.link,
@@ -468,50 +931,60 @@ function finalizeParsedItem(input: ParsedItemCandidate, officialSourceUrl: strin
   };
 }
 
+function isListingNavigationUrl(input: string): boolean {
+  try {
+    const url = new URL(input);
+    const pathname = url.pathname.replace(/\/+$/u, "") || "/";
+    if (/\/(?:duyuru[-_]?arsiv|arsiv|archive|archives)$/iu.test(pathname)) return true;
+    if (/\/date\/20\d{2}\/(?:0?[1-9]|1[0-2])$/iu.test(pathname)) return true;
+    if (/(?:^|\/)(?:duyuru|haber|etkinlik)\/(?:liste|index(?:\.html?)?)$/iu.test(pathname)) return true;
+    if (/(?:^|\/)(?:duyurular|haberler|etkinlikler|announcements|events|news)$/iu.test(pathname)) return true;
+    return (url.hostname === "baskent.edu.tr" || url.hostname.endsWith(".baskent.edu.tr"))
+      && /^\/tr\/(?:haberler|etkinlikler)\/(?:egitim|basvuru|taziye|konferans|konusma|yarisma|toren)\/\d+$/iu.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
 function stripChromeRegions(input: string, profile: HtmlParserProfile): string {
-  let output = input
-    .replace(/<!--([\s\S]*?)-->/gu, " ")
-    .replace(/<(?:script|style|template|noscript)\b[^>]*>[\s\S]*?<\/(?:script|style|template|noscript)\s*>/giu, " ");
+  let output = stripNonContentRegions(input);
   const profileMarkers = profile === "yok"
-    ? "quick-links|corporate-links|related-links|bagli-kurulus"
+    ? "quick[-_]links|corporate[-_]links|bagli[-_]kurulus"
     : profile === "ankara"
-      ? "main-navigation|site-footer|widget-area|related-links"
-      : "related-links";
-  const chromeMarkers = `nav(?:igation)?|navbar|menu|breadcrumb|sidebar|footer|pagination|pager|page-numbers|${profileMarkers}`;
+      ? "widget[-_]area"
+      : "(?!)";
+  const chromeMarkers = `(?<![a-z0-9_-])(?:${CHROME_IDENTITY_TOKEN_SOURCE}|${profileMarkers})(?![a-z0-9_-])`;
 
   for (let pass = 0; pass < 4; pass += 1) {
     const previous = output;
     output = output
       .replace(/<(nav|footer|aside)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, " ")
-      .replace(new RegExp(`<(div|section|ul|ol|header)\\b(?=[^>]*(?:(?:class|id)=["'][^"']*(?:${chromeMarkers})[^"']*["']|role=["'](?:navigation|menu|menubar|contentinfo)["']))[^>]*>[\\s\\S]*?<\\/\\1\\s*>`, "giu"), " ");
+      .replace(new RegExp(`<(div|section|ul|ol|header)\\b(?=[^>]*(?:(?:class|id)=["'][^"']*(?:${chromeMarkers})[^"']*["']|role=["'](?:banner|navigation|menu|menubar|contentinfo)["']))[^>]*>[\\s\\S]*?<\\/\\1\\s*>`, "giu"), " ");
     if (output === previous) break;
   }
   return output;
 }
 
-function isChromeAnchor(attributes: string): boolean {
-  const normalized = normalizeDisplayText(attributes, 1_000).toLocaleLowerCase("tr-TR");
-  return /\b(?:breadcrumb|footer|menu|nav(?:igation)?|next|page-numbers|pager|pagination|previous|sidebar)\b/u.test(normalized)
-    || /\brel\s*=\s*["']?(?:next|prev)/iu.test(attributes)
-    || /\brole\s*=\s*["']?(?:menuitem|navigation)/iu.test(attributes);
+function stripNonContentRegions(input: string): string {
+  return input
+    .replace(/<!--([\s\S]*?)-->/gu, " ")
+    .replace(/<(?:script|style|template|noscript)\b[^>]*>[\s\S]*?<\/(?:script|style|template|noscript)\s*>/giu, " ");
 }
 
-function findContainingContentBlock(input: string, anchorIndex: number): string | undefined {
-  const before = input.slice(0, anchorIndex);
-  const candidates: Array<{ start: number; end: number }> = [];
-  for (const tag of ["article", "li"] as const) {
-    const openings = [...before.matchAll(new RegExp(`<${tag}\\b`, "giu"))];
-    const start = openings.at(-1)?.index;
-    if (start === undefined) continue;
-    const closingsBefore = [...before.matchAll(new RegExp(`<\\/${tag}\\s*>`, "giu"))];
-    if ((closingsBefore.at(-1)?.index ?? -1) > start) continue;
-    const after = input.slice(anchorIndex);
-    const closing = after.match(new RegExp(`<\\/${tag}\\s*>`, "iu"));
-    if (closing?.index === undefined) continue;
-    candidates.push({ start, end: anchorIndex + closing.index + closing[0].length });
-  }
-  const selected = candidates.sort((left, right) => (left.end - left.start) - (right.end - right.start))[0];
-  return selected ? input.slice(selected.start, selected.end) : undefined;
+function isChromeAnchor(attributes: string): boolean {
+  const role = foldAnchorTitle(readHtmlAttribute(attributes, "role") ?? "");
+  if (["menuitem", "navigation"].includes(role)) return true;
+  const rel = foldAnchorTitle(readHtmlAttribute(attributes, "rel") ?? "");
+  if (rel.split(" ").some((value) => value === "next" || value === "prev")) return true;
+  const label = foldAnchorTitle([
+    readHtmlAttribute(attributes, "aria-label"),
+    readHtmlAttribute(attributes, "title")
+  ].filter(Boolean).join(" "));
+  if (["next", "previous", "onceki", "sonraki"].includes(label)) return true;
+  return [readHtmlAttribute(attributes, "class"), readHtmlAttribute(attributes, "id")]
+    .filter((value): value is string => Boolean(value))
+    .flatMap((value) => value.split(/\s+/u))
+    .some((value) => isChromeIdentityToken(value));
 }
 
 function extractHtmlTimestamps(context: string, title: string, sourceUrl: string): { publication: ParsedPublication | Record<string, never>; sourceUpdatedAt?: Date } {
@@ -576,6 +1049,21 @@ function readHtmlAttribute(attributes: string, name: string): string | undefined
   return attributes.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, "iu"))?.[1];
 }
 
+function extractAnchorMetadataTitle(attributes: string, body: string): string | undefined {
+  const imageAttributes = body.match(/<img\b([^>]*)>/iu)?.[1] ?? "";
+  for (const candidate of [
+    readHtmlAttribute(attributes, "aria-label"),
+    readHtmlAttribute(attributes, "title"),
+    readHtmlAttribute(attributes, "alt"),
+    readHtmlAttribute(imageAttributes, "alt"),
+    readHtmlAttribute(imageAttributes, "title")
+  ]) {
+    const normalized = normalizeDisplayText(candidate, 500);
+    if (normalized && !isLowValueAnchorTitle(normalized)) return candidate;
+  }
+  return undefined;
+}
+
 function parseLabeledDate(input: string, label: RegExp): Date | undefined {
   const folded = foldAnchorTitle(input);
   const match = folded.match(new RegExp(`${label.source}\\s*[: -]*((?:\\d{1,2}[./-]){2}20\\d{2}|\\d{1,2}\\s+[a-z]+\\s+20\\d{2}|20\\d{2}-\\d{2}-\\d{2}(?:t\\d{2}:\\d{2}(?::\\d{2})?(?:z|[+-]\\d{2}:?\\d{2})?)?)`, "u"));
@@ -592,6 +1080,86 @@ function extractHtmlSummary(context: string): string | undefined {
   const match = context.match(/<p\b(?=[^>]*(?:class|itemprop)=["'][^"']*(?:summary|excerpt|description|ozet)[^"']*["'])[^>]*>([\s\S]*?)<\/p>/iu);
   const summary = match?.[1] ? normalizeDisplayText(match[1], 1_200) : "";
   return summary || undefined;
+}
+
+function isGenericHtmlSnapshot(input: string, sourceUrl: string, parser: AnnouncementSourceParser): boolean {
+  const resolvedParser = parser === "auto" ? (looksLikeXmlFeed(input) ? "rss" : looksLikeJson(input) ? "json" : "html") : parser;
+  return resolvedParser === "html" && !isYokSourceUrl(sourceUrl) && !isAnkaraUniversitySourceUrl(sourceUrl);
+}
+
+function isDetailHydrationCandidate(item: ParsedAnnouncementItem, officialSourceUrl: string): boolean {
+  const canonical = canonicalizeContentUrl(item.link);
+  if (!canonical || canonicalContentKey(canonical) === canonicalContentKey(officialSourceUrl)) return false;
+  const pathname = new URL(canonical).pathname;
+  if (/\.(?:7z|avi|csv|docx?|gif|jpe?g|mov|mp3|mp4|pdf|png|pptx?|rar|svg|webp|xlsx?|zip)$/iu.test(pathname)) return false;
+  const bodyLength = item.body?.reduce((total, block) => total + block.text.length, 0) ?? 0;
+  return bodyLength < 2_000;
+}
+
+function selectGenericDetailContent(input: string): string {
+  const candidates: string[] = [];
+  for (const tag of ["article", "main"] as const) {
+    for (const match of input.matchAll(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, "giu"))) {
+      if (match[0]) candidates.push(match[0]);
+    }
+  }
+  for (const match of input.matchAll(/<(section|div)\b(?=[^>]*(?:class|id)=["'][^"']*(?:article|content|detail|entry|post|duyuru|haber|etkinlik)[^"']*["'])[^>]*>[\s\S]*?<\/\1\s*>/giu)) {
+    if (match[0]) candidates.push(match[0]);
+  }
+  const richest = candidates
+    .map((html) => ({ html, textLength: normalizeDisplayText(html, 20_000).length }))
+    .filter((candidate) => candidate.textLength > 0)
+    .sort((left, right) => right.textLength - left.textLength)[0]?.html;
+  return richest ?? input;
+}
+
+function extractGenericDetailTitle(content: string, document: string): string | undefined {
+  for (const input of [content, document]) {
+    const heading = input.match(/<h1\b[^>]*>([\s\S]*?)<\/h1\s*>/iu)?.[1]
+      ?? input.match(/<[a-z][\w-]*\b(?=[^>]*itemprop=["']headline["'])[^>]*>([\s\S]*?)<\/[a-z][\w-]*\s*>/iu)?.[1];
+    const normalized = normalizeDisplayText(heading, 500);
+    if (normalized && !isNavigationOrChromeTitle(normalized)) return normalized;
+  }
+  const openGraphTitle = document.match(/<meta\b(?=[^>]*(?:property|name)=["'](?:og:title|twitter:title)["'])[^>]*content=["']([^"']+)["'][^>]*>/iu)?.[1];
+  return normalizeDisplayText(openGraphTitle, 500) || undefined;
+}
+
+function extractGenericDetailSummary(content: string, document: string): string | undefined {
+  const explicit = extractHtmlSummary(content)
+    ?? document.match(/<meta\b(?=[^>]*name=["']description["'])[^>]*content=["']([^"']+)["'][^>]*>/iu)?.[1]
+    ?? content.match(/<p\b[^>]*>([\s\S]*?)<\/p\s*>/iu)?.[1];
+  return normalizeDisplayText(explicit, 1_200) || undefined;
+}
+
+function publicationFromParsedItem(item: ParsedAnnouncementItem): ParsedPublication | undefined {
+  if (item.publicationKind === "date" && item.publishedDate) {
+    return { publicationKind: "date", publishedDate: item.publishedDate };
+  }
+  return item.publishedAt ? { publicationKind: "timestamp", publishedAt: item.publishedAt } : undefined;
+}
+
+function mergeListingAndDetailItem(listing: ParsedAnnouncementItem, detail: ParsedAnnouncementItem): ParsedAnnouncementItem {
+  const detailBodyLength = detail.body?.reduce((total, block) => total + block.text.length, 0) ?? 0;
+  const listingBodyLength = listing.body?.reduce((total, block) => total + block.text.length, 0) ?? 0;
+  const publication = publicationFromParsedItem(listing) ?? publicationFromParsedItem(detail);
+  const body = detailBodyLength > listingBodyLength ? detail.body : listing.body;
+  const keyDates = detailBodyLength > listingBodyLength
+    ? detail.keyDates ?? listing.keyDates
+    : listing.keyDates ?? detail.keyDates;
+  const rawTitle = detail.rawTitle ?? listing.rawTitle;
+  return {
+    ...listing,
+    title: detail.title,
+    ...(rawTitle ? { rawTitle } : {}),
+    link: detail.link,
+    ...(publication ?? {}),
+    ...(detail.sourceUpdatedAt ?? listing.sourceUpdatedAt
+      ? { sourceUpdatedAt: detail.sourceUpdatedAt ?? listing.sourceUpdatedAt }
+      : {}),
+    ...(detail.summary ?? listing.summary ? { summary: detail.summary ?? listing.summary } : {}),
+    ...(body?.length ? { body } : {}),
+    ...(keyDates?.length ? { keyDates } : {})
+  };
 }
 
 function isYokSourceUrl(input: string): boolean {
@@ -797,11 +1365,10 @@ function hasExplicitEmptyJsonCollection(value: unknown, depth: number): boolean 
   if (depth > 4) return false;
   if (Array.isArray(value)) return value.length === 0;
   if (!isJsonRecord(value)) return false;
-  const collectionKeys = new Set(["items", "data", "results", "value", "announcements", "duyurular", "entries"]);
   for (const [key, nested] of Object.entries(value)) {
     const normalizedKey = foldAnchorTitle(key);
-    if (collectionKeys.has(normalizedKey) && Array.isArray(nested) && nested.length === 0) return true;
-    if (["d", "response", "payload"].includes(normalizedKey) && hasExplicitEmptyJsonCollection(nested, depth + 1)) return true;
+    if (jsonCollectionKeys.has(normalizedKey) && Array.isArray(nested) && nested.length === 0) return true;
+    if (jsonWrapperKeys.has(normalizedKey) && hasExplicitEmptyJsonCollection(nested, depth + 1)) return true;
   }
   return false;
 }
@@ -1081,10 +1648,20 @@ function dedupeParsedItems(items: ParsedAnnouncementItem[]): ParsedAnnouncementI
   return [...unique.values()];
 }
 
-function collectJsonAnnouncementItems(value: unknown, sourceUrl: string, output: ParsedAnnouncementItem[], depth: number): void {
+const jsonCollectionKeys = new Set(["items", "data", "results", "value", "announcements", "duyurular", "entries"]);
+const jsonWrapperKeys = new Set(["d", "response", "payload"]);
+const jsonItemWrapperKeys = new Set(["attributes", "fields", "properties"]);
+
+function collectJsonAnnouncementItems(
+  value: unknown,
+  sourceUrl: string,
+  output: ParsedAnnouncementItem[],
+  depth: number,
+  allowItem: boolean
+): void {
   if (depth > 8 || output.length >= 120) return;
   if (Array.isArray(value)) {
-    for (const item of value) collectJsonAnnouncementItems(item, sourceUrl, output, depth + 1);
+    for (const item of value) collectJsonAnnouncementItems(item, sourceUrl, output, depth + 1, true);
     return;
   }
 
@@ -1097,7 +1674,7 @@ function collectJsonAnnouncementItems(value: unknown, sourceUrl: string, output:
   const updated = readJsonRawText(value, ["sourceUpdatedAt", "updatedAt", "modifiedAt", "updateDate", "lastModified", "guncellenmeTarihi", "GüncellenmeTarihi"]);
   const absoluteLink = link ? canonicalizeContentUrl(link, sourceUrl) : null;
 
-  if (rawTitle && absoluteLink && (containsAnnouncementHint(normalizeDisplayText(rawTitle), absoluteLink) || containsAnnouncementHint("", sourceUrl))) {
+  if (allowItem && rawTitle && absoluteLink && (containsAnnouncementHint(normalizeDisplayText(rawTitle), absoluteLink) || containsAnnouncementHint("", sourceUrl))) {
     const publication = published ? parsePublicationMaybe(normalizeDisplayText(published)) : undefined;
     const sourceUpdatedAt = updated ? parseDateMaybe(normalizeDisplayText(updated)) : undefined;
     const summaryText = summary ?? richBody;
@@ -1112,7 +1689,12 @@ function collectJsonAnnouncementItems(value: unknown, sourceUrl: string, output:
     if (item) output.push(item);
   }
 
-  for (const nested of Object.values(value)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1);
+  for (const [key, nested] of Object.entries(value)) {
+    const normalizedKey = foldAnchorTitle(key);
+    if (jsonCollectionKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, true);
+    else if (jsonWrapperKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, Array.isArray(nested));
+    else if (allowItem && jsonItemWrapperKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, true);
+  }
 }
 
 const turkishMonths: Record<string, number> = {
@@ -1180,8 +1762,8 @@ async function fetchTextWithSafeRequest(
   const authorityContext = normalizeSourceAuthorityFetchContext(input);
   const response = await safeOutboundRequest(sourceUrl, {
     timeoutMs,
-    maximumRedirects: 5,
-    maximumResponseBytes: 5 * 1024 * 1024,
+    maximumRedirects: input.maximumRedirects ?? 5,
+    maximumResponseBytes: input.maximumResponseBytes ?? 5 * 1024 * 1024,
     headers: {
       Accept: input.accept ?? "text/html,*/*;q=0.8",
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
@@ -1209,12 +1791,14 @@ async function fetchTextWithSafeRequest(
   }
   const etag = normalizedResponseValidator(response.headers.etag, 512);
   const lastModified = normalizedResponseValidator(response.headers["last-modified"], 128);
+  const contentType = normalizedResponseValidator(response.headers["content-type"], 256);
   return {
     text: response.body.toString("utf8"),
     finalUrl: response.finalUrl,
     status: response.status,
     ...(etag ? { etag } : {}),
     ...(lastModified ? { lastModified } : {}),
+    ...(contentType ? { contentType } : {}),
     ...(response.status === 304 ? {} : { contentHash: createHash("sha256").update(response.body).digest("hex") })
   };
 }

@@ -1,6 +1,11 @@
 import "reflect-metadata";
 import { validate, type ValidationError } from "class-validator";
 import { describe, expect, it } from "vitest";
+import {
+  ACADEMIC_CONTENT_BODY_MAX_BLOCKS,
+  ACADEMIC_CONTENT_SUMMARY_MAX_LENGTH
+} from "../../../packages/shared/src/contracts.js";
+import { UpdateAnnouncementReviewItemDto } from "../src/modules/announcements/announcements.dto.js";
 import { AUTH_AFFILIATION_ID_MAX_LENGTH, AUTH_EMAIL_MAX_LENGTH, AUTH_FULL_NAME_MAX_LENGTH, AUTH_PASSWORD_MAX_LENGTH } from "../src/modules/auth/auth.constants.js";
 import {
   CreateStudentAlarmDto,
@@ -35,6 +40,18 @@ const validPreferences = {
 };
 
 describe("non-auth API input bounds", () => {
+  it("uses the shared mobile content limits for review updates", async () => {
+    const fence = { expectedContentFingerprint: "a".repeat(64) };
+    expectConstraint(await errorsFor(UpdateAnnouncementReviewItemDto, {
+      ...fence,
+      summary: "x".repeat(ACADEMIC_CONTENT_SUMMARY_MAX_LENGTH + 1)
+    }), "summary", "maxLength");
+    expectConstraint(await errorsFor(UpdateAnnouncementReviewItemDto, {
+      ...fence,
+      body: Array.from({ length: ACADEMIC_CONTENT_BODY_MAX_BLOCKS + 1 }, () => ({ type: "paragraph", text: "x" }))
+    }), "body", "arrayMaxSize");
+  });
+
   it.each([
     ["nested category value", { exam: { enabled: true } }],
     ["blocked category key", JSON.parse('{"__proto__":true}')],

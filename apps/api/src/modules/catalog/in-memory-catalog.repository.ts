@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { CatalogRepository, CatalogStatus, DepartmentRecord, FacultyRecord, UniversityRecord } from "./catalog.types.js";
+import type { CatalogRepository, CatalogStatus, DepartmentRecord, DepartmentRecordUpdate, FacultyRecord, FacultyRecordUpdate, UniversityRecord, UniversityRecordUpdate, VerifiedSourceUrlFill } from "./catalog.types.js";
 
 @Injectable()
 export class InMemoryCatalogRepository implements CatalogRepository {
@@ -15,10 +15,10 @@ export class InMemoryCatalogRepository implements CatalogRepository {
     return university;
   }
 
-  async updateUniversity(id: string, input: Partial<Omit<UniversityRecord, "id" | "createdAt" | "updatedAt">>): Promise<UniversityRecord | null> {
+  async updateUniversity(id: string, input: UniversityRecordUpdate): Promise<UniversityRecord | null> {
     const university = this.universities.get(id);
     if (!university) return null;
-    const updated: UniversityRecord = { ...university, ...input, updatedAt: new Date() };
+    const updated = applyNullableCatalogUpdate(university, input);
     this.universities.set(id, updated);
     return updated;
   }
@@ -53,10 +53,10 @@ export class InMemoryCatalogRepository implements CatalogRepository {
     return faculty;
   }
 
-  async updateFaculty(id: string, input: Partial<Omit<FacultyRecord, "id" | "createdAt" | "updatedAt">>): Promise<FacultyRecord | null> {
+  async updateFaculty(id: string, input: FacultyRecordUpdate): Promise<FacultyRecord | null> {
     const faculty = this.faculties.get(id);
     if (!faculty) return null;
-    const updated: FacultyRecord = { ...faculty, ...input, updatedAt: new Date() };
+    const updated = applyNullableCatalogUpdate(faculty, input);
     this.faculties.set(id, updated);
     return updated;
   }
@@ -76,10 +76,10 @@ export class InMemoryCatalogRepository implements CatalogRepository {
     return department;
   }
 
-  async updateDepartment(id: string, input: Partial<Omit<DepartmentRecord, "id" | "createdAt" | "updatedAt">>): Promise<DepartmentRecord | null> {
+  async updateDepartment(id: string, input: DepartmentRecordUpdate): Promise<DepartmentRecord | null> {
     const department = this.departments.get(id);
     if (!department) return null;
-    const updated: DepartmentRecord = { ...department, ...input, updatedAt: new Date() };
+    const updated = applyNullableCatalogUpdate(department, input);
     this.departments.set(id, updated);
     return updated;
   }
@@ -90,4 +90,36 @@ export class InMemoryCatalogRepository implements CatalogRepository {
       .filter((department) => (status ? department.status === status : true))
       .sort((left, right) => left.name.localeCompare(right.name, "tr-TR"));
   }
+
+  async compareAndFillVerifiedSourceUrl(input: VerifiedSourceUrlFill): Promise<boolean> {
+    const records = input.scopeType === "university"
+      ? this.universities
+      : input.scopeType === "faculty" ? this.faculties : this.departments;
+    const current = records.get(input.scopeId) as Record<string, unknown> | undefined;
+    if (!current || !verifiedSourceValueMatches(current[input.field], input.expectedValue)) return false;
+    if (current[input.field] !== input.verifiedUrl) {
+      records.set(input.scopeId, {
+        ...current,
+        [input.field]: input.verifiedUrl,
+        updatedAt: new Date()
+      } as never);
+    }
+    return true;
+  }
+}
+
+function applyNullableCatalogUpdate<TRecord extends { updatedAt: Date }>(
+  record: TRecord,
+  input: object
+): TRecord {
+  const updated: Record<string, unknown> = { ...record, updatedAt: new Date() };
+  for (const [field, value] of Object.entries(input)) {
+    if (value === null) delete updated[field];
+    else if (value !== undefined) updated[field] = value;
+  }
+  return updated as TRecord;
+}
+
+function verifiedSourceValueMatches(value: unknown, expected: string | null): boolean {
+  return expected === null ? value === undefined || value === null || value === "" : value === expected;
 }

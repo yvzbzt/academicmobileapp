@@ -10,6 +10,13 @@ import {
   resolveSourceScopeOwnership,
   type SourceScopeOwnershipIndex
 } from "../domain/source-scope-ownership.js";
+import { isForbiddenIpAddress } from "../common/network/safe-outbound-request.js";
+import {
+  loadBundledVerifiedSourceEvidence,
+  normalizeStrictVerifiedSourceEvidence,
+  type StrictVerifiedSourceEvidence,
+  type VerifiedSourceEvidenceBundleIndex
+} from "./verified-source-evidence.js";
 
 export type VerifiedRegistryReasonCode = SourceAuthorityReasonCode | "owner_evidence_missing";
 
@@ -41,16 +48,18 @@ export interface VerifiedUniversitySource {
   universityId: string;
   universityName: string;
   city?: string;
+  websiteUrl?: string;
   announcementUrl?: string;
   newsUrl?: string;
   eventUrl?: string;
   calendarUrl?: string;
   summerSchoolUrl?: string;
   rawUrls?: Partial<Record<VerifiedUniversitySourceUrlField, string>>;
+  verificationByField?: Partial<Record<VerifiedUniversitySourceUrlField, VerifiedRegistrySourceEvidence>>;
   quarantinedSources?: QuarantinedVerifiedSource[];
 }
 
-export type VerifiedUniversitySourceUrlField = "announcementUrl" | "newsUrl" | "eventUrl" | "calendarUrl" | "summerSchoolUrl";
+export type VerifiedUniversitySourceUrlField = "websiteUrl" | "announcementUrl" | "newsUrl" | "eventUrl" | "calendarUrl" | "summerSchoolUrl";
 
 export interface VerifiedAcademicUnitSource {
   scopeType: "faculty" | "department";
@@ -67,6 +76,7 @@ export interface VerifiedAcademicUnitSource {
   courseScheduleUrl?: string;
   examScheduleUrl?: string;
   rawUrls?: Partial<Record<VerifiedAcademicUnitSourceUrlField, string>>;
+  verificationByField?: Partial<Record<VerifiedAcademicUnitSourceUrlField, VerifiedRegistrySourceEvidence>>;
   quarantinedSources?: QuarantinedVerifiedSource[];
 }
 
@@ -76,11 +86,13 @@ interface RawVerifiedUniversitySource {
   universityId?: unknown;
   universityName?: unknown;
   city?: unknown;
+  websiteUrl?: unknown;
   announcementUrl?: unknown;
   newsUrl?: unknown;
   eventUrl?: unknown;
   calendarUrl?: unknown;
   summerSchoolUrl?: unknown;
+  verificationByField?: unknown;
 }
 
 interface RawVerifiedAcademicUnitSource {
@@ -97,7 +109,10 @@ interface RawVerifiedAcademicUnitSource {
   eventUrl?: unknown;
   courseScheduleUrl?: unknown;
   examScheduleUrl?: unknown;
+  verificationByField?: unknown;
 }
+
+export type VerifiedRegistrySourceEvidence = StrictVerifiedSourceEvidence;
 
 let sourceCache: Promise<VerifiedUniversitySource[]> | null = null;
 let sourceMapCache: Promise<Map<string, VerifiedUniversitySource>> | null = null;
@@ -144,16 +159,17 @@ export async function findVerifiedAcademicUnitSource(input: { facultyId?: string
 
 async function readVerifiedUniversitySources(): Promise<VerifiedUniversitySource[]> {
   try {
-    const [raw, authorities, catalog] = await Promise.all([
+    const [raw, authorities, catalog, evidenceBundle] = await Promise.all([
       readJsonFile(new URL("./verified-university-sources.json", import.meta.url)),
       listVerifiedSourceAuthorities(),
-      readJsonFile(new URL("./turkiye-catalog-seed.json", import.meta.url))
+      readJsonFile(new URL("./turkiye-catalog-seed.json", import.meta.url)),
+      loadBundledVerifiedSourceEvidence()
     ]);
     if (!Array.isArray(raw)) return [];
     const authorityByUniversity = new Map(authorities.map((authority) => [authority.universityId, authority]));
     const scopeOwnership = buildSourceScopeOwnershipIndex(catalog);
     return raw
-      .map((source) => normalizeVerifiedSource(source, authorityByUniversity, scopeOwnership))
+      .map((source) => normalizeVerifiedSource(source, authorityByUniversity, scopeOwnership, evidenceBundle))
       .filter((source): source is VerifiedUniversitySource => Boolean(source));
   } catch {
     return [];
@@ -162,16 +178,17 @@ async function readVerifiedUniversitySources(): Promise<VerifiedUniversitySource
 
 async function readVerifiedAcademicUnitSources(): Promise<VerifiedAcademicUnitSource[]> {
   try {
-    const [raw, authorities, catalog] = await Promise.all([
+    const [raw, authorities, catalog, evidenceBundle] = await Promise.all([
       readJsonFile(new URL("./verified-academic-unit-sources.json", import.meta.url)),
       listVerifiedSourceAuthorities(),
-      readJsonFile(new URL("./turkiye-catalog-seed.json", import.meta.url))
+      readJsonFile(new URL("./turkiye-catalog-seed.json", import.meta.url)),
+      loadBundledVerifiedSourceEvidence()
     ]);
     if (!Array.isArray(raw)) return [];
     const authorityByUniversity = new Map(authorities.map((authority) => [authority.universityId, authority]));
     const scopeOwnership = buildSourceScopeOwnershipIndex(catalog);
     return raw
-      .map((source) => normalizeAcademicUnitSource(source, authorityByUniversity, scopeOwnership))
+      .map((source) => normalizeAcademicUnitSource(source, authorityByUniversity, scopeOwnership, evidenceBundle))
       .filter((source): source is VerifiedAcademicUnitSource => Boolean(source));
   } catch {
     return [];
@@ -218,7 +235,8 @@ function swapUtf16Bytes(data: Buffer): Buffer {
 function normalizeVerifiedSource(
   input: RawVerifiedUniversitySource,
   authorityByUniversity: ReadonlyMap<string, VerifiedSourceAuthority>,
-  scopeOwnership: SourceScopeOwnershipIndex
+  scopeOwnership: SourceScopeOwnershipIndex,
+  evidenceBundle: VerifiedSourceEvidenceBundleIndex
 ): VerifiedUniversitySource | null {
   const universityId = readString(input.universityId);
   if (!universityId) return null;
@@ -238,12 +256,26 @@ function normalizeVerifiedSource(
     authority: authorityByUniversity.get(universityId),
     ...resolvedOwnership
   });
+  const verificationByField = normalizeVerificationByField(
+    input.verificationByField,
+    universitySourceFields,
+    evaluated.operationalUrls,
+    {
+      scopeType: "university",
+      scopeId: universityId,
+      universityId,
+      authority: authorityByUniversity.get(universityId),
+      evidenceBundle,
+      ...resolvedOwnership
+    }
+  );
 
   return {
     universityId,
     universityName,
     ...(city ? { city } : {}),
     ...evaluated.operationalUrls,
+    ...(Object.keys(verificationByField).length > 0 ? { verificationByField } : {}),
     rawUrls,
     quarantinedSources: evaluated.quarantinedSources
   };
@@ -252,7 +284,8 @@ function normalizeVerifiedSource(
 function normalizeAcademicUnitSource(
   input: RawVerifiedAcademicUnitSource,
   authorityByUniversity: ReadonlyMap<string, VerifiedSourceAuthority>,
-  scopeOwnership: SourceScopeOwnershipIndex
+  scopeOwnership: SourceScopeOwnershipIndex,
+  evidenceBundle: VerifiedSourceEvidenceBundleIndex
 ): VerifiedAcademicUnitSource | null {
   const scopeType = input.scopeType === "faculty" || input.scopeType === "department" ? input.scopeType : undefined;
   const universityId = readString(input.universityId);
@@ -282,6 +315,19 @@ function normalizeAcademicUnitSource(
     authority: authorityByUniversity.get(universityId),
     ...resolvedOwnership
   });
+  const verificationByField = normalizeVerificationByField(
+    input.verificationByField,
+    academicUnitSourceFields,
+    evaluated.operationalUrls,
+    {
+      scopeType,
+      scopeId,
+      universityId,
+      authority: authorityByUniversity.get(universityId),
+      evidenceBundle,
+      ...resolvedOwnership
+    }
+  );
 
   return {
     scopeType,
@@ -292,6 +338,7 @@ function normalizeAcademicUnitSource(
     ...(departmentId ? { departmentId } : {}),
     ...(departmentName ? { departmentName } : {}),
     ...evaluated.operationalUrls,
+    ...(Object.keys(verificationByField).length > 0 ? { verificationByField } : {}),
     rawUrls,
     quarantinedSources: evaluated.quarantinedSources
   };
@@ -318,7 +365,7 @@ function normalizeSourceAuthority(input: unknown): VerifiedSourceAuthority | nul
   return { universityId, status, authorityDomains, authorityUrls, evidence, reasonCodes };
 }
 
-const universitySourceFields: readonly VerifiedUniversitySourceUrlField[] = ["announcementUrl", "newsUrl", "eventUrl", "calendarUrl", "summerSchoolUrl"];
+const universitySourceFields: readonly VerifiedUniversitySourceUrlField[] = ["websiteUrl", "announcementUrl", "newsUrl", "eventUrl", "calendarUrl", "summerSchoolUrl"];
 const academicUnitSourceFields: readonly VerifiedAcademicUnitSourceUrlField[] = ["websiteUrl", "announcementUrl", "newsUrl", "eventUrl", "courseScheduleUrl", "examScheduleUrl"];
 
 function readRawUrls<TField extends string>(input: object, fields: readonly TField[]): Partial<Record<TField, string>> {
@@ -328,6 +375,193 @@ function readRawUrls<TField extends string>(input: object, fields: readonly TFie
     if (url) urls[field] = url;
   }
   return urls;
+}
+
+function normalizeVerificationByField<TField extends string>(
+  input: unknown,
+  fields: readonly TField[],
+  operationalUrls: Partial<Record<TField, string>>,
+  context: {
+    scopeType: SourceAuthorityScopeType;
+    scopeId: string;
+    universityId: string;
+    authority: VerifiedSourceAuthority | undefined;
+    evidenceBundle: VerifiedSourceEvidenceBundleIndex;
+    resolvedOwnerAcademicEntityId: string | null;
+    resolvedOwnerUniversityId: string | null;
+  }
+): Partial<Record<TField, VerifiedRegistrySourceEvidence>> {
+  const output: Partial<Record<TField, VerifiedRegistrySourceEvidence>> = {};
+  if (!isRecord(input)) return output;
+  for (const field of fields) {
+    const operationalUrl = operationalUrls[field];
+    if (!operationalUrl) continue;
+    const evidence = normalizeVerificationEvidence(input[field], field, operationalUrl, context);
+    if (evidence) output[field] = evidence;
+  }
+  return output;
+}
+
+function normalizeVerificationEvidence(
+  input: unknown,
+  field: string,
+  operationalUrl: string,
+  context: {
+    scopeType: SourceAuthorityScopeType;
+    scopeId: string;
+    universityId: string;
+    authority: VerifiedSourceAuthority | undefined;
+    evidenceBundle: VerifiedSourceEvidenceBundleIndex;
+    resolvedOwnerAcademicEntityId: string | null;
+    resolvedOwnerUniversityId: string | null;
+  }
+): VerifiedRegistrySourceEvidence | null {
+  const expectedSourceType = sourceTypeForRegistryField(field);
+  if (!expectedSourceType) return null;
+  let evidence: VerifiedRegistrySourceEvidence;
+  try {
+    evidence = normalizeStrictVerifiedSourceEvidence(input, {
+      expectedSourceType,
+      expectedFinalUrl: operationalUrl,
+      expectedUniversityId: context.universityId,
+      expectedUnitType: context.scopeType,
+      expectedScopeId: context.scopeId
+    });
+  } catch {
+    return null;
+  }
+  if (!context.evidenceBundle.has(evidence)) return null;
+
+  const authorityDomains = context.authority?.status === "verified" ? context.authority.authorityDomains : [];
+  for (const url of [evidence.sourceUrl, evidence.finalUrl, evidence.browserFinalUrl, evidence.rawFinalUrl]) {
+    const decision = sourceAuthorityPolicy.evaluate({
+      boundary: "registration",
+      resource: resourceForSourceField(field, url),
+      ownerAcademicEntityId: context.scopeId,
+      ownerUniversityId: context.universityId,
+      resolvedOwnerAcademicEntityId: context.resolvedOwnerAcademicEntityId,
+      resolvedOwnerUniversityId: context.resolvedOwnerUniversityId,
+      scopeType: context.scopeType,
+      scopeId: context.scopeId,
+      authorityDomains,
+      url
+    });
+    if (!decision.allowed) return null;
+  }
+  return evidence;
+}
+
+function sourceTypeForRegistryField(field: string): VerifiedRegistrySourceEvidence["sourceType"] | null {
+  return field === "websiteUrl" ? "academic_unit_page"
+    : field === "announcementUrl" ? "announcement"
+      : field === "newsUrl" ? "news"
+        : field === "eventUrl" ? "event"
+          : field === "calendarUrl" ? "academic_calendar"
+            : field === "courseScheduleUrl" ? "course_schedule"
+              : field === "examScheduleUrl" ? "exam_schedule"
+                : null;
+}
+
+function readDiscoveryMethod(value: unknown): VerifiedRegistrySourceEvidence["discoveryMethod"] | undefined {
+  return value === "canonical_registry" || value === "academic_unit_registry" || value === "navigation"
+    || value === "sitemap" || value === "internal_search" || value === "catalog_unit_homepage"
+    || value === "catalog_unit_sitemap" ? value : undefined;
+}
+
+function readPublicationScope(value: unknown): VerifiedRegistrySourceEvidence["publicationScope"] | undefined {
+  return value === "university" || value === "faculty_shared" || value === "department_specific" || value === "university_system"
+    ? value : undefined;
+}
+
+function readVerificationSampleDetails(value: unknown): VerifiedRegistrySourceEvidence["sampleDetails"] | null {
+  if (!Array.isArray(value) || value.length > 2) return null;
+  const output: VerifiedRegistrySourceEvidence["sampleDetails"] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) return null;
+    const url = readUrl(raw.url);
+    const finalUrl = raw.finalUrl === undefined ? undefined : readUrl(raw.finalUrl);
+    const title = raw.title === undefined ? undefined : readBoundedString(raw.title, 500);
+    const status = raw.status === "verified" || raw.status === "rejected" || raw.status === "blocked" || raw.status === "request_failed"
+      ? raw.status : undefined;
+    const httpStatus = raw.httpStatus === undefined ? undefined : readBoundedInteger(raw.httpStatus, 100, 599);
+    const reasonCodes = readBoundedStringArray(raw.reasonCodes ?? [], 16, 200);
+    if (!url || !status || !reasonCodes || raw.finalUrl !== undefined && !finalUrl
+      || raw.title !== undefined && !title || raw.httpStatus !== undefined && httpStatus === undefined) return null;
+    output.push({
+      url,
+      ...(finalUrl ? { finalUrl } : {}),
+      ...(title ? { title } : {}),
+      status,
+      ...(httpStatus !== undefined ? { httpStatus } : {}),
+      reasonCodes
+    });
+  }
+  return output;
+}
+
+function readBrowserNetworkProofs(value: unknown, finalUrl: string): VerifiedRegistrySourceEvidence["browserNetworkProofs"] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 128) return null;
+  const output: VerifiedRegistrySourceEvidence["browserNetworkProofs"] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) return null;
+    const hostname = readBoundedString(raw.hostname, 253)?.toLocaleLowerCase("en-US").replace(/\.$/u, "");
+    if (!hostname || !isCanonicalEvidenceHostname(hostname) || !Array.isArray(raw.addresses)
+      || raw.addresses.length < 1 || raw.addresses.length > 32) return null;
+    const addresses = raw.addresses.map((address) => readBoundedString(address, 64));
+    if (addresses.some((address) => !address || isForbiddenIpAddress(address))
+      || new Set(addresses).size !== addresses.length) return null;
+    output.push({ hostname, addresses: addresses as string[] });
+  }
+  const finalHostname = new URL(finalUrl).hostname.replace(/^\[|\]$/gu, "").replace(/\.$/u, "").toLocaleLowerCase("en-US");
+  return output.some((proof) => proof.hostname === finalHostname) ? output : null;
+}
+
+function readBoundedStringArray(value: unknown, maximumItems: number, maximumLength: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maximumItems) return null;
+  const output = value.map((item) => readBoundedString(item, maximumLength));
+  return output.some((item) => !item) ? null : output as string[];
+}
+
+function readBoundedUrlArray(value: unknown, maximumItems: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maximumItems) return null;
+  const output = value.map(readUrl);
+  return output.some((item) => !item) ? null : output as string[];
+}
+
+function readBoundedString(value: unknown, maximumLength: number): string | undefined {
+  const normalized = readString(value);
+  return normalized && normalized.length <= maximumLength ? normalized : undefined;
+}
+
+function readBoundedInteger(value: unknown, minimum: number, maximum: number): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum ? value : undefined;
+}
+
+function readIsoDate(value: unknown): string | undefined {
+  const normalized = readBoundedString(value, 40);
+  return normalized && !Number.isNaN(Date.parse(normalized)) ? new Date(normalized).toISOString() : undefined;
+}
+
+function readSafeEvidencePath(value: unknown): string | undefined {
+  const normalized = readBoundedString(value, 500)?.replace(/\\/gu, "/");
+  if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..")) return undefined;
+  return /^evidence\/(?:html|documents)\/[a-f0-9]{64}\.[a-z0-9.]+$/u.test(normalized) ? normalized : undefined;
+}
+
+function sameRegistryUrl(left: string, right: string): boolean {
+  try {
+    const first = new URL(left);
+    const second = new URL(right);
+    first.hash = "";
+    second.hash = "";
+    return first.href === second.href;
+  } catch {
+    return false;
+  }
+}
+
+function isCanonicalEvidenceHostname(hostname: string): boolean {
+  return hostname.split(".").every((label) => /^(?!-)[a-z0-9-]{1,63}(?<!-)$/u.test(label));
 }
 
 function evaluateOperationalUrls<TField extends string>(input: {

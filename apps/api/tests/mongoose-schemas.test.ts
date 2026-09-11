@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { academicCalendarSchema, academicEventSchema, academicUnitSuggestionSchema, announcementItemSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, followedAcademicScopeSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, recentAuthenticationProofSchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
+import { academicCalendarSchema, academicEventSchema, academicUnitSuggestionSchema, announcementItemSchema, announcementSnapshotSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, followedAcademicScopeSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, recentAuthenticationProofSchema, refreshTokenFamilySchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
 
 describe("mongoose schemas", () => {
   it("defaults credential generations to zero and rejects negative values", () => {
-    for (const schema of [userSchema, refreshTokenSchema, passwordRecoveryTokenSchema]) {
+    for (const schema of [userSchema, refreshTokenSchema, refreshTokenFamilySchema, passwordRecoveryTokenSchema]) {
       expect(schema.path("credentialGeneration").options).toEqual(expect.objectContaining({
         required: true,
         default: 0,
@@ -181,18 +181,97 @@ describe("mongoose schemas", () => {
     expect(announcementSourceSchema.path("trustStatus").options.enum).toEqual(["trusted", "rejected", "quarantined"]);
     expect(announcementSourceSchema.path("trustStatus").options.default).toBe("quarantined");
     expect(announcementSourceSchema.path("duplicateOfId")).toBeDefined();
-    for (const path of ["rawTitle", "canonicalUrl", "officialSourceUrl", "publishedAt", "publicationTimeSource", "sourceUpdatedAt", "sourceUpdateTimeSource", "discoveredAt", "fetchedAt", "summary", "body", "keyDates", "freshness", "trustStatus", "trustReasonCodes", "dedupeKey", "duplicateOfId"]) {
+    for (const path of [
+      "pendingSnapshotId",
+      "pendingSnapshotRevision",
+      "pendingSnapshotExpiresAt",
+      "snapshotIntentRevision"
+    ]) {
+      expect(announcementSourceSchema.path(path), `announcement source path ${path}`).toBeDefined();
+      expect(announcementSourceSchema.path(path).isRequired, `announcement source path ${path} optional`).toBe(false);
+    }
+    expect(announcementSourceSchema.path("snapshotIntentRevision").options.default).toBe(0);
+    for (const path of [
+      "verificationEvidence.universityId",
+      "verificationEvidence.unitType",
+      "verificationEvidence.scopeId",
+      "verificationEvidence.browserFinalUrl",
+      "verificationEvidence.rawFinalUrl",
+      "verificationEvidence.parserInputSha256",
+      "verificationEvidence.parserEvidencePath"
+    ]) {
+      expect(announcementSourceSchema.path(path)?.isRequired, `${path} required`).toBe(true);
+    }
+    expect(announcementSourceSchema.path("verificationEvidence.scopeType")).toBeUndefined();
+    expect(announcementSourceSchema.path("verificationEvidence.verifierVersion").options.enum)
+      .toEqual(["authority-pinned-browser-and-raw-v9"]);
+    for (const path of ["rawTitle", "canonicalUrl", "officialSourceUrl", "adjudicationFingerprint", "publishedAt", "publicationTimeSource", "sourceUpdatedAt", "sourceUpdateTimeSource", "discoveredAt", "fetchedAt", "summary", "body", "keyDates", "freshness", "trustStatus", "trustReasonCodes", "dedupeKey", "duplicateOfId"]) {
       expect(announcementItemSchema.path(path), `announcement item path ${path}`).toBeDefined();
     }
     expect(announcementItemSchema.path("trustStatus").options.default).toBe("quarantined");
     expect(announcementSourceSchema.indexes()).toEqual(expect.arrayContaining([
-      [{ sourceUrl: 1, scopeType: 1, scopeId: 1 }, expect.objectContaining({ unique: true })],
-      [{ canonicalUrl: 1, scopeType: 1, scopeId: 1 }, expect.objectContaining({ name: "announcement_sources_canonical_scope" })]
+      [
+        { sourceUrl: 1, scopeType: 1, scopeId: 1, contentType: 1 },
+        expect.objectContaining({ unique: true, name: "announcement_sources_unique_scope_url_content" })
+      ],
+      [
+        { canonicalUrl: 1, scopeType: 1, scopeId: 1, contentType: 1 },
+        expect.objectContaining({ name: "announcement_sources_canonical_scope_content" })
+      ]
     ]));
     expect(announcementItemSchema.indexes()).toEqual(expect.arrayContaining([
       [{ sourceId: 1, link: 1 }, expect.objectContaining({ unique: true })],
       [{ sourceId: 1, canonicalUrl: 1 }, expect.objectContaining({ name: "announcement_items_source_canonical" })],
       [{ trustStatus: 1, dedupeKey: 1 }, expect.objectContaining({ name: "announcement_items_trust_dedupe" })]
+    ]));
+  });
+
+  it("stores the authoritative refresh-family state and cleanup marker", () => {
+    expect(refreshTokenFamilySchema.get("collection")).toBe("refresh_token_families");
+    expect(userSchema.path("refreshTokenFamilyRegistrationRevision").options).toEqual(
+      expect.objectContaining({ required: true, default: 0, min: 0, select: false })
+    );
+    expect(refreshTokenFamilySchema.path("registrationRevision").options).toEqual(
+      expect.objectContaining({ required: true, min: 1 })
+    );
+    expect(refreshTokenFamilySchema.path("activeTokenHash").isRequired).toBe(true);
+    expect(refreshTokenFamilySchema.path("deviceInstallationHash").isRequired).toBe(true);
+    expect(refreshTokenFamilySchema.path("expiresAt").isRequired).toBe(true);
+    expect(refreshTokenFamilySchema.path("cleanupPending").options).toEqual(
+      expect.objectContaining({ required: true, default: false })
+    );
+    expect(refreshTokenFamilySchema.path("notificationSendLeases")).toBeDefined();
+    expect(refreshTokenFamilySchema.indexes()).toEqual(expect.arrayContaining([
+      [
+        { userId: 1, status: 1 },
+        expect.objectContaining({ name: "refresh_token_families_user_status" })
+      ],
+      [
+        { status: 1, cleanupPending: 1, cleanupLeaseUntil: 1, updatedAt: 1 },
+        expect.objectContaining({ name: "refresh_token_families_cleanup_queue" })
+      ],
+      [
+        { status: 1, expiresAt: 1 },
+        expect.objectContaining({ name: "refresh_token_families_active_expiry" })
+      ]
+    ]));
+  });
+
+  it("defines announcement snapshot lookup, retention, and purge indexes", () => {
+    expect(announcementSnapshotSchema.get("collection")).toBe("announcement_snapshots");
+    expect(announcementSnapshotSchema.indexes()).toEqual(expect.arrayContaining([
+      [
+        { "items.id": 1, createdAt: -1 },
+        expect.objectContaining({ name: "announcement_snapshots_review_item_lookup" })
+      ],
+      [
+        { nextRetentionCheckAt: 1, createdAt: 1, purgeAfter: 1, activationLeaseUntil: 1 },
+        expect.objectContaining({ name: "announcement_snapshots_retention_candidates" })
+      ],
+      [
+        { purgeAfter: 1 },
+        expect.objectContaining({ expireAfterSeconds: 0, name: "announcement_snapshots_purge_after_ttl" })
+      ]
     ]));
   });
 
@@ -209,6 +288,12 @@ describe("mongoose schemas", () => {
       [{ installationHash: 1 }, expect.objectContaining({ unique: true, sparse: true, name: "device_tokens_installation_unique" })]
     ]));
     expect(deviceTokenSchema.path("installationHash")).toBeDefined();
+    expect(deviceTokenSchema.path("sessionFamilyId")).toBeDefined();
+    expect(deviceTokenSchema.path("sessionCredentialGeneration")).toBeDefined();
+    expect(deviceTokenSchema.path("sessionRegistrationRevision")?.options).toEqual(expect.objectContaining({ min: 1 }));
+    expect(deviceTokenSchema.path("registrationVersion")?.options).toEqual(expect.objectContaining({ maxlength: 64 }));
+    expect(deviceTokenSchema.path("registrationEpoch")?.options).toEqual(expect.objectContaining({ min: 1 }));
+    expect(deviceTokenSchema.path("notificationSendLeases")).toBeDefined();
     expect(notificationPreferenceSchema.indexes()).toEqual(expect.arrayContaining([[{ userId: 1 }, expect.objectContaining({ unique: true })]]));
     expect((notificationPreferenceSchema.path("enabled") as unknown as { options: { default: boolean } }).options.default).toBe(false);
     expect((notificationPreferenceSchema.path("deliveryConsentVersion") as unknown as { options: { enum: string[] } }).options.enum).toEqual(["phase3-v1"]);
@@ -240,6 +325,7 @@ describe("mongoose schemas", () => {
       "quiet_hours",
       "destination_unavailable",
       "device_registration_stale",
+      "send_authorization_busy",
       "provider_outcome_unknown"
     ]);
     expect(notificationJobSchema.indexes()).toEqual(

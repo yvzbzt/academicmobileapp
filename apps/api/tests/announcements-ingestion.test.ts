@@ -121,6 +121,157 @@ describe("announcement discovery and ingestion", () => {
     expect(ingest).toHaveBeenCalledTimes(2);
   });
 
+  it("schedules never-checked and oldest-checked due sources before priority with a deterministic id tie-break", async () => {
+    vi.stubEnv("ANNOUNCEMENT_INGEST_BATCH_SIZE", "3");
+    const repository = new InMemoryAnnouncementRepository();
+    const definitions = [
+      { id: "source-newer", priority: 100, lastCheckedAt: new Date("2020-02-01T00:00:00.000Z") },
+      { id: "source-never-b", priority: 90 },
+      { id: "source-oldest", priority: 80, lastCheckedAt: new Date("2020-01-01T00:00:00.000Z") },
+      { id: "source-never-a", priority: 1 }
+    ];
+    for (const definition of definitions) {
+      await repository.upsertSource({
+        id: definition.id,
+        scopeType: "university",
+        scopeId: `${sampleUniversity.id}-${definition.id}`,
+        sourceName: definition.id,
+        sourceUrl: `https://${definition.id}.example.edu.tr/announcements`,
+        contentType: "announcement",
+        parser: "auto",
+        priority: definition.priority,
+        status: "active",
+        trustStatus: "trusted",
+        fetchIntervalMinutes: 5,
+        ...(definition.lastCheckedAt ? { lastCheckedAt: definition.lastCheckedAt } : {})
+      });
+    }
+    const service = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
+    const ingest = vi.spyOn(service, "ingestSource").mockImplementation(async (candidate) => ({
+      sourceId: candidate.id,
+      sourceName: candidate.sourceName,
+      sourceUrl: candidate.sourceUrl,
+      status: "healthy",
+      itemCount: 1,
+      sampleTitles: []
+    }));
+
+    await service.runScheduledCycle();
+
+    expect(ingest.mock.calls.map(([source]) => source.id)).toEqual([
+      "source-never-a",
+      "source-never-b",
+      "source-oldest"
+    ]);
+  });
+
+  it("pages every active trusted source during an explicit source refresh", async () => {
+    const now = new Date("2026-09-10T08:00:00.000Z");
+    const sources = Array.from({ length: 1_001 }, (_, index): AnnouncementSourceRecord => ({
+      id: `source-${String(index).padStart(4, "0")}`,
+      scopeType: "university",
+      scopeId: `university-${index}`,
+      sourceName: `Source ${index}`,
+      sourceUrl: `https://source-${index}.example.edu.tr/announcements`,
+      canonicalUrl: `https://source-${index}.example.edu.tr/announcements`,
+      contentType: "announcement",
+      parser: "auto",
+      priority: 1,
+      status: "active",
+      trustStatus: "trusted",
+      createdAt: now,
+      updatedAt: now
+    }));
+    const listAllSources = vi.fn(async (input: { limit?: number; offset?: number }) =>
+      sources.slice(input.offset ?? 0, (input.offset ?? 0) + (input.limit ?? 500)));
+    const service = new AnnouncementIngestionService(
+      createCatalogRepository([]),
+      { listAllSources } as never
+    );
+    vi.spyOn(service, "runSourceDiscovery").mockResolvedValue({
+      summary: {
+        checkedUniversities: 0,
+        sourceFound: 0,
+        homepageFoundNoItems: 0,
+        homepageNotFound: 0,
+        totalParsedItems: 0
+      },
+      results: []
+    });
+    const ingest = vi.spyOn(service, "ingestSource").mockImplementation(async (candidate) => ({
+      sourceId: candidate.id,
+      sourceName: candidate.sourceName,
+      sourceUrl: candidate.sourceUrl,
+      status: "healthy",
+      itemCount: 1,
+      sampleTitles: []
+    }));
+
+    const result = await service.runDiscoveryAndIngestion({ refreshSources: true, concurrency: 10 });
+
+    expect(result.ingestionResults).toHaveLength(1_001);
+    expect(ingest).toHaveBeenCalledTimes(1_001);
+    expect(listAllSources).toHaveBeenNthCalledWith(1, { status: "active", limit: 1_000, offset: 0 });
+    expect(listAllSources).toHaveBeenNthCalledWith(2, { status: "active", limit: 1_000, offset: 1_000 });
+  });
+
+  it("does not repeat full discovery on scheduler ticks while every candidate is still quarantined", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    await repository.insertQuarantinedSourceCandidate({
+      scopeType: "university",
+      scopeId: sampleUniversity.id,
+      sourceName: "Awaiting review",
+      sourceUrl: "https://www.agu.edu.tr/duyurular",
+      contentType: "announcement",
+      parser: "auto",
+      priority: 1,
+      homepageUrl: "https://www.agu.edu.tr/",
+      discoveryMethod: "catalog_website",
+      trustReasonCodes: []
+    });
+    const service = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
+    const discovery = vi.spyOn(service, "runDiscoveryAndIngestion");
+
+    await service.runScheduledCycle();
+    await service.runScheduledCycle();
+
+    expect(discovery).not.toHaveBeenCalled();
+  });
+
+  it("pages past the first 1000 active sources so later due sources are not starved", async () => {
+    vi.stubEnv("ANNOUNCEMENT_INGEST_BATCH_SIZE", "2");
+    const repository = new InMemoryAnnouncementRepository();
+    const recentlyCheckedAt = new Date();
+    for (let index = 0; index < 1_001; index += 1) {
+      await repository.upsertSource({
+        scopeType: "university",
+        scopeId: `${sampleUniversity.id}-${index}`,
+        sourceName: `Paged source ${String(index).padStart(4, "0")}`,
+        sourceUrl: `https://paged-${index}.example.edu.tr/announcements`,
+        contentType: "announcement",
+        parser: "auto",
+        priority: 1,
+        status: "active",
+        trustStatus: "trusted",
+        ...(index < 1_000 ? { lastCheckedAt: recentlyCheckedAt, fetchIntervalMinutes: 180 } : {})
+      });
+    }
+    const service = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
+    const ingest = vi.spyOn(service, "ingestSource").mockImplementation(async (candidate) => ({
+      sourceId: candidate.id,
+      sourceName: candidate.sourceName,
+      sourceUrl: candidate.sourceUrl,
+      status: "healthy",
+      itemCount: 0,
+      sampleTitles: []
+    }));
+
+    await service.runScheduledCycle();
+
+    expect(ingest).toHaveBeenCalledTimes(1);
+    expect(ingest.mock.calls[0]?.[0].sourceName).toBe("Paged source 1000");
+  });
+
   it("provisions registry candidates as inactive quarantine without mutating an explicitly approved source", async () => {
     const tekirdag: UniversityRecord = {
       id: "tekirdag-namik-kemal-universitesi",
@@ -148,7 +299,7 @@ describe("announcement discovery and ingestion", () => {
     });
     const approvedBefore = JSON.stringify(approved);
 
-    await service.provisionStaticAnnouncementSources();
+    const firstProvision = await service.provisionStaticAnnouncementSources();
     const sources = await repository.listAllSources({ limit: 5_000 });
     const approvedAfter = await repository.findSourceById(approved.id);
 
@@ -160,6 +311,52 @@ describe("announcement discovery and ingestion", () => {
     ]));
     expect(JSON.stringify(approvedAfter)).toBe(approvedBefore);
     expect(await repository.listSourcesByScope({ universityId: YOK_ANNOUNCEMENT_SCOPE_ID })).toEqual([]);
+    expect(firstProvision.total).toBe(firstProvision.created + firstProvision.skipped);
+    expect(firstProvision.created).toBeGreaterThan(0);
+
+    const repeatedProvision = await service.provisionStaticAnnouncementSources();
+    expect(repeatedProvision).toEqual({
+      created: 0,
+      skipped: firstProvision.total,
+      evidenceAttached: 0,
+      evidenceConflicts: 0,
+      total: firstProvision.total
+    });
+  });
+
+  it("provisions one idempotent source per content type when a scope shares the same URL", async () => {
+    const university: UniversityRecord = {
+      id: "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi",
+      name: "ADANA ALPARSLAN TÜRKEŞ BİLİM VE TEKNOLOJİ ÜNİVERSİTESİ",
+      slug: "adana-alparslan-turkes-bilim-ve-teknoloji-universitesi",
+      city: "Adana",
+      type: "state",
+      websiteUrl: "https://www.atu.edu.tr/",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(createCatalogRepository([university]), repository);
+
+    const first = await service.provisionStaticAnnouncementSources();
+    const scoped = (await repository.listAllSources({ limit: 5_000 }))
+      .filter((source) => source.scopeId === university.id && source.canonicalUrl === "https://www.atu.edu.tr/");
+
+    expect(scoped.map((source) => source.contentType).sort()).toEqual(["announcement", "event", "news"]);
+    expect(new Set(scoped.map((source) => source.id))).toHaveProperty("size", 3);
+
+    const repeated = await service.provisionStaticAnnouncementSources();
+    expect(repeated).toEqual({
+      created: 0,
+      skipped: first.total,
+      evidenceAttached: 0,
+      evidenceConflicts: 0,
+      total: first.total
+    });
+    expect((await repository.listAllSources({ limit: 5_000 }))
+      .filter((source) => source.scopeId === university.id && source.canonicalUrl === "https://www.atu.edu.tr/"))
+      .toHaveLength(3);
   });
 
   it("does not add a registry duplicate when a validated legacy GTU URL already exists", async () => {
@@ -348,7 +545,7 @@ describe("announcement discovery and ingestion", () => {
     const service = new AnnouncementIngestionService(createCatalogRepository([sampleUniversity]), repository);
 
     const result = await service.runIngestion();
-    const items = await repository.listItemsByScope({ universityId: sampleUniversity.id, limit: 10 });
+    const items = await repository.listItemsForSource(source.id, 10);
 
     expect(result.summary.healthy).toBe(1);
     expect(items).toHaveLength(1);
@@ -373,7 +570,15 @@ describe("announcement discovery and ingestion", () => {
     const publicAddress: ResolvedOutboundAddress = { address: "93.184.216.34", family: 4 };
     setSafeOutboundRequestDependenciesForTesting({
       resolveHostname: async () => [publicAddress],
-      requestHop: async (_url, pinnedAddress, input) => {
+      requestHop: async (url, pinnedAddress, input) => {
+        if (url !== source.sourceUrl) {
+          return {
+            status: 200,
+            headers: { "content-type": "text/html" },
+            body: Buffer.from("<article><h1>Ders kaydi duyurusu</h1><p>Kayıt ayrıntıları.</p></article>"),
+            remoteAddress: pinnedAddress.address
+          };
+        }
         seenHeaders.push({ ...input.headers });
         const response = responseIndex++;
         if (response === 1) {
@@ -506,6 +711,7 @@ describe("announcement discovery and ingestion", () => {
       created: expect.arrayContaining([expect.objectContaining({ snapshotId: snapshotB })])
     }));
     expect(activated.created).toHaveLength(101);
+    await approveAllReviewItems(repository, sourceA.id);
 
     const sourceB = await repository.findSourceById(created.id);
     if (!sourceB) throw new Error("Expected source B.");
@@ -674,16 +880,23 @@ describe("announcement discovery and ingestion", () => {
       fetchedAt: "2026-09-02T08:00:00.000Z",
       trustStatus: "trusted"
     };
-    const activated = await repository.replaceItemsForSource(created, [initialItem]);
+    await repository.replaceItemsForSource(created, [initialItem]);
+    const approved = await approveReviewItem(repository, initialItem.id);
     const sourceGenerationA = await repository.findSourceById(created.id);
     if (!sourceGenerationA?.notificationProducerVersion) throw new Error("Expected producer generation A.");
     const notifications = new TargetedSnapshotRetireGateNotificationRepository();
     const scheduling = new NotificationSchedulingService(notifications, repository);
     const initialNow = new Date("2026-09-02T08:01:00.000Z");
-    await scheduling.syncTrustedAnnouncementSource(sourceGenerationA, activated, initialNow);
+    await scheduling.syncTrustedAnnouncementSource(sourceGenerationA, approved.delta, initialNow);
     expect(await notifications.listDueJobs(initialNow, 10)).toHaveLength(1);
 
-    const inactiveGenerationA = await repository.deactivateSource(created.id);
+    const inactiveGenerationA = await repository.deactivateSource(created.id, {
+      ...(created.sourceDefinitionVersion ? { expectedSourceDefinitionVersion: created.sourceDefinitionVersion } : {}),
+      expectedCanonicalUrl: created.canonicalUrl ?? created.sourceUrl,
+      expectedTrustStatus: created.trustStatus ?? "quarantined",
+      expectedSourceStatus: created.status,
+      expectedApprovalPending: created.approvalPending === true
+    });
     if (!inactiveGenerationA) throw new Error("Expected inactive generation A.");
     const producerKeyA = `announcement-source:${created.id}:generation:${sourceGenerationA.notificationProducerVersion}:snapshot:${snapshotB}`;
     notifications.gateNextRetirement(producerKeyA);
@@ -839,6 +1052,9 @@ describe("announcement discovery and ingestion", () => {
       link: "https://department.agu.edu.tr/duyuru/department",
       fetchedAt
     }]);
+    await approveAllReviewItems(repository, universitySource.id);
+    await approveAllReviewItems(repository, facultySource.id);
+    await approveAllReviewItems(repository, departmentSource.id);
 
     const service = new AnnouncementsService(createAuthRepository(), repository, createCatalogRepository([sampleUniversity]));
 
@@ -923,6 +1139,8 @@ describe("announcement discovery and ingestion", () => {
       link: "https://followed.edu.tr/duyurular/followed",
       fetchedAt
     }]);
+    await approveAllReviewItems(repository, primarySource.id);
+    await approveAllReviewItems(repository, followedSource.id);
     const service = new AnnouncementsService(
       createAuthRepository(),
       repository,
@@ -1366,6 +1584,24 @@ function createCatalogRepository(universities: UniversityRecord[]): CatalogRepos
       return [];
     }
   };
+}
+
+async function approveReviewItem(repository: InMemoryAnnouncementRepository, itemId: string) {
+  const current = await repository.findReviewItemById(itemId);
+  if (!current?.item.contentFingerprint) throw new Error("Expected persisted review item.");
+  const mutation = await repository.updateReviewItem(itemId, { reviewStatus: "approved" }, {
+    ...(current.item.snapshotId ? { expectedSnapshotId: current.item.snapshotId } : {}),
+    expectedContentFingerprint: current.item.contentFingerprint,
+    ...(current.item.reviewRevision ? { expectedReviewRevision: current.item.reviewRevision } : {})
+  });
+  if (!mutation) throw new Error("Expected review mutation.");
+  return mutation;
+}
+
+async function approveAllReviewItems(repository: InMemoryAnnouncementRepository, sourceId: string) {
+  for (const item of await repository.listReviewItems({ sourceIds: [sourceId] })) {
+    if (item.reviewStatus !== "approved") await approveReviewItem(repository, item.id);
+  }
 }
 
 class SnapshotPointerAnnouncementRepository extends InMemoryAnnouncementRepository {

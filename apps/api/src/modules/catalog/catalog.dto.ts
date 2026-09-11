@@ -84,19 +84,19 @@ export class UpdateUniversityDto {
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  websiteUrl?: string;
+  websiteUrl?: string | null;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  announcementUrl?: string;
+  announcementUrl?: string | null;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  academicCalendarUrl?: string;
+  academicCalendarUrl?: string | null;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  logoUrl?: string;
+  logoUrl?: string | null;
 
   @IsOptional()
   @IsArray()
@@ -130,11 +130,11 @@ export class UpdateFacultyDto {
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  websiteUrl?: string;
+  websiteUrl?: string | null;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  announcementUrl?: string;
+  announcementUrl?: string | null;
 }
 
 export class CreateDepartmentDto {
@@ -178,19 +178,19 @@ export class UpdateDepartmentDto {
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  websiteUrl?: string;
+  websiteUrl?: string | null;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  announcementUrl?: string;
+  announcementUrl?: string | null;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  courseScheduleUrl?: string;
+  courseScheduleUrl?: string | null;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
-  examScheduleUrl?: string;
+  examScheduleUrl?: string | null;
 }
 
 export class AddUniversityEmailDomainDto {

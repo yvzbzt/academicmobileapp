@@ -108,6 +108,51 @@ export class InMemoryCalendarRepository implements CalendarRepository {
     return records;
   }
 
+  async upsertScheduleReviewEvents(
+    input: Array<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt"> & { scheduleCandidateKey: string }>
+  ): Promise<AcademicEventRecord[]> {
+    const records: AcademicEventRecord[] = [];
+    for (const candidate of input) {
+      const existing = this.events.find((event) => event.scheduleCandidateKey === candidate.scheduleCandidateKey);
+      if (existing) {
+        records.push(existing);
+        continue;
+      }
+      records.push((await this.createEvents([candidate]))[0]!);
+    }
+    return records;
+  }
+
+  async publishScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number> {
+    let published = 0;
+    for (const [index, event] of this.events.entries()) {
+      if (event.scheduleReviewKey !== reviewKey || event.universityId !== universityId || event.status !== "approved") continue;
+      this.events[index] = { ...event, status: "published", updatedAt: new Date() };
+      published += 1;
+    }
+    return published;
+  }
+
+  async archiveScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number> {
+    let archived = 0;
+    for (const [index, event] of this.events.entries()) {
+      if (event.scheduleReviewKey !== reviewKey || event.universityId !== universityId || event.status === "archived") continue;
+      this.events[index] = { ...event, status: "archived", updatedAt: new Date() };
+      archived += 1;
+    }
+    return archived;
+  }
+
+  async rollbackScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number> {
+    let rolledBack = 0;
+    for (const [index, event] of this.events.entries()) {
+      if (event.scheduleReviewKey !== reviewKey || event.universityId !== universityId || event.status !== "published") continue;
+      this.events[index] = { ...event, status: "approved", updatedAt: new Date() };
+      rolledBack += 1;
+    }
+    return rolledBack;
+  }
+
   async updateEventsByCalendar(calendarId: string, input: Partial<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<number> {
     let updatedCount = 0;
     for (const [index, event] of this.events.entries()) {

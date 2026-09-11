@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION,
   canonicalAnnouncementSourceIdentityKey,
   canonicalContentKey,
   canonicalizeContentUrl,
   createAnnouncementSourceCandidateId,
+  createNormalizedContentFingerprint,
   decodeHtmlEntities,
   evaluateContentTrust,
   isNavigationOrChromeTitle,
   isOfficialContentUrl,
   normalizeContentTitle,
+  normalizeAcademicContentBodyBlocks,
   normalizeDisplayText,
   normalizeTrustedItemsForSource,
   toIsoString,
@@ -20,6 +23,32 @@ import type { AnnouncementItem, AnnouncementSourceRecord } from "../src/modules/
 import type { AuthRepository, AuthUserRecord } from "../src/modules/auth/auth.types.js";
 
 describe("academic content trust primitives", () => {
+  it("uses a versioned canonical body when fingerprinting source content", () => {
+    const base = {
+      title: "Course registration announcement",
+      summary: "Registration details",
+      contentType: "announcement" as const,
+      publicationKind: "date" as const,
+      publishedDate: "2026-09-01"
+    };
+    const first = createNormalizedContentFingerprint({
+      ...base,
+      body: [{ type: "paragraph", text: "Applications open on Monday." }]
+    });
+    const canonicallyEquivalent = createNormalizedContentFingerprint({
+      ...base,
+      body: [{ type: "paragraph", text: "  Applications   open on Monday.  " }]
+    });
+    const bodyChanged = createNormalizedContentFingerprint({
+      ...base,
+      body: [{ type: "paragraph", text: "Applications close on Monday." }]
+    });
+
+    expect(ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION).toBe("academic-content-fingerprint-v2");
+    expect(canonicallyEquivalent).toBe(first);
+    expect(bodyChanged).not.toBe(first);
+  });
+
   it("decodes named, decimal, hexadecimal, nested, and non-breaking entities", () => {
     expect(decodeHtmlEntities("&raquo; Araştırma &amp; Geliştirme&nbsp;&#187;&#x20AC; &amp;raquo;"))
       .toBe("» Araştırma & Geliştirme »€ »");
@@ -29,6 +58,21 @@ describe("academic content trust primitives", () => {
       .toBe("Mühendislik Üniversitesi °  ");
     expect(normalizeDisplayText("Burs &amp;amp;amp;amp;raquo; &deg; Duyurusu"))
       .toBe("Burs » ° Duyurusu");
+  });
+
+  it("truncates at the requested limit without splitting a UTF-16 surrogate pair", () => {
+    expect(normalizeDisplayText("x".repeat(801), 800)).toHaveLength(800);
+    const unicode = normalizeDisplayText(`${"x".repeat(799)}🎓`, 800);
+    expect(unicode).toHaveLength(800);
+    expect(unicode).not.toMatch(/[\uD800-\uDFFF](?![\uDC00-\uDFFF])/u);
+    expect(unicode.endsWith("…")).toBe(true);
+  });
+
+  it("counts valid structured body blocks instead of discarding them behind invalid entries", () => {
+    expect(normalizeAcademicContentBodyBlocks([
+      ...Array.from({ length: 48 }, () => null),
+      { type: "paragraph", text: "Geçerli içerik" }
+    ])).toEqual([{ type: "paragraph", text: "Geçerli içerik" }]);
   });
 
   it.each([
@@ -134,6 +178,19 @@ describe("academic content trust primitives", () => {
       sourceUrl: approvedUrl
     }));
   });
+
+  it("includes content type in deterministic source-candidate identity", () => {
+    const base = {
+      scopeType: "university" as const,
+      scopeId: "scope-1",
+      sourceUrl: "https://www.example.edu.tr/content"
+    };
+    const identities = (["announcement", "news", "event"] as const)
+      .map((contentType) => createAnnouncementSourceCandidateId({ ...base, contentType }));
+
+    expect(new Set(identities)).toHaveProperty("size", 3);
+    expect(createAnnouncementSourceCandidateId(base)).toBe(identities[0]);
+  });
 });
 
 describe("mobile announcement API presentation", () => {
@@ -231,6 +288,7 @@ describe("mobile announcement API presentation", () => {
       }
     ];
     await repository.replaceItemsForSource(source, items);
+    await approveAllReviewFixtures(repository);
     const service = new AnnouncementsService(createAuthRepository(), repository);
 
     const result = await service.getMyAnnouncements("student-1", 20);
@@ -382,6 +440,19 @@ describe("mobile announcement API presentation", () => {
     }));
   });
 });
+
+async function approveAllReviewFixtures(repository: InMemoryAnnouncementRepository): Promise<void> {
+  const items = await repository.listReviewItems({ limit: 1_000 });
+  for (const item of items) {
+    if (!item.contentFingerprint) throw new Error(`Fixture ${item.id} is missing contentFingerprint.`);
+    const result = await repository.updateReviewItem(item.id, { reviewStatus: "approved" }, {
+      ...(item.snapshotId ? { expectedSnapshotId: item.snapshotId } : {}),
+      expectedContentFingerprint: item.contentFingerprint,
+      ...(item.reviewRevision ? { expectedReviewRevision: item.reviewRevision } : {})
+    });
+    if (!result) throw new Error(`Fixture ${item.id} could not be approved.`);
+  }
+}
 
 function createAuthRepository(): AuthRepository {
   const now = new Date();

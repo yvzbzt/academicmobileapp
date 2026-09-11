@@ -5,6 +5,7 @@ export interface TemporalFreshnessInput {
   publishedAt?: Date | string | undefined;
   fetchedAt?: Date | string | undefined;
   now?: Date;
+  academicYearLookback?: number;
 }
 
 export interface TemporalFreshnessDecision {
@@ -20,7 +21,10 @@ export function isFreshAcademicContent(input: TemporalFreshnessInput): TemporalF
   const academicYears = extractAcademicYearRanges(values);
   const years = extractExplicitYears(values);
   const currentStart = currentAcademicYearStart(now);
-  const minimumYear = currentStart - readPositiveInteger(process.env.ACADEMIC_CONTENT_MIN_YEAR_LOOKBACK, 1);
+  const minimumYear = currentStart - readPositiveInteger(
+    input.academicYearLookback?.toString(),
+    readPositiveInteger(process.env.ACADEMIC_CONTENT_MIN_YEAR_LOOKBACK, 1)
+  );
   const maximumYear = currentStart + readPositiveInteger(process.env.ACADEMIC_CONTENT_MAX_YEAR_LOOKAHEAD, 1);
 
   if (academicYears.length > 0) {

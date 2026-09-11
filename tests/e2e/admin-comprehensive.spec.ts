@@ -72,6 +72,42 @@ test("auth, logout, stored-session verification and role routing are enforced", 
   await page.getByRole("button", { name: "Çıkış Yap" }).click();
   await expect(page.getByRole("heading", { name: "Admin Girişi" })).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+  expect(writeCount(mock.writes, "POST", "/auth/logout")).toBe(1);
+  expect(mock.writes.find((write) => write.path === "/auth/logout")?.body).toEqual({
+    refreshToken: "content_editor-refresh"
+  });
+
+  await login(page, "editor@qa.local");
+  mock.logoutShouldFail = true;
+  await page.getByRole("button", { name: "Çıkış Yap" }).click();
+  await expect(page.getByRole("heading", { name: "Admin Girişi" })).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+  expect(writeCount(mock.writes, "POST", "/auth/logout")).toBe(2);
+
+  await login(page, "editor@qa.local");
+  await page.evaluate(() => {
+    const originalFetch = window.fetch.bind(window);
+    const observedWindow = window as Window & { __logoutRevocationAborted?: boolean };
+    observedWindow.__logoutRevocationAborted = false;
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.endsWith("/auth/logout")) return originalFetch(input, init);
+      return new Promise<Response>((_resolve, reject) => {
+        const abort = () => {
+          observedWindow.__logoutRevocationAborted = true;
+          reject(init?.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+        };
+        if (init?.signal?.aborted) abort();
+        else init?.signal?.addEventListener("abort", abort, { once: true });
+      });
+    }) as typeof window.fetch;
+  });
+  await page.getByRole("button", { name: "Çıkış Yap" }).click();
+  await expect(page.getByRole("heading", { name: "Admin Girişi" })).toBeVisible({ timeout: 1_000 });
+  expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+  await expect.poll(() => page.evaluate(() =>
+    Boolean((window as Window & { __logoutRevocationAborted?: boolean }).__logoutRevocationAborted)
+  ), { timeout: 4_000 }).toBe(true);
 
   await page.evaluate(() => {
     sessionStorage.setItem("academic-calendar-admin-session", JSON.stringify({
@@ -90,6 +126,32 @@ test("auth, logout, stored-session verification and role routing are enforced", 
   await expect(page.getByText("super@qa.local")).toBeVisible();
   await expect(page).not.toHaveURL(/one-time-admin-token/);
   expect(await page.evaluate(() => sessionStorage.getItem("academic-calendar-admin-session"))).toContain('"role":"super_admin"');
+});
+
+test("protected caches are isolated across same-tab session changes", async ({ page }) => {
+  const mock = await installMockApi(page);
+  mock.roleScopedSources = true;
+  await page.goto(adminUrl);
+
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+  await expect(page.getByText("QA duyuru kaynağı")).toBeVisible();
+  await expect.poll(() => mock.requests.filter((request) => request.path === "/admin/announcements/sources").length).toBe(1);
+  mock.superSourceDelayMs = 2_000;
+  const sourceStatusPanel = page.locator("section.panel").filter({ has: page.getByRole("heading", { name: "Kaynak Durumu" }) });
+  await sourceStatusPanel.getByRole("button", { name: "Yenile", exact: true }).click();
+  await expect.poll(() => mock.requests.filter((request) => request.path === "/admin/announcements/sources").length).toBe(2);
+
+  await page.getByRole("button", { name: "Çıkış Yap" }).click();
+  await expect(page.getByRole("heading", { name: "Admin Girişi" })).toBeVisible();
+  await login(page, "university@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  await expect(page.getByText("Üniversite yöneticisi kaynağı")).toBeVisible();
+  await expect.poll(() => mock.requests.filter((request) => request.path === "/admin/announcements/sources").length).toBe(3);
+  await page.waitForTimeout(2_200);
+  await expect(page.getByText("QA duyuru kaynağı")).toHaveCount(0);
+  await expect(page.getByText("Üniversite yöneticisi kaynağı")).toBeVisible();
 });
 
 test("all nine super-admin routes and their primary controls render", async ({ page }) => {
@@ -204,7 +266,7 @@ test("PDF review, publishing, notifications, audit export and user management fl
   await pdfForm.getByLabel("PDF kaynağı için üniversite ID").fill("qa-university");
   await pdfForm.getByLabel("Akademik yıl").fill("2026-2027");
   await pdfForm.getByLabel("Dosya adı").fill("calendar.pdf");
-  await pdfForm.getByLabel("Ham çıkarılmış metin").fill("1 Eylül 2026 kayıt başlangıcı");
+  await pdfForm.getByLabel("Resmî doğrudan PDF adresi").fill("https://qa.edu.tr/calendar.pdf");
   await pdfForm.getByRole("button", { name: "Kaynak Oluştur" }).click();
   await expect(page.getByText("PDF kaynağı oluşturuldu")).toBeVisible();
   await page.getByRole("button", { name: "İşle", exact: true }).click();
@@ -279,6 +341,693 @@ test("PDF review, publishing, notifications, audit export and user management fl
     expect.objectContaining({ method: "PATCH", path: "/admin/users/user-1" }),
     expect.objectContaining({ method: "DELETE", path: "/admin/users/user-1" })
   ]));
+  const pdfSourceWrite = mock.writes.find((write) => write.method === "POST" && write.path === "/admin/pdf-sources");
+  expect(pdfSourceWrite?.body).toMatchObject({ url: "https://qa.edu.tr/calendar.pdf" });
+  expect(pdfSourceWrite?.body.rawText).toBeUndefined();
+});
+
+test("source coverage shows the exact summary and selects a missing department for correction", async ({ page }) => {
+  await installMockApi(page);
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const coverage = page.locator("section.sourceCoveragePanel");
+  const summary = coverage.locator(".coverageSummary");
+  await expect(summary).toBeVisible();
+  await expect(summary.locator("strong")).toHaveText(["208", "17.360", "1", "0", "0", "0"]);
+
+  const row = coverage.locator("article.coverageItem").filter({ hasText: "Bilgisayar Mühendisliği" });
+  await expect(row).toContainText("QA Üniversitesi");
+  await expect(row).toContainText("Mühendislik Fakültesi");
+  await expect(row).toContainText("no_registered_department_announcement_source");
+  await row.getByRole("button").click();
+
+  const sourceForm = page.locator("form.sourceManagerForm");
+  await expect(sourceForm.locator('select[name="universityId"]')).toHaveValue("qa-university");
+  await sourceForm.locator('select[name="scopeType"]').selectOption("department");
+  await expect(sourceForm.locator('select[name="facultyId"]')).toHaveValue("qa-faculty");
+  await expect(sourceForm.locator('select[name="departmentId"]')).toHaveValue("qa-department");
+});
+
+test("source coverage filters and renders the inherited university academic calendar slot", async ({ page }) => {
+  await installMockApi(page);
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const coverage = page.locator("section.sourceCoveragePanel");
+  const sourceType = coverage.getByLabel("Kaynak türü");
+  await expect(sourceType.locator('option[value="academic_calendar"]')).toHaveText("Akademik takvim");
+
+  const calendarRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/admin/source-coverage"
+      && url.searchParams.get("sourceType") === "academic_calendar"
+      && url.searchParams.get("resolution") === "verified";
+  });
+  await sourceType.selectOption("academic_calendar");
+  await expect(sourceType).toHaveValue("academic_calendar");
+  await coverage.getByLabel("Kaynak çözüm durumu").selectOption("verified");
+  await calendarRequest;
+
+  const row = coverage.locator("article.coverageItem").filter({ hasText: "Akademik takvim" });
+  await expect(row).toContainText("Final doğrulandı");
+  await expect(row).toContainText("Üniversite geneli akademik takvimden devralındı");
+  await expect(row.getByRole("link", { name: "https://qa.edu.tr/akademik-takvim.pdf" })).toBeVisible();
+  await expect(coverage.locator(".coverageSummary strong")).toHaveText(["208", "17.360", "0", "0", "0", "1"]);
+});
+
+test("208-university source workbench exposes editable URL, parser, structure and live previews", async ({ page }) => {
+  const mock = await installMockApi(page);
+  const qaUniversity = {
+    ...mock.universities[0],
+    websiteUrl: "https://qa.edu.tr",
+    announcementUrl: "https://qa.edu.tr/duyurular",
+    academicCalendarUrl: "https://qa.edu.tr/akademik-takvim.pdf"
+  };
+  mock.universities = [
+    qaUniversity,
+    ...Array.from({ length: 207 }, (_, index) => ({
+      id: `university-${String(index + 2).padStart(3, "0")}`,
+      name: `Test Üniversitesi ${String(index + 2).padStart(3, "0")}`,
+      city: index % 2 === 0 ? "İstanbul" : "Ankara",
+      type: "state",
+      status: "active",
+      emailDomains: []
+    }))
+  ] as any;
+  mock.announcementSources = [{
+    ...mock.announcementSources[0],
+    ownerUniversityId: "qa-university",
+    homepageUrl: "https://qa.edu.tr",
+    discoveryMethod: "catalog_website",
+    status: "active",
+    trustStatus: "trusted",
+    healthStatus: "healthy",
+    itemCount: 3,
+    lastCheckedAt: "2026-09-11T08:30:00.000Z",
+    parserConfig: {
+      itemSelector: "main article a",
+      titleSelector: ".title",
+      linkSelector: "a",
+      dateSelector: "time",
+      contentSelector: ".summary"
+    },
+    evidence: {
+      parserProfile: "html",
+      selector: "main article a",
+      sampleItemUrls: ["https://qa.edu.tr/duyurular/ornek"]
+    }
+  }];
+
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const workbench = page.locator("section.universitySourceWorkbench");
+  await expect(workbench.getByText("208 üniversite · 832 kaynak alanı", { exact: true })).toBeVisible();
+  await expect(workbench.locator(".universityPickerItem")).toHaveCount(208);
+  await workbench.getByLabel("208 üniversitede ara").fill("QA Üniversitesi");
+  await expect(workbench.locator(".universityPickerItem")).toHaveCount(1);
+  await workbench.locator(".universityPickerItem").click();
+  await expect(workbench.locator("article.universitySourceCard")).toHaveCount(4);
+
+  const announcementCard = workbench.locator('[data-source-type="announcement"]');
+  await expect(announcementCard).toContainText("Duyuru liste sayfası");
+  await expect(announcementCard).toContainText("https://qa.edu.tr/duyurular");
+  await expect(announcementCard.getByLabel("Duyuru liste öğesi seçici")).toHaveValue("main article a");
+  await announcementCard.getByRole("button", { name: "Test Et / Önizle ve Devreye Al", exact: true }).click();
+  await expect(announcementCard.getByRole("status")).toContainText("3/3 içerik");
+  await expect(announcementCard.getByRole("status")).toContainText("Kayıt Yenileme Duyurusu");
+  await expect(announcementCard.getByRole("status")).toContainText("Devreye alma: Aktif");
+  expect(mock.writes.find((write) => write.method === "POST" && write.path === "/admin/announcements/source-profiles/qa-university/announcement/preview")?.body)
+    .toEqual({ activateWhenHealthy: true });
+
+  await announcementCard.getByLabel("Duyuru çekilen URL").fill("https://qa.edu.tr/yeni-duyurular");
+  await announcementCard.getByLabel("Duyuru parser").selectOption("rss");
+  await announcementCard.getByLabel("Duyuru liste öğesi seçici").fill(".notice-row");
+  await announcementCard.getByLabel("Duyuru başlık seçici").fill("h3");
+  await announcementCard.getByLabel("Duyuru içerik bağlantısı seçici").fill("a.details");
+  await announcementCard.getByLabel("Duyuru tarih seçici").fill(".published-at");
+  await announcementCard.getByLabel("Duyuru özet / gövde seçici").fill(".description");
+  await announcementCard.getByRole("button", { name: "Kaydet", exact: true }).click();
+  expect(mock.writes.find((write) => write.method === "PUT" && write.path === "/admin/announcements/source-profiles/qa-university/announcement")?.body)
+    .toMatchObject({
+      sourceUrl: "https://qa.edu.tr/yeni-duyurular",
+      parser: "rss",
+      parserConfig: {
+        itemSelector: ".notice-row",
+        titleSelector: "h3",
+        linkSelector: "a.details",
+        dateSelector: ".published-at",
+        contentSelector: ".description"
+      }
+    });
+
+  const calendarCard = workbench.locator('[data-source-type="academic_calendar"]');
+  await expect(calendarCard).toContainText("Akademik takvim HTML sayfası veya PDF");
+  await calendarCard.getByLabel("Akademik Takvim çekilen URL").fill("https://qa.edu.tr/takvim-2026.pdf");
+  await calendarCard.getByRole("button", { name: "Kaydet", exact: true }).click();
+  expect(mock.writes.find((write) => write.method === "PUT" && write.path === "/admin/announcements/source-profiles/qa-university/academic_calendar")?.body)
+    .toMatchObject({ sourceUrl: "https://qa.edu.tr/takvim-2026.pdf", parser: "auto" });
+  await calendarCard.getByRole("button", { name: "Test Et / Önizle ve Devreye Al", exact: true }).click();
+  await expect(calendarCard.getByRole("status")).toContainText("2026-2027 Akademik Takvim");
+  await workbench.screenshot({ path: resolve(evidenceDir, "university-source-workbench-208.png") });
+});
+
+test("announcement source filters are sent to the server with the bounded page size", async ({ page }) => {
+  const mock = await installMockApi(page);
+  mock.announcementSources = [{
+    ...mock.announcementSources[0],
+    scopeType: "department",
+    scopeId: "qa-department",
+    sourceName: "QA öğrenci bülteni",
+    contentType: "news",
+    status: "active",
+    trustStatus: "trusted"
+  }];
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const filterForm = page.locator("form.sourceFilterForm");
+  await filterForm.locator('input[name="search"]').fill("  öğrenci bülteni  ");
+  await filterForm.locator('select[name="trustStatus"]').selectOption("trusted");
+  await filterForm.locator('select[name="contentType"]').selectOption("news");
+  await filterForm.locator('select[name="scopeType"]').selectOption("department");
+  const requestPromise = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/admin/announcements/sources"
+      && url.searchParams.get("search") === "öğrenci bülteni";
+  });
+  await filterForm.getByRole("button", { name: "Filtrele", exact: true }).click();
+
+  const requestUrl = new URL((await requestPromise).url());
+  expect(Object.fromEntries(requestUrl.searchParams)).toEqual({
+    limit: "101",
+    offset: "0",
+    search: "öğrenci bülteni",
+    trustStatus: "trusted",
+    contentType: "news",
+    scopeType: "department"
+  });
+  await expect(page.locator("form.sourceEditor")).toHaveCount(1);
+  await expect(page.locator("form.sourceEditor")).toContainText("QA öğrenci bülteni");
+});
+
+test("announcement source next and previous buttons request server-side 100-row pages", async ({ page }) => {
+  const mock = await installMockApi(page);
+  mock.announcementSources = Array.from({ length: 205 }, (_, index) => ({
+    ...mock.announcementSources[0],
+    id: `paged-source-${String(index + 1).padStart(3, "0")}`,
+    scopeId: `paged-scope-${String(index + 1).padStart(3, "0")}`,
+    sourceName: `Paged source ${String(index + 1).padStart(3, "0")}`,
+    sourceUrl: `https://qa.edu.tr/sources/${index + 1}`,
+    canonicalUrl: `https://qa.edu.tr/sources/${index + 1}`
+  }));
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const statusPanel = page.locator("section.panel").filter({ has: page.locator("form.sourceFilterForm") });
+  await expect(statusPanel.locator("form.sourceEditor")).toHaveCount(100);
+  await expect(statusPanel.locator("form.sourceEditor").first()).toContainText("Paged source 001");
+  const pagination = statusPanel.locator(".reviewPagination");
+  await expect(pagination).toContainText("1");
+  await expect(pagination).toContainText("100");
+
+  const nextRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/admin/announcements/sources"
+      && url.searchParams.get("offset") === "100";
+  });
+  await pagination.getByRole("button", { name: "Sonraki", exact: true }).click();
+  const nextUrl = new URL((await nextRequest).url());
+  expect(nextUrl.searchParams.get("limit")).toBe("101");
+  await expect(statusPanel.locator("form.sourceEditor")).toHaveCount(100);
+  await expect(statusPanel.locator("form.sourceEditor").first()).toContainText("Paged source 101");
+  await expect(statusPanel.locator("form.sourceEditor").last()).toContainText("Paged source 200");
+
+  const previousRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/admin/announcements/sources"
+      && url.searchParams.get("offset") === "0";
+  });
+  await pagination.getByRole("button", { name: "Önceki", exact: true }).click();
+  const previousUrl = new URL((await previousRequest).url());
+  expect(previousUrl.searchParams.get("limit")).toBe("101");
+  await expect(statusPanel.locator("form.sourceEditor")).toHaveCount(100);
+  await expect(statusPanel.locator("form.sourceEditor").first()).toContainText("Paged source 001");
+});
+
+test("source review submits the exact source CAS fence shown in the admin UI", async ({ page }) => {
+  const mock = await installMockApi(page);
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  await page.getByLabel("QA duyuru kaynağı inceleme notu").fill("Resmî menü doğrulandı");
+  await page.getByRole("button", { name: "Güvenilir Olarak Onayla", exact: true }).click();
+
+  const write = mock.writes.find((entry) =>
+    entry.method === "POST" && entry.path === "/admin/announcements/sources/source-review-cas/approve");
+  expect(write?.body).toEqual({
+    expectedSourceDefinitionVersion: "source-definition-v1",
+    expectedCanonicalUrl: "https://qa.edu.tr/duyurular",
+    expectedTrustStatus: "quarantined",
+    expectedSourceStatus: "inactive",
+    expectedApprovalPending: false,
+    note: "Resmî menü doğrulandı"
+  });
+  await expect(page.getByText("Kaynak güvenilir olarak onaylandı")).toBeVisible();
+});
+
+test("a crash-stuck source remains visibly pending and its approval can be retried", async ({ page }) => {
+  const mock = await installMockApi(page);
+  mock.announcementSources = [{
+    ...mock.announcementSources[0],
+    status: "active",
+    trustStatus: "trusted",
+    approvalPending: true,
+    healthStatus: "healthy",
+    itemCount: 1,
+    updatedAt: "2026-09-10T08:02:00.000Z"
+  }];
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const sourceForm = page.locator("form.sourceEditor");
+  await expect(sourceForm.getByText("İnceleme bekliyor", { exact: true })).toBeVisible();
+  await expect(sourceForm.getByRole("button", { name: "Şimdi Tara", exact: true })).toBeDisabled();
+  const approve = sourceForm.getByRole("button", { name: "Güvenilir Olarak Onayla", exact: true });
+  await expect(approve).toBeEnabled();
+  await approve.click();
+
+  const write = mock.writes.find((entry) =>
+    entry.method === "POST" && entry.path === "/admin/announcements/sources/source-review-cas/approve");
+  expect(write?.body).toMatchObject({
+    expectedSourceDefinitionVersion: "source-definition-v1",
+    expectedCanonicalUrl: "https://qa.edu.tr/duyurular",
+    expectedTrustStatus: "trusted",
+    expectedSourceStatus: "active",
+    expectedApprovalPending: true
+  });
+  await expect(page.getByText("Kaynak güvenilir olarak onaylandı")).toBeVisible();
+  await expect(approve).toBeDisabled();
+});
+
+test("source metadata edit submits its exact optimistic-concurrency fence", async ({ page }) => {
+  const mock = await installMockApi(page);
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const sourceForm = page.locator("form.sourceEditor");
+  await sourceForm.getByLabel("Kaynak adı").fill("Düzeltilmiş QA kaynağı");
+  await sourceForm.getByRole("button", { name: "Kaydet", exact: true }).click();
+
+  const write = mock.writes.find((entry) =>
+    entry.method === "PUT" && entry.path === "/admin/announcements/sources/source-review-cas");
+  expect(write?.body).toMatchObject({
+    expectedSourceDefinitionVersion: "source-definition-v1",
+    expectedCanonicalUrl: "https://qa.edu.tr/duyurular",
+    expectedTrustStatus: "quarantined",
+    expectedSourceStatus: "inactive",
+    expectedApprovalPending: false,
+    expectedUpdatedAt: "2026-09-10T08:00:00.000Z",
+    sourceName: "Düzeltilmiş QA kaynağı"
+  });
+  await expect(page.getByText("Kaynak ayarları güncellendi")).toBeVisible();
+});
+
+test("source deactivation sends its observed fence and refreshes instead of applying a stale request", async ({ page }) => {
+  const mock = await installMockApi(page);
+  mock.announcementSources = [{
+    ...mock.announcementSources[0],
+    status: "active",
+    trustStatus: "trusted",
+    approvalPending: false
+  }];
+  mock.failSourceDeactivateConflict = true;
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const sourceForm = page.locator("form.sourceEditor");
+  const deactivate = sourceForm.getByRole("button", { name: "Pasife Al", exact: true });
+  await answerConfirmation(page, deactivate, "Bu duyuru kaynağını pasife almak istiyor musunuz? Otomatik veri alımı duracaktır.", true);
+  await expect(page.getByText("Kaynak başka bir işlemde değişti; eski pasife alma isteği uygulanmadı ve liste yenilendi")).toBeVisible();
+  expect(mock.announcementSources[0]?.status).toBe("active");
+
+  const staleWrite = mock.writes.filter((entry) =>
+    entry.method === "DELETE" && entry.path === "/admin/announcements/sources/source-review-cas").at(-1);
+  expect(staleWrite?.body).toEqual({
+    expectedSourceDefinitionVersion: "source-definition-v1",
+    expectedCanonicalUrl: "https://qa.edu.tr/duyurular",
+    expectedTrustStatus: "trusted",
+    expectedSourceStatus: "active",
+    expectedApprovalPending: false
+  });
+
+  mock.failSourceDeactivateConflict = false;
+  await answerConfirmation(page, deactivate, "Bu duyuru kaynağını pasife almak istiyor musunuz? Otomatik veri alımı duracaktır.", true);
+  await expect(page.getByText("Kaynak pasife alındı")).toBeVisible();
+  expect(mock.announcementSources[0]?.status).toBe("inactive");
+});
+
+test("content review resets drafts on a new CAS fence and preserves API-safe body blocks", async ({ page }) => {
+  const mock = await installMockApi(page);
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  let card = page.locator("details.reviewItemCard").filter({ hasText: "Sunucudaki eski başlık" });
+  await expect(card).toBeVisible();
+  await card.locator("summary").click();
+  await card.getByLabel("Çekilen başlık").fill("Tarayıcıdaki eski taslak");
+
+  mock.reviewItems = [{
+    ...mock.reviewItems[0],
+    snapshotId: "snapshot-2",
+    contentFingerprint: "b".repeat(64),
+    reviewRevision: "revision-2",
+    title: "Sunucudaki yeni başlık",
+    summary: "Sunucudaki yeni özet",
+    body: [{ type: "bullet", text: "Sunucudaki yeni madde" }]
+  }];
+  await page.getByRole("button", { name: "Kuyruğu Yenile", exact: true }).click();
+
+  card = page.locator("details.reviewItemCard").filter({ hasText: "Sunucudaki yeni başlık" });
+  await expect(card).toBeVisible();
+  await card.locator("summary").click();
+  await expect(card.getByLabel("Çekilen başlık")).toHaveValue("Sunucudaki yeni başlık");
+  await expect(card.getByLabel("1. içerik bloğu türü")).toHaveValue("bullet");
+  await expect(card.getByLabel("1. içerik bloğu metni")).toHaveValue("Sunucudaki yeni madde");
+
+  const longBody = "x".repeat(1_605);
+  await card.getByLabel("1. içerik bloğu metni").fill(longBody);
+  await card.getByRole("button", { name: "Düzeltmeleri Kaydet", exact: true }).click();
+  await expect(page.getByText("İçerik ve sınıflandırma düzeltmeleri kaydedildi")).toBeVisible();
+
+  const write = mock.writes.filter((entry) => entry.method === "PATCH" && entry.path === "/admin/announcements/review-items/review-item-1").at(-1);
+  expect(write?.body).toMatchObject({
+    expectedSnapshotId: "snapshot-2",
+    expectedContentFingerprint: "b".repeat(64),
+    expectedReviewRevision: "revision-2",
+    title: "Sunucudaki yeni başlık"
+  });
+  expect(write?.body.body).toHaveLength(3);
+  expect(write?.body.body.every((block: JsonRecord) => block.type === "bullet" && block.text.length <= 800)).toBe(true);
+  expect(write?.body.body.map((block: JsonRecord) => block.text).join("")).toBe(longBody);
+});
+
+test("content approval atomically submits the current edited draft", async ({ page }) => {
+  const mock = await installMockApi(page);
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const card = page.locator("details.reviewItemCard").filter({ hasText: "Sunucudaki eski başlık" });
+  await card.locator("summary").click();
+  await card.getByLabel("Çekilen başlık").fill("İnsan tarafından düzeltilen başlık");
+  await card.getByLabel("Özet").fill("İnsan tarafından düzeltilen özet");
+  await card.getByLabel("Grup").selectOption("course_registration");
+  await card.getByRole("button", { name: "Onayla", exact: true }).click();
+
+  const write = mock.writes.filter((entry) =>
+    entry.method === "PATCH" && entry.path === "/admin/announcements/review-items/review-item-1").at(-1);
+  expect(write?.body).toMatchObject({
+    title: "İnsan tarafından düzeltilen başlık",
+    summary: "İnsan tarafından düzeltilen özet",
+    topic: "course_registration",
+    reviewStatus: "approved",
+    expectedSnapshotId: "snapshot-1",
+    expectedContentFingerprint: "a".repeat(64),
+    expectedReviewRevision: "revision-1"
+  });
+  await expect(page.getByText("İçerik, düzeltmeleriyle birlikte onaylandı")).toBeVisible();
+});
+
+test("LLM review controls expose retry state and suppress duplicate in-flight submissions", async ({ page }) => {
+  const mock = await installMockApi(page);
+  mock.llmSettings = {
+    enabled: true,
+    provider: "openai",
+    model: "gpt-5-mini",
+    apiKeyConfigured: true,
+    keyLastFour: "1234",
+    lastTestStatus: "success",
+    revision: 1
+  };
+  mock.llmReviewDelayMs = 300;
+  mock.llmReviewShouldFail = true;
+  mock.reviewItems = [{
+    ...mock.reviewItems[0],
+    llmReviewFailure: {
+      disposition: "retry_scheduled",
+      reasonCode: "provider_unavailable",
+      attemptCount: 1,
+      lastAttemptedAt: "2026-09-10T09:00:00.000Z",
+      retryAfter: "2026-09-10T09:01:00.000Z"
+    }
+  }];
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const card = page.locator("details.reviewItemCard").first();
+  await card.locator("summary").click();
+  await expect(card.getByText(/Sağlayıcı geçici olarak kullanılamadı/u)).toBeVisible();
+  const single = card.getByRole("button", { name: "LLM ile İncele", exact: true });
+  await single.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect(card.getByRole("button", { name: "LLM İnceliyor...", exact: true })).toBeDisabled();
+  await expect(page.getByText(/503 LLM provider is temporarily unavailable/u)).toBeVisible();
+  await card.locator("summary").click();
+  await expect(card.getByText(/Deneme: 2/u)).toBeVisible();
+  expect(writeCount(mock.writes, "POST", "/admin/announcements/review-items/review-item-1/llm-review")).toBe(1);
+
+  mock.llmReviewShouldFail = false;
+  await single.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect(card.getByRole("button", { name: "LLM İnceliyor...", exact: true })).toBeDisabled();
+  await expect(page.getByText("İçerik LLM ile incelendi; insan onayı bekliyor")).toBeVisible();
+  expect(writeCount(mock.writes, "POST", "/admin/announcements/review-items/review-item-1/llm-review")).toBe(2);
+
+  const batchBase = { ...mock.reviewItems[0], llmClassification: null, llmReviewFailure: null };
+  mock.batchLlmFailureItemId = "review-batch-b";
+  mock.reviewItems = [
+    { ...batchBase, id: "review-batch-a", title: "First same-source item", contentFingerprint: "b".repeat(64), snapshotId: "snapshot-batch-0", reviewRevision: "revision-batch-a" },
+    { ...batchBase, id: "review-batch-b", title: "Failing same-source item", contentFingerprint: "c".repeat(64), snapshotId: "snapshot-batch-0", reviewRevision: "revision-batch-b" },
+    { ...batchBase, id: "review-batch-c", title: "Last same-source item", contentFingerprint: "d".repeat(64), snapshotId: "snapshot-batch-0", reviewRevision: "revision-batch-c" }
+  ];
+  await page.getByRole("button", { name: "Kuyruğu Yenile", exact: true }).click();
+
+  const batch = page.getByRole("button", { name: "Bekleyenleri LLM ile İncele", exact: true });
+  await batch.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect(page.getByRole("button", { name: "LLM İnceliyor...", exact: true })).toBeDisabled();
+  await expect(page.getByText("LLM kuyruğu: 2/3 incelendi, 1 başarısız")).toBeVisible();
+  expect(writeCount(mock.writes, "POST", "/admin/announcements/review-items/review-item-1/llm-review")).toBe(2);
+  const batchWrites = mock.writes.filter((write) =>
+    write.method === "POST" && write.path === "/admin/announcements/review-items/llm-review");
+  expect(batchWrites).toHaveLength(3);
+  expect(batchWrites.map((write) => write.body)).toEqual([
+    { limit: 1 }, { limit: 1 }, { limit: 1 }
+  ]);
+  expect(mock.reviewItems.filter((item) => item.llmClassification).map((item) => item.id)).toEqual([
+    "review-batch-a", "review-batch-c"
+  ]);
+  expect(mock.reviewItems.find((item) => item.id === "review-batch-b")?.llmReviewFailure).toMatchObject({
+    disposition: "manual_review"
+  });
+  expect(new Set(mock.reviewItems.map((item) => item.snapshotId))).toEqual(new Set(["snapshot-batch-3"]));
+
+  mock.batchLlmFailureItemId = "";
+  mock.reviewItems = Array.from({ length: 21 }, (_, index) => ({
+    ...batchBase,
+    id: `review-cap-${index + 1}`,
+    title: `Capped item ${index + 1}`,
+    contentFingerprint: (index + 1).toString(16).padStart(2, "0").repeat(32),
+    snapshotId: "snapshot-cap-0",
+    reviewRevision: `revision-cap-${index + 1}`
+  }));
+  await page.getByRole("button", { name: "Kuyruğu Yenile", exact: true }).click();
+  const writesBeforeCap = writeCount(mock.writes, "POST", "/admin/announcements/review-items/llm-review");
+  await batch.click();
+  await expect(page.getByText(/ilk 20 kayıt işlendi, kuyrukta içerik kaldı/u)).toBeVisible();
+  expect(writeCount(mock.writes, "POST", "/admin/announcements/review-items/llm-review") - writesBeforeCap).toBe(20);
+  expect(mock.reviewItems.filter((item) => !item.llmClassification && !item.llmReviewFailure)).toHaveLength(1);
+
+  mock.reviewItems = [{
+    ...batchBase,
+    id: "review-http-failure",
+    title: "HTTP failure item",
+    contentFingerprint: "e".repeat(64),
+    snapshotId: "snapshot-http-failure",
+    reviewRevision: "revision-http-failure"
+  }];
+  mock.batchLlmShouldFailHttp = true;
+  await page.getByRole("button", { name: "Kuyruğu Yenile", exact: true }).click();
+  const reloadsBeforeFailure = mock.requests.filter((request) =>
+    request.method === "GET" && request.path === "/admin/announcements/review-items").length;
+  await batch.click();
+  await expect(page.getByText("503 batch LLM unavailable")).toBeVisible();
+  await expect.poll(() => mock.requests.filter((request) =>
+    request.method === "GET" && request.path === "/admin/announcements/review-items").length
+  ).toBeGreaterThan(reloadsBeforeFailure);
+});
+
+test("LLM settings form sends its loaded revision and cannot overwrite a newer server decision", async ({ page }) => {
+  const mock = await installMockApi(page);
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.evaluate(() => { window.location.hash = "#/sources"; });
+
+  const panel = page.locator('section[aria-labelledby="llm-settings-heading"]');
+  const form = panel.locator("form.llmSettingsForm");
+  await expect(form.locator('input[name="expectedRevision"]')).toHaveValue("0");
+  await form.locator('input[name="model"]').fill("saved-model");
+  await form.locator("button").click();
+
+  let write = mock.writes.filter((entry) =>
+    entry.method === "PUT" && entry.path === "/admin/announcements/llm-settings").at(-1);
+  expect(write?.body).toMatchObject({ expectedRevision: 0, provider: "openai", model: "saved-model", enabled: false });
+  await expect(form.locator('input[name="expectedRevision"]')).toHaveValue("1");
+
+  await form.locator('input[name="model"]').fill("stale-form-model");
+  mock.llmSettings = {
+    enabled: true,
+    provider: "openai",
+    model: "server-winner-model",
+    apiKeyConfigured: true,
+    keyLastFour: "9876",
+    lastTestStatus: "untested",
+    revision: 2
+  };
+  await form.locator("button").click();
+
+  write = mock.writes.filter((entry) =>
+    entry.method === "PUT" && entry.path === "/admin/announcements/llm-settings").at(-1);
+  expect(write?.body).toMatchObject({ expectedRevision: 1, model: "stale-form-model", enabled: false });
+  expect(mock.llmSettings).toMatchObject({
+    enabled: true,
+    model: "server-winner-model",
+    apiKeyConfigured: true,
+    keyLastFour: "9876",
+    revision: 2
+  });
+  await expect(page.getByText("409 LLM settings changed after they were loaded. Refresh and retry.")).toBeVisible();
+});
+
+test("schedule source review uses server filters and pages beyond the first 50 rows", async ({ page }) => {
+  const mock = await installMockApi(page);
+  mock.scheduleReviewSources = Array.from({ length: 55 }, (_, index) => ({
+    ...mock.scheduleReviewSources[0],
+    id: `schedule-paged-${String(index + 1).padStart(3, "0")}`,
+    departmentId: `schedule-department-${String(index + 1).padStart(3, "0")}`,
+    scheduleType: index % 2 === 0 ? "course_schedule" : "exam_schedule",
+    lifecycle: "review_required",
+    revision: index + 1
+  }));
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const panel = page.locator("section.scheduleReviewPanel");
+  await expect(panel.locator("article.scheduleReviewCard")).toHaveCount(50);
+  const nextRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/admin/calendars/schedule-sources" && url.searchParams.get("offset") === "50";
+  });
+  await panel.getByRole("button", { name: "Sonraki", exact: true }).click();
+  const nextUrl = new URL((await nextRequest).url());
+  expect(nextUrl.searchParams.get("limit")).toBe("51");
+  await expect(panel.locator("article.scheduleReviewCard")).toHaveCount(5);
+
+  const filterRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/admin/calendars/schedule-sources"
+      && url.searchParams.get("scheduleType") === "exam_schedule";
+  });
+  await panel.getByLabel("Program türü").selectOption("exam_schedule");
+  const filterUrl = new URL((await filterRequest).url());
+  expect(filterUrl.searchParams.get("offset")).toBe("0");
+  expect(filterUrl.searchParams.get("limit")).toBe("51");
+  await expect(panel.locator("article.scheduleReviewCard")).toHaveCount(27);
+});
+
+test("schedule candidates can be reopened for correction before explicit super-admin publication", async ({ page }) => {
+  const mock = await installMockApi(page);
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  let card = page.locator("article.scheduleReviewCard").filter({ hasText: "Matematik" });
+  await expect(card.getByText("İnsan incelemesi gerekli", { exact: true })).toBeVisible();
+  await card.getByLabel("7. satır başlığı").fill("Matematik I");
+  await card.getByLabel("7. satır konumu").fill("B202");
+  await card.getByRole("button", { name: "Satırı Kaydet", exact: true }).click();
+  await expect(page.getByText("Program satırı 7 kaydedildi")).toBeVisible();
+
+  const editWrite = mock.writes.find((entry) => entry.method === "PATCH" && entry.path.endsWith("/candidates/7"));
+  expect(editWrite?.body).toEqual({
+    expectedRevision: 2,
+    title: "Matematik I",
+    date: null,
+    dayOfWeek: 1,
+    startTime: "09:00",
+    endTime: "10:00",
+    location: "B202"
+  });
+
+  card = page.locator("article.scheduleReviewCard").filter({ hasText: "qa-department" });
+  await card.getByLabel("Program akademik yılı").fill("2026-2027");
+  await card.getByLabel("Program dönemi").selectOption("fall");
+  await card.getByLabel("Ders başlangıç tarihi").fill("2026-09-01");
+  await card.getByLabel("Ders bitiş tarihi").fill("2026-12-31");
+  await card.getByRole("button", { name: "Seçilenleri Onayla ve Sahnele", exact: true }).click();
+  await expect(page.getByText("Onaylı program satırları görünmez olarak sahnelendi; süper yönetici yayını bekleniyor")).toBeVisible();
+
+  const reviewWrite = mock.writes.find((entry) => entry.method === "POST" && entry.path.endsWith("/schedule-source-1/review"));
+  expect(reviewWrite?.body).toMatchObject({
+    expectedRevision: 3,
+    decision: "approve",
+    academicYear: "2026-2027",
+    term: "fall",
+    courseRangeStart: "2026-09-01",
+    courseRangeEnd: "2026-12-31",
+    approvedRowNumbers: [7]
+  });
+
+  card = page.locator("article.scheduleReviewCard").filter({ hasText: "qa-department" });
+  await expect(card.getByText("Yayın bekliyor", { exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "İncelemeye Geri Aç", exact: true }).click();
+  const reopenWrite = mock.writes.find((entry) => entry.method === "POST" && entry.path.endsWith("/schedule-source-1/reopen-review"));
+  expect(reopenWrite?.body).toEqual({ expectedRevision: 5 });
+  await expect(page.getByText("Sahnelenen program geri alındı; kaynak yeniden insan incelemesine açıldı")).toBeVisible();
+
+  card = page.locator("article.scheduleReviewCard").filter({ hasText: "qa-department" });
+  await expect(card.getByText("İnsan incelemesi gerekli", { exact: true })).toBeVisible();
+  await card.getByLabel("Program akademik yılı").fill("2026-2027");
+  await card.getByLabel("Program dönemi").selectOption("fall");
+  await card.getByLabel("Ders başlangıç tarihi").fill("2026-09-01");
+  await card.getByLabel("Ders bitiş tarihi").fill("2026-12-31");
+  await card.getByRole("button", { name: "Seçilenleri Onayla ve Sahnele", exact: true }).click();
+
+  card = page.locator("article.scheduleReviewCard").filter({ hasText: "qa-department" });
+  await card.getByRole("button", { name: "Sahnelenen Programı Yayınla", exact: true }).click();
+  const publishWrite = mock.writes.find((entry) => entry.method === "POST" && entry.path.endsWith("/schedule-source-1/publish"));
+  expect(publishWrite?.body).toEqual({ expectedRevision: 9 });
+  await expect(page.getByText("Sahnelenen program satırları süper yönetici tarafından yayınlandı")).toBeVisible();
 });
 
 test("native validation blocks malformed forms and API mutation errors stay visible without page errors", async ({ page }) => {
@@ -396,9 +1145,18 @@ async function installMockApi(page: Page) {
     writes: [] as Array<{ method: string; path: string; body: JsonRecord }>,
     requests: [] as Array<{ method: string; path: string }>,
     failUniversityCreate: false,
+    failSourceDeactivateConflict: false,
     expireStoredSession: false,
+    logoutShouldFail: false,
+    llmReviewDelayMs: 0,
+    llmReviewShouldFail: false,
+    batchLlmShouldFailHttp: false,
+    batchLlmFailureItemId: "",
+    batchSnapshotGeneration: 0,
+    roleScopedSources: false,
+    superSourceDelayMs: 0,
     universities: [
-      { id: "qa-university", name: "QA Üniversitesi", city: "Ankara", type: "state", status: "active", emailDomains: ["qa.edu.tr"] },
+      { id: "qa-university", name: "QA Üniversitesi", city: "Ankara", type: "state", status: "active", websiteUrl: "https://qa.edu.tr", academicCalendarUrl: "https://qa.edu.tr/akademik-takvim.pdf", emailDomains: ["qa.edu.tr"] },
       { id: "xss-university", name: '<img src=x onerror="window.__adminXss=1">', city: "Test", type: "state", status: "active", emailDomains: [] }
     ],
     faculties: [{ id: "qa-faculty", universityId: "qa-university", name: "Mühendislik Fakültesi" }],
@@ -407,6 +1165,139 @@ async function installMockApi(page: Page) {
       { id: "suggestion-approve", userEmail: "one@qa.edu.tr", universityId: "qa-university", facultyName: "Fen Fakültesi", departmentName: "Fizik", educationLevel: "bachelor", status: "pending", createdAt: "2026-08-20T08:00:00.000Z" },
       { id: "suggestion-reject", userEmail: "two@qa.edu.tr", universityId: "qa-university", facultyName: "Sanat Fakültesi", educationLevel: "bachelor", status: "pending", createdAt: "2026-08-20T08:00:00.000Z" }
     ],
+    announcementSources: [{
+      id: "source-review-cas",
+      scopeType: "university",
+      scopeId: "qa-university",
+      sourceName: "QA duyuru kaynağı",
+      sourceUrl: "https://qa.edu.tr/duyurular",
+      canonicalUrl: "https://qa.edu.tr/duyurular",
+      sourceDefinitionVersion: "source-definition-v1",
+      contentType: "announcement",
+      parser: "html",
+      priority: 50,
+      status: "inactive",
+      trustStatus: "quarantined",
+      healthStatus: "pending",
+      itemCount: 0,
+      fetchIntervalMinutes: 180,
+      updatedAt: "2026-09-10T08:00:00.000Z"
+    }] as JsonRecord[],
+    academicCalendarProfiles: {
+      "qa-university": {
+        id: "calendar-profile-qa",
+        universityId: "qa-university",
+        sourceUrl: "https://qa.edu.tr/akademik-takvim.pdf",
+        parser: "auto",
+        status: "inactive",
+        healthStatus: "pending"
+      }
+    } as Record<string, JsonRecord>,
+    scopedAnnouncementSources: [{
+      id: "university-admin-source",
+      scopeType: "university",
+      scopeId: "qa-university",
+      sourceName: "Üniversite yöneticisi kaynağı",
+      sourceUrl: "https://qa.edu.tr/yerel-duyurular",
+      contentType: "announcement",
+      parser: "html",
+      priority: 50,
+      status: "active",
+      trustStatus: "trusted",
+      healthStatus: "healthy",
+      itemCount: 1,
+      fetchIntervalMinutes: 180,
+      updatedAt: "2026-09-10T09:00:00.000Z"
+    }] as JsonRecord[],
+    sourceCoverageItems: [{
+      id: "qa-department:announcement",
+      universityId: "qa-university",
+      universityName: "QA Üniversitesi",
+      scopeType: "department",
+      scopeId: "qa-department",
+      scopeName: "Bilgisayar Mühendisliği",
+      facultyId: "qa-faculty",
+      facultyName: "Mühendislik Fakültesi",
+      departmentId: "qa-department",
+      departmentName: "Bilgisayar Mühendisliği",
+      sourceType: "announcement",
+      resolution: "missing",
+      evidencePresent: false,
+      evidenceArtifactReferencePresent: false,
+      missingReason: "no_registered_department_announcement_source"
+    }, {
+      id: "qa-department:academic_calendar",
+      universityId: "qa-university",
+      universityName: "QA Üniversitesi",
+      scopeType: "department",
+      scopeId: "qa-department",
+      scopeName: "Bilgisayar Mühendisliği",
+      facultyId: "qa-faculty",
+      facultyName: "Mühendislik Fakültesi",
+      departmentId: "qa-department",
+      departmentName: "Bilgisayar Mühendisliği",
+      sourceType: "academic_calendar",
+      resolution: "verified",
+      url: "https://qa.edu.tr/akademik-takvim.pdf",
+      evidencePresent: true,
+      evidenceArtifactReferencePresent: true,
+      finalRevalidatedAt: "2026-09-10T01:00:00.000Z",
+      publicationScope: "university_system",
+      inheritedFromScopeType: "university",
+      inheritedFromScopeId: "qa-university"
+    }] as JsonRecord[],
+    reviewItems: [{
+      id: "review-item-1",
+      sourceId: "source-1",
+      sourceName: "QA duyuruları",
+      sourceUrl: "https://qa.edu.tr/duyurular",
+      contentFingerprint: "a".repeat(64),
+      snapshotId: "snapshot-1",
+      reviewRevision: "revision-1",
+      title: "Sunucudaki eski başlık",
+      summary: "Eski özet",
+      body: [
+        { type: "heading", text: "Eski başlık bloğu" },
+        { type: "paragraph", text: "Eski açıklama" }
+      ],
+      contentType: "announcement",
+      reviewStatus: "pending_review",
+      studentRelevance: "uncertain",
+      topic: "unknown",
+      audience: "unknown",
+      actionType: "unknown",
+      deadline: "unknown",
+      urgency: "unknown"
+    }] as JsonRecord[],
+    llmSettings: {
+      enabled: false,
+      provider: "openai",
+      model: "gpt-5-mini",
+      apiKeyConfigured: false,
+      lastTestStatus: "untested",
+      revision: 0
+    } as JsonRecord,
+    scheduleReviewSources: [{
+      id: "schedule-source-1",
+      universityId: "qa-university",
+      facultyId: "qa-faculty",
+      departmentId: "qa-department",
+      scheduleType: "course_schedule",
+      sourceUrl: "https://qa.edu.tr/bolum/ders-programi",
+      verifiedFinalUrl: "https://qa.edu.tr/bolum/ders-programi",
+      lifecycle: "review_required",
+      revision: 2,
+      reviewResult: {
+        outcome: "parsed_pending_review",
+        format: "html",
+        finalUrl: "https://qa.edu.tr/bolum/ders-programi",
+        contentSha256: "c".repeat(64),
+        candidateCount: 1,
+        checkedAt: "2026-09-10T10:00:00.000Z",
+        candidates: [{ rowNumber: 7, rawText: "Pazartesi 09:00-10:00 Matematik A101", title: "Matematik", dayOfWeek: 1, startTime: "09:00", endTime: "10:00", location: "A101" }]
+      },
+      updatedAt: "2026-09-10T10:00:00.000Z"
+    }] as JsonRecord[],
     extractedEvents: [] as JsonRecord[],
     failedJobs: [{ id: "job-1", title: "Başarısız bildirim", status: "failed", scheduledAt: "2026-08-20T09:00:00.000Z" }],
     users: [{ id: "user-1", fullName: "QA Öğrenci", email: "student@qa.edu.tr", role: "student", status: "active", emailVerifiedAt: "2026-08-01T09:00:00.000Z" }]
@@ -428,6 +1319,8 @@ async function installMockApi(page: Page) {
         ? "student"
         : body.email === "editor@qa.local"
           ? "content_editor"
+          : body.email === "university@qa.local"
+            ? "university_admin"
           : "super_admin";
       return fulfillJson(route, {
         accessToken: `${role}-token`,
@@ -470,9 +1363,400 @@ async function installMockApi(page: Page) {
       return fulfillJson(route, { status: "rejected" });
     }
 
+    if (method === "GET" && path === "/admin/calendars/schedule-sources") {
+      const universityId = url.searchParams.get("universityId");
+      const scheduleType = url.searchParams.get("scheduleType");
+      const lifecycle = url.searchParams.get("lifecycle");
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      const filtered = state.scheduleReviewSources.filter((source) =>
+        (!universityId || source.universityId === universityId)
+        && (!scheduleType || source.scheduleType === scheduleType)
+        && (!lifecycle || source.lifecycle === lifecycle));
+      return fulfillJson(route, filtered.slice(offset, offset + limit));
+    }
+    if (method === "POST" && path === "/admin/calendars/schedule-sources/provision-registry") return fulfillJson(route, { created: 1, skipped: 0 });
+    if (method === "PATCH" && /^\/admin\/calendars\/schedule-sources\/[^/]+\/candidates\/\d+$/u.test(path)) {
+      const current = state.scheduleReviewSources[0] as any;
+      const candidate = current.reviewResult.candidates[0];
+      for (const field of ["title", "date", "dayOfWeek", "startTime", "endTime", "location"]) {
+        if (!(field in body)) continue;
+        if (body[field] === null) delete candidate[field];
+        else candidate[field] = body[field];
+      }
+      current.revision += 1;
+      current.updatedAt = "2026-09-10T10:01:00.000Z";
+      return fulfillJson(route, current);
+    }
+    if (method === "POST" && path === "/admin/calendars/schedule-sources/schedule-source-1/review") {
+      const current = state.scheduleReviewSources[0] as any;
+      if (body.decision === "reject") {
+        current.lifecycle = "rejected";
+        current.revision += 1;
+        current.reviewDecision = { decision: "rejected", reviewedBy: "super_admin-id", reviewedAt: "2026-09-10T10:02:00.000Z", approvedRowNumbers: [], rejectedRowNumbers: [7] };
+      } else {
+        current.lifecycle = "staged";
+        current.revision += 2;
+        current.reviewDecision = {
+          decision: "approved",
+          materializationStatus: "staged",
+          calendarId: "calendar-existing",
+          reviewedBy: "super_admin-id",
+          reviewedAt: "2026-09-10T10:02:00.000Z",
+          approvedRowNumbers: body.approvedRowNumbers,
+          rejectedRowNumbers: []
+        };
+      }
+      return fulfillJson(route, current);
+    }
+    if (method === "POST" && path === "/admin/calendars/schedule-sources/schedule-source-1/reopen-review") {
+      const current = state.scheduleReviewSources[0] as any;
+      current.lifecycle = "review_required";
+      current.revision += 2;
+      delete current.reviewDecision;
+      return fulfillJson(route, current);
+    }
+    if (method === "POST" && path === "/admin/calendars/schedule-sources/schedule-source-1/publish") {
+      const current = state.scheduleReviewSources[0] as any;
+      current.lifecycle = "published";
+      current.revision += 1;
+      current.reviewDecision.materializationStatus = "published";
+      return fulfillJson(route, current);
+    }
+    if (method === "POST" && path === "/admin/calendars/schedule-sources/schedule-source-1/ingest") return fulfillJson(route, state.scheduleReviewSources[0]);
     if (method === "GET" && path === "/admin/calendars/course-schedules") return fulfillJson(route, []);
     if (method === "POST" && path === "/admin/calendars/manual") return fulfillJson(route, { calendar: { id: "manual-calendar-1" } }, 201);
-    if (method === "GET" && path === "/admin/announcements/sources") return fulfillJson(route, []);
+    if (method === "GET" && path === "/admin/source-coverage") {
+      const search = url.searchParams.get("search")?.trim().toLocaleLowerCase("tr-TR");
+      const universityId = url.searchParams.get("universityId");
+      const scopeType = url.searchParams.get("scopeType");
+      const sourceType = url.searchParams.get("sourceType");
+      const resolution = url.searchParams.get("resolution");
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      const filtered = state.sourceCoverageItems.filter((item) => {
+        if (universityId && item.universityId !== universityId) return false;
+        if (scopeType && item.scopeType !== scopeType) return false;
+        if (sourceType && item.sourceType !== sourceType) return false;
+        if (resolution && item.resolution !== resolution) return false;
+        if (!search) return true;
+        return [item.universityName, item.facultyName, item.departmentName, item.scopeId]
+          .filter(Boolean)
+          .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(search));
+      });
+      const byResolution = { missing: 0, quarantined: 0, verified: 0, legacy_unverified: 0 };
+      for (const item of filtered) byResolution[item.resolution as keyof typeof byResolution] += 1;
+      return fulfillJson(route, {
+        total: filtered.length,
+        items: filtered.slice(offset, offset + limit),
+        summary: {
+          catalog: { universities: 208, academicUnits: 17_360, faculties: 2_932, departments: 14_428 },
+          filteredAcademicUnits: new Set(filtered.map((item) => item.scopeId)).size,
+          filteredSourceSlots: filtered.length,
+          byResolution,
+          bySourceType: {}
+        }
+      });
+    }
+    if (method === "POST" && path === "/auth/logout") {
+      return state.logoutShouldFail
+        ? fulfillJson(route, { message: "logout unavailable" }, 503)
+        : fulfillJson(route, { status: "ok" });
+    }
+    if (method === "GET" && path === "/admin/announcements/source-profiles") {
+      const contentTypes = ["announcement", "news", "event", "academic_calendar"] as const;
+      const profileUniversities = state.universities.map((university) => ({
+        universityId: university.id,
+        universityName: university.name,
+        city: university.city,
+        authority: { status: "verified", homepageUrl: university.websiteUrl, domains: university.emailDomains ?? [], reasonCodes: [] },
+        slots: contentTypes.map((contentType) => {
+          const source = contentType === "academic_calendar"
+            ? undefined
+            : state.announcementSources.find((candidate) => candidate.scopeType === "university"
+              && candidate.scopeId === university.id
+              && (candidate.contentType ?? "announcement") === contentType);
+          const calendar = contentType === "academic_calendar" ? state.academicCalendarProfiles[university.id] : undefined;
+          const suggestedUrl = source?.sourceUrl
+            ?? calendar?.sourceUrl
+            ?? (contentType === "announcement" ? university.announcementUrl : undefined)
+            ?? (contentType === "academic_calendar" ? university.academicCalendarUrl : undefined)
+            ?? university.websiteUrl;
+          const descriptions = {
+            announcement: "Duyuru liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            news: "Haber liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            event: "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
+            academic_calendar: "Akademik takvim HTML sayfası veya PDF/Office belge bağlantısı; tablo ve tarih aralıkları otomatik algılanır."
+          };
+          return {
+            contentType,
+            suggestedUrl,
+            sourceUrl: suggestedUrl,
+            sourceId: source?.id,
+            sourceName: source?.sourceName,
+            parser: source?.parser ?? calendar?.parser ?? "auto",
+            parserConfig: source?.parserConfig ?? calendar?.parserConfig,
+            status: source?.status ?? calendar?.status ?? "inactive",
+            trustStatus: calendar ? "configured" : source?.trustStatus ?? "quarantined",
+            reviewStatus: source ? "pending_review" : undefined,
+            resolution: suggestedUrl ? "candidate" : "missing",
+            sourceStatus: suggestedUrl ? "source_found" : "source_not_found",
+            evidenceStatus: "not_attached",
+            lastTest: {
+              status: source?.healthStatus ?? calendar?.healthStatus ?? "not_tested",
+              checkedAt: source?.lastCheckedAt ?? calendar?.lastCheckedAt,
+              itemCount: source?.itemCount ?? calendar?.itemCount,
+              error: source?.lastError ?? calendar?.lastError
+            },
+            siteStructure: {
+              kind: contentType === "academic_calendar" ? "calendar_document_or_page" : "listing",
+              detectedFormat: contentType === "academic_calendar" ? "document" : "html",
+              extractionMode: contentType === "academic_calendar" ? "document_text" : "html_dom_auto",
+              description: descriptions[contentType],
+              selectorHints: { item: ["article", "li"], title: ["h2", ".title"], link: ["a[href]"], date: ["time", ".date"], content: ["main", ".content"] }
+            },
+            ...(contentType === "academic_calendar" ? { adminPath: "/admin/calendars" } : {})
+          };
+        })
+      }));
+      return fulfillJson(route, {
+        summary: {
+          universities: profileUniversities.length,
+          sourceSlots: profileUniversities.length * 4,
+          authoritiesVerified: profileUniversities.length,
+          authoritiesQuarantined: 0,
+          returnedUniversities: profileUniversities.length,
+          returnedSourceSlots: profileUniversities.length * 4,
+          byContentType: {}
+        },
+        universities: profileUniversities
+      });
+    }
+    const sourceProfileMatch = path.match(/^\/admin\/announcements\/source-profiles\/([^/]+)\/(announcement|news|event|academic_calendar)$/u);
+    if (method === "PUT" && sourceProfileMatch) {
+      const [, universityId, contentType] = sourceProfileMatch;
+      if (contentType === "academic_calendar") {
+        state.academicCalendarProfiles[universityId!] = {
+          ...(state.academicCalendarProfiles[universityId!] ?? { id: `calendar-profile-${universityId}`, universityId }),
+          ...body,
+          healthStatus: "pending"
+        };
+        return fulfillJson(route, state.academicCalendarProfiles[universityId!]!);
+      }
+      const sourceIndex = state.announcementSources.findIndex((source) => source.scopeType === "university"
+        && source.scopeId === universityId && (source.contentType ?? "announcement") === contentType);
+      const current = sourceIndex >= 0 ? state.announcementSources[sourceIndex]! : {
+        id: `profile-${universityId}-${contentType}`,
+        scopeType: "university",
+        scopeId: universityId,
+        contentType,
+        priority: 50,
+        fetchIntervalMinutes: 180,
+        trustStatus: "quarantined",
+        healthStatus: "pending",
+        updatedAt: "2026-09-11T09:00:00.000Z"
+      };
+      const updated = { ...current, ...body, updatedAt: "2026-09-11T09:01:00.000Z" };
+      if (sourceIndex >= 0) state.announcementSources[sourceIndex] = updated;
+      else state.announcementSources.push(updated);
+      return fulfillJson(route, { source: updated, ingestion: null });
+    }
+    const sourceProfilePreviewMatch = path.match(/^\/admin\/announcements\/source-profiles\/([^/]+)\/(announcement|news|event|academic_calendar)\/preview$/u);
+    if (method === "POST" && sourceProfilePreviewMatch) {
+      const [, universityId, contentType] = sourceProfilePreviewMatch;
+      const isCalendar = contentType === "academic_calendar";
+      const configuredUrl = isCalendar
+        ? state.academicCalendarProfiles[universityId!]?.sourceUrl
+        : state.announcementSources.find((source) => source.scopeId === universityId && (source.contentType ?? "announcement") === contentType)?.sourceUrl;
+      return fulfillJson(route, {
+        sourceId: isCalendar ? `calendar-profile-${universityId}` : `profile-${universityId}-${contentType}`,
+        sourceName: isCalendar ? "QA Üniversitesi Akademik Takvim" : "QA duyuru kaynağı",
+        sourceUrl: configuredUrl,
+        finalUrl: configuredUrl,
+        status: "healthy",
+        parsedItemCount: isCalendar ? 1 : 3,
+        acceptedItemCount: isCalendar ? 1 : 3,
+        testedAt: "2026-09-11T09:00:00.000Z",
+        activationStatus: "active",
+        samples: isCalendar
+          ? [{ title: "2026-2027 Akademik Takvim", url: configuredUrl }]
+          : [
+              { title: "Kayıt Yenileme Duyurusu", url: "https://qa.edu.tr/duyurular/1", publishedDate: "2026-09-11", summary: "Kayıt yenileme ayrıntıları" },
+              { title: "Burs Başvurusu", url: "https://qa.edu.tr/duyurular/2", publishedDate: "2026-09-10" },
+              { title: "Sınav Takvimi", url: "https://qa.edu.tr/duyurular/3", publishedDate: "2026-09-09" }
+            ]
+      });
+    }
+    if (method === "GET" && path === "/admin/announcements/sources") {
+      const isUniversityAdmin = request.headers().authorization === "Bearer university_admin-token";
+      const sources = state.roleScopedSources && isUniversityAdmin
+        ? state.scopedAnnouncementSources
+        : state.announcementSources;
+      const search = url.searchParams.get("search")?.trim().toLocaleLowerCase("tr-TR");
+      const trustStatus = url.searchParams.get("trustStatus");
+      const contentType = url.searchParams.get("contentType");
+      const scopeType = url.searchParams.get("scopeType");
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const limit = Number(url.searchParams.get("limit") ?? "100");
+      const filtered = sources.filter((source) => {
+        if (trustStatus && source.trustStatus !== trustStatus) return false;
+        if (contentType && source.contentType !== contentType) return false;
+        if (scopeType && source.scopeType !== scopeType) return false;
+        if (!search) return true;
+        return [source.sourceName, source.sourceUrl, source.scopeId]
+          .filter(Boolean)
+          .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(search));
+      });
+      return fulfillJson(
+        route,
+        filtered.slice(offset, offset + limit),
+        200,
+        state.roleScopedSources && !isUniversityAdmin ? state.superSourceDelayMs : 0
+      );
+    }
+    if (method === "PUT" && path === "/admin/announcements/sources/source-review-cas") {
+      const {
+        expectedSourceDefinitionVersion: _definition,
+        expectedCanonicalUrl: _canonical,
+        expectedTrustStatus: _trust,
+        expectedSourceStatus: _status,
+        expectedApprovalPending: _approvalPending,
+        expectedUpdatedAt: _updatedAt,
+        ...updates
+      } = body;
+      state.announcementSources = [{
+        ...state.announcementSources[0],
+        ...updates,
+        updatedAt: "2026-09-10T08:01:00.000Z"
+      }];
+      return fulfillJson(route, { source: state.announcementSources[0], ingestion: null });
+    }
+    if (method === "DELETE" && path === "/admin/announcements/sources/source-review-cas") {
+      if (state.failSourceDeactivateConflict) {
+        return fulfillJson(route, { message: "Announcement source changed after it was loaded. Refresh the source and retry." }, 409);
+      }
+      state.announcementSources = [{ ...state.announcementSources[0], status: "inactive", approvalPending: false }];
+      return fulfillJson(route, state.announcementSources[0]);
+    }
+    if (method === "POST" && path === "/admin/announcements/sources/source-review-cas/approve") {
+      state.announcementSources = [{
+        ...state.announcementSources[0],
+        status: "active",
+        trustStatus: "trusted",
+        approvalPending: false
+      }];
+      return fulfillJson(route, { source: state.announcementSources[0], ingestion: { status: "healthy", itemCount: 1 } });
+    }
+    if (method === "POST" && path === "/admin/announcements/sources/source-review-cas/reject") {
+      state.announcementSources = [{ ...state.announcementSources[0], status: "inactive", trustStatus: "rejected" }];
+      return fulfillJson(route, state.announcementSources[0]);
+    }
+    if (method === "GET" && path === "/admin/announcements/review-items") {
+      return fulfillJson(route, { items: state.reviewItems, total: state.reviewItems.length, limit: 50, offset: 0, hasMore: false });
+    }
+    if (method === "PATCH" && path === "/admin/announcements/review-items/review-item-1") {
+      const { expectedSnapshotId: _snapshot, expectedContentFingerprint: _fingerprint, expectedReviewRevision: _revision, ...updates } = body;
+      state.reviewItems = [{ ...state.reviewItems[0], ...updates, reviewRevision: "revision-saved" }];
+      return fulfillJson(route, state.reviewItems[0]);
+    }
+    if (method === "POST" && path === "/admin/announcements/review-items/review-item-1/llm-review") {
+      if (state.llmReviewDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, state.llmReviewDelayMs));
+      if (state.llmReviewShouldFail) {
+        state.reviewItems = [{
+          ...state.reviewItems[0],
+          reviewRevision: "revision-llm-failed",
+          llmReviewFailure: {
+            disposition: "retry_scheduled",
+            reasonCode: "provider_unavailable",
+            attemptCount: 2,
+            lastAttemptedAt: "2026-09-10T10:00:00.000Z",
+            retryAfter: "2026-09-10T10:05:00.000Z"
+          }
+        }];
+        return fulfillJson(route, { message: "LLM provider is temporarily unavailable." }, 503);
+      }
+      state.reviewItems = [{
+        ...state.reviewItems[0],
+        reviewRevision: "revision-llm",
+        llmReviewFailure: null,
+        llmClassification: {
+          provider: "openai",
+          model: "gpt-5-mini",
+          confidence: 0.9,
+          rationale: "Test suggestion",
+          analyzedAt: "2026-09-10T10:00:00.000Z"
+        }
+      }];
+      return fulfillJson(route, state.reviewItems[0]);
+    }
+    if (method === "POST" && path === "/admin/announcements/review-items/llm-review") {
+      if (state.llmReviewDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, state.llmReviewDelayMs));
+      if (state.batchLlmShouldFailHttp) return fulfillJson(route, { message: "batch LLM unavailable" }, 503);
+      const candidate = state.reviewItems.find((item) =>
+        (item.reviewStatus ?? item.status ?? "pending_review") === "pending_review"
+        && !item.llmClassification
+        && !item.llmReviewFailure);
+      if (!candidate) return fulfillJson(route, { processed: 0, reviewed: 0, failed: 0, hasMore: false, results: [] });
+
+      state.batchSnapshotGeneration += 1;
+      const failed = candidate.id === state.batchLlmFailureItemId;
+      const snapshotId = `snapshot-batch-${state.batchSnapshotGeneration}`;
+      state.reviewItems = state.reviewItems.map((item) => {
+        const rotated = item.sourceId === candidate.sourceId ? { ...item, snapshotId } : item;
+        if (item.id !== candidate.id) return rotated;
+        return failed
+          ? {
+              ...rotated,
+              reviewRevision: `revision-batch-${state.batchSnapshotGeneration}`,
+              llmReviewFailure: {
+                disposition: "manual_review",
+                reasonCode: "provider_refusal",
+                attemptCount: 1,
+                lastAttemptedAt: "2026-09-10T10:00:00.000Z"
+              }
+            }
+          : {
+              ...rotated,
+              reviewRevision: `revision-batch-${state.batchSnapshotGeneration}`,
+              llmClassification: {
+                provider: "openai",
+                model: "gpt-5-mini",
+                confidence: 0.9,
+                rationale: "Batch suggestion",
+                analyzedAt: "2026-09-10T10:00:00.000Z"
+              }
+            };
+      });
+      return fulfillJson(route, {
+        processed: 1,
+        reviewed: failed ? 0 : 1,
+        failed: failed ? 1 : 0,
+        hasMore: state.reviewItems.some((item) =>
+          (item.reviewStatus ?? item.status ?? "pending_review") === "pending_review"
+          && !item.llmClassification
+          && !item.llmReviewFailure),
+        results: [{ itemId: candidate.id, status: failed ? "failed" : "reviewed", ...(failed ? { disposition: "manual_review" } : {}) }]
+      });
+    }
+    if (method === "GET" && path === "/admin/announcements/llm-settings") {
+      return fulfillJson(route, state.llmSettings);
+    }
+    if (method === "PUT" && path === "/admin/announcements/llm-settings") {
+      if (body.expectedRevision !== state.llmSettings.revision) {
+        return fulfillJson(route, { message: "LLM settings changed after they were loaded. Refresh and retry." }, 409);
+      }
+      const apiKey = typeof body.apiKey === "string" && body.apiKey.length > 0 ? body.apiKey : undefined;
+      state.llmSettings = {
+        ...state.llmSettings,
+        enabled: body.enabled === true,
+        provider: "openai",
+        model: body.model,
+        apiKeyConfigured: state.llmSettings.apiKeyConfigured || Boolean(apiKey),
+        ...(apiKey ? { keyLastFour: apiKey.slice(-4) } : {}),
+        revision: state.llmSettings.revision + 1
+      };
+      return fulfillJson(route, state.llmSettings);
+    }
 
     if (method === "POST" && path === "/admin/pdf-sources") return fulfillJson(route, { id: "pdf-1" }, 201);
     if (method === "POST" && path === "/admin/pdf-sources/pdf-1/process") {

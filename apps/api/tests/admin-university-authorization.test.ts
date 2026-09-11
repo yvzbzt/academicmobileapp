@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException, type ExecutionContext } from "@nestjs/common";
+import { ConflictException, ForbiddenException, NotFoundException, type ExecutionContext } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import {
   adminUniversityAccessFor,
@@ -7,6 +7,7 @@ import {
 import { JwtAuthGuard } from "../src/common/guards/jwt-auth.guard.js";
 import { AnnouncementIngestionService } from "../src/modules/announcements/announcement-ingestion.service.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
+import type { AnnouncementSourceRecord } from "../src/modules/announcements/announcements.types.js";
 import { InMemoryAuthRepository } from "../src/modules/auth/in-memory-auth.repository.js";
 import { TokenService } from "../src/modules/auth/token.service.js";
 import { InMemoryCalendarRepository } from "../src/modules/calendars/in-memory-calendar.repository.js";
@@ -94,11 +95,13 @@ describe("announcement-source university authorization", () => {
     expect(ingestion.results.map((result) => result.sourceId)).not.toContain(foreignSource.id);
     ingestSpy.mockRestore();
 
-    await expect(service.updateManualSourceForAdmin(access, ownUniversitySource.id, { status: "inactive" }))
+    await expect(service.updateManualSourceForAdmin(access, ownUniversitySource.id, sourceEditRequest(ownUniversitySource, { status: "inactive" })))
       .resolves.toMatchObject({ source: { id: ownUniversitySource.id, status: "inactive" }, ingestion: null });
-    await expect(service.updateManualSourceForAdmin(access, foreignSource.id, { status: "inactive" }))
+    await expect(service.updateManualSourceForAdmin(access, foreignSource.id, sourceEditRequest(foreignSource, { status: "inactive" })))
       .rejects.toBeInstanceOf(NotFoundException);
-    await expect(service.deactivateManualSourceForAdmin(access, foreignSource.id))
+    await expect(service.deactivateManualSourceForAdmin(access, ownUniversitySource.id, sourceReviewRequest(ownUniversitySource)))
+      .rejects.toBeInstanceOf(ConflictException);
+    await expect(service.deactivateManualSourceForAdmin(access, foreignSource.id, sourceReviewRequest(foreignSource)))
       .rejects.toBeInstanceOf(NotFoundException);
     await expect(service.ingestSourceByIdForAdmin(access, foreignSource.id))
       .rejects.toBeInstanceOf(NotFoundException);
@@ -113,7 +116,7 @@ describe("announcement-source university authorization", () => {
       fetchIntervalMinutes: 60
     })).rejects.toBeInstanceOf(ForbiddenException);
 
-    await expect(service.updateManualSourceForAdmin(globalAccess, foreignSource.id, { status: "inactive" }))
+    await expect(service.updateManualSourceForAdmin(globalAccess, foreignSource.id, sourceEditRequest(foreignSource, { status: "inactive" })))
       .resolves.toMatchObject({ source: { id: foreignSource.id, status: "inactive" } });
   });
 });
@@ -290,6 +293,24 @@ function sourceInput(
     homepageUrl,
     discoveryMethod: "manual" as const,
     trustStatus: "trusted" as const
+  };
+}
+
+function sourceEditRequest(source: AnnouncementSourceRecord, updates: { status: "active" | "inactive" }) {
+  return {
+    ...sourceReviewRequest(source),
+    expectedUpdatedAt: source.updatedAt.toISOString(),
+    ...updates
+  };
+}
+
+function sourceReviewRequest(source: AnnouncementSourceRecord) {
+  return {
+    expectedSourceDefinitionVersion: source.sourceDefinitionVersion ?? "",
+    expectedCanonicalUrl: source.canonicalUrl ?? source.sourceUrl,
+    expectedTrustStatus: source.trustStatus ?? "quarantined" as const,
+    expectedSourceStatus: source.status,
+    expectedApprovalPending: source.approvalPending === true
   };
 }
 

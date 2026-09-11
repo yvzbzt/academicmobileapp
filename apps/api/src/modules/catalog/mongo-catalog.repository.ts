@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { departmentSchema, facultySchema, universitySchema } from "../../database/mongoose-schemas.js";
 import { getModel, omitUndefined, toDomainRecord } from "../../database/mongoose-utils.js";
 import { MongoConnectionService } from "../../database/mongo-connection.service.js";
-import type { CatalogRepository, CatalogStatus, DepartmentRecord, FacultyRecord, UniversityRecord } from "./catalog.types.js";
+import type { CatalogRepository, CatalogStatus, DepartmentRecord, DepartmentRecordUpdate, FacultyRecord, FacultyRecordUpdate, UniversityRecord, UniversityRecordUpdate, VerifiedSourceUrlFill } from "./catalog.types.js";
 
 @Injectable()
 export class MongoCatalogRepository implements CatalogRepository {
@@ -13,8 +13,8 @@ export class MongoCatalogRepository implements CatalogRepository {
     return toDomainRecord<UniversityRecord>(document);
   }
 
-  async updateUniversity(id: string, input: Partial<Omit<UniversityRecord, "id" | "createdAt" | "updatedAt">>): Promise<UniversityRecord | null> {
-    const document = await (await this.model("University", universitySchema)).findByIdAndUpdate(id, omitUndefined(input), { new: true });
+  async updateUniversity(id: string, input: UniversityRecordUpdate): Promise<UniversityRecord | null> {
+    const document = await (await this.model("University", universitySchema)).findByIdAndUpdate(id, buildNullableCatalogMongoUpdate(input), { new: true });
     return document ? toDomainRecord<UniversityRecord>(document) : null;
   }
 
@@ -45,8 +45,8 @@ export class MongoCatalogRepository implements CatalogRepository {
     return toDomainRecord<FacultyRecord>(document);
   }
 
-  async updateFaculty(id: string, input: Partial<Omit<FacultyRecord, "id" | "createdAt" | "updatedAt">>): Promise<FacultyRecord | null> {
-    const document = await (await this.model("Faculty", facultySchema)).findByIdAndUpdate(id, omitUndefined(input), { new: true });
+  async updateFaculty(id: string, input: FacultyRecordUpdate): Promise<FacultyRecord | null> {
+    const document = await (await this.model("Faculty", facultySchema)).findByIdAndUpdate(id, buildNullableCatalogMongoUpdate(input), { new: true });
     return document ? toDomainRecord<FacultyRecord>(document) : null;
   }
 
@@ -60,8 +60,8 @@ export class MongoCatalogRepository implements CatalogRepository {
     return toDomainRecord<DepartmentRecord>(document);
   }
 
-  async updateDepartment(id: string, input: Partial<Omit<DepartmentRecord, "id" | "createdAt" | "updatedAt">>): Promise<DepartmentRecord | null> {
-    const document = await (await this.model("Department", departmentSchema)).findByIdAndUpdate(id, omitUndefined(input), { new: true });
+  async updateDepartment(id: string, input: DepartmentRecordUpdate): Promise<DepartmentRecord | null> {
+    const document = await (await this.model("Department", departmentSchema)).findByIdAndUpdate(id, buildNullableCatalogMongoUpdate(input), { new: true });
     return document ? toDomainRecord<DepartmentRecord>(document) : null;
   }
 
@@ -70,9 +70,37 @@ export class MongoCatalogRepository implements CatalogRepository {
     return documents.map((document) => toDomainRecord<DepartmentRecord>(document));
   }
 
+  async compareAndFillVerifiedSourceUrl(input: VerifiedSourceUrlFill): Promise<boolean> {
+    const [name, schema] = input.scopeType === "university"
+      ? ["University", universitySchema] as const
+      : input.scopeType === "faculty"
+        ? ["Faculty", facultySchema] as const
+        : ["Department", departmentSchema] as const;
+    const model = await this.model(name, schema);
+    const expected = input.expectedValue === null
+      ? { $or: [{ [input.field]: { $exists: false } }, { [input.field]: null }, { [input.field]: "" }] }
+      : { [input.field]: input.expectedValue };
+    const filter = { _id: input.scopeId, ...expected };
+    if (input.expectedValue === input.verifiedUrl) return Boolean(await model.exists(filter));
+    return Boolean(await model.findOneAndUpdate(
+      filter,
+      { $set: { [input.field]: input.verifiedUrl } },
+      { runValidators: true }
+    ));
+  }
+
   private async model(name: string, schema: Parameters<typeof getModel>[2]) {
     const connection = this.mongo.getConnection() ?? (await this.mongo.connect());
     if (!connection) throw new Error("MONGODB_NOT_CONFIGURED");
     return getModel(connection, name, schema);
   }
+}
+
+export function buildNullableCatalogMongoUpdate(input: object): Record<string, unknown> {
+  const set = omitUndefined(Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null)));
+  const unset = Object.fromEntries(Object.entries(input).filter(([, value]) => value === null).map(([field]) => [field, 1]));
+  return {
+    ...(Object.keys(set).length > 0 ? { $set: set } : {}),
+    ...(Object.keys(unset).length > 0 ? { $unset: unset } : {})
+  };
 }

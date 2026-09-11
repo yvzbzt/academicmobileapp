@@ -27,6 +27,7 @@ export type SafeOutboundProviderPolicy =
   | "google-oauth-tokeninfo"
   | "google-document-ai"
   | "google-metadata-token"
+  | "openai-responses"
   | "yok-atlas";
 
 export interface SafeOutboundRequestOptions {
@@ -64,6 +65,7 @@ const GOOGLE_METADATA_ADDRESS = "169.254.169.254";
 export const GOOGLE_METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
 export const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
+export const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 export const YOK_ATLAS_SEARCH_URL = "https://yokatlas.yok.gov.tr/api/tercih-kilavuz/search";
 
 let testDependencies: SafeOutboundRequestDependencies | undefined;
@@ -379,6 +381,22 @@ function validateRequestPolicy(input: {
         throw new Error("OUTBOUND_METADATA_HEADER_REQUIRED");
       }
       return;
+    case "openai-responses":
+      requireProviderRequest(input, {
+        method: "POST",
+        maximumRedirects: 0,
+        maximumRequestBytes: 128 * 1024,
+        maximumResponseBytes: 1024 * 1024,
+        timeoutMs: 60_000
+      });
+      if (!input.body) throw new Error("OUTBOUND_PROVIDER_BODY_REQUIRED");
+      if (!/^Bearer\s+\S+$/u.test(readHeader(input.headers, "authorization") ?? "")) {
+        throw new Error("OUTBOUND_PROVIDER_AUTHORIZATION_REQUIRED");
+      }
+      if (!/^application\/json(?:\s*;|$)/iu.test(readHeader(input.headers, "content-type") ?? "")) {
+        throw new Error("OUTBOUND_PROVIDER_CONTENT_TYPE_REQUIRED");
+      }
+      return;
     case "yok-atlas":
       requireProviderRequest(input, {
         method: "POST",
@@ -477,6 +495,9 @@ function requireProviderPolicyUrl(
     }
     case "google-oauth-token":
       if (url.toString() !== GOOGLE_OAUTH_TOKEN_URL) throw new Error("OUTBOUND_GOOGLE_AUTHORITY_FORBIDDEN");
+      return url.toString();
+    case "openai-responses":
+      if (url.toString() !== OPENAI_RESPONSES_URL) throw new Error("OUTBOUND_OPENAI_AUTHORITY_FORBIDDEN");
       return url.toString();
     case "google-document-ai": {
       const location = url.pathname.match(/^\/v1\/projects\/[^/]+\/locations\/([^/]+)\/processors\/[^/]+(?::process|\/processorVersions\/[^/]+:process)$/u)?.[1];

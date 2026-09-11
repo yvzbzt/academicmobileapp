@@ -67,6 +67,7 @@ interface DownloadedPdf {
   magicBytesHex: string;
 }
 
+const defaultCatalogDiscoveryLimit = 5000;
 const academicCalendarPaths = [
   "/akademik-takvim",
   "/akademik-takvimler",
@@ -203,7 +204,7 @@ export class CalendarIngestionService {
   async runSourceDiscovery(input: { universityId?: string; limit?: number; offset?: number; concurrency?: number } = {}) {
     const universities = input.universityId
       ? [await this.catalogRepository.findUniversityById(input.universityId)].filter((university): university is UniversityRecord => Boolean(university))
-      : await this.catalogRepository.listUniversities({ status: "active", limit: input.limit ?? readPositiveInteger(process.env.CALENDAR_DISCOVERY_BATCH_SIZE, 205), offset: input.offset ?? 0 });
+      : await this.catalogRepository.listUniversities({ status: "active", limit: input.limit ?? readPositiveInteger(process.env.CALENDAR_DISCOVERY_BATCH_SIZE, defaultCatalogDiscoveryLimit), offset: input.offset ?? 0 });
 
     const results = await runWithConcurrency(universities, input.concurrency ?? 2, async (university): Promise<CalendarSourceDiscoveryResult> => {
       try {
@@ -242,7 +243,7 @@ export class CalendarIngestionService {
   async runDiscoveryAndIngestion(input: { universityId?: string; academicYear?: string; limit?: number; offset?: number; concurrency?: number; retrySourceOnly?: boolean } = {}) {
     const universities = input.universityId
       ? [await this.catalogRepository.findUniversityById(input.universityId)].filter((university): university is UniversityRecord => Boolean(university))
-      : await this.catalogRepository.listUniversities({ status: "active", limit: input.limit ?? readPositiveInteger(process.env.CALENDAR_DISCOVERY_BATCH_SIZE, 205), offset: input.offset ?? 0 });
+      : await this.catalogRepository.listUniversities({ status: "active", limit: input.limit ?? readPositiveInteger(process.env.CALENDAR_DISCOVERY_BATCH_SIZE, defaultCatalogDiscoveryLimit), offset: input.offset ?? 0 });
 
     const results = await runWithConcurrency(universities, input.concurrency ?? 2, (university) => this.ingestUniversityCalendar(
       university.id,
@@ -357,7 +358,7 @@ export class CalendarIngestionService {
 
   async runScheduledCycle(): Promise<void> {
     await this.runDiscoveryAndIngestion({
-      limit: readPositiveInteger(process.env.CALENDAR_DISCOVERY_BATCH_SIZE, 205),
+      limit: readPositiveInteger(process.env.CALENDAR_DISCOVERY_BATCH_SIZE, defaultCatalogDiscoveryLimit),
       offset: readPositiveInteger(process.env.CALENDAR_DISCOVERY_OFFSET, 0),
       concurrency: readPositiveInteger(process.env.CALENDAR_DISCOVERY_CONCURRENCY, 2),
       retrySourceOnly: true

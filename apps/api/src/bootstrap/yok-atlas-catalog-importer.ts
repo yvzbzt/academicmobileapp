@@ -5,36 +5,23 @@ import {
 } from "../common/network/safe-outbound-request.js";
 import type { EducationLevel, UniversityType } from "../modules/catalog/catalog.types.js";
 import { createSlug } from "../modules/catalog/slug.js";
+import {
+  mergeYok208ActiveInstitutions,
+  type CatalogSeedDepartment,
+  type CatalogSeedFaculty,
+  type CatalogSeedUniversity,
+  type TurkiyeCatalogSeed
+} from "./yok-active-institution-supplement.js";
+
+export type {
+  ActiveInstitutionSupplement,
+  CatalogSeedDepartment,
+  CatalogSeedFaculty,
+  CatalogSeedUniversity,
+  TurkiyeCatalogSeed
+} from "./yok-active-institution-supplement.js";
 
 const yokAtlasSearchUrl = YOK_ATLAS_SEARCH_URL;
-
-export interface CatalogSeedDepartment {
-  name: string;
-  slug: string;
-  educationLevel: EducationLevel;
-}
-
-export interface CatalogSeedFaculty {
-  name: string;
-  slug: string;
-  departments: CatalogSeedDepartment[];
-}
-
-export interface CatalogSeedUniversity {
-  name: string;
-  slug: string;
-  city: string;
-  type: UniversityType;
-  faculties: CatalogSeedFaculty[];
-}
-
-export interface TurkiyeCatalogSeed {
-  source: "yok_atlas";
-  sourceUrl: string;
-  sourceRowCount: number;
-  includedRowCount: number;
-  universities: CatalogSeedUniversity[];
-}
 
 interface MutableFaculty extends CatalogSeedFaculty {
   departmentMap: Map<string, CatalogSeedDepartment>;
@@ -81,14 +68,14 @@ export async function loadTurkiyeCatalogFromYokAtlas(timeoutMs = 20000): Promise
     body: JSON.stringify(payload)
   }, timeoutMs);
   const rows = extractRows(response);
-  return buildTurkiyeCatalogFromYokAtlasRows(rows);
+  return mergeYok208ActiveInstitutions(buildTurkiyeCatalogFromYokAtlasRows(rows));
 }
 
 export async function loadBundledTurkiyeCatalogSeed(): Promise<TurkiyeCatalogSeed> {
   const raw = await readFile(new URL("./turkiye-catalog-seed.json", import.meta.url), "utf8");
   const seed = JSON.parse(raw) as TurkiyeCatalogSeed;
   if (!Array.isArray(seed.universities) || seed.universities.length === 0) throw new Error("BUNDLED_TURKIYE_CATALOG_EMPTY");
-  return seed;
+  return mergeYok208ActiveInstitutions(seed);
 }
 
 export function buildTurkiyeCatalogFromYokAtlasRows(rows: unknown[]): TurkiyeCatalogSeed {

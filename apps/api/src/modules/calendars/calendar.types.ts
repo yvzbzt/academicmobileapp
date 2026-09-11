@@ -43,6 +43,10 @@ export interface AcademicEventRecord extends Partial<StudentRelevanceMetadata> {
   description?: string;
   location?: string;
   scheduleSeriesId?: string;
+  scheduleReviewKey?: string;
+  scheduleCandidateKey?: string;
+  scheduleSourceId?: string;
+  scheduleRowNumber?: number;
   /** Compatibility/sort instant. Use dateOnlyStart when temporalKind is date. */
   startDate: Date;
   /** Compatibility/sort instant. Use dateOnlyEnd when endTemporalKind is date. */
@@ -112,6 +116,12 @@ export interface CalendarRepository {
     candidateCalendarIds?: readonly string[]
   ): Promise<PublishedCalendarReconciliation>;
   createEvents(input: Array<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<AcademicEventRecord[]>;
+  upsertScheduleReviewEvents(
+    input: Array<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt"> & { scheduleCandidateKey: string }>
+  ): Promise<AcademicEventRecord[]>;
+  publishScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number>;
+  rollbackScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number>;
+  archiveScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number>;
   updateEventsByCalendar(calendarId: string, input: Partial<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<number>;
   archiveEventsByScheduleSeries(scheduleSeriesId: string, universityId?: string): Promise<number>;
   listEventsByCalendar(calendarId: string): Promise<AcademicEventRecord[]>;

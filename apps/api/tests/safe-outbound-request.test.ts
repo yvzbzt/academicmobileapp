@@ -4,6 +4,7 @@ import {
   assertPinnedRemoteAddress,
   GOOGLE_METADATA_TOKEN_URL,
   isForbiddenIpAddress,
+  OPENAI_RESPONSES_URL,
   requirePublicHttpUrl,
   resolveSafeOutboundAddresses,
   safeOutboundRequest,
@@ -271,6 +272,75 @@ describe("safe outbound requests", () => {
       maximumResponseBytes: 1024,
       providerPolicy: "google-document-ai"
     })).rejects.toThrow("OUTBOUND_GOOGLE_AUTHORITY_FORBIDDEN");
+  });
+
+  it("pins OpenAI Responses requests to the exact HTTPS endpoint and never follows redirects", async () => {
+    const authorization = "Bearer test-openai-key";
+    const requestHop = vi.fn(async (
+      url: string,
+      pinnedAddress: ResolvedOutboundAddress,
+      input: { method: string; headers: Record<string, unknown>; body?: Buffer; providerPolicy: string }
+    ): Promise<SafeOutboundHopResponse> => {
+      expect(url).toBe(OPENAI_RESPONSES_URL);
+      expect(input).toMatchObject({
+        method: "POST",
+        providerPolicy: "openai-responses",
+        headers: { authorization, "content-type": "application/json" }
+      });
+      expect(input.body?.toString("utf8")).toBe('{"model":"gpt-5-mini"}');
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from("{}"),
+        remoteAddress: pinnedAddress.address
+      };
+    });
+
+    await expect(safeOutboundRequest(OPENAI_RESPONSES_URL, {
+      timeoutMs: 20_000,
+      method: "POST",
+      headers: { authorization, "content-type": "application/json" },
+      body: '{"model":"gpt-5-mini"}',
+      maximumRedirects: 0,
+      maximumRequestBytes: 128 * 1024,
+      maximumResponseBytes: 1024 * 1024,
+      providerPolicy: "openai-responses"
+    }, {
+      resolveHostname: async () => [firstPublicAddress],
+      requestHop
+    })).resolves.toEqual(expect.objectContaining({ status: 200, finalUrl: OPENAI_RESPONSES_URL }));
+
+    await expect(safeOutboundRequest("https://attacker.example/v1/responses", {
+      timeoutMs: 20_000,
+      method: "POST",
+      headers: { authorization, "content-type": "application/json" },
+      body: "{}",
+      maximumRedirects: 0,
+      maximumRequestBytes: 128 * 1024,
+      maximumResponseBytes: 1024 * 1024,
+      providerPolicy: "openai-responses"
+    })).rejects.toThrow("OUTBOUND_OPENAI_AUTHORITY_FORBIDDEN");
+
+    const redirectHop = vi.fn(async (_url: string, pinnedAddress: ResolvedOutboundAddress): Promise<SafeOutboundHopResponse> => ({
+      status: 307,
+      headers: { location: "https://attacker.example/collect" },
+      body: Buffer.alloc(0),
+      remoteAddress: pinnedAddress.address
+    }));
+    await expect(safeOutboundRequest(OPENAI_RESPONSES_URL, {
+      timeoutMs: 20_000,
+      method: "POST",
+      headers: { authorization, "content-type": "application/json" },
+      body: "{}",
+      maximumRedirects: 0,
+      maximumRequestBytes: 128 * 1024,
+      maximumResponseBytes: 1024 * 1024,
+      providerPolicy: "openai-responses"
+    }, {
+      resolveHostname: async () => [firstPublicAddress],
+      requestHop: redirectHop
+    })).rejects.toThrow("OUTBOUND_OPENAI_AUTHORITY_FORBIDDEN");
+    expect(redirectHop).toHaveBeenCalledOnce();
   });
 
   it("does not forward credential-bearing headers across authorities", async () => {

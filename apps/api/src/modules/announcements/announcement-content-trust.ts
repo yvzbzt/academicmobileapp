@@ -1,4 +1,10 @@
 import { createHash } from "node:crypto";
+import {
+  ACADEMIC_CONTENT_BODY_BLOCK_MAX_LENGTH,
+  ACADEMIC_CONTENT_BODY_MAX_BLOCKS,
+  ACADEMIC_CONTENT_BODY_MAX_LENGTH,
+  ACADEMIC_CONTENT_SUMMARY_MAX_LENGTH
+} from "../../../../../packages/shared/src/contracts.js";
 import type {
   AcademicContentBodyBlockDto,
   AcademicContentKeyDateDto,
@@ -15,6 +21,8 @@ import type {
   AnnouncementSourceRecord,
   AnnouncementTrustReason
 } from "./announcements.types.js";
+
+export const ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION = "academic-content-fingerprint-v2" as const;
 
 const namedHtmlEntities: Readonly<Record<string, string>> = {
   Aacute: "Á",
@@ -114,6 +122,7 @@ const navigationTitles = new Set([
   "gecmis duyurular",
   "gezinti",
   "geri",
+  "hizli erisimler",
   "home",
   "iletisim",
   "haber",
@@ -124,13 +133,17 @@ const navigationTitles = new Set([
   "next",
   "onceki",
   "previous",
+  "quick links",
   "read more",
   "sayfa alti",
   "sayfa sonu",
   "sidebar",
   "site haritasi",
   "sonraki",
+  "arsiv",
+  "archive",
   "tum duyurular",
+  "tum etkinlikler",
   "tum haberler",
   "ust menu",
   "yan menu"
@@ -214,9 +227,13 @@ export function sanitizeAcademicContentBody(input: string | undefined): Academic
     const type = marker?.[1] === "heading" || marker?.[1] === "bullet"
       ? marker[1]
       : "paragraph";
-    const text = normalizeDisplayText(marker ? rawLine.slice(marker[0].length) : rawLine, 800);
+    const text = normalizeDisplayText(
+      marker ? rawLine.slice(marker[0].length) : rawLine,
+      ACADEMIC_CONTENT_BODY_BLOCK_MAX_LENGTH
+    );
     if (!text) continue;
-    if (totalLength + text.length > 12_000 || blocks.length >= 48) break;
+    if (totalLength + text.length > ACADEMIC_CONTENT_BODY_MAX_LENGTH
+      || blocks.length >= ACADEMIC_CONTENT_BODY_MAX_BLOCKS) break;
     const previous = blocks.at(-1);
     if (previous?.type === type && previous.text === text) continue;
     blocks.push({ type, text });
@@ -230,12 +247,16 @@ export function normalizeAcademicContentBodyBlocks(input: unknown): AcademicCont
   if (!Array.isArray(input)) return [];
   const blocks: AcademicContentBodyBlockDto[] = [];
   let totalLength = 0;
-  for (const candidate of input.slice(0, 48)) {
+  for (const candidate of input) {
+    if (blocks.length >= ACADEMIC_CONTENT_BODY_MAX_BLOCKS) break;
     if (!candidate || typeof candidate !== "object") continue;
     const value = candidate as Record<string, unknown>;
     if (value.type !== "heading" && value.type !== "paragraph" && value.type !== "bullet") continue;
-    const text = normalizeDisplayText(typeof value.text === "string" ? value.text : undefined, 800);
-    if (!text || totalLength + text.length > 12_000) continue;
+    const text = normalizeDisplayText(
+      typeof value.text === "string" ? value.text : undefined,
+      ACADEMIC_CONTENT_BODY_BLOCK_MAX_LENGTH
+    );
+    if (!text || totalLength + text.length > ACADEMIC_CONTENT_BODY_MAX_LENGTH) continue;
     blocks.push({ type: value.type, text });
     totalLength += text.length;
   }
@@ -488,11 +509,12 @@ export function createAnnouncementSourceCandidateId(input: {
   scopeType: AnnouncementSourceRecord["scopeType"];
   scopeId: string;
   sourceUrl: string;
+  contentType?: AnnouncementContentType;
 }): string | null {
   const contentKey = canonicalAnnouncementSourceIdentityKey(input.sourceUrl);
   if (!contentKey) return null;
   return createHash("sha256")
-    .update(`${input.scopeType}\u0000${input.scopeId}\u0000${contentKey}`)
+    .update(`${input.scopeType}\u0000${input.scopeId}\u0000${input.contentType ?? "announcement"}\u0000${contentKey}`)
     .digest("hex")
     .slice(0, 24);
 }
@@ -518,6 +540,7 @@ export function createContentDedupeKey(input: string): string | null {
 export function createNormalizedContentFingerprint(input: {
   title: string;
   summary?: string;
+  body?: readonly AcademicContentBodyBlockDto[];
   contentType?: AnnouncementContentType;
   publicationKind?: "date" | "timestamp";
   publishedDate?: string;
@@ -528,12 +551,18 @@ export function createNormalizedContentFingerprint(input: {
     : input.publicationKind === "timestamp" || input.publishedAt
       ? `timestamp:${toIsoString(input.publishedAt) ?? "invalid"}`
       : "none";
-  const normalized = [
+  const canonicalBody = normalizeAcademicContentBodyBlocks(input.body).map((block) => [
+    block.type,
+    foldTurkish(block.text)
+  ]);
+  const normalized = JSON.stringify([
+    ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION,
     foldTurkish(normalizeDisplayText(input.title, 500)),
-    foldTurkish(normalizeDisplayText(input.summary, 1_200)),
+    foldTurkish(normalizeDisplayText(input.summary, ACADEMIC_CONTENT_SUMMARY_MAX_LENGTH)),
+    canonicalBody,
     input.contentType ?? "announcement",
     publication
-  ].join("\u0000");
+  ]);
   return createHash("sha256").update(normalized).digest("hex");
 }
 
@@ -612,15 +641,21 @@ export function evaluateContentTrust(input: {
 
 export function toTrustedAcademicContentDto(
   item: AnnouncementItem,
-  source?: Pick<AnnouncementSourceRecord, "id" | "sourceUrl" | "canonicalUrl" | "sourceName" | "contentType" | "scopeType" | "scopeId" | "status" | "trustStatus">
+  source?: Pick<AnnouncementSourceRecord, "id" | "sourceUrl" | "canonicalUrl" | "sourceName" | "contentType" | "scopeType" | "scopeId" | "status" | "trustStatus" | "approvalPending">
 ): TrustedAcademicContentDto | null {
   if (item.trustStatus !== "trusted") return null;
-  if (!source || source.id !== item.sourceId || source.status !== "active" || source.trustStatus !== "trusted") return null;
+  if (
+    !source
+    || source.id !== item.sourceId
+    || source.status !== "active"
+    || source.trustStatus !== "trusted"
+    || source.approvalPending === true
+  ) return null;
   const authoritativeSourceUrl = source.canonicalUrl ?? source.sourceUrl;
   if (item.officialSourceUrl && !isOfficialContentUrl(item.officialSourceUrl, authoritativeSourceUrl)) return null;
   const officialSourceUrl = authoritativeSourceUrl;
   const decision = evaluateContentTrust({
-    rawTitle: item.rawTitle ?? item.title,
+    rawTitle: item.humanOverride?.title ?? item.rawTitle ?? item.title,
     url: item.canonicalUrl ?? item.link,
     officialSourceUrl,
     contentType: source.contentType ?? item.contentType ?? "announcement"
@@ -631,7 +666,7 @@ export function toTrustedAcademicContentDto(
   const discoveredAt = toIsoString(item.discoveredAt);
   const sourceUpdatedAt = item.sourceUpdateTimeSource === "source" ? toIsoString(item.sourceUpdatedAt) : undefined;
   const publication = normalizeSourcePublication(item);
-  const summary = normalizeDisplayText(item.summary, 1_200);
+  const summary = normalizeDisplayText(item.summary, ACADEMIC_CONTENT_SUMMARY_MAX_LENGTH);
   const body = normalizeAcademicContentBodyBlocks(item.body);
   const keyDates = normalizeAcademicContentKeyDates(
     item.keyDates?.length ? item.keyDates : extractAcademicContentKeyDates(body)
@@ -640,6 +675,7 @@ export function toTrustedAcademicContentDto(
   const contentFingerprint = createNormalizedContentFingerprint({
     title: decision.title,
     ...(summary ? { summary } : {}),
+    ...(body.length ? { body } : {}),
     contentType,
     ...publication
   });
@@ -699,7 +735,7 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
     if (item.trustStatus === "rejected" || item.trustStatus === "quarantined") continue;
     const contentType = source.contentType ?? item.contentType ?? "announcement";
     const decision = evaluateContentTrust({
-      rawTitle: item.rawTitle ?? item.title,
+      rawTitle: item.humanOverride?.title ?? item.rawTitle ?? item.title,
       url: item.canonicalUrl ?? item.link,
       officialSourceUrl,
       contentType
@@ -709,7 +745,7 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
     const sourceUpdatedAt = item.sourceUpdateTimeSource === "source" ? toIsoString(item.sourceUpdatedAt) : undefined;
     const discoveredAt = toIsoString(item.discoveredAt);
     const fetchedAt = toIsoString(item.fetchedAt);
-    const summary = normalizeDisplayText(item.summary, 1_200);
+    const summary = normalizeDisplayText(item.summary, ACADEMIC_CONTENT_SUMMARY_MAX_LENGTH);
     const body = normalizeAcademicContentBodyBlocks(item.body);
     const keyDates = normalizeAcademicContentKeyDates(
       item.keyDates?.length ? item.keyDates : extractAcademicContentKeyDates(body)
@@ -717,6 +753,7 @@ export function normalizeTrustedItemsForSource(source: AnnouncementSourceRecord,
     const contentFingerprint = createNormalizedContentFingerprint({
       title: decision.title,
       ...(summary ? { summary } : {}),
+      ...(body.length ? { body } : {}),
       contentType,
       ...publication
     });
@@ -784,19 +821,43 @@ function normalizedStudentMetadata(
     body: readonly AcademicContentBodyBlockDto[];
     keyDates: readonly AcademicContentKeyDateDto[];
   }
-): StudentRelevanceMetadata | Record<string, never> {
-  if (item.classificationVersion !== STUDENT_RELEVANCE_CLASSIFICATION_VERSION) return {};
-  return classifyStudentRelevance({
-    title: content.title,
-    ...(content.summary ? { summary: content.summary } : {}),
-    ...(content.body.length ? { body: content.body.map((block) => block.text).join("\n") } : {}),
-    ...(content.keyDates.length ? {
-      keyDates: content.keyDates.map((keyDate) => ({
-        label: keyDate.label,
-        value: keyDate.endDate ?? keyDate.startDate
-      }))
-    } : {})
-  });
+): Partial<StudentRelevanceMetadata> {
+  const classified = item.classificationVersion === STUDENT_RELEVANCE_CLASSIFICATION_VERSION
+    ? classifyStudentRelevance({
+        title: content.title,
+        ...(content.summary ? { summary: content.summary } : {}),
+        ...(content.body.length ? { body: content.body.map((block) => block.text).join("\n") } : {}),
+        ...(content.keyDates.length ? {
+          keyDates: content.keyDates.map((keyDate) => ({
+            label: keyDate.label,
+            value: keyDate.endDate ?? keyDate.startDate
+          }))
+        } : {})
+      })
+    : undefined;
+  const humanOverride = item.humanOverride;
+  if (!humanOverride) return classified ?? {};
+  const overriddenTargets = new Set([
+    "studentRelevance",
+    "topic",
+    "audience",
+    "actionType",
+    "deadline",
+    "urgency"
+  ].filter((field) => humanOverride[field as keyof typeof humanOverride] !== undefined));
+  if (overriddenTargets.size === 0) return classified ?? {};
+  return {
+    ...(classified ?? {}),
+    ...(humanOverride.studentRelevance !== undefined ? { studentRelevance: humanOverride.studentRelevance } : {}),
+    ...(humanOverride.topic !== undefined ? { topic: humanOverride.topic } : {}),
+    ...(humanOverride.audience !== undefined ? { audience: humanOverride.audience } : {}),
+    ...(humanOverride.actionType !== undefined ? { actionType: humanOverride.actionType } : {}),
+    ...(humanOverride.deadline !== undefined ? { deadline: humanOverride.deadline } : {}),
+    ...(humanOverride.urgency !== undefined ? { urgency: humanOverride.urgency } : {}),
+    ...(classified
+      ? { evidenceSpans: classified.evidenceSpans.filter((span) => !overriddenTargets.has(span.targetField)) }
+      : {})
+  };
 }
 
 export function toIsoString(value: string | Date | undefined): string | undefined {
@@ -922,9 +983,19 @@ function deriveTitleFromUrl(input: string): string | undefined {
 
 function truncateAtWord(value: string, maximumLength: number): string {
   if (value.length <= maximumLength) return value;
-  const candidate = value.slice(0, maximumLength + 1);
+  if (maximumLength <= 0) return "";
+  if (maximumLength === 1) return "…";
+  const contentLimit = maximumLength - 1;
+  const lastCodeUnit = value.charCodeAt(contentLimit - 1);
+  const nextCodeUnit = value.charCodeAt(contentLimit);
+  const safeEnd = lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff
+    && nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff
+    ? contentLimit - 1
+    : contentLimit;
+  const candidate = value.slice(0, safeEnd);
   const boundary = candidate.lastIndexOf(" ");
-  return `${candidate.slice(0, boundary >= Math.floor(maximumLength * 0.6) ? boundary : maximumLength).trimEnd()}…`;
+  const end = boundary >= Math.floor(contentLimit * 0.6) ? boundary : safeEnd;
+  return `${candidate.slice(0, end).trimEnd()}…`;
 }
 
 function isUnsafeHostname(hostname: string): boolean {

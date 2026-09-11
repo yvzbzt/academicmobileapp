@@ -106,6 +106,50 @@ export class MongoCalendarRepository implements CalendarRepository {
     return documents.map((document) => toDomainRecord<AcademicEventRecord>(document));
   }
 
+  async upsertScheduleReviewEvents(
+    input: Array<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt"> & { scheduleCandidateKey: string }>
+  ): Promise<AcademicEventRecord[]> {
+    if (input.length === 0) return [];
+    const model = await this.model("AcademicEvent", academicEventSchema);
+    await model.bulkWrite(input.map((event) => ({
+      updateOne: {
+        filter: { scheduleCandidateKey: event.scheduleCandidateKey },
+        update: { $setOnInsert: event },
+        upsert: true
+      }
+    })), { ordered: false });
+    const byKey = new Map((await model.find({ scheduleCandidateKey: { $in: input.map((event) => event.scheduleCandidateKey) } }))
+      .map((document) => {
+        const record = toDomainRecord<AcademicEventRecord>(document);
+        return [record.scheduleCandidateKey!, record] as const;
+      }));
+    return input.map((event) => byKey.get(event.scheduleCandidateKey)).filter((event): event is AcademicEventRecord => Boolean(event));
+  }
+
+  async publishScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number> {
+    const result = await (await this.model("AcademicEvent", academicEventSchema)).updateMany(
+      { scheduleReviewKey: reviewKey, universityId, status: "approved" },
+      { $set: { status: "published" } }
+    );
+    return result.modifiedCount;
+  }
+
+  async archiveScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number> {
+    const result = await (await this.model("AcademicEvent", academicEventSchema)).updateMany(
+      { scheduleReviewKey: reviewKey, universityId, status: { $ne: "archived" } },
+      { $set: { status: "archived" } }
+    );
+    return result.modifiedCount;
+  }
+
+  async rollbackScheduleReviewEvents(reviewKey: string, universityId: string): Promise<number> {
+    const result = await (await this.model("AcademicEvent", academicEventSchema)).updateMany(
+      { scheduleReviewKey: reviewKey, universityId, status: "published" },
+      { $set: { status: "approved" } }
+    );
+    return result.modifiedCount;
+  }
+
   async updateEventsByCalendar(calendarId: string, input: Partial<Omit<AcademicEventRecord, "id" | "createdAt" | "updatedAt">>): Promise<number> {
     const result = await (await this.model("AcademicEvent", academicEventSchema)).updateMany({ calendarId }, omitUndefined(input));
     return result.modifiedCount;

@@ -73,6 +73,12 @@ export type AcademicContentFreshness = "fresh" | "stale";
 export type AcademicContentCollectionState = "fresh" | "stale" | "partial";
 export type AcademicContentPublicationKind = "date" | "timestamp";
 
+/** One validation contract shared by ingestion, admin review, and mobile presentation. */
+export const ACADEMIC_CONTENT_SUMMARY_MAX_LENGTH = 1_200;
+export const ACADEMIC_CONTENT_BODY_BLOCK_MAX_LENGTH = 800;
+export const ACADEMIC_CONTENT_BODY_MAX_BLOCKS = 48;
+export const ACADEMIC_CONTENT_BODY_MAX_LENGTH = 12_000;
+
 export interface AcademicContentBodyBlockDto {
   type: "heading" | "paragraph" | "bullet";
   /** Sanitized plain text. Raw source HTML is never exposed. */
@@ -207,6 +213,7 @@ export interface NotificationDeliveryDto {
     | "quiet_hours"
     | "destination_unavailable"
     | "device_registration_stale"
+    | "send_authorization_busy"
     | "provider_outcome_unknown";
   sendingStartedAt?: string;
   sendingLeaseUntil?: string;

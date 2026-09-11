@@ -733,6 +733,7 @@ describe("CalendarService", () => {
         fetchedAt
       }
     ]);
+    await approveAllReviewFixtures(announcementRepository);
     const storedItems = (announcementRepository as unknown as { items: Map<string, AnnouncementItem[]> }).items;
     storedItems.set(ownSource.id, [
       ...(storedItems.get(ownSource.id) ?? []),
@@ -846,6 +847,19 @@ describe("CalendarService", () => {
     expect(response.sameDepartmentOptions.some((option) => option.universityId === "sample-university-3")).toBe(false);
   });
 });
+
+async function approveAllReviewFixtures(repository: InMemoryAnnouncementRepository): Promise<void> {
+  const items = await repository.listReviewItems({ limit: 1_000 });
+  for (const item of items) {
+    if (!item.contentFingerprint) throw new Error(`Fixture ${item.id} is missing contentFingerprint.`);
+    const result = await repository.updateReviewItem(item.id, { reviewStatus: "approved" }, {
+      ...(item.snapshotId ? { expectedSnapshotId: item.snapshotId } : {}),
+      expectedContentFingerprint: item.contentFingerprint,
+      ...(item.reviewRevision ? { expectedReviewRevision: item.reviewRevision } : {})
+    });
+    if (!result) throw new Error(`Fixture ${item.id} could not be approved.`);
+  }
+}
 
 async function createSeededCalendarRepository() {
   const repository = new InMemoryCalendarRepository();

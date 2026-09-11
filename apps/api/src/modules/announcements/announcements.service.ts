@@ -105,9 +105,14 @@ export class AnnouncementsService {
   async getMySavedAnnouncementStatus(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
     await this.assertUserExists(userId);
     const saved = await this.announcementRepository.findSavedAnnouncement(userId, announcementId);
-    return saved
-      ? { announcementId, saved: true, savedAt: saved.savedAt.toISOString() }
-      : { announcementId, saved: false };
+    if (!saved) return { announcementId, saved: false };
+    try {
+      await this.getMyTrustedAnnouncement(userId, announcementId);
+      return { announcementId, saved: true, savedAt: saved.savedAt.toISOString() };
+    } catch (error) {
+      if (error instanceof NotFoundException) return { announcementId, saved: false };
+      throw error;
+    }
   }
 
   async saveMyAnnouncement(userId: string, announcementId: string): Promise<SavedAnnouncementStatus> {
@@ -132,7 +137,8 @@ export class AnnouncementsService {
     const source = (await this.announcementRepository.listSourcesByScope({ universityId: YOK_ANNOUNCEMENT_SCOPE_ID }))
       .find((candidate) => canonicalContentKey(candidate.canonicalUrl ?? candidate.sourceUrl) === yokSourceKey);
     if (!source) return toContentCollection([], 0, 0);
-    const cachedItems = await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100));
+    const cachedItems = (await this.announcementRepository.listItemsForSource(source.id, Math.max(boundedLimit * 2, 100)))
+      .filter((item) => item.reviewStatus === "approved");
     const presentedItems = markExpiredAnnouncementItems(cachedItems);
     return toContentCollection(
       presentTrustedItems(presentedItems, [source]).slice(0, boundedLimit),

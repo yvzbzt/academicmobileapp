@@ -32,5 +32,12 @@ describe("temporal freshness policy", () => {
       url: "https://www.agri.edu.tr/upload/2025-2026-akademik-takvim.pdf",
       now
     })).toEqual(expect.objectContaining({ accepted: true, reason: "current_academic_year" }));
+
+    expect(isFreshAcademicContent({
+      title: "20252026 Akademik Takvim",
+      url: "https://www.agri.edu.tr/upload/2025-2026-akademik-takvim.pdf",
+      now,
+      academicYearLookback: 0
+    })).toEqual(expect.objectContaining({ accepted: false, reason: "stale_academic_year" }));
   });
 });

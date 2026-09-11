@@ -16,6 +16,11 @@ export class AdminCatalogController {
     return this.catalogService.createUniversity(body);
   }
 
+  @Post("catalog/sync-verified-sources")
+  syncVerifiedSources() {
+    return this.catalogService.syncFinalVerifiedSourceRegistry();
+  }
+
   @Patch("universities/:id")
   updateUniversity(@Param("id") id: string, @Body() body: UpdateUniversityDto) {
     return this.catalogService.updateUniversity(id, body);

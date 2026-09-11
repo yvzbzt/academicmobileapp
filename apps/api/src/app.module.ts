@@ -27,6 +27,8 @@ import { UsersService } from "./modules/users/users.service.js";
 import { AdminAnnouncementsController, AnnouncementsController } from "./modules/announcements/announcements.controller.js";
 import { AnnouncementIngestionService } from "./modules/announcements/announcement-ingestion.service.js";
 import { AnnouncementsService } from "./modules/announcements/announcements.service.js";
+import { AnnouncementReviewService } from "./modules/announcements/announcement-review.service.js";
+import { ContentLlmSettingsService } from "./modules/announcements/content-llm-settings.service.js";
 import { MongoAnnouncementRepository } from "./modules/announcements/mongo-announcement.repository.js";
 import { AdminCatalogController } from "./modules/catalog/admin-catalog.controller.js";
 import { CatalogController } from "./modules/catalog/catalog.controller.js";
@@ -38,6 +40,16 @@ import { MongoCalendarRepository } from "./modules/calendars/mongo-calendar.repo
 import { AdminCalendarController } from "./modules/calendars/admin-calendar.controller.js";
 import { AdminCalendarService } from "./modules/calendars/admin-calendar.service.js";
 import { CalendarIngestionService } from "./modules/calendars/calendar-ingestion.service.js";
+import { AdminAcademicUnitScheduleController } from "./modules/calendars/admin-academic-unit-schedule.controller.js";
+import {
+  ACADEMIC_UNIT_SCHEDULE_AUTHORITY_RESOLVER,
+  ACADEMIC_UNIT_SCHEDULE_FETCHER,
+  ACADEMIC_UNIT_SCHEDULE_REGISTRY_LOADER,
+  ACADEMIC_UNIT_SCHEDULE_REPOSITORY,
+  AcademicUnitScheduleIngestionService,
+  defaultAcademicUnitScheduleProviders
+} from "./modules/calendars/academic-unit-schedule-ingestion.service.js";
+import { MongoAcademicUnitScheduleRepository } from "./modules/calendars/mongo-academic-unit-schedule.repository.js";
 import { AdminPdfController } from "./modules/pdf/admin-pdf.controller.js";
 import { MongoPdfRepository } from "./modules/pdf/mongo-pdf.repository.js";
 import { PdfOcrService } from "./modules/pdf/pdf-ocr.service.js";
@@ -53,6 +65,8 @@ import { AuditService } from "./modules/audit/audit.service.js";
 import { MongoAuditRepository } from "./modules/audit/mongo-audit.repository.js";
 import { AdminAuditController } from "./modules/audit/admin-audit.controller.js";
 import { FirebasePushSender } from "./modules/notifications/push-sender.service.js";
+import { AdminVerifiedSourceCoverageController } from "./modules/source-discovery/admin-verified-source-coverage.controller.js";
+import { VerifiedSourceCoverageService } from "./modules/source-discovery/verified-source-coverage.service.js";
 
 const runtimeConfig = readRuntimeConfig();
 
@@ -60,6 +74,7 @@ const MONGO_REPOSITORY_PROVIDERS = [
   { provide: "AuthRepository", useClass: MongoAuthRepository },
   { provide: "CatalogRepository", useClass: MongoCatalogRepository },
   { provide: "CalendarRepository", useClass: MongoCalendarRepository },
+  { provide: ACADEMIC_UNIT_SCHEDULE_REPOSITORY, useClass: MongoAcademicUnitScheduleRepository },
   { provide: "AnnouncementRepository", useClass: MongoAnnouncementRepository },
   { provide: "PdfRepository", useClass: MongoPdfRepository },
   { provide: "NotificationRepository", useClass: MongoNotificationRepository },
@@ -67,7 +82,7 @@ const MONGO_REPOSITORY_PROVIDERS = [
 ] as const satisfies readonly Provider[];
 
 @Module({
-  controllers: [HealthController, PublicPagesController, AuthController, UsersController, AdminUsersController, AnnouncementsController, AdminAnnouncementsController, CatalogController, AdminCatalogController, CalendarController, AdminCalendarController, AdminPdfController, NotificationsController, AdminNotificationOpsController, AdminAuditController],
+  controllers: [HealthController, PublicPagesController, AuthController, UsersController, AdminUsersController, AnnouncementsController, AdminAnnouncementsController, CatalogController, AdminCatalogController, CalendarController, AdminCalendarController, AdminAcademicUnitScheduleController, AdminPdfController, NotificationsController, AdminNotificationOpsController, AdminAuditController, AdminVerifiedSourceCoverageController],
   providers: [
     AuthApplicationService,
     AccountDeletionService,
@@ -77,10 +92,13 @@ const MONGO_REPOSITORY_PROVIDERS = [
     UsersService,
     AnnouncementsService,
     AnnouncementIngestionService,
+    AnnouncementReviewService,
+    ContentLlmSettingsService,
     CatalogService,
     CalendarService,
     AdminCalendarService,
     CalendarIngestionService,
+    AcademicUnitScheduleIngestionService,
     PdfOcrService,
     PdfProcessingService,
     NotificationsService,
@@ -90,6 +108,7 @@ const MONGO_REPOSITORY_PROVIDERS = [
     BootstrapSeedService,
     FirebasePushSender,
     AuditService,
+    VerifiedSourceCoverageService,
     FirebaseAdminService,
     MongoConnectionService,
     PasswordHasher,
@@ -103,6 +122,18 @@ const MONGO_REPOSITORY_PROVIDERS = [
       useExisting: RateLimitGuard
     },
     ...MONGO_REPOSITORY_PROVIDERS,
+    {
+      provide: ACADEMIC_UNIT_SCHEDULE_REGISTRY_LOADER,
+      useValue: defaultAcademicUnitScheduleProviders.registryLoader
+    },
+    {
+      provide: ACADEMIC_UNIT_SCHEDULE_FETCHER,
+      useValue: defaultAcademicUnitScheduleProviders.fetcher
+    },
+    {
+      provide: ACADEMIC_UNIT_SCHEDULE_AUTHORITY_RESOLVER,
+      useValue: defaultAcademicUnitScheduleProviders.authorityResolver
+    },
     {
       provide: "UserDataRepository",
       useClass: MongoUserDataRepository

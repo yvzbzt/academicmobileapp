@@ -12,6 +12,44 @@ import type { AuthRepository, AuthUserRecord, AuthenticatedUser } from "../src/m
 describe("trusted announcement API contract", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("keeps pending and rejected review items out of student collections", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const source = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "ankara-university",
+      sourceName: "Ankara announcements",
+      sourceUrl: "https://www.ankara.edu.tr/duyurular/",
+      homepageUrl: "https://www.ankara.edu.tr/",
+      parser: "auto",
+      priority: 20,
+      status: "active",
+      trustStatus: "trusted"
+    });
+    await repository.replaceItemsForSource(source, [{
+      id: "review-gated-public-item",
+      sourceId: source.id,
+      sourceName: source.sourceName,
+      scopeType: source.scopeType,
+      scopeId: source.scopeId,
+      title: "Kayit duyurusu",
+      link: "https://www.ankara.edu.tr/duyurular/review-gated",
+      trustStatus: "trusted"
+    }]);
+    const service = new AnnouncementsService(createAuthRepository(), repository);
+    expect(await service.getMyAnnouncements("student-1", 10)).toEqual([]);
+
+    await approveAllReviewItems(repository, source.id);
+    expect(await service.getMyAnnouncements("student-1", 10)).toHaveLength(1);
+
+    const approved = await repository.findReviewItemById("review-gated-public-item");
+    if (!approved?.item.contentFingerprint) throw new Error("Expected approved item.");
+    await repository.updateReviewItem(approved.item.id, { reviewStatus: "rejected" }, {
+      expectedContentFingerprint: approved.item.contentFingerprint,
+      ...(approved.item.reviewRevision ? { expectedReviewRevision: approved.item.reviewRevision } : {})
+    });
+    expect(await service.getMyAnnouncements("student-1", 10)).toEqual([]);
+  });
+
   it("returns only trusted normalized content and never exposes crawler time as publication time", async () => {
     const repository = new InMemoryAnnouncementRepository();
     const source = await repository.upsertSource({
@@ -84,6 +122,7 @@ describe("trusted announcement API contract", () => {
       { ...base, id: "unsafe", title: "Güvenli görünen duyuru", link: "javascript:alert(1)" },
       { ...base, id: "quarantined", title: "Karantina", link: "https://www.ankara.edu.tr/duyuru/4", trustStatus: "quarantined" }
     ]);
+    await approveAllReviewItems(repository, source.id);
 
     const storedItems = (repository as unknown as { items: Map<string, AnnouncementItem[]> }).items;
     storedItems.set(source.id, [
@@ -165,6 +204,7 @@ describe("trusted announcement API contract", () => {
       link: `${source.sourceUrl}/${index}?utm_source=notification`,
       fetchedAt
     })));
+    await approveAllReviewItems(repository, source.id);
 
     const otherFacultySource = await repository.upsertSource({
       scopeType: "faculty",
@@ -189,6 +229,7 @@ describe("trusted announcement API contract", () => {
       link: `${otherFacultySource.sourceUrl}/1`,
       fetchedAt
     }]);
+    await approveAllReviewItems(repository, otherFacultySource.id);
 
     const storedItems = (repository as unknown as { items: Map<string, AnnouncementItem[]> }).items;
     storedItems.set(source.id, [
@@ -206,7 +247,6 @@ describe("trusted announcement API contract", () => {
         trustStatus: "quarantined"
       }
     ]);
-
     const controller = new AnnouncementsController(new AnnouncementsService(
       createAuthRepository({ facultyId: "engineering-faculty", departmentId: "computer-engineering" }),
       repository
@@ -302,6 +342,7 @@ describe("trusted announcement API contract", () => {
         fetchedAt
       }
     ]);
+    await approveAllReviewItems(repository, source.id);
     const controller = new AnnouncementsController(new AnnouncementsService(createAuthRepository(), repository));
     const body = await controller.getYokAnnouncements(Object.assign(new MyAnnouncementsQueryDto(), { limit: 10 }));
 
@@ -346,6 +387,7 @@ describe("trusted announcement API contract", () => {
       trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(source, [cachedItem(source, "fresh-cached-item", new Date().toISOString())]);
+    await approveAllReviewItems(repository, source.id);
     await repository.recordSourceCheck(source.id, {
       healthStatus: "degraded",
       lastCheckedAt: new Date(),
@@ -402,6 +444,7 @@ describe("trusted announcement API contract", () => {
       trustStatus: "trusted"
     });
     await repository.replaceItemsForSource(source, [cachedItem(source, "yok-fresh-cached-item", new Date().toISOString())]);
+    await approveAllReviewItems(repository, source.id);
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
     const body = await new AnnouncementsService(createAuthRepository(), repository)
@@ -443,6 +486,8 @@ describe("trusted announcement API contract", () => {
     });
     await repository.replaceItemsForSource(freshSource, [cachedItem(freshSource, "fresh-item", new Date().toISOString())]);
     await repository.replaceItemsForSource(staleSource, [cachedItem(staleSource, "stale-item", "2026-07-01T00:00:00.000Z")]);
+    await approveAllReviewItems(repository, freshSource.id);
+    await approveAllReviewItems(repository, staleSource.id);
     vi.spyOn(announcementParser, "fetchSourceItems").mockImplementation(async (url) => {
       if (url.includes("/guncel")) {
         return [{
@@ -463,6 +508,16 @@ describe("trusted announcement API contract", () => {
     expect(body.items.some((item) => item.id === "stale-item" && item.freshness === "stale")).toBe(true);
   });
 });
+
+async function approveAllReviewItems(repository: InMemoryAnnouncementRepository, sourceId: string) {
+  for (const item of await repository.listReviewItems({ sourceIds: [sourceId] })) {
+    if (!item.contentFingerprint) throw new Error("Expected content fingerprint.");
+    await repository.updateReviewItem(item.id, { reviewStatus: "approved" }, {
+      expectedContentFingerprint: item.contentFingerprint,
+      ...(item.reviewRevision ? { expectedReviewRevision: item.reviewRevision } : {})
+    });
+  }
+}
 
 function cachedItem(
   source: Awaited<ReturnType<InMemoryAnnouncementRepository["upsertSource"]>>,
