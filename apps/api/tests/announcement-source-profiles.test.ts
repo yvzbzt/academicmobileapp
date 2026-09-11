@@ -94,7 +94,7 @@ describe("university content source profiles", () => {
           <a class="notice-link" href="/duyuru/2026-kayit"><span class="notice-title">2026-2027 Kayıt Duyurusu</span></a>
           <time>10.09.2026</time><p class="notice-body">Kayıt işlemleri başlamıştır.</p>
         </section>`,
-      "https://www.agu.edu.tr/duyuru/2026-kayit": "<article><h1>2026-2027 Kayıt Duyurusu</h1><p>Kayıt işlemleri başlamıştır.</p></article>"
+      "https://www.agu.edu.tr/duyuru/2026-kayit": "<main><h1>Günün Yemeği</h1><p>Sayfa kabuğundaki ilgisiz içerik.</p></main>"
     });
     const repository = new InMemoryAnnouncementRepository();
     const service = new AnnouncementIngestionService(catalog(), repository);

@@ -151,7 +151,7 @@ export async function fetchSourceSnapshot(
     };
   }
   const parsedItems = parseFetchedSourceItems(body.text, body.finalUrl, parser, contentType, parserConfig).slice(0, 30);
-  const items = authorityContext && isGenericHtmlSnapshot(body.text, body.finalUrl, parser)
+  const items = authorityContext && !parserConfig?.itemSelector?.trim() && isGenericHtmlSnapshot(body.text, body.finalUrl, parser)
     ? await hydrateGenericAnnouncementDetails(parsedItems, body.finalUrl, timeoutMs, authorityContext)
     : parsedItems;
   return {
