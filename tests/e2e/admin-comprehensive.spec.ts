@@ -511,6 +511,38 @@ test("208-university source workbench exposes editable URL, parser, structure an
   await workbench.screenshot({ path: resolve(evidenceDir, "university-source-workbench-208.png") });
 });
 
+test("daily source health failures are visible in the existing source workbench", async ({ page }) => {
+  const mock = await installMockApi(page);
+  mock.announcementSources = [{
+    ...mock.announcementSources[0],
+    id: "source-probe-failed",
+    ownerUniversityId: "qa-university",
+    sourceName: "QA Etkinlikleri",
+    contentType: "event",
+    status: "active",
+    trustStatus: "trusted",
+    healthStatus: "healthy",
+    lastCheckedAt: new Date().toISOString(),
+    healthProbe: {
+      healthStatus: "failed",
+      lastError: "SOURCE_REDIRECT_UNOFFICIAL",
+      lastCheckedAt: new Date().toISOString()
+    }
+  }];
+
+  await page.goto(adminUrl);
+  await login(page, "super@qa.local");
+  await page.getByRole("link", { name: "Duyuru Kaynakları", exact: true }).click();
+
+  const inbox = page.locator("section.sourceHealthInbox");
+  await expect(inbox.getByRole("heading", { name: "Kaynak Sağlık Uyarıları" })).toBeVisible();
+  await expect(inbox).toContainText("1 işlem bekliyor");
+  await expect(inbox).toContainText("QA Üniversitesi");
+  await expect(inbox).toContainText("QA Etkinlikleri");
+  await expect(inbox).toContainText("Kaynak güvenilmeyen bir adrese yönlendirdi.");
+  await expect(inbox.getByRole("link", { name: "QA Etkinlikleri" })).toHaveAttribute("href", "https://qa.edu.tr/duyurular");
+});
+
 test("announcement source filters are sent to the server with the bounded page size", async ({ page }) => {
   const mock = await installMockApi(page);
   mock.announcementSources = [{

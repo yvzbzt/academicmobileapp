@@ -43,6 +43,11 @@ import {
 } from "./content-review-form";
 import { confirmAdminDestructiveAction } from "./destructive-actions";
 import {
+  buildSourceHealthAlerts,
+  sourceHealthFailureLabel,
+  type AdminSourceHealthInput
+} from "./source-health-alerts";
+import {
   adminRoles,
   canAccessAdminRoute,
   canManageGlobalAdminData,
@@ -77,6 +82,16 @@ interface AnnouncementSourceRecord {
   priority: number;
   status: "active" | "inactive";
   healthStatus?: "pending" | "healthy" | "degraded" | "failed";
+  healthProbeStatus?: string;
+  healthProbeFailureCode?: string;
+  lastHealthProbeAt?: string;
+  healthProbe?: {
+    healthStatus?: string;
+    lastCheckedAt?: string;
+    lastSuccessAt?: string;
+    lastError?: string;
+    itemCount?: number;
+  };
   fetchIntervalMinutes?: number;
   lastCheckedAt?: string;
   lastSuccessAt?: string;
@@ -148,7 +163,20 @@ interface UniversitySourceProfileSlot {
     description?: string;
     selectorHints?: Record<string, string[]>;
   };
-  lastTest: { status: string; checkedAt?: string; successAt?: string; itemCount?: number; error?: string };
+  healthProbeStatus?: string;
+  healthProbeFailureCode?: string;
+  lastHealthProbeAt?: string;
+  healthProbe?: AnnouncementSourceRecord["healthProbe"];
+  lastTest: {
+    status: string;
+    checkedAt?: string;
+    successAt?: string;
+    itemCount?: number;
+    error?: string;
+    healthProbeStatus?: string;
+    healthProbeFailureCode?: string;
+    lastHealthProbeAt?: string;
+  };
   adminPath?: string;
 }
 interface UniversitySourceProfile {
@@ -438,6 +466,23 @@ const sourceHealthLabels: Record<NonNullable<AnnouncementSourceRecord["healthSta
   degraded: "Sorunlu",
   failed: "Başarısız"
 };
+
+function displayedSourceHealthStatus(source: AnnouncementSourceRecord): string {
+  return source.healthProbeStatus ?? source.healthProbe?.healthStatus ?? source.healthStatus ?? "pending";
+}
+
+function displayedSourceHealthLabel(source: AnnouncementSourceRecord): string {
+  const status = displayedSourceHealthStatus(source);
+  return sourceHealthLabels[status as keyof typeof sourceHealthLabels] ?? status;
+}
+
+function displayedSourceHealthCheckedAt(source: AnnouncementSourceRecord): string | undefined {
+  return source.lastHealthProbeAt ?? source.healthProbe?.lastCheckedAt ?? source.lastCheckedAt;
+}
+
+function displayedSourceHealthProblem(source: AnnouncementSourceRecord): string | undefined {
+  return sourceHealthFailureLabel(source.healthProbeFailureCode ?? source.healthProbe?.lastError ?? source.lastError);
+}
 
 const sourceTrustLabels: Record<string, string> = {
   trusted: "Güvenilir",
@@ -2846,6 +2891,110 @@ function ScheduleReviewCard(props: any) {
 
 const universityContentSourceTypes: UniversityContentSourceType[] = ["announcement", "news", "event", "academic_calendar"];
 
+function SourceHealthInbox(props: any) {
+  const profileResponse = props.sourceProfiles.data as UniversitySourceProfilesResponse | undefined;
+  const listedSources = (props.announcementSources.data ?? []) as AnnouncementSourceRecord[];
+  const universityNames = Object.fromEntries([
+    ...(props.universities.data ?? []).map((university: UniversityRecord) => [university.id, university.name]),
+    ...(profileResponse?.universities ?? []).map((university) => [university.universityId, university.universityName])
+  ]);
+  const profileSources = (profileResponse?.universities ?? []).flatMap((university): AdminSourceHealthInput[] =>
+    university.slots.flatMap((slot): AdminSourceHealthInput[] => {
+      if (!slot.sourceId || slot.contentType === "academic_calendar") return [];
+      const healthProbeStatus = slot.healthProbeStatus ?? slot.healthProbe?.healthStatus ?? slot.lastTest.healthProbeStatus;
+      const healthProbeFailureCode = slot.healthProbeFailureCode ?? slot.healthProbe?.lastError ?? slot.lastTest.healthProbeFailureCode;
+      const lastHealthProbeAt = slot.lastHealthProbeAt ?? slot.healthProbe?.lastCheckedAt ?? slot.lastTest.lastHealthProbeAt;
+      return [{
+        id: slot.sourceId,
+        sourceName: slot.sourceName ?? `${university.universityName} ${contentTypeLabels[slot.contentType]}`,
+        ...(slot.sourceUrl ? { sourceUrl: slot.sourceUrl } : {}),
+        contentType: slot.contentType,
+        scopeType: "university",
+        scopeId: university.universityId,
+        ownerUniversityId: university.universityId,
+        universityName: university.universityName,
+        status: slot.status,
+        ...(healthProbeStatus ? { healthProbeStatus } : {}),
+        ...(healthProbeFailureCode ? { healthProbeFailureCode } : {}),
+        ...(lastHealthProbeAt ? { lastHealthProbeAt } : {}),
+        healthStatus: slot.lastTest.status,
+        ...(slot.lastTest.checkedAt ? { lastCheckedAt: slot.lastTest.checkedAt } : {}),
+        ...(slot.lastTest.error ? { lastError: slot.lastTest.error } : {})
+      }];
+    })
+  );
+  const alerts = buildSourceHealthAlerts([...profileSources, ...listedSources], universityNames);
+  const groups = new Map<string, { universityId: string; universityName: string; alerts: typeof alerts }>();
+  for (const alert of alerts) {
+    const key = `${alert.universityName}\u0000${alert.universityId}`;
+    const group = groups.get(key) ?? { universityId: alert.universityId, universityName: alert.universityName, alerts: [] };
+    group.alerts.push(alert);
+    groups.set(key, group);
+  }
+  const loading = props.sourceProfiles.loading || props.announcementSources.loading;
+  const hasSourceData = Boolean(profileResponse || props.announcementSources.data);
+  const loadError = props.sourceProfiles.error ?? props.announcementSources.error;
+  const unhealthyCount = alerts.filter((alert) => alert.severity !== "stale").length;
+  const staleCount = alerts.filter((alert) => alert.stale).length;
+
+  return (
+    <section className="panel wide sourceHealthInbox" aria-labelledby="source-health-inbox-title" aria-live="polite">
+      <div className="panelHeader">
+        <div>
+          <h2 id="source-health-inbox-title"><AlertTriangle size={20} /> Kaynak Sağlık Uyarıları</h2>
+          <p className="panelSub">Günlük kontrolü geciken veya veri çekemeyen duyuru, haber ve etkinlik kaynakları.</p>
+        </div>
+        <span className={`statusBadge ${alerts.length > 0 ? "status-degraded" : "status-healthy"}`}>
+          {alerts.length.toLocaleString("tr-TR")} işlem bekliyor
+        </span>
+      </div>
+      {!hasSourceData && loading && <PanelState kind="loading" text="Kaynak sağlık sonuçları yükleniyor..." />}
+      {!hasSourceData && loadError && <PanelState kind="error" text={loadError} />}
+      {hasSourceData && (
+        <>
+          <div className="sourceHealthSummary" aria-label="Kaynak sağlık uyarısı özeti">
+            <span><strong>{groups.size.toLocaleString("tr-TR")}</strong> Üniversite</span>
+            <span><strong>{alerts.length.toLocaleString("tr-TR")}</strong> Kaynak</span>
+            <span><strong>{unhealthyCount.toLocaleString("tr-TR")}</strong> Hatalı</span>
+            <span><strong>{staleCount.toLocaleString("tr-TR")}</strong> Gecikmiş kontrol</span>
+          </div>
+          {loading && <p className="inlineHint"><RefreshCcw size={16} className="spin" /> Sağlık özeti güncelleniyor.</p>}
+          {alerts.length === 0 && !loading && (
+            <div className="sourceHealthClear" role="status">
+              <ShieldCheck size={20} aria-hidden="true" />
+              <span>Günlük kontrollerde müdahale gerektiren duyuru, haber veya etkinlik kaynağı yok.</span>
+            </div>
+          )}
+          <div className="sourceHealthGroups">
+            {[...groups.values()].map((group) => (
+              <details className="sourceHealthGroup" key={`${group.universityId}:${group.universityName}`} open={groups.size === 1}>
+                <summary>
+                  <span><Building2 size={17} aria-hidden="true" /><strong>{group.universityName}</strong><small>{group.universityId}</small></span>
+                  <span className="statusBadge status-degraded">{group.alerts.length.toLocaleString("tr-TR")} uyarı</span>
+                </summary>
+                <div className="sourceHealthAlertList" role="list">
+                  {group.alerts.map((alert) => (
+                    <article className={`sourceHealthAlert severity-${alert.severity}`} role="listitem" key={alert.sourceId}>
+                      <div className="sourceHealthAlertIdentity">
+                        {alert.sourceUrl
+                          ? <a href={alert.sourceUrl} target="_blank" rel="noreferrer"><strong>{alert.sourceName}</strong></a>
+                          : <strong>{alert.sourceName}</strong>}
+                        <span>{contentTypeLabels[alert.contentType ?? ""] ?? alert.contentType ?? "İçerik kaynağı"} · {alert.sourceId}</span>
+                      </div>
+                      <p><strong>Problem</strong><span>{alert.problem}</span></p>
+                      <time dateTime={alert.lastProbeAt}>{alert.lastProbeAt ? `Son kontrol: ${new Date(alert.lastProbeAt).toLocaleString("tr-TR")}` : "Son kontrol: yapılmadı"}</time>
+                    </article>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function UniversitySourceWorkbench(props: any) {
   const [search, setSearch] = useState("");
   const [selectedUniversityId, setSelectedUniversityId] = useState("");
@@ -2926,14 +3075,19 @@ function UniversitySourceProfileCard(props: any) {
   const preview = (props.sourceTestPreviews as Record<string, AnnouncementSourcePreview>)[previewKey];
   const configured = slot.contentType === "academic_calendar" ? slot.trustStatus === "configured" : Boolean(slot.sourceId);
   const displayedUrl = slot.sourceUrl ?? slot.suggestedUrl ?? slot.candidateUrl ?? "";
-  const lastTestLabel = slot.lastTest.checkedAt
-    ? `${new Date(slot.lastTest.checkedAt).toLocaleString("tr-TR")} · ${slot.lastTest.itemCount ?? 0} içerik`
+  const testStatus = slot.healthProbeStatus ?? slot.healthProbe?.healthStatus ?? slot.lastTest.healthProbeStatus ?? slot.lastTest.status;
+  const lastCheckedAt = slot.lastHealthProbeAt ?? slot.healthProbe?.lastCheckedAt ?? slot.lastTest.lastHealthProbeAt ?? slot.lastTest.checkedAt;
+  const lastTestProblem = sourceHealthFailureLabel(
+    slot.healthProbeFailureCode ?? slot.healthProbe?.lastError ?? slot.lastTest.healthProbeFailureCode ?? slot.lastTest.error
+  );
+  const lastTestLabel = lastCheckedAt
+    ? `${new Date(lastCheckedAt).toLocaleString("tr-TR")} · ${slot.healthProbe?.itemCount ?? slot.lastTest.itemCount ?? 0} içerik`
     : "Henüz test edilmedi";
   return (
     <article className="universitySourceCard" data-source-type={slot.contentType}>
       <header>
         <strong>{label}</strong>
-        <span className={`statusBadge status-${slot.lastTest.status}`}>{slot.lastTest.status === "not_tested" ? "Test edilmedi" : sourceHealthLabels[slot.lastTest.status as keyof typeof sourceHealthLabels] ?? slot.lastTest.status}</span>
+        <span className={`statusBadge status-${testStatus}`}>{testStatus === "not_tested" ? "Test edilmedi" : sourceHealthLabels[testStatus as keyof typeof sourceHealthLabels] ?? testStatus}</span>
       </header>
       <form
         className="universitySourceForm"
@@ -2960,7 +3114,7 @@ function UniversitySourceProfileCard(props: any) {
           <div><dt>Site / çekme yapısı</dt><dd>{slot.siteStructure.description ?? `${label} liste sayfası otomatik ayrıştırılır.`}</dd></div>
           <div><dt>Teknik akış</dt><dd>{slot.siteStructure.detectedFormat ?? "auto"} · {slot.siteStructure.extractionMode ?? "auto"} · {slot.siteStructure.kind ?? "listing"}</dd></div>
           <div><dt>Nereden çekiyoruz</dt><dd>{displayedUrl || university.authority.homepageUrl || "URL bekleniyor"}</dd></div>
-          <div><dt>Son test</dt><dd>{lastTestLabel}{slot.lastTest.error ? ` · ${slot.lastTest.error}` : ""}</dd></div>
+          <div><dt>Son test</dt><dd>{lastTestLabel}{lastTestProblem ? ` · ${lastTestProblem}` : ""}</dd></div>
         </dl>
         {slot.siteStructure.selectorHints && (
           <details className="selectorHints">
@@ -3048,6 +3202,7 @@ function AnnouncementSourcesPage(props: any) {
           <span>Bu çalışma alanı mobil uygulamanın akademik kaynaklarını yönetir; tenant yönetim paneli değildir.</span>
         </div>
       </section>
+      <SourceHealthInbox {...props} />
       <UniversitySourceWorkbench {...props} />
       <SourceCoveragePanel {...props} />
       <ScheduleReviewPanel {...props} />
@@ -3196,9 +3351,9 @@ function AnnouncementSourcesPage(props: any) {
               <div className="sourceIdentity">
                 <strong>{source.sourceName}</strong>
                 <span>{sourceScopeLabels[source.scopeType]} · {source.scopeId}</span>
-                <span className={`statusBadge status-${source.healthStatus ?? "pending"}`}>{sourceHealthLabels[source.healthStatus ?? "pending"]} · {source.itemCount ?? 0} kayıt</span>
+                <span className={`statusBadge status-${displayedSourceHealthStatus(source)}`}>{displayedSourceHealthLabel(source)} · {source.healthProbe?.itemCount ?? source.itemCount ?? 0} kayıt</span>
                 <span className={`statusBadge trust-${sourceTrustStatus(source)}`}>{sourceTrustLabels[sourceTrustStatus(source)] ?? sourceTrustStatus(source)}</span>
-                <span>{source.lastCheckedAt ? `Son kontrol: ${new Date(source.lastCheckedAt).toLocaleString("tr-TR")}` : "Henüz kontrol edilmedi"}</span>
+                <span>{displayedSourceHealthCheckedAt(source) ? `Son kontrol: ${new Date(displayedSourceHealthCheckedAt(source)!).toLocaleString("tr-TR")}` : "Henüz kontrol edilmedi"}</span>
               </div>
               <div className="sourceFields">
                 <input name="sourceName" defaultValue={source.sourceName} required aria-label="Kaynak adı" />
@@ -3213,7 +3368,7 @@ function AnnouncementSourcesPage(props: any) {
                 <input name="fetchIntervalMinutes" type="number" min="5" max="10080" defaultValue={source.fetchIntervalMinutes ?? 180} aria-label="Yenileme dakikası" />
                 <select name="status" defaultValue={source.status} aria-label="Kaynak durumu"><option value="active">Aktif</option><option value="inactive">Pasif</option></select>
               </div>
-              {source.lastError && <p className="sourceError">{source.lastError}</p>}
+              {displayedSourceHealthProblem(source) && <p className="sourceError">{displayedSourceHealthProblem(source)}</p>}
               <SourceEvidencePanel source={source} />
               <div className="sourceActions">
                 <button className="btn btn-primary" disabled={!props.hasToken}><Save size={16} /> Kaydet</button>
