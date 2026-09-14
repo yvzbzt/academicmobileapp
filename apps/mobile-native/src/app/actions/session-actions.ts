@@ -5,6 +5,7 @@ import {
   runObservableAccountCleanup,
 } from "../../auth/session-integrity";
 import { normalizeAccountAuthProvider } from "../../auth/recent-authentication";
+import { deleteDeviceContentCache } from "../../content/device-content-cache";
 import { type SessionPayload } from "../app-types";
 import {
   setStoredValue,
@@ -246,6 +247,7 @@ export function createSessionActions(
       const emergencyResult = await runObservableAccountCleanup([
         { target: "device_registration", run: () => detachNotificationOwnerForCleanup() },
         { target: "pending_notification_storage", run: () => persistPendingNotificationDestination(null) },
+        ...(ownerId ? [{ target: "device_content_cache" as const, run: () => deleteDeviceContentCache(ownerId) }] : []),
         { target: "in_memory_state", run: () => clearAuthenticatedMemory() }
       ]);
       reportCleanupResult("session_expiry", {
@@ -271,6 +273,7 @@ export function createSessionActions(
         target: "pending_notification_storage",
         run: () => persistPendingNotificationDestination(null)
       },
+      ...(ownerId ? [{ target: "device_content_cache" as const, run: () => deleteDeviceContentCache(ownerId) }] : []),
       { target: "in_memory_state", run: () => clearAuthenticatedMemory() },
       {
         target: "pending_verification_storage",

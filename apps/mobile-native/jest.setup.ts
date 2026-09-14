@@ -78,6 +78,10 @@ jest.mock("expo-network", () => ({
   })),
 }));
 
+jest.mock("@react-native-async-storage/async-storage", () => (
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock")
+));
+
 jest.mock("expo-apple-authentication", () => {
   const React = require("react");
   const { Pressable } = require("react-native");

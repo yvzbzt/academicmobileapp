@@ -115,7 +115,7 @@ export interface ApplicationActions {
   loadMyCalendar(tokenOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean): Promise<void>;
   loadCourseSchedule(tokenOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean): Promise<void>;
   loadUpcoming(tokenOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean): Promise<void>;
-  loadAnnouncements(tokenOverride?: string, universityIdOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean, limitOverride?: number, signal?: AbortSignal, requestGeneration?: number): Promise<void>;
+  loadAnnouncements(tokenOverride?: string, universityIdOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean, limitOverride?: number, signal?: AbortSignal, requestGeneration?: number, forceManifestRevalidation?: boolean): Promise<void>;
   loadYokAnnouncements(preserveDataOnRefresh?: boolean, limitOverride?: number, signal?: AbortSignal, requestGeneration?: number): Promise<void>;
   loadSummerSchool(tokenOverride?: string, universityIdOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean, signal?: AbortSignal, requestGeneration?: number): Promise<void>;
   refreshSummerSchool(): Promise<void>;

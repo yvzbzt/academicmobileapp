@@ -209,6 +209,14 @@ export function useApplicationEffects(dependencies: Dependencies) {
           setAppleCalendarError("Apple Takvim izin durumu yenilenemedi.");
         });
       }
+      if (currentSession && ownerSnapshot && !accountCleanupInProgressRef.current) {
+        void loadAnnouncements(
+          currentSession.accessToken,
+          undefined,
+          ownerSnapshot,
+          true,
+        );
+      }
       const coordinator = notificationCoordinatorRef.current;
       if (!currentSession || !coordinator) return;
       void reconcileNotificationDelivery(currentSession, coordinator).catch(async () => {
@@ -356,6 +364,23 @@ export function useApplicationEffects(dependencies: Dependencies) {
     yokAnnouncements.attempted,
     yokAnnouncements.loading
   ]);
+
+  useEffect(() => {
+    if (!session || (activeTab !== "announcements" && activeTab !== "yok" && activeTab !== "summer")) return;
+    const timer = setInterval(() => {
+      if (announcements.loading || accountCleanupInProgressRef.current) return;
+      const ownerSnapshot = accountGuardRef.current.capture();
+      const currentSession = sessionRef.current;
+      if (!ownerSnapshot || !currentSession || currentSession.user.id !== ownerSnapshot.ownerId) return;
+      void loadAnnouncements(
+        currentSession.accessToken,
+        undefined,
+        ownerSnapshot,
+        true,
+      );
+    }, 5 * 60 * 1_000);
+    return () => clearInterval(timer);
+  }, [activeTab, announcements.loading, session?.user.id]);
 
   useEffect(() => {
     runtimeDiagnostic("feed.state", {

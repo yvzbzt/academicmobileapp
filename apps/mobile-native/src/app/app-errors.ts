@@ -122,6 +122,7 @@ export function cleanupTargetLabel(target: AccountCleanupTarget): string {
     pending_verification_storage: "doğrulama kurtarma kaydı",
     pending_notification_storage: "bekleyen bildirim hedefi",
     manual_exam_storage: "kişisel takvim kaydı",
+    device_content_cache: "cihaz içerik önbelleği",
     google_connection_storage: "Google Takvim bağlantı kaydı",
     google_managed_events: "Google Takvim'e eklenen uygulama kayıtları",
     google_access: "Google erişim izni",

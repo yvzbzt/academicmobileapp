@@ -254,6 +254,7 @@ export type AccountCleanupTarget =
   | "pending_verification_storage"
   | "pending_notification_storage"
   | "manual_exam_storage"
+  | "device_content_cache"
   | "google_connection_storage"
   | "google_managed_events"
   | "google_access"

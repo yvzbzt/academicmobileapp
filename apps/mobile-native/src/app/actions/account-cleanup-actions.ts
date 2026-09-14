@@ -3,6 +3,7 @@ import { runObservableAccountCleanup, type AccountCleanupResult } from "../../au
 import { EMPTY_ACADEMIC_ONBOARDING_DRAFT } from "../../auth/auth-ui";
 import { createManualExamStorageKey } from "../../session-integrity/manual-exam-storage";
 import { CONTENT_FEED_INITIAL_LIMIT } from "../../announcements/feed-model";
+import { deleteDeviceContentCache } from "../../content/device-content-cache";
 import { StaleAccountRequestError } from "../app-errors";
 import { deleteStoredValue } from "../app-storage";
 import { GOOGLE_AUTH_CONFIGURED } from "../app-auth-providers";
@@ -201,6 +202,7 @@ export function createAccountCleanupActions(
         target: "pending_notification_storage",
         run: () => persistPendingNotificationDestination(null)
       },
+      { target: "device_content_cache", run: () => deleteDeviceContentCache(ownerId) },
       { target: "in_memory_state", run: () => clearAuthenticatedMemory() },
       {
         target: "pending_verification_storage",
@@ -433,6 +435,8 @@ export function createAccountCleanupActions(
             }
           } else if (target === "pending_notification_storage") {
             await persistPendingNotificationDestination(null);
+          } else if (target === "device_content_cache" && issue.ownerId) {
+            await deleteDeviceContentCache(issue.ownerId);
           } else if (target === "google_managed_events" && issue.ownerId) {
             if (!cleanupGoogleConnection) return;
             await runAbortableGoogleCleanup((signal) => (

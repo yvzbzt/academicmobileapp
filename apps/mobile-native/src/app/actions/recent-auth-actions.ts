@@ -14,6 +14,7 @@ import {
   recentAuthenticationHeader,
 } from "../../auth/recent-authentication";
 import { createManualExamStorageKey } from "../../session-integrity/manual-exam-storage";
+import { deleteDeviceContentCache } from "../../content/device-content-cache";
 import {
   GOOGLE_AUTH_CONFIGURED,
   GOOGLE_AUTH_CONFIGURATION_MESSAGE,
@@ -317,6 +318,10 @@ export function createRecentAuthActions(
           ]).then(() => undefined)
         },
         {
+          target: "device_content_cache",
+          run: () => deleteDeviceContentCache(currentSession.user.id)
+        },
+        {
           target: "google_connection_storage",
           run: () => {
             if (!googleAccessRevoked) throw new Error("GOOGLE_ACCESS_CLEANUP_INCOMPLETE");
@@ -440,6 +445,10 @@ export function createRecentAuthActions(
           enqueueStorageMutation(() => deleteStoredValue(createManualExamStorageKey(ownerId))),
           personalCalendarReminderCoordinator.cancelOwner(ownerId)
         ]).then(() => undefined)
+      },
+      {
+        target: "device_content_cache",
+        run: () => deleteDeviceContentCache(ownerId)
       },
       {
         target: "google_connection_storage",

@@ -1,9 +1,9 @@
 import {
   canonicalizeOfficialAcademicUrl,
-  normalizeTrustedContentCollection,
   normalizeTrustedApiContentEnvelope,
   type TrustedContentCollection,
 } from "../../content/content-trust";
+import { syncDeviceContent } from "../../content/device-content-sync";
 import { CONTENT_FEED_MAX_LIMIT, nextContentFeedLimit } from "../../announcements/feed-model";
 import {
   type CalendarPayload,
@@ -130,30 +130,56 @@ export function createContentActions(
     preserveDataOnRefresh = tokenOverride === undefined && universityIdOverride === undefined,
     limitOverride = contentFeedLimit,
     signal?: AbortSignal,
-    requestGeneration = contentFeedRequestCoordinatorRef.current.captureGeneration()
+    requestGeneration = contentFeedRequestCoordinatorRef.current.captureGeneration(),
+    forceManifestRevalidation = false,
   ): Promise<void> {
     const token = tokenOverride ?? accessToken;
-    if (!token || !contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)) return;
-
-    const universityId = universityIdOverride ?? registerUniversityId;
-    if (!universityId) {
-      setAnnouncements({ loading: false, data: normalizeTrustedContentCollection([]), attempted: true, stale: false });
-      return;
-    }
+    if (!token || !ownerSnapshot || !contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)) return;
 
     await withLoadable(
       setAnnouncements,
-      () => apiRequest<AnnouncementCollectionApiPayload>(
-        `/announcements/my/trusted?limit=${limitOverride}`,
-        signal ? { signal } : {},
+      () => loadDeviceAnnouncementCollection(
         token,
-        { ownerSnapshot }
-      )
-        .then(normalizeTrustedApiContentEnvelope),
+        ownerSnapshot,
+        limitOverride,
+        signal,
+        requestGeneration,
+        forceManifestRevalidation,
+      ),
       ownerSnapshot,
       preserveDataOnRefresh,
       () => contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)
     );
+  }
+
+  async function loadDeviceAnnouncementCollection(
+    token: string,
+    ownerSnapshot: NonNullable<ReturnType<typeof accountGuardRef.current.capture>>,
+    limit: number,
+    signal: AbortSignal | undefined,
+    requestGeneration: number,
+    force: boolean,
+  ): Promise<TrustedContentCollection> {
+    const result = await syncDeviceContent({
+      ownerId: ownerSnapshot.ownerId,
+      force,
+      loadManifest: (knownVersion) => apiRequest<unknown>(
+        `/announcements/my/source-manifest${knownVersion ? `?knownVersion=${encodeURIComponent(knownVersion)}` : ""}`,
+        signal ? { signal } : {},
+        token,
+        { ownerSnapshot },
+      ),
+      fetchOptions: { ...(signal ? { signal } : {}) },
+      isCurrent: () => accountGuardRef.current.isCurrent(ownerSnapshot)
+        && contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration),
+    });
+    const boundedLimit = Math.max(1, Math.min(limit, CONTENT_FEED_MAX_LIMIT));
+    return {
+      ...result.collection,
+      items: result.collection.items.slice(0, boundedLimit),
+      hasMore: result.collection.items.length > boundedLimit,
+      rawItemCount: result.collection.items.length,
+    };
   }
 
   async function loadYokAnnouncements(
@@ -234,7 +260,7 @@ export function createContentActions(
     setContentFeedPagination({ loading: false });
     try {
       await Promise.allSettled([
-        loadAnnouncements(undefined, undefined, ownerSnapshot, true, contentFeedLimit, requestController.signal),
+        loadAnnouncements(undefined, undefined, ownerSnapshot, true, contentFeedLimit, requestController.signal, undefined, true),
         loadYokAnnouncements(true, contentFeedLimit, requestController.signal),
         loadSummerSchool(undefined, undefined, ownerSnapshot, true, requestController.signal)
       ]);
@@ -252,7 +278,7 @@ export function createContentActions(
     if (!requestLease) return;
     const ownerSnapshot = accountGuardRef.current.capture();
     const token = accessToken;
-    if (!ownerSnapshot || !token || !registerUniversityId) {
+    if (!ownerSnapshot || !token) {
       contentFeedRequestCoordinatorRef.current.finish(requestLease);
       return;
     }
@@ -267,12 +293,14 @@ export function createContentActions(
     if (trustedContentCollectionHasMore(announcements.data, contentFeedLimit)) {
       requests.push({
         kind: "academic",
-        promise: apiRequest<AnnouncementCollectionApiPayload>(
-          `/announcements/my/trusted?limit=${nextLimit}`,
-          { signal: requestController.signal },
+        promise: loadDeviceAnnouncementCollection(
           token,
-          { ownerSnapshot }
-        ).then(normalizeTrustedApiContentEnvelope)
+          ownerSnapshot,
+          nextLimit,
+          requestController.signal,
+          requestLease.generation,
+          false,
+        )
       });
     }
     if (trustedContentCollectionHasMore(yokAnnouncements.data, contentFeedLimit)) {
