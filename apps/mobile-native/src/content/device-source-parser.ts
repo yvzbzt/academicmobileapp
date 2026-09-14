@@ -10,6 +10,20 @@ import type { DeviceContentSource } from "./device-source-manifest";
 
 const MAX_PARSED_ITEMS = 60;
 const JSON_COLLECTION_KEYS = ["items", "data", "results", "announcements", "news", "events"] as const;
+const TURKISH_MONTHS: Readonly<Record<string, number>> = {
+  ocak: 1,
+  subat: 2,
+  mart: 3,
+  nisan: 4,
+  mayis: 5,
+  haziran: 6,
+  temmuz: 7,
+  agustos: 8,
+  eylul: 9,
+  ekim: 10,
+  kasim: 11,
+  aralik: 12,
+};
 
 export function parseDeviceSourceDocument(
   input: string,
@@ -189,11 +203,32 @@ function resolveSourceUrl(value: string | undefined, source: DeviceContentSource
 
 function readPublication(value: string | undefined, allowRfcDate: boolean): Partial<MobileContentRecordInput> {
   const normalized = normalizeDisplayText(value);
-  const dateOnly = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/u)?.[0];
+  const dateOnly = readPublicationDateOnly(normalized);
   if (dateOnly && isRealDateOnly(dateOnly)) return { publicationKind: "date", publishedDate: dateOnly };
   if (!normalized || (!allowRfcDate && !/^\d{4}-\d{2}-\d{2}T/u.test(normalized))) return {};
   const timestamp = Date.parse(normalized);
   return Number.isFinite(timestamp) ? { publicationKind: "timestamp", publishedAt: new Date(timestamp).toISOString() } : {};
+}
+
+function readPublicationDateOnly(value: string): string | null {
+  const iso = value.match(/(?:^|\D)(\d{4})-(\d{1,2})-(\d{1,2})(?:\D|$)/u);
+  if (iso) return dateOnly(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  const numeric = value.match(/(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\D|$)/u);
+  if (numeric) return dateOnly(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
+  const named = foldTurkish(value).match(/(?:^|\D)(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(\d{4})(?:\D|$)/u);
+  return named ? dateOnly(Number(named[3]), TURKISH_MONTHS[named[2]!]!, Number(named[1])) : null;
+}
+
+function dateOnly(year: number, month: number, day: number): string | null {
+  const value = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return isRealDateOnly(value) ? value : null;
+}
+
+function foldTurkish(value: string): string {
+  return value.toLocaleLowerCase("tr-TR")
+    .replaceAll("ı", "i")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "");
 }
 
 function isRealDateOnly(value: string): boolean {

@@ -57,7 +57,7 @@ describe("device source parser", () => {
       <main>
         <article><h2>Registration dates announced</h2><a href="/announcements/registration">Open</a><time datetime="2026-09-12">12 Sep</time><p>Official registration details.</p></article>
         <article><h2>Next</h2><a href="/announcements?page=2">Next</a></article>
-        <article><h2>Official PDF</h2><a href="https://files.example.edu.tr/docs/calendar.pdf">Open</a></article>
+        <article><h2>Official PDF</h2><a href="https://files.example.edu.tr/docs/calendar.pdf">Open</a><time>Yayın tarihi: 14 Eylül 2026</time></article>
         <article><h2>External advert</h2><a href="https://evil.edu.tr/tracker">Open</a></article>
       </main>
     `, source({
@@ -85,7 +85,26 @@ describe("device source parser", () => {
     expect(records[1]).toEqual(expect.objectContaining({
       title: "Official PDF",
       canonicalUrl: "https://files.example.edu.tr/docs/calendar.pdf",
+      publicationKind: "date",
+      publishedDate: "2026-09-14",
     }));
+  });
+
+  it.each([
+    ["14.09.2026", "2026-09-14"],
+    ["Yayın: 7/1/2027", "2027-01-07"],
+    ["31 Şubat 2026", undefined],
+  ])("normalizes common Turkish listing dates (%s)", (dateText, publishedDate) => {
+    const records = parseDeviceSourceDocument(
+      `<article><h2>Academic notice</h2><a href='/notice'>Open</a><time>${dateText}</time></article>`,
+      source({
+        parser: "html",
+        parserConfig: { itemSelector: "article", titleSelector: "h2", linkSelector: "a", dateSelector: "time" },
+      }),
+      now,
+    );
+
+    expect(records[0]?.publishedDate).toBe(publishedDate);
   });
 
   it("parses RSS and JSON without accepting a different host", () => {
