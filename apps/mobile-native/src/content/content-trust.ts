@@ -856,7 +856,7 @@ function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-function officialDomainForUrl(value: string): string | null {
+export function officialDomainForUrl(value: string): string | null {
   const canonicalUrl = canonicalizeHttpUrl(value);
   if (!canonicalUrl) return null;
   const labels = new URL(canonicalUrl).hostname.replace(/^www\./u, "").split(".").filter(Boolean);

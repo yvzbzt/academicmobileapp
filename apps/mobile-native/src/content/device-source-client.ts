@@ -1,6 +1,7 @@
 import {
   canonicalizeOfficialAcademicUrl,
   normalizeTrustedContentCollection,
+  officialDomainForUrl,
   type TrustedContentCollection,
 } from "./content-trust";
 import { isDeviceSourceCurrentlyTrusted, type DeviceContentSource } from "./device-source-manifest";
@@ -85,7 +86,7 @@ function assertAcceptedFinalUrl(value: string, source: DeviceContentSource): voi
   const canonical = canonicalizeOfficialAcademicUrl(value);
   if (
     !canonical
-    || new URL(canonical).hostname.toLocaleLowerCase("en-US") !== source.allowedHostname
+    || officialDomainForUrl(canonical) !== officialDomainForUrl(source.sourceUrl)
   ) throw new DeviceSourceFetchError("redirect_rejected");
 }
 

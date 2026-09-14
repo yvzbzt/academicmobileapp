@@ -52,11 +52,12 @@ describe("device content source manifest", () => {
 });
 
 describe("device source parser", () => {
-  it("uses the configured HTML selectors and rejects navigation and off-host links", () => {
+  it("uses configured selectors, permits the approved official domain and rejects other universities", () => {
     const records = parseDeviceSourceDocument(`
       <main>
         <article><h2>Registration dates announced</h2><a href="/announcements/registration">Open</a><time datetime="2026-09-12">12 Sep</time><p>Official registration details.</p></article>
         <article><h2>Next</h2><a href="/announcements?page=2">Next</a></article>
+        <article><h2>Official PDF</h2><a href="https://files.example.edu.tr/docs/calendar.pdf">Open</a></article>
         <article><h2>External advert</h2><a href="https://evil.edu.tr/tracker">Open</a></article>
       </main>
     `, source({
@@ -70,7 +71,7 @@ describe("device source parser", () => {
       },
     }), now);
 
-    expect(records).toHaveLength(1);
+    expect(records).toHaveLength(2);
     expect(records[0]).toEqual(expect.objectContaining({
       title: "Registration dates announced",
       canonicalUrl: "https://example.edu.tr/announcements/registration",
@@ -80,6 +81,10 @@ describe("device source parser", () => {
       trustStatus: "trusted",
       sourceStatus: "active",
       sourceTrustStatus: "trusted",
+    }));
+    expect(records[1]).toEqual(expect.objectContaining({
+      title: "Official PDF",
+      canonicalUrl: "https://files.example.edu.tr/docs/calendar.pdf",
     }));
   });
 
@@ -125,6 +130,21 @@ describe("device source fetch boundary", () => {
     expect(collection.items).toEqual([expect.objectContaining({
       title: "Enrollment announcement",
       canonicalUrl: "https://example.edu.tr/announcements/one",
+    })]);
+  });
+
+  it("accepts a redirect within the backend-approved university domain", async () => {
+    const collection = await fetchDeviceContentSource(source(), {
+      fetchImpl: jest.fn(async () => response({
+        url: "https://www.example.edu.tr/announcements",
+        contentType: "text/html",
+        body: "<main><article><a href='https://files.example.edu.tr/announcements/one.pdf'>Official PDF notice</a></article></main>",
+      })) as unknown as typeof fetch,
+      now,
+    });
+
+    expect(collection.items).toEqual([expect.objectContaining({
+      canonicalUrl: "https://files.example.edu.tr/announcements/one.pdf",
     })]);
   });
 

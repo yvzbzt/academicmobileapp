@@ -3,6 +3,7 @@ import {
   canonicalizeOfficialAcademicUrl,
   isNavigationContentTitle,
   normalizeDisplayText,
+  officialDomainForUrl,
   type MobileContentRecordInput,
 } from "./content-trust";
 import type { DeviceContentSource } from "./device-source-manifest";
@@ -181,7 +182,7 @@ function resolveSourceUrl(value: string | undefined, source: DeviceContentSource
   }
   const canonical = canonicalizeOfficialAcademicUrl(absolute);
   if (!canonical) return null;
-  return new URL(canonical).hostname.toLocaleLowerCase("en-US") === source.allowedHostname
+  return officialDomainForUrl(canonical) === officialDomainForUrl(source.sourceUrl)
     ? canonical
     : null;
 }
