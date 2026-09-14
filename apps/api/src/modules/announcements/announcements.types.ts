@@ -347,6 +347,8 @@ export interface AnnouncementSourceReviewFence {
   /** Empty means the reviewer observed a legacy source without a definition generation. */
   expectedSourceDefinitionVersion?: string;
   expectedCanonicalUrl: string;
+  /** Exact persisted URL observed by trusted server code; supports legacy non-canonical records without weakening CAS. */
+  expectedSourceUrl?: string;
   expectedTrustStatus: AnnouncementTrustStatus;
   expectedSourceStatus: AnnouncementSourceStatus;
   /** Exact pending state observed by the reviewer; prevents duplicate approval leases. */

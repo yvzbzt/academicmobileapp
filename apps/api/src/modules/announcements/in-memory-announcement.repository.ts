@@ -701,6 +701,7 @@ function sourceReviewFenceMatches(
   const currentCanonicalUrl = canonicalizeContentUrl(current.canonicalUrl ?? current.sourceUrl);
   return Boolean(expectedCanonicalUrl)
     && currentCanonicalUrl === expectedCanonicalUrl
+    && (fence.expectedSourceUrl === undefined || current.sourceUrl === fence.expectedSourceUrl)
     && current.sourceDefinitionVersion === normalizedVersion(fence.expectedSourceDefinitionVersion)
     && (current.trustStatus ?? "quarantined") === fence.expectedTrustStatus
     && current.status === fence.expectedSourceStatus

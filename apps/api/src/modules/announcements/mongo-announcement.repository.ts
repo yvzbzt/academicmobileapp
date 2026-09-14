@@ -2262,6 +2262,7 @@ function sourceReviewFenceFilter(fence: AnnouncementSourceReviewFence): Record<s
   return {
     status: fence.expectedSourceStatus,
     approvalPending: fence.expectedApprovalPending ? true : { $ne: true },
+    ...(fence.expectedSourceUrl !== undefined ? { sourceUrl: fence.expectedSourceUrl } : {}),
     ...(fence.expectedReviewedAt !== undefined
       ? fence.expectedReviewedAt
         ? { reviewedAt: fence.expectedReviewedAt }
@@ -2274,7 +2275,7 @@ function sourceReviewFenceFilter(fence: AnnouncementSourceReviewFence): Record<s
           {
             $and: [
               { $or: [{ canonicalUrl: { $exists: false } }, { canonicalUrl: null }, { canonicalUrl: "" }] },
-              { sourceUrl: fence.expectedCanonicalUrl }
+              { sourceUrl: fence.expectedSourceUrl ?? fence.expectedCanonicalUrl }
             ]
           }
         ]

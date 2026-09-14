@@ -434,6 +434,7 @@ export class AnnouncementIngestionService {
     assertSourceMatchesReviewFence(existing, requestedFence);
     const source = await this.announcementRepository.deactivateSource(id, {
       ...requestedFence,
+      expectedSourceUrl: existing.sourceUrl,
       expectedReviewedAt: existing.reviewedAt ?? null
     });
     if (!source) throw sourceReviewConflict();
@@ -467,6 +468,7 @@ export class AnnouncementIngestionService {
     if (hasActiveSourceApprovalLease(existing)) throw sourceReviewConflict();
     const reviewFence: AnnouncementSourceReviewFence = {
       ...requestedReviewFence,
+      expectedSourceUrl: existing.sourceUrl,
       expectedReviewedAt: existing.reviewedAt ?? null
     };
     const authority = await this.resolveAuthorityForSource(existing);
@@ -546,6 +548,7 @@ export class AnnouncementIngestionService {
     assertSourceMatchesReviewFence(existing, requestedReviewFence);
     const reviewFence: AnnouncementSourceReviewFence = {
       ...requestedReviewFence,
+      expectedSourceUrl: existing.sourceUrl,
       expectedReviewedAt: existing.reviewedAt ?? null
     };
     const rejected = await this.announcementRepository.reviewSource(existing.id, {
@@ -695,7 +698,10 @@ export class AnnouncementIngestionService {
   async updateManualSource(id: string, input: ManualAnnouncementSourceUpdateInput) {
     const existing = await this.announcementRepository.findSourceById(id);
     if (!existing) throw new NotFoundException("Announcement source not found.");
-    const editFence = sourceEditFenceFromRequest(input);
+    const editFence: AnnouncementSourceEditFence = {
+      ...sourceEditFenceFromRequest(input),
+      expectedSourceUrl: existing.sourceUrl
+    };
     assertSourceMatchesEditFence(existing, editFence);
     const {
       expectedSourceDefinitionVersion: _expectedSourceDefinitionVersion,
@@ -1988,6 +1994,7 @@ function sourceReviewFenceFromRecord(source: AnnouncementSourceRecord): Announce
   if (!expectedCanonicalUrl) throw new BadRequestException("Announcement source review fence is invalid.");
   return {
     expectedCanonicalUrl,
+    expectedSourceUrl: source.sourceUrl,
     ...(source.sourceDefinitionVersion ? { expectedSourceDefinitionVersion: source.sourceDefinitionVersion } : {}),
     expectedTrustStatus: source.trustStatus ?? "quarantined",
     expectedSourceStatus: source.status,
@@ -2015,6 +2022,7 @@ function assertSourceMatchesReviewFence(
   const expectedVersion = fence.expectedSourceDefinitionVersion?.trim() || undefined;
   if (
     canonicalUrl !== fence.expectedCanonicalUrl
+    || (fence.expectedSourceUrl !== undefined && source.sourceUrl !== fence.expectedSourceUrl)
     || source.sourceDefinitionVersion !== expectedVersion
     || (source.trustStatus ?? "quarantined") !== fence.expectedTrustStatus
     || source.status !== fence.expectedSourceStatus

@@ -456,6 +456,60 @@ describe("announcement source trust persistence", () => {
     }
   });
 
+  it("deactivates a legacy Mongo source with an exact non-canonical persisted URL fence", async () => {
+    const mongoStore = new FakeAnnouncementSourceModel();
+    const mongo = new MongoAnnouncementRepository({} as never);
+    Object.defineProperty(mongo, "model", { value: async () => mongoStore });
+    const sourceUrl = "https://www.example.edu.tr/duyurular/";
+    const id = "64e000000000000000000099";
+    await mongoStore.create({
+      ...sourceInputWithoutTrust(),
+      sourceUrl,
+      status: "active"
+    }, id);
+
+    await expect(mongo.deactivateSource(id, {
+      expectedCanonicalUrl: "https://www.example.edu.tr/duyurular",
+      expectedSourceUrl: sourceUrl,
+      expectedTrustStatus: "quarantined",
+      expectedSourceStatus: "active",
+      expectedApprovalPending: false,
+      expectedReviewedAt: null
+    })).resolves.toMatchObject({ status: "inactive", approvalPending: false });
+  });
+
+  it("updates a legacy Mongo source with an exact non-canonical persisted URL fence", async () => {
+    const mongoStore = new FakeAnnouncementSourceModel();
+    const mongo = new MongoAnnouncementRepository({} as never);
+    Object.defineProperty(mongo, "model", { value: async () => mongoStore });
+    const sourceUrl = "https://www.example.edu.tr/duyurular/";
+    const id = "64e000000000000000000098";
+    await mongoStore.create({
+      ...sourceInputWithoutTrust(),
+      sourceUrl,
+      status: "active"
+    }, id);
+    const legacy = await mongo.findSourceById(id);
+    if (!legacy) throw new Error("Expected legacy source.");
+
+    await expect(mongo.updateSource(id, {
+      ...sourceInputWithoutTrust(),
+      sourceUrl: "https://www.example.edu.tr/duyurular",
+      status: "inactive"
+    }, {
+      expectedCanonicalUrl: "https://www.example.edu.tr/duyurular",
+      expectedSourceUrl: sourceUrl,
+      expectedTrustStatus: "quarantined",
+      expectedSourceStatus: "active",
+      expectedApprovalPending: false,
+      expectedReviewedAt: null,
+      expectedUpdatedAt: legacy.updatedAt
+    })).resolves.toMatchObject({
+      sourceUrl: "https://www.example.edu.tr/duyurular",
+      status: "inactive"
+    });
+  });
+
   it("atomically fences source trust reviews without overwriting concurrent non-definition edits", async () => {
     const mongoStore = new FakeAnnouncementSourceModel();
     const mongo = new MongoAnnouncementRepository({} as never);
