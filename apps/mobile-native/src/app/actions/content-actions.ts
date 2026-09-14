@@ -142,6 +142,8 @@ export function createContentActions(
   ): Promise<void> {
     const token = tokenOverride ?? accessToken;
     if (!token || !ownerSnapshot || !contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)) return;
+    const primaryLoadLease = contentFeedRequestCoordinatorRef.current.beginPrimaryLoad(requestGeneration);
+    if (!primaryLoadLease) return;
 
     await withLoadable(
       setAnnouncements,
@@ -155,7 +157,7 @@ export function createContentActions(
       ),
       ownerSnapshot,
       preserveDataOnRefresh,
-      () => contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)
+      () => contentFeedRequestCoordinatorRef.current.isPrimaryLoadCurrent(primaryLoadLease)
     );
   }
 

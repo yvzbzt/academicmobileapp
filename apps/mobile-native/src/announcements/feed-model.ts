@@ -87,12 +87,19 @@ export interface ContentFeedRequestLease {
   kind: ContentFeedRequestKind;
 }
 
+export interface ContentFeedPrimaryLoadLease {
+  generation: number;
+  requestId: number;
+}
+
 export interface ContentFeedRequestCoordinator {
+  beginPrimaryLoad: (generation: number) => ContentFeedPrimaryLoadLease | null;
   beginRefresh: () => ContentFeedRequestLease | null;
   beginPagination: () => ContentFeedRequestLease | null;
   captureGeneration: () => number;
   finish: (lease: ContentFeedRequestLease) => void;
   isGenerationCurrent: (generation: number) => boolean;
+  isPrimaryLoadCurrent: (lease: ContentFeedPrimaryLoadLease) => boolean;
   isCurrent: (lease: ContentFeedRequestLease) => boolean;
   reset: () => void;
 }
@@ -298,16 +305,22 @@ export function settleContentFeedLoading<T>(
 }
 
 /**
- * Serializes feed refresh/pagination work without retaining response data.
+ * Serializes refresh/pagination and orders primary loads without retaining response data.
  * A refresh invalidates an older pagination lease so a late smaller response
  * cannot overwrite a newer refresh result or limit.
  */
 export function createContentFeedRequestCoordinator(): ContentFeedRequestCoordinator {
   let generation = 0;
+  let primaryLoadRequestId = 0;
   let refreshInFlight = false;
   let paginationInFlight = false;
 
   return {
+    beginPrimaryLoad(candidateGeneration) {
+      if (candidateGeneration !== generation) return null;
+      primaryLoadRequestId += 1;
+      return { generation, requestId: primaryLoadRequestId };
+    },
     beginRefresh() {
       if (refreshInFlight) return null;
       generation += 1;
@@ -330,6 +343,9 @@ export function createContentFeedRequestCoordinator(): ContentFeedRequestCoordin
     },
     isGenerationCurrent(candidate) {
       return candidate === generation;
+    },
+    isPrimaryLoadCurrent(lease) {
+      return lease.generation === generation && lease.requestId === primaryLoadRequestId;
     },
     isCurrent(lease) {
       return lease.generation === generation

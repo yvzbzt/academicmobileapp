@@ -6,7 +6,7 @@ jest.mock("../../src/calendar/device-academic-pdf", () => ({ hydrateDeviceAcadem
 jest.mock("../../src/notifications", () => ({ notifyNewDeviceContent: jest.fn() }));
 
 import { createContentActions, mergeDepartmentSchedules } from "../../src/app/actions/content-actions";
-import { syncDeviceContent } from "../../src/content/device-content-sync";
+import { syncDeviceContent, type DeviceContentSyncResult } from "../../src/content/device-content-sync";
 import { acknowledgeDeviceContentNotifications } from "../../src/content/device-content-notification-ledger";
 import { notifyNewDeviceContent } from "../../src/notifications";
 import { AccountGenerationGuard } from "../../src/auth/session-integrity";
@@ -160,6 +160,81 @@ describe("device content notification wiring", () => {
       expect(acknowledgeDeviceContentNotifications).not.toHaveBeenCalled();
     }
   });
+
+  it("does not let an older primary load overwrite a newer completion", async () => {
+    const accountGuard = new AccountGenerationGuard();
+    accountGuard.activate("owner-1");
+    const older = deferred<DeviceContentSyncResult>();
+    const latest = deferred<DeviceContentSyncResult>();
+    const olderItem = trustedRecord();
+    const latestItem = {
+      ...trustedRecord(),
+      id: "device-source-1-2222222222222222",
+      title: "Latest item",
+    };
+    jest.mocked(syncDeviceContent)
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => latest.promise);
+    jest.mocked(notifyNewDeviceContent).mockResolvedValue("no_new_items");
+    const setAnnouncements = jest.fn();
+    const actions = createContentActions({
+      accountGuardRef: { current: accountGuard },
+      accessToken: "test-token",
+      withLoadable: async <T>(
+        setter: (value: unknown) => void,
+        operation: () => Promise<T>,
+        _ownerSnapshot?: unknown,
+        _preserveDataOnRefresh?: boolean,
+        isOperationCurrent: () => boolean = () => true,
+      ) => {
+        if (!isOperationCurrent()) return null;
+        const data = await operation();
+        if (!isOperationCurrent()) return null;
+        setter({ loading: false, data, attempted: true, stale: false });
+        return data;
+      },
+      trackAuthenticatedMutation: async <T>(operation: () => Promise<T>) => operation(),
+      apiRequest: async <T>() => ({} as T),
+      setCalendar: jest.fn(),
+      setCourseSchedule: jest.fn(),
+      setUpcoming: jest.fn(),
+      contentFeedLimit: 20,
+      contentFeedRequestCoordinatorRef: { current: createContentFeedRequestCoordinator() },
+      registerUniversityId: "university-1",
+      setAnnouncements,
+      setYokAnnouncements: jest.fn(),
+      setSummerSchool: jest.fn(),
+      contentFeedAbortControllerRef: { current: null },
+      setContentFeedPagination: jest.fn(),
+      contentFeedPagination: { loading: false },
+      announcements: { loading: false },
+      yokAnnouncements: { loading: false },
+      setContentFeedLimit: jest.fn(),
+      notificationLifecycleRef: {
+        current: {
+          schemaVersion: 1,
+          ownerId: null,
+          preferenceEnabled: false,
+          permission: "not_requested",
+          registration: "unregistered",
+          active: false,
+        },
+      },
+      notificationPreferencesRef: { current: undefined },
+    } as Parameters<typeof createContentActions>[0]);
+
+    const olderLoad = actions.loadAnnouncements();
+    const latestLoad = actions.loadAnnouncements();
+    latest.resolve(syncResult(latestItem));
+    await latestLoad;
+    older.resolve(syncResult(olderItem));
+    await olderLoad;
+
+    expect(setAnnouncements).toHaveBeenCalledTimes(1);
+    expect(setAnnouncements).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ items: [latestItem] }),
+    }));
+  });
 });
 
 describe("calendar document loading", () => {
@@ -263,4 +338,29 @@ function trustedRecord(): TrustedMobileContentRecord {
     sourceStatus: "active",
     sourceTrustStatus: "trusted",
   };
+}
+
+function syncResult(item: TrustedMobileContentRecord): DeviceContentSyncResult {
+  return {
+    collection: {
+      items: [item],
+      state: "fresh",
+      omittedCount: 0,
+      duplicateCount: 0,
+      rawItemCount: 1,
+    },
+    manifest: null,
+    cacheHit: false,
+    failedSourceIds: [],
+    newItems: [],
+  };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => { resolve = settle; });
+  return { promise, resolve };
 }

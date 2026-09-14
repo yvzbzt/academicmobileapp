@@ -352,6 +352,20 @@ describe("Phase 8 controlled incremental loading and responsive policy", () => {
     expect(requests.isCurrent(refresh)).toBe(false);
   });
 
+  it("lets only the latest primary load in the current generation settle", () => {
+    const requests = createContentFeedRequestCoordinator();
+    const generation = requests.captureGeneration();
+    const older = requests.beginPrimaryLoad(generation)!;
+    const latest = requests.beginPrimaryLoad(generation)!;
+
+    expect(requests.isPrimaryLoadCurrent(older)).toBe(false);
+    expect(requests.isPrimaryLoadCurrent(latest)).toBe(true);
+
+    requests.reset();
+    expect(requests.isPrimaryLoadCurrent(latest)).toBe(false);
+    expect(requests.beginPrimaryLoad(generation)).toBeNull();
+  });
+
   it("settles every retained source and rejects late responses when scope resets during refresh", () => {
     const requests = createContentFeedRequestCoordinator();
     const refresh = requests.beginRefresh()!;
