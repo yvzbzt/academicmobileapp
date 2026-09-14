@@ -8,6 +8,7 @@ import { YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "../src/m
 import * as announcementParser from "../src/modules/announcements/announcement-parser.js";
 import type { AnnouncementItem } from "../src/modules/announcements/announcements.types.js";
 import type { AuthRepository, AuthUserRecord, AuthenticatedUser } from "../src/modules/auth/auth.types.js";
+import { DEVICE_SOURCE_RUNTIME_VERSION } from "../../../packages/shared/src/device-source-runtime.js";
 
 describe("trusted announcement API contract", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -545,6 +546,24 @@ describe("mobile academic content source manifest", () => {
       lastSuccessAt: new Date("2026-09-14T10:30:00.000Z"),
       contentHash: "b".repeat(64)
     });
+    await repository.recordSourceHealthProbe(primary.id, {
+      engineVersion: DEVICE_SOURCE_RUNTIME_VERSION,
+      healthStatus: "healthy",
+      lastCheckedAt: new Date("2026-09-14T11:00:00.000Z"),
+      lastSuccessAt: new Date("2026-09-14T11:00:00.000Z"),
+      consecutiveFailures: 0,
+      itemCount: 2,
+      contentHash: "a".repeat(64)
+    }, primary);
+    await repository.recordSourceHealthProbe(followed.id, {
+      engineVersion: DEVICE_SOURCE_RUNTIME_VERSION,
+      healthStatus: "healthy",
+      lastCheckedAt: new Date("2026-09-14T10:30:00.000Z"),
+      lastSuccessAt: new Date("2026-09-14T10:30:00.000Z"),
+      consecutiveFailures: 0,
+      itemCount: 2,
+      contentHash: "b".repeat(64)
+    }, followed);
     await repository.upsertSource({
       scopeType: "university",
       scopeId: "ankara-university",
@@ -605,7 +624,7 @@ describe("mobile academic content source manifest", () => {
     const manifest = await service.getMySourceManifest("student-1", undefined, now);
 
     expect(manifest).toEqual(expect.objectContaining({
-      schemaVersion: 1,
+      schemaVersion: 2,
       refreshRequired: true,
       generatedAt: now.toISOString(),
       sources: [
@@ -613,6 +632,8 @@ describe("mobile academic content source manifest", () => {
           id: followed.id,
           sourceUrl: "https://muhendislik.gazi.edu.tr/haberler",
           allowedHostname: "muhendislik.gazi.edu.tr",
+          allowedOfficialDomain: "gazi.edu.tr",
+          fetchAllowed: true,
           contentType: "news",
           scopeType: "faculty",
           scopeId: "followed-faculty",
@@ -622,6 +643,8 @@ describe("mobile academic content source manifest", () => {
           id: primary.id,
           sourceUrl: "https://www.ankara.edu.tr/duyurular",
           allowedHostname: "www.ankara.edu.tr",
+          allowedOfficialDomain: "ankara.edu.tr",
+          fetchAllowed: true,
           parserConfig: { itemSelector: "article", titleSelector: "h2", linkSelector: "a" }
         })
       ]
@@ -636,12 +659,16 @@ describe("mobile academic content source manifest", () => {
     expect(unchanged.refreshRequired).toBe(false);
     expect(unchanged.sources).toHaveLength(2);
 
-    await repository.recordSourceCheck(primary.id, {
+    const currentPrimary = await repository.findSourceById(primary.id);
+    await repository.recordSourceHealthProbe(primary.id, {
+      ...currentPrimary!.healthProbe!,
+      engineVersion: DEVICE_SOURCE_RUNTIME_VERSION,
       healthStatus: "healthy",
       lastCheckedAt: now,
       lastSuccessAt: now,
+      consecutiveFailures: 0,
       contentHash: "c".repeat(64)
-    });
+    }, currentPrimary!);
     const changed = await service.getMySourceManifest("student-1", manifest.version, now);
     expect(changed.refreshRequired).toBe(true);
     expect(changed.version).not.toBe(manifest.version);
@@ -655,7 +682,7 @@ describe("mobile academic content source manifest", () => {
     });
   });
 
-  it("prefers a successful daily probe over legacy ingestion health and fails closed after a probe failure", async () => {
+  it("publishes only a current device-runtime probe and blocks fetch while a successful lease is degraded", async () => {
     const repository = new InMemoryAnnouncementRepository();
     const now = new Date("2026-09-14T12:00:00.000Z");
     const source = await repository.upsertSource({
@@ -673,7 +700,11 @@ describe("mobile academic content source manifest", () => {
       lastSuccessAt: new Date("2026-09-01T00:00:00.000Z"),
       contentHash: "a".repeat(64)
     });
+    const service = new AnnouncementsService(createAuthRepository(), repository);
+    const legacyOnly = await service.getMySourceManifest("student-1", undefined, now);
+    expect(legacyOnly.sources).toEqual([]);
     await repository.recordSourceHealthProbe(source.id, {
+      engineVersion: DEVICE_SOURCE_RUNTIME_VERSION,
       healthStatus: "healthy",
       lastCheckedAt: new Date("2026-09-14T11:00:00.000Z"),
       lastSuccessAt: new Date("2026-09-14T11:00:00.000Z"),
@@ -682,10 +713,12 @@ describe("mobile academic content source manifest", () => {
       contentHash: "b".repeat(64),
       lastContentChangedAt: new Date("2026-09-14T11:00:00.000Z")
     }, source);
-    const service = new AnnouncementsService(createAuthRepository(), repository);
-
     const healthy = await service.getMySourceManifest("student-1", undefined, now);
-    expect(healthy.sources).toEqual([expect.objectContaining({ id: source.id, contentType: "event" })]);
+    expect(healthy.sources).toEqual([expect.objectContaining({
+      id: source.id,
+      contentType: "event",
+      fetchAllowed: true
+    })]);
     const probed = await repository.findSourceById(source.id);
     await repository.recordSourceHealthProbe(source.id, {
       ...probed!.healthProbe!,
@@ -695,10 +728,14 @@ describe("mobile academic content source manifest", () => {
       consecutiveFailures: 1
     }, probed!);
 
-    const failed = await service.getMySourceManifest("student-1", healthy.version, now);
-    expect(failed.sources).toEqual([]);
-    expect(failed.refreshRequired).toBe(true);
-    expect(failed.version).not.toBe(healthy.version);
+    const degraded = await service.getMySourceManifest("student-1", healthy.version, now);
+    expect(degraded.sources).toEqual([expect.objectContaining({
+      id: source.id,
+      fetchAllowed: false,
+      contentRevision: healthy.sources[0]?.contentRevision
+    })]);
+    expect(degraded.refreshRequired).toBe(true);
+    expect(degraded.version).not.toBe(healthy.version);
   });
 });
 

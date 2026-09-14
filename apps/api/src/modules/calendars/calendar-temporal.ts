@@ -261,6 +261,8 @@ export function toAcademicEventDto(event: AcademicEventRecord): AcademicEventDto
   return {
     id: event.id,
     universityId: event.universityId,
+    ...(event.facultyId ? { facultyId: event.facultyId } : {}),
+    ...(event.departmentId ? { departmentId: event.departmentId } : {}),
     calendarId: event.calendarId,
     category: event.category,
     title: event.title,

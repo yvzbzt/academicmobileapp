@@ -1,15 +1,16 @@
 import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type { MobileAcademicContentSourceDto, MobileAcademicContentSourceManifestDto, TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
+import { DEVICE_SOURCE_RUNTIME_VERSION } from "../../../../../packages/shared/src/device-source-runtime.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import type { UserDataRepository } from "../users/user-data.types.js";
 import { AnnouncementIngestionService, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
-import { academicContentLogicalIdentityKey, canonicalContentKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
+import { academicContentLogicalIdentityKey, canonicalContentKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, officialDomainForUrl, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
 import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, SavedAnnouncementStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 
-const MOBILE_SOURCE_MANIFEST_SCHEMA_VERSION = 1 as const;
+const MOBILE_SOURCE_MANIFEST_SCHEMA_VERSION = 2 as const;
 const DEFAULT_MOBILE_SOURCE_TRUST_TTL_MS = 36 * 60 * 60 * 1_000;
 const DEFAULT_MOBILE_SOURCE_REVALIDATE_MS = 30 * 60 * 1_000;
 
@@ -81,8 +82,14 @@ export class AnnouncementsService {
       60 * 60 * 1_000,
       7 * 24 * 60 * 60 * 1_000
     );
+    const hierarchyByScope = await loadAcademicHierarchyByScope(this.catalogRepository, scopes);
     const manifestSources = sources
-      .map((source) => toMobileSource(source, now, trustTtlMs))
+      .map((source) => toMobileSource(
+        source,
+        now,
+        trustTtlMs,
+        hierarchyByScope.get(academicScopeKey(source.scopeType, source.scopeId))
+      ))
       .filter((source): source is MobileAcademicContentSourceDto => source !== null)
       .sort(compareMobileSources);
     const version = mobileSourceManifestVersion(manifestSources);
@@ -243,19 +250,16 @@ function uniqueSources(sources: readonly AnnouncementSourceRecord[]): Announceme
 function toMobileSource(
   source: AnnouncementSourceRecord,
   now: Date,
-  trustTtlMs: number
+  trustTtlMs: number,
+  hierarchy?: AcademicContentHierarchy
 ): MobileAcademicContentSourceDto | null {
-  const health = source.healthProbe ?? {
-    healthStatus: source.healthStatus,
-    lastSuccessAt: source.lastSuccessAt,
-    contentHash: source.contentHash,
-    lastContentChangedAt: source.lastContentChangedAt
-  };
+  const health = source.healthProbe;
   if (
     source.status !== "active"
     || source.trustStatus !== "trusted"
     || source.approvalPending === true
-    || health.healthStatus !== "healthy"
+    || !health
+    || health.engineVersion !== DEVICE_SOURCE_RUNTIME_VERSION
     || !health.lastSuccessAt
   ) return null;
   const validUntil = new Date(health.lastSuccessAt.getTime() + trustTtlMs);
@@ -269,29 +273,35 @@ function toMobileSource(
     return null;
   }
   if (parsed.protocol !== "https:" || !parsed.hostname) return null;
-  const definitionVersion = source.sourceDefinitionVersion?.trim();
-  if (!definitionVersion) return null;
+  const allowedOfficialDomain = officialDomainForUrl(canonical);
+  if (!allowedOfficialDomain) return null;
+  const sourceDefinitionVersion = source.sourceDefinitionVersion?.trim();
+  if (!sourceDefinitionVersion) return null;
+  const definitionVersion = createHash("sha256")
+    .update(`${DEVICE_SOURCE_RUNTIME_VERSION}\0${sourceDefinitionVersion}`)
+    .digest("hex");
   return {
     id: source.id,
     sourceName: source.sourceName,
     sourceUrl: canonical,
     allowedHostname: parsed.hostname.toLowerCase(),
+    allowedOfficialDomain,
+    fetchAllowed: health.healthStatus === "healthy",
     contentType: source.contentType ?? "announcement",
     scopeType: source.scopeType,
     scopeId: source.scopeId,
+    ...(hierarchy ?? {}),
     parser: source.parser,
     ...(source.parserConfig ? { parserConfig: { ...source.parserConfig } } : {}),
     definitionVersion,
     contentRevision: opaqueSourceContentRevision(source),
-    checkedAt: health.lastSuccessAt.toISOString(),
+    checkedAt: health.lastCheckedAt.toISOString(),
     validUntil: validUntil.toISOString()
   };
 }
 
 function opaqueSourceContentRevision(source: AnnouncementSourceRecord): string {
-  const observedContent = source.healthProbe
-    ? source.healthProbe.contentHash ?? source.healthProbe.lastContentChangedAt?.toISOString()
-    : source.contentHash ?? source.lastContentChangedAt?.toISOString();
+  const observedContent = source.healthProbe?.contentHash ?? source.healthProbe?.lastContentChangedAt?.toISOString();
   return createHash("sha256")
     .update("academic-mobile:device-source-content:v1\0")
     .update(source.id)
@@ -306,9 +316,17 @@ function mobileSourceManifestVersion(sources: readonly MobileAcademicContentSour
     hash.update(JSON.stringify({
       id: source.id,
       sourceUrl: source.sourceUrl,
+      allowedOfficialDomain: source.allowedOfficialDomain,
+      fetchAllowed: source.fetchAllowed,
       contentType: source.contentType,
       scopeType: source.scopeType,
       scopeId: source.scopeId,
+      universityId: source.universityId,
+      universityName: source.universityName,
+      facultyId: source.facultyId,
+      facultyName: source.facultyName,
+      departmentId: source.departmentId,
+      departmentName: source.departmentName,
       parser: source.parser,
       parserConfig: source.parserConfig,
       definitionVersion: source.definitionVersion,

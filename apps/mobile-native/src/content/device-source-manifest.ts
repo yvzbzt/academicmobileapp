@@ -1,6 +1,7 @@
 import {
   canonicalizeOfficialAcademicUrl,
   normalizeDisplayText,
+  officialDomainForUrl,
 } from "./content-trust";
 
 export type DeviceContentType = "announcement" | "news" | "event";
@@ -20,9 +21,17 @@ export interface DeviceContentSource {
   sourceName: string;
   sourceUrl: string;
   allowedHostname: string;
+  allowedOfficialDomain: string;
+  fetchAllowed: boolean;
   contentType: DeviceContentType;
   scopeType: DeviceSourceScopeType;
   scopeId: string;
+  universityId?: string;
+  universityName?: string;
+  facultyId?: string;
+  facultyName?: string;
+  departmentId?: string;
+  departmentName?: string;
   parser: DeviceSourceParser;
   parserConfig?: DeviceSourceParserConfig;
   definitionVersion: string;
@@ -32,7 +41,7 @@ export interface DeviceContentSource {
 }
 
 export interface DeviceContentSourceManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   version: string;
   refreshRequired: boolean;
   generatedAt: string;
@@ -46,7 +55,7 @@ const MAX_SOURCE_COUNT = 512;
 const MAX_SELECTOR_LENGTH = 300;
 
 export function readDeviceContentSourceManifest(value: unknown): DeviceContentSourceManifest | null {
-  if (!isRecord(value) || value.schemaVersion !== 1) return null;
+  if (!isRecord(value) || value.schemaVersion !== 2) return null;
   if (!SHA256_PATTERN.test(asString(value.version))) return null;
   if (typeof value.refreshRequired !== "boolean") return null;
   const generatedAt = readIsoTimestamp(value.generatedAt);
@@ -62,7 +71,7 @@ export function readDeviceContentSourceManifest(value: unknown): DeviceContentSo
     sources.push(source);
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     version: asString(value.version),
     refreshRequired: value.refreshRequired,
     generatedAt,
@@ -82,9 +91,12 @@ function readDeviceContentSource(value: unknown, generatedAt: string): DeviceCon
   const sourceName = normalizeDisplayText(asString(value.sourceName));
   const sourceUrl = canonicalizeOfficialAcademicUrl(asString(value.sourceUrl));
   const allowedHostname = asString(value.allowedHostname).toLocaleLowerCase("en-US");
+  const allowedOfficialDomain = asString(value.allowedOfficialDomain).toLocaleLowerCase("en-US");
+  const fetchAllowed = typeof value.fetchAllowed === "boolean" ? value.fetchAllowed : null;
   const contentType = readContentType(value.contentType);
   const scopeType = readScopeType(value.scopeType);
   const scopeId = readIdentifier(value.scopeId);
+  const hierarchy = scopeType && scopeId ? readSourceHierarchy(value, scopeType, scopeId) : false;
   const parser = readParser(value.parser);
   const parserConfig = readParserConfig(value.parserConfig);
   const definitionVersion = readDefinitionVersion(value.definitionVersion);
@@ -98,9 +110,12 @@ function readDeviceContentSource(value: unknown, generatedAt: string): DeviceCon
     || new URL(sourceUrl).protocol !== "https:"
     || !allowedHostname
     || new URL(sourceUrl).hostname.toLocaleLowerCase("en-US") !== allowedHostname
+    || officialDomainForUrl(sourceUrl) !== allowedOfficialDomain
+    || fetchAllowed === null
     || !contentType
     || !scopeType
     || !scopeId
+    || hierarchy === false
     || !parser
     || parserConfig === false
     || !definitionVersion
@@ -115,15 +130,55 @@ function readDeviceContentSource(value: unknown, generatedAt: string): DeviceCon
     sourceName,
     sourceUrl,
     allowedHostname,
+    allowedOfficialDomain,
+    fetchAllowed,
     contentType,
     scopeType,
     scopeId,
+    ...(hierarchy ?? {}),
     parser,
     ...(parserConfig ? { parserConfig } : {}),
     definitionVersion,
     contentRevision,
     checkedAt,
     validUntil,
+  };
+}
+
+function readSourceHierarchy(
+  value: Record<string, unknown>,
+  scopeType: DeviceSourceScopeType,
+  scopeId: string,
+): Pick<DeviceContentSource,
+  "universityId" | "universityName" | "facultyId" | "facultyName" | "departmentId" | "departmentName"
+> | false | undefined {
+  const keys = ["universityId", "universityName", "facultyId", "facultyName", "departmentId", "departmentName"] as const;
+  if (keys.every((key) => value[key] === undefined)) return undefined;
+  const universityId = readIdentifier(value.universityId);
+  const universityName = normalizeDisplayText(asString(value.universityName));
+  const facultyId = value.facultyId === undefined ? undefined : readIdentifier(value.facultyId) ?? false;
+  const facultyName = value.facultyName === undefined ? undefined : normalizeDisplayText(asString(value.facultyName)) || false;
+  const departmentId = value.departmentId === undefined ? undefined : readIdentifier(value.departmentId) ?? false;
+  const departmentName = value.departmentName === undefined ? undefined : normalizeDisplayText(asString(value.departmentName)) || false;
+  if (
+    !universityId
+    || !universityName
+    || facultyId === false
+    || facultyName === false
+    || departmentId === false
+    || departmentName === false
+    || Boolean(facultyId) !== Boolean(facultyName)
+    || Boolean(departmentId) !== Boolean(departmentName)
+    || (departmentId && !facultyId)
+    || (scopeType === "university" && scopeId !== universityId)
+    || (scopeType === "faculty" && scopeId !== facultyId)
+    || (scopeType === "department" && scopeId !== departmentId)
+  ) return false;
+  return {
+    universityId,
+    universityName,
+    ...(facultyId && facultyName ? { facultyId, facultyName } : {}),
+    ...(departmentId && departmentName ? { departmentId, departmentName } : {}),
   };
 }
 

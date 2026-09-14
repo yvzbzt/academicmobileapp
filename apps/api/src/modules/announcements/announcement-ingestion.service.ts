@@ -7,7 +7,8 @@ import { assertUniversityTarget, type AdminUniversityAccess } from "../../common
 import { evaluateSourceAuthority, SourceAuthorityError, type SourceAuthorityContext } from "../../domain/source-authority-enforcement.js";
 import type { SourceAuthorityDecision, SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
-import { fetchSourceItems, fetchSourceSnapshot, fetchText, parseConfiguredAnnouncementHtml, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
+import { fetchDeviceRuntimeSourceSnapshot, fetchSourceItems, fetchSourceSnapshot, fetchText, parseConfiguredAnnouncementHtml, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
+import { DEVICE_SOURCE_RUNTIME_VERSION } from "../../../../../packages/shared/src/device-source-runtime.js";
 import { ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION, canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, toPersistenceReference } from "./announcement-persistence.js";
 import {
@@ -1167,8 +1168,23 @@ export class AnnouncementIngestionService {
   }
 
   async runDailyHealthCycle(): Promise<AnnouncementHealthProbeCycleResult> {
+    return this.runHealthProbeCycle("daily");
+  }
+
+  /**
+   * Refreshes device-visible revisions without turning a short revision-poll
+   * outage into three daily security failures. Authority violations still
+   * quarantine immediately, and successful polls still refresh probe state.
+   */
+  runDeviceRevisionCycle(): Promise<AnnouncementHealthProbeCycleResult> {
+    return this.runHealthProbeCycle("revision");
+  }
+
+  private async runHealthProbeCycle(
+    mode: "daily" | "revision"
+  ): Promise<AnnouncementHealthProbeCycleResult> {
     if (this.healthProbeCycle) return this.healthProbeCycle;
-    const cycle = this.executeDailyHealthCycle();
+    const cycle = this.executeHealthProbeCycle(mode);
     this.healthProbeCycle = cycle;
     try {
       return await cycle;
@@ -1177,12 +1193,17 @@ export class AnnouncementIngestionService {
     }
   }
 
-  private async executeDailyHealthCycle(): Promise<AnnouncementHealthProbeCycleResult> {
-    const sources = await this.listAllActiveSources();
+  private async executeHealthProbeCycle(
+    mode: "daily" | "revision"
+  ): Promise<AnnouncementHealthProbeCycleResult> {
+    const cycleStartedAt = new Date();
+    const sources = (await this.listAllActiveSources()).filter((source) => (
+      mode === "revision" || !sameIstanbulDate(source.healthProbe?.lastFullCheckedAt, cycleStartedAt)
+    ));
     const results = await runAnnouncementSourcesWithConcurrency(
       sources,
       readPositiveInteger(process.env.ANNOUNCEMENT_HEALTH_PROBE_CONCURRENCY, 6),
-      (source) => this.probeSourceHealth(source)
+      (source) => this.probeSourceHealth(source, mode)
     );
     return {
       checkedSources: results.length,
@@ -1194,7 +1215,10 @@ export class AnnouncementIngestionService {
     };
   }
 
-  private async probeSourceHealth(source: AnnouncementSourceRecord): Promise<AnnouncementHealthProbeResult> {
+  private async probeSourceHealth(
+    source: AnnouncementSourceRecord,
+    mode: "daily" | "revision"
+  ): Promise<AnnouncementHealthProbeResult> {
     const checkedAt = new Date();
     try {
       const authority = await this.resolveAuthorityForSource(source);
@@ -1206,20 +1230,21 @@ export class AnnouncementIngestionService {
         })
         : missingSourceOwnerDecision(source, source.sourceUrl, "registration");
       if (!authority || !registrationDecision.allowed) {
-        return this.quarantineHealthProbeSource(source, registrationDecision, checkedAt);
+        return this.quarantineHealthProbeSource(source, registrationDecision, checkedAt, mode);
       }
 
       const previous = source.healthProbe;
-      const snapshot = await fetchSourceSnapshot(
+      const snapshot = await fetchDeviceRuntimeSourceSnapshot(
         source.sourceUrl,
         source.parser,
         readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
         { authority: authority.context, resource: sourceAuthorityResource(source.contentType) },
-        {
+        mode === "revision" && previous?.engineVersion === DEVICE_SOURCE_RUNTIME_VERSION ? {
           ...(previous?.etag ? { etag: previous.etag } : {}),
           ...(previous?.lastModified ? { lastModified: previous.lastModified } : {})
-        },
-        source.contentType,
+        } : {},
+        source.contentType ?? "announcement",
+        checkedAt,
         source.parserConfig
       );
       const publicationDecision = evaluateSourceAuthority(authority.context, {
@@ -1229,19 +1254,50 @@ export class AnnouncementIngestionService {
         finalRedirectUrl: snapshot.finalUrl
       });
       if (!publicationDecision.allowed) {
-        return this.quarantineHealthProbeSource(source, publicationDecision, checkedAt);
+        return this.quarantineHealthProbeSource(source, publicationDecision, checkedAt, mode);
       }
 
       if (snapshot.fetchStatus === "not_modified") {
+        if (mode === "daily") throw new Error("SOURCE_HEALTH_PROBE_UNEXPECTED_NOT_MODIFIED");
         const previousItemCount = previous?.itemCount ?? 0;
-        if (!previous?.lastSuccessAt || !previous.contentHash || previousItemCount === 0) {
+        if (
+          previous?.engineVersion !== DEVICE_SOURCE_RUNTIME_VERSION
+          || !previous.lastSuccessAt
+          || !previous.contentHash
+          || previousItemCount === 0
+        ) {
           throw new Error("SOURCE_HEALTH_PROBE_NOT_MODIFIED_WITHOUT_BASELINE");
         }
         const etag = snapshot.etag ?? previous.etag;
         const lastModified = snapshot.lastModified ?? previous.lastModified;
+        if (previous.healthStatus === "degraded" || previous.healthStatus === "failed") {
+          await this.persistHealthProbe(source, {
+            engineVersion: DEVICE_SOURCE_RUNTIME_VERSION,
+            healthStatus: previous.healthStatus,
+            lastCheckedAt: checkedAt,
+            ...fullHealthCheckTimestamp(previous, mode, checkedAt),
+            lastSuccessAt: previous.lastSuccessAt,
+            ...(previous.lastError ? { lastError: previous.lastError } : {}),
+            consecutiveFailures: previous.consecutiveFailures,
+            itemCount: previousItemCount,
+            ...(etag ? { etag } : {}),
+            ...(lastModified ? { lastModified } : {}),
+            contentHash: previous.contentHash,
+            ...(previous.lastContentChangedAt ? { lastContentChangedAt: previous.lastContentChangedAt } : {})
+          });
+          return {
+            sourceId: source.id,
+            status: previous.healthStatus,
+            itemCount: previousItemCount,
+            contentChanged: false,
+            ...(previous.lastError ? { error: healthProbeErrorCode(previous.lastError) } : {})
+          };
+        }
         await this.persistHealthProbe(source, {
+          engineVersion: DEVICE_SOURCE_RUNTIME_VERSION,
           healthStatus: "healthy",
           lastCheckedAt: checkedAt,
+          ...fullHealthCheckTimestamp(previous, mode, checkedAt),
           lastSuccessAt: checkedAt,
           consecutiveFailures: 0,
           itemCount: previousItemCount,
@@ -1261,7 +1317,7 @@ export class AnnouncementIngestionService {
         }))
         .find((decision) => !decision.allowed);
       if (rejectedItemDecision) {
-        return this.quarantineHealthProbeSource(source, rejectedItemDecision, checkedAt);
+        return this.quarantineHealthProbeSource(source, rejectedItemDecision, checkedAt, mode);
       }
       if (snapshot.items.length === 0) throw new Error("SOURCE_HEALTH_PROBE_EMPTY");
 
@@ -1270,8 +1326,10 @@ export class AnnouncementIngestionService {
       const contentHash = healthProbeContentHash(snapshot.items);
       const contentChanged = contentHash !== previous?.contentHash;
       await this.persistHealthProbe(source, {
+        engineVersion: DEVICE_SOURCE_RUNTIME_VERSION,
         healthStatus: "healthy",
         lastCheckedAt: checkedAt,
+        ...fullHealthCheckTimestamp(previous, mode, checkedAt),
         lastSuccessAt: checkedAt,
         consecutiveFailures: 0,
         itemCount: snapshot.items.length,
@@ -1290,15 +1348,27 @@ export class AnnouncementIngestionService {
       };
     } catch (error) {
       if (error instanceof SourceAuthorityError) {
-        return this.quarantineHealthProbeSource(source, error.decision, checkedAt);
+        return this.quarantineHealthProbeSource(source, error.decision, checkedAt, mode);
       }
       const message = error instanceof Error ? error.message : String(error);
       if (message === "ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED") {
         return { sourceId: source.id, status: "failed", itemCount: 0, contentChanged: false, error: message };
       }
       const errorCode = healthProbeErrorCode(message);
+      if (mode === "revision") {
+        return {
+          sourceId: source.id,
+          status: source.healthProbe?.healthStatus === "failed" ? "failed" : "degraded",
+          itemCount: source.healthProbe?.itemCount ?? 0,
+          contentChanged: false,
+          error: errorCode
+        };
+      }
       const failures = (source.healthProbe?.consecutiveFailures ?? 0) + 1;
-      await this.persistHealthProbe(source, failedHealthProbe(source.healthProbe, checkedAt, errorCode, failures));
+      await this.persistHealthProbe(source, {
+        ...failedHealthProbe(source.healthProbe, checkedAt, errorCode, failures),
+        ...fullHealthCheckTimestamp(source.healthProbe, mode, checkedAt)
+      });
       return {
         sourceId: source.id,
         status: failures >= 3 ? "failed" : "degraded",
@@ -1312,7 +1382,8 @@ export class AnnouncementIngestionService {
   private async quarantineHealthProbeSource(
     source: AnnouncementSourceRecord,
     decision: SourceAuthorityDecision,
-    checkedAt: Date
+    checkedAt: Date,
+    mode: "daily" | "revision"
   ): Promise<AnnouncementHealthProbeResult> {
     const quarantined = await this.announcementRepository.quarantineSource(source.id, [decision.reasonCode], source);
     if (!quarantined) throw new Error("ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED");
@@ -1320,6 +1391,7 @@ export class AnnouncementIngestionService {
     const errorCode = `SOURCE_AUTHORITY_${decision.reasonCode.toLocaleUpperCase("en-US")}`;
     await this.persistHealthProbe(source, {
       ...failedHealthProbe(source.healthProbe, checkedAt, errorCode, failures),
+      ...fullHealthCheckTimestamp(source.healthProbe, mode, checkedAt),
       healthStatus: "failed"
     });
     return {
@@ -2706,15 +2778,27 @@ export async function runAnnouncementSourcesWithConcurrency<TOutput>(
     .map((result) => result.value);
 }
 
-function healthProbeContentHash(items: readonly { title: string; link: string; publishedAt?: Date; publishedDate?: string; sourceUpdatedAt?: Date }[]): string {
-  const hash = createHash("sha256").update("academic-mobile:source-health-probe:v1\0");
+export function healthProbeContentHash(items: readonly {
+  title: string;
+  link: string;
+  publishedAt?: Date;
+  publishedDate?: string;
+  sourceUpdatedAt?: Date;
+  summary?: string;
+  body?: readonly { type: string; text: string }[];
+  keyDates?: readonly { label: string; startDate: string; endDate?: string }[];
+}[]): string {
+  const hash = createHash("sha256").update(`academic-mobile:source-health-probe:${DEVICE_SOURCE_RUNTIME_VERSION}\0`);
   for (const item of items) {
     hash.update(JSON.stringify({
       title: item.title,
       link: item.link,
       publishedAt: item.publishedAt?.toISOString(),
       publishedDate: item.publishedDate,
-      sourceUpdatedAt: item.sourceUpdatedAt?.toISOString()
+      sourceUpdatedAt: item.sourceUpdatedAt?.toISOString(),
+      summary: item.summary,
+      body: item.body,
+      keyDates: item.keyDates
     })).update("\0");
   }
   return hash.digest("hex");
@@ -2727,8 +2811,10 @@ function failedHealthProbe(
   consecutiveFailures: number
 ): AnnouncementSourceHealthProbe {
   return {
+    ...(previous?.engineVersion ? { engineVersion: previous.engineVersion } : {}),
     healthStatus: consecutiveFailures >= 3 ? "failed" : "degraded",
     lastCheckedAt: checkedAt,
+    ...(previous?.lastFullCheckedAt ? { lastFullCheckedAt: previous.lastFullCheckedAt } : {}),
     ...(previous?.lastSuccessAt ? { lastSuccessAt: previous.lastSuccessAt } : {}),
     lastError: healthProbeErrorCode(error),
     consecutiveFailures,
@@ -2738,6 +2824,22 @@ function failedHealthProbe(
     ...(previous?.contentHash ? { contentHash: previous.contentHash } : {}),
     ...(previous?.lastContentChangedAt ? { lastContentChangedAt: previous.lastContentChangedAt } : {})
   };
+}
+
+function fullHealthCheckTimestamp(
+  previous: AnnouncementSourceHealthProbe | undefined,
+  mode: "daily" | "revision",
+  checkedAt: Date
+): Pick<AnnouncementSourceHealthProbe, "lastFullCheckedAt"> | Record<string, never> {
+  if (mode === "daily") return { lastFullCheckedAt: checkedAt };
+  return previous?.lastFullCheckedAt ? { lastFullCheckedAt: previous.lastFullCheckedAt } : {};
+}
+
+function sameIstanbulDate(left: Date | undefined, right: Date): boolean {
+  if (!left) return false;
+  const turkeyOffsetMs = 3 * 60 * 60 * 1_000;
+  return new Date(left.getTime() + turkeyOffsetMs).toISOString().slice(0, 10)
+    === new Date(right.getTime() + turkeyOffsetMs).toISOString().slice(0, 10);
 }
 
 function healthProbeErrorCode(error: string): string {
@@ -2823,8 +2925,10 @@ function presentSourceForAdmin(source: AnnouncementSourceRecord) {
 
 function presentHealthProbe(probe: AnnouncementSourceHealthProbe) {
   return {
+    ...(probe.engineVersion ? { engineVersion: probe.engineVersion } : {}),
     healthStatus: probe.healthStatus,
     lastCheckedAt: probe.lastCheckedAt,
+    ...(probe.lastFullCheckedAt ? { lastFullCheckedAt: probe.lastFullCheckedAt } : {}),
     ...(probe.lastSuccessAt ? { lastSuccessAt: probe.lastSuccessAt } : {}),
     ...(probe.lastError ? { lastError: healthProbeErrorCode(probe.lastError) } : {}),
     consecutiveFailures: Math.max(0, Math.min(probe.consecutiveFailures, 10_000)),

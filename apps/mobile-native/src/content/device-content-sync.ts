@@ -11,6 +11,10 @@ import {
   type DeviceContentSourceManifest,
 } from "./device-source-manifest";
 import {
+  readPendingDeviceContentNotifications,
+  recordDeviceContentDiscovery,
+} from "./device-content-notification-ledger";
+import {
   normalizeTrustedContentCollection,
   type TrustedContentCollection,
   type TrustedMobileContentRecord,
@@ -21,6 +25,7 @@ export interface DeviceContentSyncResult {
   manifest: DeviceContentSourceManifest | null;
   cacheHit: boolean;
   failedSourceIds: string[];
+  newItems: TrustedMobileContentRecord[];
 }
 
 export interface DeviceContentSyncOptions {
@@ -34,12 +39,22 @@ export interface DeviceContentSyncOptions {
   isCurrent?: () => boolean;
 }
 
+const MAX_CACHED_DEVICE_CONTENT_ITEMS = 100;
+
 export async function syncDeviceContent(options: DeviceContentSyncOptions): Promise<DeviceContentSyncResult> {
   const now = options.now ?? new Date();
   const cached = await readDeviceContentCache(options.ownerId, { storage: options.storage, now });
   assertCurrent(options);
   if (!options.force && cached && Date.parse(cached.revalidateAfter) > now.getTime()) {
-    return { collection: collectionFromCache(cached, false), manifest: null, cacheHit: true, failedSourceIds: [] };
+    const pending = await readPendingDeviceContentNotifications(options.ownerId, { storage: options.storage, now });
+    assertCurrent(options);
+    return {
+      collection: collectionFromCache(cached, false),
+      manifest: null,
+      cacheHit: true,
+      failedSourceIds: cached.failedSourceIds,
+      newItems: pending.sort(compareDeviceContentRecency),
+    };
   }
 
   let manifest: DeviceContentSourceManifest;
@@ -50,8 +65,16 @@ export async function syncDeviceContent(options: DeviceContentSyncOptions): Prom
     if (!parsed) throw new Error("DEVICE_CONTENT_MANIFEST_INVALID");
     manifest = parsed;
   } catch (error) {
-    if (!cached) throw error;
-    return { collection: collectionFromCache(cached, true), manifest: null, cacheHit: true, failedSourceIds: [] };
+    if (!cached || options.force) throw error;
+    const pending = await readPendingDeviceContentNotifications(options.ownerId, { storage: options.storage, now });
+    assertCurrent(options);
+    return {
+      collection: collectionFromCache(cached, true),
+      manifest: null,
+      cacheHit: true,
+      failedSourceIds: cached.failedSourceIds,
+      newItems: pending.sort(compareDeviceContentRecency),
+    };
   }
 
   const currentIds = new Set(manifest.sources.map((source) => source.id));
@@ -60,10 +83,16 @@ export async function syncDeviceContent(options: DeviceContentSyncOptions): Prom
   const unchangedIds = new Set(manifest.sources
     .filter((source) => cached?.sourceRevisions[source.id] === currentRecipes.get(source.id))
     .map((source) => source.id));
-  const retained = (cached?.items ?? []).filter((item) => currentIds.has(item.sourceId) && unchangedIds.has(item.sourceId));
-  const changedSources = manifest.sources.filter((source) => !unchangedIds.has(source.id));
+  const fetchBlockedIds = new Set(manifest.sources.filter((source) => !source.fetchAllowed).map((source) => source.id));
+  const retained = (cached?.items ?? [])
+    .filter((item) => currentIds.has(item.sourceId) && unchangedIds.has(item.sourceId))
+    .map((item) => ({
+      ...item,
+      freshness: fetchBlockedIds.has(item.sourceId) ? "stale" as const : "fresh" as const,
+    }));
+  const changedSources = manifest.sources.filter((source) => source.fetchAllowed && !unchangedIds.has(source.id));
   const fetched = new Map<string, TrustedMobileContentRecord[]>();
-  const failedSourceIds: string[] = [];
+  const failedSourceIds: string[] = [...fetchBlockedIds];
 
   await forEachConcurrent(changedSources, options.concurrency ?? 4, async (source) => {
     if (options.isCurrent && !options.isCurrent()) return;
@@ -83,6 +112,7 @@ export async function syncDeviceContent(options: DeviceContentSyncOptions): Prom
       return Boolean(
         current
         && failedSourceIds.includes(item.sourceId)
+        && !unchangedIds.has(item.sourceId)
         && previousRevision?.startsWith(`${current.definitionVersion}:`)
       );
     })
@@ -92,30 +122,55 @@ export async function syncDeviceContent(options: DeviceContentSyncOptions): Prom
     ...[...fetched.values()].flat(),
     ...failedFallback,
   ]);
+  merged.items.sort(compareDeviceContentRecency);
+  const cacheItems = merged.items.slice(0, MAX_CACHED_DEVICE_CONTENT_ITEMS);
+  const allSourcesRefetched = manifest.sources.every((source) => fetched.has(source.id));
+  const snapshotIncomplete = merged.items.length > MAX_CACHED_DEVICE_CONTENT_ITEMS
+    || Boolean(cached?.snapshotIncomplete && !allSourcesRefetched);
   const sourceRevisions: Record<string, string> = {};
+  const sourceValidUntil = Object.fromEntries(manifest.sources.map((source) => [source.id, source.validUntil]));
   for (const source of manifest.sources) {
     const revision = currentRecipes.get(source.id)!;
-    if (unchangedIds.has(source.id) || fetched.has(source.id)) sourceRevisions[source.id] = revision;
-    else if (cached?.sourceRevisions[source.id]) sourceRevisions[source.id] = cached.sourceRevisions[source.id]!;
+    if (unchangedIds.has(source.id) || fetched.has(source.id)) {
+      sourceRevisions[source.id] = revision;
+    } else if (cached?.sourceRevisions[source.id]) {
+      sourceRevisions[source.id] = cached.sourceRevisions[source.id]!;
+    }
   }
+  const revalidateAfter = failedSourceIds.length > 0
+    ? earlierIso(manifest.revalidateAfter, new Date(now.getTime() + 5 * 60 * 1_000).toISOString())
+    : manifest.revalidateAfter;
   const cacheRecord: DeviceContentCacheRecord = {
     ownerId: options.ownerId,
     manifestVersion: manifest.version,
-    revalidateAfter: manifest.revalidateAfter,
+    revalidateAfter,
+    snapshotIncomplete,
     sourceRevisions,
-    items: merged.items,
+    sourceValidUntil,
+    failedSourceIds: [...failedSourceIds].sort(),
+    items: cacheItems,
     storedAt: now.toISOString(),
   };
+  const pending = await recordDeviceContentDiscovery({
+    ownerId: options.ownerId,
+    sources: manifest.sources,
+    fetchedBySource: fetched,
+    storage: options.storage,
+    now,
+  });
+  assertCurrent(options);
   await writeDeviceContentCache(cacheRecord, options.storage);
   assertCurrent(options);
   return {
     collection: {
       ...merged,
+      hasMore: snapshotIncomplete,
       state: failedSourceIds.length > 0 ? "partial" : merged.state,
     },
     manifest,
     cacheHit: changedSources.length === 0,
     failedSourceIds: failedSourceIds.sort(),
+    newItems: pending.sort(compareDeviceContentRecency),
   };
 }
 
@@ -127,7 +182,46 @@ function collectionFromCache(cache: DeviceContentCacheRecord, stale: boolean): T
   const collection = normalizeTrustedContentCollection(stale
     ? cache.items.map((item) => ({ ...item, freshness: "stale" as const }))
     : cache.items);
-  return { ...collection, state: stale && collection.items.length > 0 ? "stale" : collection.state };
+  collection.items.sort(compareDeviceContentRecency);
+  return {
+    ...collection,
+    hasMore: cache.snapshotIncomplete,
+    state: cache.failedSourceIds.length > 0
+      ? "partial"
+      : stale && collection.items.length > 0
+        ? "stale"
+        : collection.state,
+  };
+}
+
+function earlierIso(left: string, right: string): string {
+  return left < right ? left : right;
+}
+
+function compareDeviceContentRecency(
+  left: TrustedMobileContentRecord,
+  right: TrustedMobileContentRecord,
+): number {
+  const leftPublished = publicationTimestamp(left);
+  const rightPublished = publicationTimestamp(right);
+  if (leftPublished !== rightPublished) return rightPublished - leftPublished;
+  const leftUpdated = timestamp(left.sourceUpdatedAt);
+  const rightUpdated = timestamp(right.sourceUpdatedAt);
+  if (leftUpdated !== rightUpdated) return rightUpdated - leftUpdated;
+  return left.id.localeCompare(right.id, "en-US");
+}
+
+function publicationTimestamp(record: TrustedMobileContentRecord): number {
+  if (record.publicationKind === "date" && record.publishedDate) {
+    return timestamp(`${record.publishedDate}T12:00:00+03:00`);
+  }
+  return timestamp(record.publishedAt);
+}
+
+function timestamp(value: string | undefined): number {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
 }
 
 function recipeRevision(source: DeviceContentSource): string {

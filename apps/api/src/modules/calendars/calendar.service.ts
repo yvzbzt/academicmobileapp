@@ -1,23 +1,29 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional, UnauthorizedException } from "@nestjs/common";
-import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
+import type { MobileAcademicPdfApprovedEventDto, MobileAcademicPdfApprovedRowDto, MobileAcademicPdfSourceDto, TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AcademicEventCategory } from "../../domain/academic-event.types.js";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource } from "../../bootstrap/verified-source-registry.js";
-import { academicContentLogicalIdentityKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, isOfficialContentUrl, normalizeDisplayText, toTrustedAcademicContentDto } from "../announcements/announcement-content-trust.js";
+import { academicContentLogicalIdentityKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, isOfficialContentUrl, normalizeDisplayText, officialDomainForUrl, toTrustedAcademicContentDto } from "../announcements/announcement-content-trust.js";
 import type { AnnouncementRepository, AnnouncementSourceRecord } from "../announcements/announcements.types.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
+import type { PdfRepository, PdfSourceRecord } from "../pdf/pdf.types.js";
 import type { CalendarScopeView } from "./calendar.dto.js";
 import { isProductionSecret } from "../../config/production-secret.js";
 import { isAcceptableAcademicYear, isUnitSpecificCalendarSource } from "./calendar-ingestion.service.js";
 import { compareEventStart, instantBoundaryForIstanbulCalendarDate, temporalStartValue } from "./calendar-temporal.js";
+import type { AcademicUnitScheduleCandidate, AcademicUnitScheduleSourceRecord, AcademicUnitScheduleSourceRepository } from "./academic-unit-schedule.types.js";
 import type { AcademicCalendarRecord, AcademicEventRecord, CalendarRepository, CalendarTemporalFilterBoundary } from "./calendar.types.js";
+
+export type AcademicPdfProcessingMode = "device_text" | "server_ocr";
 
 export interface CalendarWithEventsResponse {
   calendar: AcademicCalendarRecord;
   events: AcademicEventRecord[];
   scope: CalendarScopeView;
   sourceStatus: "parsed" | "source_only";
+  pdfProcessingMode?: AcademicPdfProcessingMode;
+  devicePdf?: MobileAcademicPdfSourceDto;
 }
 
 export interface DepartmentScheduleResponse {
@@ -29,6 +35,8 @@ export interface DepartmentScheduleResponse {
   events: AcademicEventRecord[];
   sourceUrl?: string;
   sourceStatus: "parsed" | "source_only" | "missing";
+  pdfProcessingMode?: AcademicPdfProcessingMode;
+  devicePdf?: MobileAcademicPdfSourceDto;
 }
 
 export interface SummerSchoolRequirementRecord {
@@ -94,6 +102,8 @@ export interface CalendarFeedResponse {
 const summerSchoolCategories: AcademicEventCategory[] = ["summer_school_registration", "summer_school_start", "summer_school_end"];
 const departmentExamScheduleCategories: AcademicEventCategory[] = ["department_exam_schedule", "midterm_exam", "final_exam", "makeup_exam", "single_course_exam"];
 const summerRequirementPattern = /\b(yaz okulu|basvuru|başvuru|kayit|kayıt|sart|şart|kosul|koşul|ucret|ücret|kontenjan|ders alma|ders sec|ders seç)\b/iu;
+const MOBILE_PDF_MAX_BYTES = 12 * 1024 * 1024;
+const MOBILE_PDF_CAPABILITY_TTL_MS = 15 * 60 * 1000;
 
 @Injectable()
 export class CalendarService {
@@ -101,7 +111,9 @@ export class CalendarService {
     @Inject("CalendarRepository") private readonly calendarRepository: CalendarRepository,
     @Inject("AuthRepository") private readonly authRepository: AuthRepository,
     @Optional() @Inject("CatalogRepository") private readonly catalogRepository?: CatalogRepository,
-    @Optional() @Inject("AnnouncementRepository") private readonly announcementRepository?: AnnouncementRepository
+    @Optional() @Inject("AnnouncementRepository") private readonly announcementRepository?: AnnouncementRepository,
+    @Optional() @Inject("PdfRepository") private readonly pdfRepository?: PdfRepository,
+    @Optional() @Inject("AcademicUnitScheduleSourceRepository") private readonly scheduleSourceRepository?: AcademicUnitScheduleSourceRepository
   ) {}
 
   async getMyCalendar(userId: string): Promise<CalendarWithEventsResponse> {
@@ -121,7 +133,15 @@ export class CalendarService {
       offset: 0
     })).filter(isPrimaryAcademicCalendarEvent);
 
-    return { calendar, events: events.slice(0, 200), scope: "university", sourceStatus: events.length > 0 ? "parsed" : "source_only" };
+    const responseEvents = events.slice(0, 200);
+    const pdf = await this.calendarPdfPresentation(calendar, responseEvents);
+    return {
+      calendar,
+      events: responseEvents,
+      scope: "university",
+      sourceStatus: events.length > 0 ? "parsed" : "source_only",
+      ...pdf
+    };
   }
 
   async getMyTrustedCalendarEvent(userId: string, eventId: string): Promise<AcademicEventRecord> {
@@ -155,7 +175,14 @@ export class CalendarService {
       limit: 500,
       offset: 0
     })).filter(isUniversityAcademicCalendarEvent).slice(0, 200);
-    return { calendar, events, scope: "university", sourceStatus: events.length > 0 ? "parsed" : "source_only" };
+    const pdf = await this.calendarPdfPresentation(calendar, events);
+    return {
+      calendar,
+      events,
+      scope: "university",
+      sourceStatus: events.length > 0 ? "parsed" : "source_only",
+      ...pdf
+    };
   }
 
   async getUpcomingEvents(userId: string, limit = 10): Promise<AcademicEventRecord[]> {
@@ -354,12 +381,66 @@ export class CalendarService {
       departmentId,
       sourceField
     });
+    const pdf = await this.schedulePdfPresentation(events, sourceUrl, {
+      universityId,
+      ...(facultyId ? { facultyId } : {}),
+      departmentId,
+      scheduleType: sourceField === "courseScheduleUrl" ? "course_schedule" : "exam_schedule"
+    });
 
     return {
       profile,
       events,
       ...(sourceUrl ? { sourceUrl } : {}),
-      sourceStatus: events.length > 0 ? "parsed" : sourceUrl ? "source_only" : "missing"
+      sourceStatus: events.length > 0 ? "parsed" : sourceUrl ? "source_only" : "missing",
+      ...pdf
+    };
+  }
+
+  private async calendarPdfPresentation(
+    calendar: AcademicCalendarRecord,
+    events: AcademicEventRecord[]
+  ): Promise<{
+    pdfProcessingMode?: AcademicPdfProcessingMode;
+    devicePdf?: MobileAcademicPdfSourceDto;
+  }> {
+    if (!calendar.sourcePdfId || !this.pdfRepository) return {};
+    const source = await this.pdfRepository.findPdfSourceById(calendar.sourcePdfId);
+    const pdfProcessingMode = pdfProcessingModeFromSource(source);
+    if (!pdfProcessingMode) return {};
+    const devicePdf = pdfProcessingMode === "device_text"
+      ? mobileCalendarPdfCapability(calendar, source, events)
+      : undefined;
+    return {
+      pdfProcessingMode,
+      ...(devicePdf ? { devicePdf } : {})
+    };
+  }
+
+  private async schedulePdfPresentation(
+    events: AcademicEventRecord[],
+    sourceUrl: string | undefined,
+    scope: {
+      universityId: string;
+      facultyId?: string;
+      departmentId: string;
+      scheduleType: "course_schedule" | "exam_schedule";
+    }
+  ): Promise<{ pdfProcessingMode?: AcademicPdfProcessingMode; devicePdf?: MobileAcademicPdfSourceDto }> {
+    if (!this.scheduleSourceRepository || !sourceUrl) return {};
+    const sourceIds = new Set(events.map((event) => event.scheduleSourceId).filter((id): id is string => Boolean(id)));
+    if (sourceIds.size !== 1) return {};
+    const sourceId = [...sourceIds][0]!;
+    const source = await this.scheduleSourceRepository.findSourceById(sourceId);
+    if (!source || !sameCanonicalUrl(source.sourceUrl, sourceUrl)) return {};
+    const pdfProcessingMode = pdfProcessingModeFromScheduleSource(source);
+    if (!pdfProcessingMode) return {};
+    const devicePdf = pdfProcessingMode === "device_text"
+      ? mobileSchedulePdfCapability(source, events, scope)
+      : undefined;
+    return {
+      pdfProcessingMode,
+      ...(devicePdf ? { devicePdf } : {})
     };
   }
 
@@ -905,4 +986,268 @@ function isUnitSpecificCalendar(calendar: AcademicCalendarRecord): boolean {
     title: calendar.title,
     ...(calendar.sourceUrl ? { sourceUrl: calendar.sourceUrl } : {})
   });
+}
+
+function mobileCalendarPdfCapability(
+  calendar: AcademicCalendarRecord,
+  source: PdfSourceRecord | null,
+  events: AcademicEventRecord[]
+): MobileAcademicPdfSourceDto | undefined {
+  if (
+    !source
+    || calendar.status !== "published"
+    || source.id !== calendar.sourcePdfId
+    || source.universityId !== calendar.universityId
+    || source.academicYear !== calendar.academicYear
+    || source.status !== "uploaded"
+    || source.parseStatus !== "processed"
+    || source.binaryIdentityVerified !== true
+    || source.binarySha256 !== source.fileHash
+    || source.mimeType !== "application/pdf"
+    || !source.magicBytesHex.toLocaleLowerCase("en-US").startsWith("25504446")
+    || !source.url
+    || !calendar.sourceUrl
+    || !sameCanonicalUrl(source.url, calendar.sourceUrl)
+  ) return undefined;
+  const approvedEvents = events.flatMap((event) => {
+    const descriptor = mobileApprovedCalendarEvent(event, calendar);
+    return descriptor ? [descriptor] : [];
+  });
+  if (approvedEvents.length === 0) return undefined;
+  const capability = mobilePdfCapabilityBase({
+    sourceUrl: source.url,
+    verifiedFinalUrl: source.url,
+    expectedSha256: source.binarySha256,
+    expectedByteLength: source.fileSize
+  });
+  if (!capability) return undefined;
+  return {
+    ...capability,
+    document: {
+      kind: "academic_calendar",
+      universityId: calendar.universityId,
+      academicYear: calendar.academicYear,
+      approvedEvents
+    }
+  };
+}
+
+function mobileApprovedCalendarEvent(
+  event: AcademicEventRecord,
+  calendar: AcademicCalendarRecord
+): MobileAcademicPdfApprovedEventDto | undefined {
+  if (
+    event.status !== "published"
+    || event.calendarId !== calendar.id
+    || event.universityId !== calendar.universityId
+    || event.academicYear !== calendar.academicYear
+  ) return undefined;
+  const normalizedTitle = normalizeDisplayText(event.title);
+  if (!normalizedTitle || normalizedTitle.length > 240) return undefined;
+  const temporalKind = event.temporalKind === "date" && isCalendarDate(event.dateOnlyStart)
+    ? "date"
+    : "timestamp";
+  const startDate = temporalKind === "date" ? event.dateOnlyStart! : event.startDate.toISOString();
+  if (temporalKind === "timestamp" && !Number.isFinite(Date.parse(startDate))) return undefined;
+  let endDate: string | undefined;
+  let endTemporalKind: "date" | "timestamp" | undefined;
+  if (event.endDate) {
+    endTemporalKind = event.endTemporalKind === "date" && isCalendarDate(event.dateOnlyEnd)
+      ? "date"
+      : "timestamp";
+    endDate = endTemporalKind === "date" ? event.dateOnlyEnd! : event.endDate.toISOString();
+    const startOrder = temporalKind === "date" ? Date.parse(`${startDate}T00:00:00.000Z`) : Date.parse(startDate);
+    const endOrder = endTemporalKind === "date" ? Date.parse(`${endDate}T00:00:00.000Z`) : Date.parse(endDate);
+    if (!Number.isFinite(endOrder) || endOrder < startOrder) return undefined;
+  }
+  return {
+    normalizedTitle,
+    category: event.category,
+    startDate,
+    ...(endDate && endTemporalKind ? { endDate, endTemporalKind } : {}),
+    temporalKind
+  };
+}
+
+function mobileSchedulePdfCapability(
+  source: AcademicUnitScheduleSourceRecord,
+  events: AcademicEventRecord[],
+  scope: {
+    universityId: string;
+    facultyId?: string;
+    departmentId: string;
+    scheduleType: "course_schedule" | "exam_schedule";
+  }
+): MobileAcademicPdfSourceDto | undefined {
+  const review = source.reviewResult;
+  const decision = source.reviewDecision;
+  if (
+    source.lifecycle !== "published"
+    || source.universityId !== scope.universityId
+    || source.departmentId !== scope.departmentId
+    || source.facultyId !== scope.facultyId
+    || source.scheduleType !== scope.scheduleType
+    || review?.format !== "pdf"
+    || review.parser !== "pdf_binary_text"
+    || review.outcome !== "parsed_pending_review"
+    || !review.finalUrl
+    || !sameCanonicalUrl(review.finalUrl, source.verifiedFinalUrl)
+    || decision?.decision !== "approved"
+    || decision.materializationStatus !== "published"
+    || !decision.reviewKey
+    || events.length === 0
+    || events.some((event) => (
+      event.status !== "published"
+      || event.scheduleSourceId !== source.id
+      || event.scheduleReviewKey !== decision.reviewKey
+    ))
+  ) return undefined;
+
+  const approvedRowNumbers = [...new Set(decision.approvedRowNumbers)].sort((left, right) => left - right);
+  const availableRows = new Set(review.candidates.map((candidate) => candidate.rowNumber));
+  const academicYear = decision.academicYear;
+  const term = decision.term;
+  if (
+    approvedRowNumbers.length === 0
+    || approvedRowNumbers.length > 250
+    || approvedRowNumbers.some((row) => !Number.isSafeInteger(row) || row < 1 || !availableRows.has(row))
+    || !isConsecutiveAcademicYear(academicYear)
+    || !term
+    || !["fall", "spring", "summer", "full_year", "unknown"].includes(term)
+  ) return undefined;
+  if (
+    source.scheduleType === "course_schedule"
+    && (!isCalendarDate(decision.courseRangeStart)
+      || !isCalendarDate(decision.courseRangeEnd)
+      || calendarDayDistance(decision.courseRangeStart, decision.courseRangeEnd) < 0
+      || calendarDayDistance(decision.courseRangeStart, decision.courseRangeEnd) > 370)
+  ) return undefined;
+  const approvedRows = approvedRowNumbers.flatMap((rowNumber) => {
+    const candidate = review.candidates.find((item) => item.rowNumber === rowNumber);
+    const descriptor = candidate ? mobileApprovedScheduleRow(candidate, source.scheduleType) : undefined;
+    return descriptor ? [descriptor] : [];
+  });
+  if (approvedRows.length !== approvedRowNumbers.length) return undefined;
+
+  const capability = mobilePdfCapabilityBase({
+    sourceUrl: source.sourceUrl,
+    verifiedFinalUrl: source.verifiedFinalUrl,
+    expectedSha256: review.contentSha256,
+    expectedByteLength: review.contentLengthBytes
+  });
+  if (!capability) return undefined;
+  return {
+    ...capability,
+    document: {
+      kind: source.scheduleType,
+      universityId: scope.universityId,
+      ...(scope.facultyId ? { facultyId: scope.facultyId } : {}),
+      departmentId: scope.departmentId,
+      academicYear,
+      term,
+      approvedRowNumbers,
+      approvedRows,
+      ...(source.scheduleType === "course_schedule" ? { courseRangeStart: decision.courseRangeStart!, courseRangeEnd: decision.courseRangeEnd! } : {})
+    }
+  };
+}
+
+function mobileApprovedScheduleRow(
+  candidate: AcademicUnitScheduleCandidate,
+  scheduleType: "course_schedule" | "exam_schedule"
+): MobileAcademicPdfApprovedRowDto | undefined {
+  const normalizedTitle = normalizeDisplayText(candidate.title);
+  const startTime = candidate.startTime;
+  const endTime = candidate.endTime;
+  const date = candidate.date;
+  const dayOfWeek = candidate.dayOfWeek;
+  if (
+    !normalizedTitle
+    || normalizedTitle.length > 240
+    || !startTime
+    || !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(startTime)
+    || (endTime !== undefined && (!/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(endTime) || endTime <= startTime))
+    || (date !== undefined && !isCalendarDate(date))
+    || (dayOfWeek !== undefined && (!Number.isSafeInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6))
+    || (scheduleType === "course_schedule" && dayOfWeek === undefined)
+    || (scheduleType === "exam_schedule" && date === undefined)
+  ) return undefined;
+  return {
+    rowNumber: candidate.rowNumber,
+    normalizedTitle,
+    ...(date ? { date } : {}),
+    ...(dayOfWeek !== undefined ? { dayOfWeek } : {}),
+    startTime,
+    ...(endTime ? { endTime } : {})
+  };
+}
+
+function mobilePdfCapabilityBase(input: {
+  sourceUrl: string;
+  verifiedFinalUrl: string;
+  expectedSha256: string | undefined;
+  expectedByteLength: number | undefined;
+}): Omit<MobileAcademicPdfSourceDto, "document"> | undefined {
+  const sourceUrl = canonicalizeContentUrl(input.sourceUrl);
+  const verifiedFinalUrl = canonicalizeContentUrl(input.verifiedFinalUrl);
+  if (!sourceUrl || !verifiedFinalUrl) return undefined;
+  if (new URL(sourceUrl).protocol !== "https:" || new URL(verifiedFinalUrl).protocol !== "https:") return undefined;
+  const allowedOfficialDomain = officialDomainForUrl(verifiedFinalUrl);
+  if (!allowedOfficialDomain || !isOfficialContentUrl(sourceUrl, verifiedFinalUrl)) return undefined;
+  const expectedSha256 = input.expectedSha256;
+  const expectedByteLength = input.expectedByteLength;
+  if (!expectedSha256 || !/^[a-f\d]{64}$/u.test(expectedSha256)) return undefined;
+  if (
+    !Number.isSafeInteger(expectedByteLength)
+    || expectedByteLength! < 5
+    || expectedByteLength! > MOBILE_PDF_MAX_BYTES
+  ) return undefined;
+  const authorizedAt = new Date();
+  return {
+    mode: "device_text",
+    sourceUrl,
+    allowedOfficialDomain,
+    expectedSha256,
+    expectedByteLength: expectedByteLength!,
+    authorizedAt: authorizedAt.toISOString(),
+    validUntil: new Date(authorizedAt.getTime() + MOBILE_PDF_CAPABILITY_TTL_MS).toISOString()
+  };
+}
+
+function isConsecutiveAcademicYear(value: string | undefined): value is string {
+  const match = /^(\d{4})-(\d{4})$/u.exec(value ?? "");
+  return Boolean(match && Number(match[2]) === Number(match[1]) + 1);
+}
+
+function isCalendarDate(value: string | undefined): value is string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value ?? "");
+  if (!match) return false;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.getUTCFullYear() === Number(match[1]) && date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[3]);
+}
+
+function calendarDayDistance(start: string, end: string): number {
+  return Math.floor((Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000);
+}
+
+function pdfProcessingModeFromSource(source: PdfSourceRecord | null): AcademicPdfProcessingMode | undefined {
+  if (!source) return undefined;
+  if (source.ocrProvider || source.ocrProcessedAt || source.parseStatus === "ocr_required") return "server_ocr";
+  return source.rawText?.trim() ? "device_text" : undefined;
+}
+
+function pdfProcessingModeFromScheduleSource(
+  source: AcademicUnitScheduleSourceRecord
+): AcademicPdfProcessingMode | undefined {
+  if (source.reviewResult?.format !== "pdf") return undefined;
+  if (source.reviewResult.parser === "pdf_ocr" || source.reviewResult.outcome === "unsupported_ocr_review") {
+    return "server_ocr";
+  }
+  return source.reviewResult.parser === "pdf_binary_text" ? "device_text" : undefined;
+}
+
+function sameCanonicalUrl(left: string, right: string): boolean {
+  const canonicalLeft = canonicalizeContentUrl(left);
+  const canonicalRight = canonicalizeContentUrl(right);
+  return Boolean(canonicalLeft && canonicalRight && canonicalLeft === canonicalRight);
 }

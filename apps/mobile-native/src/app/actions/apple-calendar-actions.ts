@@ -1,15 +1,12 @@
 import { Platform } from "react-native";
 import { googleCalendarDeletionCandidateSourceTypes } from "../../google-calendar/google-calendar-lifecycle";
 import { type AccountGenerationSnapshot } from "../../auth/session-integrity";
-import {
-  normalizeTrustedApiContentEnvelope,
-  normalizeTrustedContentCollection,
-} from "../../content/content-trust";
 import { type NativeCalendarContext } from "../../native-calendar";
 import { StaleAccountRequestError, userMessageFromError } from "../app-errors";
-import { type CalendarPayload, type AnnouncementCollectionApiPayload } from "../app-types";
+import { type CalendarPayload } from "../app-types";
 import { normalizeCalendarPayloadForDisplay, trustedContentCollectionHasMore } from "../app-content";
 import { buildNativeCalendarSyncEvents } from "../calendar-presentations";
+import { hydrateCalendarPdfPayload } from "./content-actions";
 import type { ApplicationState } from "../useApplicationState";
 import type { ApplicationActions } from "../application-actions";
 
@@ -19,9 +16,9 @@ type Dependencies = Pick<ApplicationState,
   | "setAppleCalendarState" | "nativeCalendarService" | "accountCleanupInProgressRef"
   | "appleCalendarNativeMutationRef" | "appleCalendarOperationRef" | "sessionRef"
   | "authenticatedRequestControllersRef" | "setAppleCalendarBusy" | "setMessage" | "setCalendar"
-  | "setAnnouncements" | "appleCalendarPermission" | "appleCalendarStoredState"
+  | "appleCalendarPermission" | "appleCalendarStoredState"
 > & Pick<ApplicationActions,
-  "apiRequest"
+  "apiRequest" | "loadDeviceAnnouncementCollection"
 >;
 
 export function createAppleCalendarActions(
@@ -49,8 +46,8 @@ export function createAppleCalendarActions(
     setAppleCalendarBusy,
     setMessage,
     apiRequest,
+    loadDeviceAnnouncementCollection,
     setCalendar,
-    setAnnouncements,
     appleCalendarPermission,
     appleCalendarStoredState
   } = dependencies;
@@ -193,12 +190,14 @@ export function createAppleCalendarActions(
           { signal: operationController.signal },
           currentSession.accessToken,
           { ownerSnapshot },
-        ),
-        apiRequest<AnnouncementCollectionApiPayload>(
-          "/announcements/my/trusted?limit=100",
-          { signal: operationController.signal },
+        ).then(hydrateCalendarPdfPayload),
+        loadDeviceAnnouncementCollection(
           currentSession.accessToken,
-          { ownerSnapshot },
+          ownerSnapshot,
+          100,
+          operationController.signal,
+          undefined,
+          true,
         ),
       ]);
       if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
@@ -210,10 +209,11 @@ export function createAppleCalendarActions(
         ? normalizeCalendarPayloadForDisplay(calendarResult.value)
         : null;
       const trustedAnnouncements = announcementResult.status === "fulfilled"
-        ? normalizeTrustedApiContentEnvelope(announcementResult.value)
+        ? announcementResult.value
         : null;
       const announcementSnapshotComplete = Boolean(
         trustedAnnouncements
+        && trustedAnnouncements.hasMore !== true
         && !trustedContentCollectionHasMore(trustedAnnouncements, 100),
       );
       const calendarEvents = normalizedCalendar?.events ?? [];
@@ -233,12 +233,6 @@ export function createAppleCalendarActions(
         warnings.push("Akademik takvim kaynağı bu eşitlemede alınamadı.");
       }
       if (announcementResult.status === "fulfilled") {
-        setAnnouncements({
-          loading: false,
-          data: trustedAnnouncements ?? normalizeTrustedContentCollection([]),
-          attempted: true,
-          stale: false,
-        });
         if (trustedAnnouncements?.state !== "fresh" || !announcementSnapshotComplete) {
           warnings.push("Duyuru kaynakları kısmi, eski veya sayfalı olduğu için bu gruptan silme yapılmadı.");
         }

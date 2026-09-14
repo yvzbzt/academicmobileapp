@@ -47,6 +47,8 @@ export interface StudentRelevanceMetadataDto {
 export interface AcademicEventDto extends Partial<StudentRelevanceMetadataDto> {
   id: string;
   universityId: string;
+  facultyId?: string;
+  departmentId?: string;
   calendarId: string;
   category: string;
   title: string;
@@ -184,9 +186,18 @@ export interface MobileAcademicContentSourceDto {
   sourceName: string;
   sourceUrl: string;
   allowedHostname: string;
+  allowedOfficialDomain: string;
+  /** False retains an already-cached lease but forbids a new device request. */
+  fetchAllowed: boolean;
   contentType: AcademicContentType;
   scopeType: AcademicContentScopeType;
   scopeId: string;
+  universityId?: string;
+  universityName?: string;
+  facultyId?: string;
+  facultyName?: string;
+  departmentId?: string;
+  departmentName?: string;
   parser: MobileAcademicContentSourceParser;
   parserConfig?: MobileAcademicContentSourceParserConfigDto;
   definitionVersion: string;
@@ -196,13 +207,63 @@ export interface MobileAcademicContentSourceDto {
 }
 
 export interface MobileAcademicContentSourceManifestDto {
-  schemaVersion: 1;
+  schemaVersion: 2;
   version: string;
   /** True when source definitions or observed source content changed. */
   refreshRequired: boolean;
   generatedAt: string;
   revalidateAfter: string;
   sources: MobileAcademicContentSourceDto[];
+}
+
+export type MobileAcademicPdfDocument =
+  | {
+      kind: "academic_calendar";
+      universityId: string;
+      academicYear: string;
+      approvedEvents: MobileAcademicPdfApprovedEventDto[];
+    }
+  | {
+      kind: "course_schedule" | "exam_schedule";
+      universityId: string;
+      facultyId?: string;
+      departmentId: string;
+      academicYear: string;
+      term: "fall" | "spring" | "summer" | "full_year" | "unknown";
+      approvedRowNumbers: number[];
+      approvedRows: MobileAcademicPdfApprovedRowDto[];
+      courseRangeStart?: string;
+      courseRangeEnd?: string;
+    };
+
+export interface MobileAcademicPdfApprovedRowDto {
+  rowNumber: number;
+  normalizedTitle: string;
+  date?: string;
+  dayOfWeek?: number;
+  startTime: string;
+  endTime?: string;
+}
+
+export interface MobileAcademicPdfApprovedEventDto {
+  normalizedTitle: string;
+  category: string;
+  startDate: string;
+  endDate?: string;
+  temporalKind: AcademicEventTemporalKind;
+  endTemporalKind?: AcademicEventTemporalKind;
+}
+
+/** Short-lived capability for one already-reviewed, byte-identical public PDF. */
+export interface MobileAcademicPdfSourceDto {
+  mode: "device_text";
+  sourceUrl: string;
+  allowedOfficialDomain: string;
+  expectedSha256: string;
+  expectedByteLength: number;
+  authorizedAt: string;
+  validUntil: string;
+  document: MobileAcademicPdfDocument;
 }
 
 export const NOTIFICATION_DELIVERY_CONSENT_VERSION = "phase3-v1" as const;

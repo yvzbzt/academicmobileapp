@@ -33,6 +33,7 @@ describe("admin deployment security headers", () => {
 
     expect(script).toContain('project_root="/opt/anssoft-academicmobilapp-backend"');
     expect(script).toContain('api_container="anssoft-backend"');
+    expect(script).toContain('worker_container="anssoft-content-worker"');
     expect(script).toContain('mongo_container="anssoft-mongodb"');
     expect(script).toContain('caddy_route="/home/ans/docker/caddy/custom-domains/academic-api.anssoft.com.tr.caddy"');
     expect(script).toContain("sha256sum --check --strict source.archive.sha256");
@@ -41,6 +42,12 @@ describe("admin deployment security headers", () => {
     expect(script).toContain('install -m 600 "${compose_source}" "${compose_file}.tmp"');
     expect(script).toContain('install -m 600 "${backup_root}/compose.yaml" "${compose_file}.rollback"');
     expect(script).toContain('up -d --no-deps --force-recreate api');
+    expect(script).toContain('up -d --no-deps --force-recreate content-worker');
+    expect(script).toContain("CONTENT_INGESTION_WORKER_READY");
+    expect(script).toContain("org.opencontainers.image.revision");
+    expect(script).toContain("ANNOUNCEMENT_HEALTH_PROBE_ENABLED=true");
+    expect(script).toContain("ANNOUNCEMENT_DEVICE_REVISION_ENABLED=true");
+    expect(script).toContain("CALENDAR_AUTO_INGEST_ENABLED=true");
     expect(script).not.toMatch(/docker\s+(?:compose\s+)?(?:down|system\s+prune|volume\s+rm|network\s+rm)\b/u);
   });
 

@@ -9,6 +9,9 @@ import {
 } from "../../notifications";
 import { type AccountGenerationSnapshot } from "../../auth/session-integrity";
 import { normalizeTrustedApiContentCollection } from "../../content/content-trust";
+import { readDeviceContentCache } from "../../content/device-content-cache";
+import { findDeviceContentNotificationRecord } from "../../content/device-content-notification-ledger";
+import { isDeviceContentRecordId } from "../../content/device-saved-content";
 import { buildCalendarItems } from "../../calendar/calendar-model";
 import {
   deleteStoredValue,
@@ -177,6 +180,23 @@ export function createNotificationDestinationActions(
           return Boolean(match);
         }
 
+        if (isDeviceContentRecordId(destination.id)) {
+          const cached = await readDeviceContentCache(ownerSnapshot.ownerId);
+          const match = cached?.items.find((item) => item.id === destination.id)
+            ?? await findDeviceContentNotificationRecord(ownerSnapshot.ownerId, destination.id);
+          if (match) {
+            destinationTitle = match.title;
+            destinationAnnouncement = match;
+            setAnnouncements((previous) => ({
+              loading: false,
+              data: appendTrustedContentItems(previous.data, [match]),
+              attempted: true,
+              stale: false
+            }));
+          }
+          return Boolean(match);
+        }
+
         let payload: AnnouncementApiRecord;
         try {
           payload = await apiRequest<AnnouncementApiRecord>(
@@ -289,9 +309,13 @@ export function createNotificationDestinationActions(
                 ...destinationCalendarEvent,
                 ...(destinationCalendarEvent.category === "course_schedule"
                   ? { sourceLabel: "Bölüm ders programı" }
+                  : isDepartmentExamScheduleEvent(destinationCalendarEvent)
+                    ? { sourceLabel: "Bölüm sınav programı" }
                   : {}),
                 ...(destinationCalendarEvent.category === "course_schedule" && courseSchedule.data?.sourceUrl
                   ? { sourceUrl: courseSchedule.data.sourceUrl }
+                  : isDepartmentExamScheduleEvent(destinationCalendarEvent) && courseSchedule.data?.examSourceUrl
+                    ? { sourceUrl: courseSchedule.data.examSourceUrl }
                   : calendar.data?.calendar.sourceUrl
                     ? { sourceUrl: calendar.data.calendar.sourceUrl }
                     : {})
@@ -396,4 +420,14 @@ export function createNotificationDestinationActions(
     restorePendingNotificationForSession,
     retryPendingNotificationDestination
   };
+}
+
+function isDepartmentExamScheduleEvent(event: { category: string; departmentId?: string }): boolean {
+  return Boolean(event.departmentId) && [
+    "department_exam_schedule",
+    "midterm_exam",
+    "final_exam",
+    "makeup_exam",
+    "single_course_exam",
+  ].includes(event.category);
 }

@@ -36,13 +36,14 @@ export interface AcademicUnitScheduleCandidate {
 export interface AcademicUnitScheduleReviewResult {
   outcome: AcademicUnitScheduleReviewOutcome;
   format: AcademicUnitScheduleFormat;
-  parser: "pdf_binary_text" | "office_xlsx" | "html_text" | "none";
+  parser: "pdf_binary_text" | "pdf_ocr" | "office_xlsx" | "html_text" | "none";
   reasonCode?: string;
   httpStatus?: number;
   contentType?: string;
   finalUrl?: string;
   finalUrlHash?: string;
   contentSha256?: string;
+  contentLengthBytes?: number;
   candidateCount: number;
   candidates: AcademicUnitScheduleCandidate[];
   checkedAt: Date;

@@ -24,7 +24,7 @@ describe("mobile runtime performance contracts", () => {
 
   it("starts the user announcement feed when the announcements experience becomes visible", () => {
     const visibilityEffect = sourceBetween(effectsSource, "const announcementsExperienceVisible", "const needsPublicCatalog");
-    const userFeedLoad = visibilityEffect.indexOf("loadAnnouncements(undefined, registerUniversityId)");
+    const userFeedLoad = visibilityEffect.indexOf("loadAnnouncements(");
     const deferredSecondaryStart = visibilityEffect.indexOf("InteractionManager.runAfterInteractions");
     const deferredSecondaryLoads = visibilityEffect.slice(deferredSecondaryStart);
 
@@ -35,6 +35,19 @@ describe("mobile runtime performance contracts", () => {
     expect(visibilityEffect).toContain("}, 1_200)");
     expect(deferredSecondaryLoads).toContain("loadYokAnnouncements");
     expect(deferredSecondaryLoads).toContain("loadSummerSchool");
+  });
+
+  it("polls the authenticated source manifest independently from the visible tab", () => {
+    const intervalEnd = effectsSource.indexOf("}, 5 * 60 * 1_000);");
+    const pollingEffect = effectsSource.slice(
+      effectsSource.lastIndexOf("useEffect(() => {", intervalEnd),
+      effectsSource.indexOf("\n  }, [", intervalEnd),
+    );
+
+    expect(pollingEffect).toContain("if (!session) return");
+    expect(pollingEffect).toContain("loadAnnouncements(");
+    expect(pollingEffect).toContain("true,");
+    expect(pollingEffect).not.toContain("activeTab");
   });
 
   it("does not eager-load announcements while saving academic profile changes", () => {

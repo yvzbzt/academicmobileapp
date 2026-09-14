@@ -15,6 +15,7 @@ compose_file="${project_root}/compose.yaml"
 compose_source="${source_root}/deploy/hetzner/compose.yaml"
 env_file="${project_root}/.env"
 api_container="anssoft-backend"
+worker_container="anssoft-content-worker"
 mongo_container="anssoft-mongodb"
 caddy_container="anssoft-tenant-edge-caddy-1"
 caddy_route="/home/ans/docker/caddy/custom-domains/academic-api.anssoft.com.tr.caddy"
@@ -85,6 +86,16 @@ caddy_restart_count="$(docker inspect --format '{{.RestartCount}}' "${caddy_cont
 old_image_id="$(docker inspect --format '{{.Image}}' "${api_container}")"
 live_image="$(docker inspect --format '{{.Config.Image}}' "${api_container}")"
 [[ "${live_image}" == anssoft-backend:* ]]
+worker_existed=false
+worker_was_running=false
+worker_old_image_id=""
+worker_live_image=""
+if docker container inspect "${worker_container}" >/dev/null 2>&1; then
+  worker_existed=true
+  worker_was_running="$(docker inspect --format '{{.State.Running}}' "${worker_container}")"
+  worker_old_image_id="$(docker inspect --format '{{.Image}}' "${worker_container}")"
+  worker_live_image="$(docker inspect --format '{{.Config.Image}}' "${worker_container}")"
+fi
 
 mkdir -p "${backup_root}"
 install -m 600 "${compose_file}" "${backup_root}/compose.yaml"
@@ -93,6 +104,7 @@ printf '%s\n' "${old_image_id}" > "${backup_root}/api-image-id.txt"
 
 image_retagged=false
 api_recreated=false
+worker_recreated=false
 route_reloaded=false
 source_swapped=false
 compose_installed=false
@@ -101,8 +113,11 @@ rollback() {
   local exit_code="${1:-$?}"
   trap - ERR INT TERM
   set +e
-  echo "Audit remediation failed; restoring this project's API and route." >&2
+  echo "Audit remediation failed; restoring this project's API, worker, and route." >&2
   docker rm -f "${canary}" >/dev/null 2>&1
+  if [[ "${worker_recreated}" == "true" ]]; then
+    docker rm -f "${worker_container}" >/dev/null 2>&1
+  fi
 
   if [[ "${source_swapped}" == "true" ]]; then
     if [[ -d "${project_root}/source" ]]; then
@@ -141,13 +156,41 @@ rollback() {
       sleep 5
     done
   fi
+  if [[ "${worker_recreated}" == "true" ]]; then
+    if [[ "${worker_existed}" == "true" ]]; then
+      docker image tag "${worker_old_image_id}" "${worker_live_image}" >/dev/null 2>&1
+      docker compose --env-file "${env_file}" -f "${compose_file}" \
+        up -d --pull never --no-deps --force-recreate content-worker >/dev/null 2>&1
+      if [[ "${worker_live_image}" == "${live_image}" ]]; then
+        docker image tag "${old_image_id}" "${live_image}" >/dev/null 2>&1
+      fi
+      worker_rollback_running=false
+      for _ in $(seq 1 15); do
+        if [[ "$(docker inspect --format '{{.State.Running}}' "${worker_container}" 2>/dev/null)" == "true" ]]; then
+          worker_rollback_running=true
+          break
+        fi
+        sleep 2
+      done
+      if [[ "${worker_was_running}" == "false" ]]; then
+        docker stop "${worker_container}" >/dev/null 2>&1
+      fi
+      worker_rollback_running="$(docker inspect --format '{{.State.Running}}' "${worker_container}" 2>/dev/null)"
+      if [[ "${worker_rollback_running}" != "${worker_was_running}" ]] \
+        || [[ "$(docker inspect --format '{{.Image}}' "${worker_container}" 2>/dev/null)" != "${worker_old_image_id}" ]]; then
+        echo "Rollback could not restore the previous content worker." >&2
+      fi
+    elif docker container inspect "${worker_container}" >/dev/null 2>&1; then
+      echo "Rollback could not remove the rejected content worker." >&2
+    fi
+  fi
   [[ "$(docker inspect --format '{{.Id}}' "${mongo_container}" 2>/dev/null)" == "${mongo_id}" ]]
   exit "${exit_code}"
 }
 trap rollback ERR
 trap 'rollback 130' INT TERM
 
-docker build --pull=false -f "${source_root}/deploy/hetzner/Dockerfile.api" \
+docker build --pull=false --build-arg "APP_RELEASE_COMMIT=${release_id}" -f "${source_root}/deploy/hetzner/Dockerfile.api" \
   -t "${new_image}" "${source_root}"
 docker image tag "${new_image}" "${live_image}"
 image_retagged=true
@@ -186,6 +229,31 @@ for _ in $(seq 1 30); do
 done
 [[ "$(docker inspect --format '{{.State.Health.Status}}' "${api_container}")" == "healthy" ]]
 [[ "$(docker inspect --format '{{.Id}}' "${mongo_container}")" == "${mongo_id}" ]]
+
+worker_recreated=true
+docker compose --env-file "${env_file}" -f "${compose_file}" \
+  up -d --no-deps --force-recreate content-worker >/dev/null
+worker_ready=false
+for _ in $(seq 1 60); do
+  if [[ "$(docker inspect --format '{{.State.Running}}' "${worker_container}" 2>/dev/null)" == "true" ]] \
+    && docker logs "${worker_container}" 2>&1 | grep -Fq 'CONTENT_INGESTION_WORKER_READY'; then
+    worker_ready=true
+    break
+  fi
+  sleep 1
+done
+[[ "${worker_ready}" == "true" ]]
+[[ "$(docker inspect --format '{{.Image}}' "${worker_container}")" == "$(docker inspect --format '{{.Image}}' "${api_container}")" ]]
+[[ "$(docker inspect --format '{{.RestartCount}}' "${worker_container}")" == "0" ]]
+[[ "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${api_container}")" == "${release_id}" ]]
+[[ "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${worker_container}")" == "${release_id}" ]]
+worker_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${worker_container}")"
+grep -Fxq 'CONTENT_INGESTION_WORKER_ENABLED=true' <<< "${worker_environment}"
+grep -Fxq 'ANNOUNCEMENT_HEALTH_PROBE_ENABLED=true' <<< "${worker_environment}"
+grep -Fxq 'ANNOUNCEMENT_DEVICE_REVISION_ENABLED=true' <<< "${worker_environment}"
+grep -Fxq 'CALENDAR_AUTO_INGEST_ENABLED=true' <<< "${worker_environment}"
+worker_critical_log_count="$(docker logs "${worker_container}" 2>&1 | grep -Eic 'uncaught|unhandled|fatal|ENVIRONMENT_INVALID' || true)"
+[[ "${worker_critical_log_count}" -eq 0 ]]
 
 install -m 640 -o ans -g ans "${route_source}" "${caddy_route}.tmp"
 mv -f "${caddy_route}.tmp" "${caddy_route}"

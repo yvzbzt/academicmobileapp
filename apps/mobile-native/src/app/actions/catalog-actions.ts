@@ -2,6 +2,7 @@ import { normalizeAccountAuthProvider } from "../../auth/recent-authentication";
 import { type AcademicOnboardingDraft } from "../../auth/auth-ui";
 import { commitAcademicProfileDraft } from "../../profile/profile-model";
 import { type FollowedUniversityRecord } from "../../profile/FollowedUniversitiesSettings";
+import { deleteDeviceContentCache } from "../../content/device-content-cache";
 import {
   type UniversityRecord,
   type FacultyRecord,
@@ -85,6 +86,12 @@ export function createCatalogActions(
     setAccountAuthProvider
   } = dependencies;
 
+  async function resetOwnedAcademicContent(ownerId: string): Promise<void> {
+    invalidateContentFeedOwnership();
+    await trackAuthenticatedMutation(() => deleteDeviceContentCache(ownerId)).catch(() => undefined);
+    void refreshContentFeed();
+  }
+
   async function loadUniversities(): Promise<void> {
     const ownerSnapshot = accountGuardRef.current.capture();
     await withLoadable(setUniversities, () =>
@@ -122,6 +129,8 @@ export function createCatalogActions(
       return;
     }
     if (academicSelectionPendingRef.current || accountCleanupInProgressRef.current) return;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!ownerSnapshot) return;
 
     try {
       academicSelectionPendingRef.current = "university";
@@ -132,8 +141,10 @@ export function createCatalogActions(
           method: "PATCH",
           body: JSON.stringify({ universityId })
         },
-        accessToken
+        accessToken,
+        { ownerSnapshot }
       ));
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
       setSelectedUniversityId(universityId);
       setRegisterUniversityId(universityId);
@@ -146,7 +157,7 @@ export function createCatalogActions(
       setAcademicProfileExpanded(true);
       setDepartments({ loading: false, data: [] });
       setSummerSchool({ loading: false });
-      invalidateContentFeedOwnership();
+      await resetOwnedAcademicContent(ownerSnapshot.ownerId);
       setMessage({ text: "Üniversite güncellendi.", tone: "success" });
 
       void Promise.allSettled([
@@ -173,6 +184,8 @@ export function createCatalogActions(
       return;
     }
     if (academicSelectionPendingRef.current || accountCleanupInProgressRef.current) return;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!ownerSnapshot) return;
 
     try {
       academicSelectionPendingRef.current = "faculty";
@@ -183,8 +196,10 @@ export function createCatalogActions(
           method: "PATCH",
           body: JSON.stringify({ universityId: registerUniversityId, facultyId })
         },
-        accessToken
+        accessToken,
+        { ownerSnapshot }
       ));
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
       setRegisterFacultyId(facultyId);
       setRegisterDepartmentId("");
@@ -193,7 +208,7 @@ export function createCatalogActions(
       setRegisterPicker("department");
       setAcademicProfileExpanded(true);
       setSummerSchool({ loading: false });
-      invalidateContentFeedOwnership();
+      await resetOwnedAcademicContent(ownerSnapshot.ownerId);
       setMessage({ text: "Fakülte güncellendi.", tone: "success" });
 
     } catch (error) {
@@ -214,6 +229,8 @@ export function createCatalogActions(
       return;
     }
     if (academicSelectionPendingRef.current || accountCleanupInProgressRef.current) return;
+    const ownerSnapshot = accountGuardRef.current.capture();
+    if (!ownerSnapshot) return;
 
     try {
       academicSelectionPendingRef.current = "department";
@@ -228,14 +245,16 @@ export function createCatalogActions(
             departmentId
           })
         },
-        accessToken
+        accessToken,
+        { ownerSnapshot }
       ));
+      if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
 
       setRegisterDepartmentId(departmentId);
       setRegisterClassLevel(null);
       setRegisterPicker("none");
       setSummerSchool({ loading: false });
-      invalidateContentFeedOwnership();
+      await resetOwnedAcademicContent(ownerSnapshot.ownerId);
       setMessage({ text: "Bölüm güncellendi.", tone: "success" });
 
     } catch (error) {
@@ -320,12 +339,11 @@ export function createCatalogActions(
         }));
       }
 
-      invalidateContentFeedOwnership();
+      await resetOwnedAcademicContent(ownerSnapshot.ownerId);
       setMessage({
         text: shouldFollow ? "Üniversite takibe eklendi." : "Üniversite takibi kaldırıldı.",
         tone: "success"
       });
-      void refreshContentFeed();
     } catch (error) {
       if (error instanceof StaleAccountRequestError) return;
       setFollowedUniversities((previous) => ({
@@ -398,8 +416,7 @@ export function createCatalogActions(
       setAcademicProfileSaveState("saved");
       setAcademicProfileSaveError(undefined);
       setSummerSchool({ loading: false });
-      const resetOwnedAcademicContent = invalidateContentFeedOwnership;
-      resetOwnedAcademicContent();
+      await resetOwnedAcademicContent(ownerSnapshot.ownerId);
       setMessage({ text: "Akademik profil kaydedildi.", tone: "success" });
       void Promise.allSettled([
         loadMyCalendar(currentSession.accessToken, ownerSnapshot),

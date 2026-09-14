@@ -107,8 +107,54 @@ export type SavedAnnouncementApiStatus = {
   savedAt?: string;
 };
 
+export type AcademicPdfProcessingMode = "device_text" | "server_ocr";
+
+export type DeviceAcademicPdfSource = {
+  mode: "device_text";
+  sourceUrl: string;
+  allowedOfficialDomain: string;
+  expectedSha256: string;
+  expectedByteLength: number;
+  authorizedAt: string;
+  validUntil: string;
+  document:
+    | {
+        kind: "academic_calendar";
+        universityId: string;
+        academicYear: string;
+        approvedEvents: Array<{
+          normalizedTitle: string;
+          category: string;
+          startDate: string;
+          endDate?: string;
+          temporalKind: AcademicTemporalKind;
+          endTemporalKind?: AcademicTemporalKind;
+        }>;
+      }
+    | {
+        kind: "course_schedule" | "exam_schedule";
+        universityId: string;
+        facultyId?: string;
+        departmentId: string;
+        academicYear: string;
+        term: "fall" | "spring" | "summer" | "full_year" | "unknown";
+        approvedRowNumbers: number[];
+        approvedRows: Array<{
+          rowNumber: number;
+          normalizedTitle: string;
+          date?: string;
+          dayOfWeek?: number;
+          startTime: string;
+          endTime?: string;
+        }>;
+        courseRangeStart?: string;
+        courseRangeEnd?: string;
+      };
+};
+
 export type CalendarRecord = {
   id: string;
+  universityId?: string;
   title: string;
   academicYear: string;
   status: string;
@@ -139,6 +185,8 @@ export type CalendarPayload = {
   events: EventRecord[];
   scope?: "university";
   sourceStatus?: "parsed" | "source_only";
+  pdfProcessingMode?: AcademicPdfProcessingMode;
+  devicePdf?: DeviceAcademicPdfSource;
 };
 
 export type DepartmentSchedulePayload = {
@@ -146,6 +194,12 @@ export type DepartmentSchedulePayload = {
   events: EventRecord[];
   sourceUrl?: string;
   sourceStatus: "parsed" | "source_only" | "missing";
+  pdfProcessingMode?: AcademicPdfProcessingMode;
+  devicePdf?: DeviceAcademicPdfSource;
+  examSourceUrl?: string;
+  examSourceStatus?: "parsed" | "source_only" | "missing";
+  examPdfProcessingMode?: AcademicPdfProcessingMode;
+  examDevicePdf?: DeviceAcademicPdfSource;
 };
 
 export type LegacyGoogleCalendarConnectionRecord = {

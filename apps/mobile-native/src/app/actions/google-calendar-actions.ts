@@ -19,15 +19,11 @@ import {
   planGoogleCalendarAccountSwitch,
 } from "../../google-calendar/google-calendar-lifecycle";
 import { ExpoNetworkAdapter } from "../../notifications";
-import {
-  normalizeTrustedApiContentEnvelope,
-  normalizeTrustedContentCollection,
-  normalizeTrustedApiContentCollection,
-} from "../../content/content-trust";
+import { normalizeTrustedApiContentCollection } from "../../content/content-trust";
+import { isDeviceContentRecordId } from "../../content/device-saved-content";
 import {
   type UserProfile,
   type CalendarPayload,
-  type AnnouncementCollectionApiPayload,
   type EventRecord,
   type AnnouncementApiRecord,
 } from "../app-types";
@@ -38,6 +34,7 @@ import {
   normalizeEventRecordsForDisplay,
 } from "../app-content";
 import { mappingsMatchDesiredContent, googleCalendarUserMessage } from "../calendar-presentations";
+import { hydrateCalendarPdfPayload } from "./content-actions";
 import type { ApplicationState } from "../useApplicationState";
 import type { ApplicationActions } from "../application-actions";
 import type { ApplicationDerivedState } from "../useApplicationDerivedState";
@@ -46,13 +43,13 @@ type Dependencies = Pick<ApplicationState,
   "accountCleanupInProgressRef" | "sessionRef" | "accountGuardRef" | "setGoogleCalendarError"
   | "googleLifecycleGuardRef" | "googleCalendarIntegration" | "setMessage" | "setGoogleCalendarBusy"
   | "setGoogleCalendarState" | "authenticatedRequestControllersRef" | "setCalendar"
-  | "setAnnouncements" | "setGoogleCalendarIntegration" | "setGoogleCalendarLastResult"
+  | "setGoogleCalendarIntegration" | "setGoogleCalendarLastResult"
   | "setGoogleCalendarWarnings"
 > & Pick<ApplicationActions,
   "apiRequest" | "readCurrentGoogleCalendarAuthorization" | "authorizeGoogleCalendar"
   | "queueGoogleSignOut" | "enqueueStorageMutation" | "persistGoogleCalendarConnection"
   | "enqueueGoogleSdkOperation" | "runAbortableGoogleCleanup"
-  | "revokeGoogleCalendarAccessForConnection"
+  | "revokeGoogleCalendarAccessForConnection" | "loadDeviceAnnouncementCollection"
 > & Pick<ApplicationDerivedState,
   "googleCalendarService"
 >;
@@ -74,8 +71,8 @@ export function createGoogleCalendarActions(
     setGoogleCalendarState,
     authenticatedRequestControllersRef,
     apiRequest,
+    loadDeviceAnnouncementCollection,
     setCalendar,
-    setAnnouncements,
     readCurrentGoogleCalendarAuthorization,
     authorizeGoogleCalendar,
     queueGoogleSignOut,
@@ -133,12 +130,14 @@ export function createGoogleCalendarActions(
           { signal: syncController.signal },
           currentSession.accessToken,
           { ownerSnapshot }
-        ),
-        apiRequest<AnnouncementCollectionApiPayload>(
-          "/announcements/my/trusted?limit=100",
-          { signal: syncController.signal },
+        ).then(hydrateCalendarPdfPayload),
+        loadDeviceAnnouncementCollection(
           currentSession.accessToken,
-          { ownerSnapshot }
+          ownerSnapshot,
+          100,
+          syncController.signal,
+          undefined,
+          true,
         )
       ]);
       if (!accountGuardRef.current.isCurrent(ownerSnapshot)) throw new StaleAccountRequestError();
@@ -152,10 +151,11 @@ export function createGoogleCalendarActions(
         : null;
       const calendarEvents = normalizedCalendar?.events ?? [];
       const trustedAnnouncements = announcementResult.status === "fulfilled"
-        ? normalizeTrustedApiContentEnvelope(announcementResult.value)
+        ? announcementResult.value
         : null;
       const announcementSnapshotComplete = Boolean(
         trustedAnnouncements
+        && trustedAnnouncements.hasMore !== true
         && !trustedContentCollectionHasMore(trustedAnnouncements, 100),
       );
       const announcementItems = trustedAnnouncements?.items ?? [];
@@ -188,20 +188,8 @@ export function createGoogleCalendarActions(
         if (trustedAnnouncements?.state !== "fresh" || !announcementSnapshotComplete) {
           warnings.push("Duyuru kaynakları kısmi, eski veya sayfalı olduğu için bu gruptan silme yapılmadı.");
         }
-        setAnnouncements({
-          loading: false,
-          data: trustedAnnouncements ?? normalizeTrustedContentCollection([]),
-          attempted: true,
-          stale: false
-        });
       } else {
         warnings.push("Duyuru ve etkinlik kaynakları bu eşitlemede alınamadı.");
-        setAnnouncements({
-          loading: false,
-          error: userMessageFromError(announcementResult.reason, "Duyurular şu anda alınamadı."),
-          attempted: true,
-          stale: false
-        });
       }
 
       if (networkResult.status === "rejected") {
@@ -298,6 +286,9 @@ export function createGoogleCalendarActions(
                 { ownerSnapshot }
               );
               return { ...lookup, status: "found" as const, calendarEvent };
+            }
+            if (isDeviceContentRecordId(lookup.recordId)) {
+              return { ...lookup, status: "missing" as const };
             }
             const announcement = await apiRequest<AnnouncementApiRecord>(
               `/announcements/my/trusted/${encodeURIComponent(lookup.recordId)}`,

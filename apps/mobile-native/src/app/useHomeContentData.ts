@@ -27,15 +27,20 @@ export function useHomeContentData(dependencies: Dependencies) {
     const calendarEventIds = new Set(calendarEvents.map((event) => event.id));
     const sourceForEvent = (event: EventRecord, fromPublishedCalendar: boolean) => {
       const courseScheduleEvent = event.category === "course_schedule";
+      const examScheduleEvent = Boolean(event.departmentId) && departmentExamCategories.has(event.category);
       const sourceUrl = event.sourceUrl
         ?? (courseScheduleEvent
           ? courseSchedule.data?.sourceUrl
+          : examScheduleEvent
+            ? courseSchedule.data?.examSourceUrl
           : fromPublishedCalendar
             ? calendar.data?.calendar.sourceUrl
             : undefined);
       const sourceLabel = event.sourceLabel
         ?? (courseScheduleEvent
           ? "Bölüm ders programı"
+          : examScheduleEvent
+            ? "Bölüm sınav programı"
           : fromPublishedCalendar
             ? calendar.data?.calendar.title ?? selectedUniversity?.name ?? "Resmî akademik takvim"
             : selectedUniversity?.name ?? "Resmî akademik kayıt");
@@ -56,6 +61,7 @@ export function useHomeContentData(dependencies: Dependencies) {
     calendar.data?.calendar.title,
     calendar.data?.events,
     courseSchedule.data?.sourceUrl,
+    courseSchedule.data?.examSourceUrl,
     selectedUniversity?.name,
     upcoming.data,
   ]);
@@ -69,5 +75,13 @@ export function useHomeContentData(dependencies: Dependencies) {
     homeManualExams
   };
 }
+
+const departmentExamCategories = new Set([
+  "department_exam_schedule",
+  "midterm_exam",
+  "final_exam",
+  "makeup_exam",
+  "single_course_exam",
+]);
 
 export type HomeContentData = ReturnType<typeof useHomeContentData>;

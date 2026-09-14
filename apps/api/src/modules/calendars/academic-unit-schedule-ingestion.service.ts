@@ -21,6 +21,7 @@ import type { CatalogRepository } from "../catalog/catalog.types.js";
 import { cleanText } from "../announcements/announcement-parser.js";
 import { inferOfficeDocumentKind, parseOfficeDocument } from "../documents/office-document-parser.js";
 import { extractPdfBinaryText } from "../pdf/pdf-binary-text.js";
+import { PdfOcrService } from "../pdf/pdf-ocr.service.js";
 import { academicTemporalFields } from "./calendar-temporal.js";
 import type { AcademicEventRecord, CalendarRepository } from "./calendar.types.js";
 import type {
@@ -62,7 +63,8 @@ export class AcademicUnitScheduleIngestionService {
     @Inject(ACADEMIC_UNIT_SCHEDULE_FETCHER) private readonly fetcher: AcademicUnitScheduleFetcher,
     @Inject(ACADEMIC_UNIT_SCHEDULE_AUTHORITY_RESOLVER) private readonly authorityResolver: AcademicUnitScheduleAuthorityResolver,
     @Optional() @Inject("CalendarRepository") private readonly calendarRepository?: CalendarRepository,
-    @Optional() @Inject(AuditService) private readonly auditService?: AuditService
+    @Optional() @Inject(AuditService) private readonly auditService?: AuditService,
+    @Optional() @Inject(PdfOcrService) private readonly pdfOcrService?: Pick<PdfOcrService, "extractVerifiedPdfText">
   ) {}
 
   async provisionVerifiedRegistry(): Promise<{
@@ -596,7 +598,8 @@ export class AcademicUnitScheduleIngestionService {
       contentType,
       finalUrl: fetchedFinalUrl,
       finalUrlHash: fetchedFinalUrlHash,
-      contentSha256: sha256(response.body)
+      contentSha256: sha256(response.body),
+      contentLengthBytes: response.body.byteLength
     };
     if (fetchedFinalUrl !== source.verifiedFinalUrl || fetchedFinalUrlHash !== source.verifiedFinalUrlHash) {
       return { ...emptyReviewResult("definition_drift_review", "definition_drift", format), ...provenance };
@@ -611,7 +614,26 @@ export class AcademicUnitScheduleIngestionService {
     try {
       const parsed = await extractScheduleText(format, response.body, fetchedFinalUrl, contentType);
       if (parsed.ocrRequired) {
-        return { ...emptyReviewResult("unsupported_ocr_review", "pdf_has_no_extractable_text", "pdf"), ...provenance };
+        const ocr = await this.pdfOcrService?.extractVerifiedPdfText({
+          sourceId: source.id,
+          sourceUrl: fetchedFinalUrl,
+          pdfData: response.body,
+          expectedSha256: provenance.contentSha256
+        });
+        if (!ocr?.text.trim()) {
+          return { ...emptyReviewResult("unsupported_ocr_review", "pdf_has_no_extractable_text", "pdf"), ...provenance };
+        }
+        const candidates = parseScheduleCandidates(ocr.text, source.scheduleType);
+        return {
+          outcome: candidates.length > 0 ? "parsed_pending_review" : "parse_zero_review",
+          format: "pdf",
+          parser: "pdf_ocr",
+          ...(candidates.length === 0 ? { reasonCode: "no_schedule_rows_parsed" } : {}),
+          ...provenance,
+          candidateCount: candidates.length,
+          candidates,
+          checkedAt: new Date()
+        };
       }
       const candidates = parseScheduleCandidates(parsed.text, source.scheduleType);
       return {

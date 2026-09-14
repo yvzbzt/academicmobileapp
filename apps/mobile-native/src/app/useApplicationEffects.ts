@@ -30,7 +30,7 @@ type Dependencies = Pick<ApplicationActions,
   | "alarmEnabledRef" | "alarmEnabled" | "alarmModeRef" | "alarmMode" | "categoryDraftRef"
   | "categoryDraft" | "preferences" | "setCategoryDraft" | "setAlarmMode"
   | "setNotificationPreferenceOutcome" | "registerUniversityId" | "registerFacultyId"
-  | "announcements" | "yokAnnouncements" | "summerSchool" | "contentFeedLimit" | "universities"
+  | "announcements" | "yokAnnouncements" | "summerSchool" | "contentFeedLimit" | "contentFeedLimitRef" | "universities"
 > & Pick<ApplicationDerivedState,
   "navigatorRootSurface" | "expectedBaseRoute" | "availableCategories" | "controlledActiveRoute"
 >;
@@ -98,6 +98,7 @@ export function useApplicationEffects(dependencies: Dependencies) {
     summerSchool,
     loadYokAnnouncements,
     contentFeedLimit,
+    contentFeedLimitRef,
     loadSummerSchool,
     controlledActiveRoute,
     universities,
@@ -215,6 +216,7 @@ export function useApplicationEffects(dependencies: Dependencies) {
           undefined,
           ownerSnapshot,
           true,
+          contentFeedLimitRef.current,
         );
       }
       const coordinator = notificationCoordinatorRef.current;
@@ -308,13 +310,14 @@ export function useApplicationEffects(dependencies: Dependencies) {
 
   useEffect(() => {
     if (!session) return;
-    const announcementsExperienceVisible = activeTab === "announcements"
+    const announcementsExperienceVisible = activeTab === "home"
+      || activeTab === "announcements"
       || activeTab === "yok"
       || activeTab === "summer";
     if (!announcementsExperienceVisible) return;
 
     if (registerUniversityId && !announcements.loading && !announcements.data && !announcements.attempted) {
-      void loadAnnouncements(undefined, registerUniversityId);
+      void loadAnnouncements(undefined, registerUniversityId, undefined, false, contentFeedLimit);
       return;
     }
 
@@ -366,7 +369,7 @@ export function useApplicationEffects(dependencies: Dependencies) {
   ]);
 
   useEffect(() => {
-    if (!session || (activeTab !== "announcements" && activeTab !== "yok" && activeTab !== "summer")) return;
+    if (!session) return;
     const timer = setInterval(() => {
       if (announcements.loading || accountCleanupInProgressRef.current) return;
       const ownerSnapshot = accountGuardRef.current.capture();
@@ -377,15 +380,16 @@ export function useApplicationEffects(dependencies: Dependencies) {
         undefined,
         ownerSnapshot,
         true,
+        contentFeedLimitRef.current,
       );
     }, 5 * 60 * 1_000);
     return () => clearInterval(timer);
-  }, [activeTab, announcements.loading, session?.user.id]);
+  }, [announcements.loading, contentFeedLimitRef, session?.user.id]);
 
   useEffect(() => {
     runtimeDiagnostic("feed.state", {
       tab: activeTab,
-      visible: activeTab === "announcements" || activeTab === "yok" || activeTab === "summer",
+      visible: activeTab === "home" || activeTab === "announcements" || activeTab === "yok" || activeTab === "summer",
       primaryLoading: announcements.loading,
       primaryAttempted: Boolean(announcements.attempted),
       primaryItemCount: announcements.data?.items.length ?? 0,

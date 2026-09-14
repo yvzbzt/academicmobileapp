@@ -12,6 +12,8 @@ import { CalendarController } from "../src/modules/calendars/calendar.controller
 import { CalendarService } from "../src/modules/calendars/calendar.service.js";
 import { InMemoryCalendarRepository } from "../src/modules/calendars/in-memory-calendar.repository.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../src/modules/catalog/catalog.types.js";
+import type { PdfRepository } from "../src/modules/pdf/pdf.types.js";
+import type { AcademicUnitScheduleSourceRepository } from "../src/modules/calendars/academic-unit-schedule.types.js";
 
 class FakeEmailVerificationSenderService extends EmailVerificationSenderService {
   public readonly sent: SendVerificationEmailInput[] = [];
@@ -398,6 +400,7 @@ describe("CalendarService", () => {
 
     const courses = await service.getMyCourseSchedules(session.user.id);
     const exams = await service.getMyExamSchedules(session.user.id);
+    const mobileCalendar = await new CalendarController(service).getMyCalendar(session.user);
 
     expect(courses.profile.departmentId).toBe("sample-department-1");
     expect(courses.events).toHaveLength(1);
@@ -412,6 +415,196 @@ describe("CalendarService", () => {
       category: "department_exam_schedule",
       departmentId: "sample-department-1"
     }));
+    expect(mobileCalendar.events.find((event) => event.title === "Guz Donemi Final Sinavlari"))
+      .toEqual(expect.objectContaining({ facultyId: "sample-faculty-1" }));
+  });
+
+  it("marks a text-layer academic PDF for device processing", async () => {
+    const { authRepository, session } = await createStudentWithUniversity();
+    const calendarRepository = await createSeededCalendarRepository();
+    const calendar = await calendarRepository.findPublishedCalendar("sample-university-1", "2026-2027");
+    await calendarRepository.updateCalendar(calendar!.id, {
+      sourcePdfId: "pdf-source-1",
+      sourceUrl: "https://calendar.example.edu.tr/2026-2027.pdf"
+    });
+    const pdfRepository = {
+      findPdfSourceById: vi.fn(async () => ({
+        id: "pdf-source-1",
+        universityId: "sample-university-1",
+        url: "https://calendar.example.edu.tr/2026-2027.pdf",
+        fileName: "2026-2027.pdf",
+        filePath: "/verified/2026-2027.pdf",
+        fileHash: "a".repeat(64),
+        binarySha256: "a".repeat(64),
+        binaryIdentityVerified: true,
+        fileSize: 4096,
+        mimeType: "application/pdf",
+        magicBytesHex: "255044462d312e37",
+        pageCount: 4,
+        academicYear: "2026-2027",
+        version: 1,
+        status: "uploaded",
+        rawText: "15 Eylul 2026 Guz Donemi Ders Kayitlari",
+        parseStatus: "processed",
+        uploadedBy: "admin",
+        createdAt: new Date("2026-09-14T09:00:00.000Z"),
+        updatedAt: new Date("2026-09-14T09:00:00.000Z")
+      }))
+    } as unknown as PdfRepository;
+    const service = new CalendarService(
+      calendarRepository,
+      authRepository,
+      undefined,
+      undefined,
+      pdfRepository
+    );
+
+    const result = await service.getMyCalendar(session.user.id);
+    expect(result).toMatchObject({
+      pdfProcessingMode: "device_text",
+      devicePdf: {
+        mode: "device_text",
+        sourceUrl: "https://calendar.example.edu.tr/2026-2027.pdf",
+        allowedOfficialDomain: "example.edu.tr",
+        expectedSha256: "a".repeat(64),
+        expectedByteLength: 4096,
+        document: {
+          kind: "academic_calendar",
+          universityId: "sample-university-1",
+          academicYear: "2026-2027",
+          approvedEvents: expect.any(Array)
+        }
+      }
+    });
+    expect(Date.parse(result.devicePdf!.validUntil) - Date.parse(result.devicePdf!.authorizedAt)).toBe(15 * 60 * 1000);
+  });
+
+  it("issues a device capability only for an approved and published schedule PDF", async () => {
+    const { authRepository, session } = await createStudentWithUniversity();
+    const calendarRepository = new InMemoryCalendarRepository();
+    const calendar = await calendarRepository.createCalendar({
+      universityId: "sample-university-1",
+      academicYear: "2026-2027",
+      title: "2026-2027 Akademik Takvimi",
+      status: "published",
+      version: 1,
+      publishedAt: new Date("2026-09-14T08:00:00.000Z")
+    });
+    await calendarRepository.createEvents([{
+      calendarId: calendar.id,
+      universityId: "sample-university-1",
+      facultyId: "sample-faculty-1",
+      departmentId: "sample-department-1",
+      academicYear: "2026-2027",
+      term: "fall",
+      category: "course_schedule",
+      title: "Data Structures",
+      startDate: new Date("2026-09-14T06:00:00.000Z"),
+      timezone: "Europe/Istanbul",
+      status: "published",
+      scheduleSourceId: "schedule-source-1",
+      scheduleReviewKey: "review-key-1",
+      scheduleRowNumber: 1,
+      notificationRules: []
+    }]);
+    const sourceUrl = "https://files.example.edu.tr/course-schedule.pdf";
+    const catalogRepository = {
+      listDepartments: vi.fn(async () => [{
+        id: "sample-department-1",
+        universityId: "sample-university-1",
+        facultyId: "sample-faculty-1",
+        name: "Computer Engineering",
+        slug: "computer-engineering",
+        educationLevel: "bachelor",
+        courseScheduleUrl: sourceUrl,
+        status: "active",
+        createdAt: new Date("2026-09-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-09-01T00:00:00.000Z")
+      }])
+    } as unknown as CatalogRepository;
+    const scheduleRepository = {
+      findSourceById: vi.fn(async () => ({
+        id: "schedule-source-1",
+        key: "course-source",
+        universityId: "sample-university-1",
+        facultyId: "sample-faculty-1",
+        departmentId: "sample-department-1",
+        scheduleType: "course_schedule",
+        sourceUrl,
+        sourceUrlHash: "d".repeat(64),
+        verifiedFinalUrl: sourceUrl,
+        verifiedFinalUrlHash: "e".repeat(64),
+        definitionHash: "f".repeat(64),
+        evidenceHash: "1".repeat(64),
+        evidence: {},
+        lifecycle: "published",
+        revision: 4,
+        reviewResult: {
+          outcome: "parsed_pending_review",
+          format: "pdf",
+          parser: "pdf_binary_text",
+          finalUrl: sourceUrl,
+          contentSha256: "c".repeat(64),
+          contentLengthBytes: 5000,
+          candidateCount: 1,
+          candidates: [{ rowNumber: 1, rawText: "Monday 09:00-10:00 Data Structures", title: "Data Structures", dayOfWeek: 1, startTime: "09:00", endTime: "10:00" }],
+          checkedAt: new Date("2026-09-14T09:00:00.000Z")
+        },
+        reviewDecision: {
+          decision: "approved",
+          reviewKey: "review-key-1",
+          reviewRevision: 1,
+          reviewedBy: "admin",
+          reviewedAt: new Date("2026-09-14T09:05:00.000Z"),
+          approvedRowNumbers: [1],
+          rejectedRowNumbers: [],
+          academicYear: "2026-2027",
+          term: "fall",
+          courseRangeStart: "2026-09-14",
+          courseRangeEnd: "2026-12-31",
+          materializationStatus: "published"
+        },
+        createdAt: new Date("2026-09-14T08:00:00.000Z"),
+        updatedAt: new Date("2026-09-14T09:05:00.000Z")
+      }))
+    } as unknown as AcademicUnitScheduleSourceRepository;
+    const service = new CalendarService(
+      calendarRepository,
+      authRepository,
+      catalogRepository,
+      undefined,
+      undefined,
+      scheduleRepository
+    );
+
+    await expect(service.getMyCourseSchedules(session.user.id)).resolves.toMatchObject({
+      pdfProcessingMode: "device_text",
+      devicePdf: {
+        mode: "device_text",
+        sourceUrl,
+        allowedOfficialDomain: "example.edu.tr",
+        expectedSha256: "c".repeat(64),
+        expectedByteLength: 5000,
+        document: {
+          kind: "course_schedule",
+          universityId: "sample-university-1",
+          facultyId: "sample-faculty-1",
+          departmentId: "sample-department-1",
+          academicYear: "2026-2027",
+          term: "fall",
+          approvedRowNumbers: [1],
+          approvedRows: [{
+            rowNumber: 1,
+            normalizedTitle: "Data Structures",
+            dayOfWeek: 1,
+            startTime: "09:00",
+            endTime: "10:00"
+          }],
+          courseRangeStart: "2026-09-14",
+          courseRangeEnd: "2026-12-31"
+        }
+      }
+    });
   });
 
   it("creates mobile calendar subscription links and a tokenized ICS feed", async () => {

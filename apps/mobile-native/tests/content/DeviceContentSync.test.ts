@@ -16,6 +16,8 @@ function source(overrides: Partial<DeviceContentSource> = {}): DeviceContentSour
     sourceName: "Example University announcements",
     sourceUrl: "https://example.edu.tr/announcements",
     allowedHostname: "example.edu.tr",
+    allowedOfficialDomain: "example.edu.tr",
+    fetchAllowed: true,
     contentType: "announcement",
     scopeType: "university",
     scopeId: "university-1",
@@ -31,7 +33,7 @@ function source(overrides: Partial<DeviceContentSource> = {}): DeviceContentSour
 
 function manifest(recipe = source(), overrides: Record<string, unknown> = {}) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     version: "b".repeat(64),
     refreshRequired: true,
     generatedAt: "2026-09-14T12:00:00.000Z",
@@ -52,13 +54,26 @@ function createMemoryStorage(): DeviceContentCacheStorage & { values: Map<string
 }
 
 function response(title: string): Response {
+  const body = `<article><h2>${title}</h2><a href="/announcements/item">Open</a></article>`;
   return {
     ok: true,
     status: 200,
     statusText: "OK",
     url: "https://example.edu.tr/announcements",
-    headers: { get: (name: string) => name.toLowerCase() === "content-type" ? "text/html" : null },
-    text: async () => `<article><h2>${title}</h2><a href="/announcements/item">Open</a></article>`,
+    headers: { get: (name: string) => name.toLowerCase() === "content-type" ? "text/html" : name.toLowerCase() === "content-length" ? String(new TextEncoder().encode(body).byteLength) : null },
+    text: async () => body,
+  } as unknown as Response;
+}
+
+function datedResponse(url: string, title: string, date: string, itemPath: string): Response {
+  const body = `<article><h2>${title}</h2><a href="${itemPath}">Open</a><time datetime="${date}">${date}</time></article>`;
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    url,
+    headers: { get: (name: string) => name.toLowerCase() === "content-type" ? "text/html" : name.toLowerCase() === "content-length" ? String(new TextEncoder().encode(body).byteLength) : null },
+    text: async () => body,
   } as unknown as Response;
 }
 
@@ -70,7 +85,10 @@ describe("device content cache", () => {
       ownerId: "owner-1",
       manifestVersion: "b".repeat(64),
       revalidateAfter: "2026-09-14T12:30:00.000Z",
+      snapshotIncomplete: false,
       sourceRevisions: { "source-1": `definition-1:${"a".repeat(64)}` },
+      sourceValidUntil: { "source-1": "2026-09-16T00:00:00.000Z" },
+      failedSourceIds: [],
       items: [record],
       storedAt: initialNow.toISOString(),
     }, storage);
@@ -109,10 +127,84 @@ describe("device content sync", () => {
     });
 
     expect(first.collection.items).toEqual([expect.objectContaining({ title: "Enrollment dates announced" })]);
+    expect(first.collection.hasMore).toBe(false);
+    expect(first.newItems).toEqual([]);
     expect(first.cacheHit).toBe(false);
     expect(cached.cacheHit).toBe(true);
+    expect(cached.collection.hasMore).toBe(false);
+    expect(cached.newItems).toEqual([]);
     expect(loadManifest).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports only genuinely new records after an existing source revision changes", async () => {
+    const storage = createMemoryStorage();
+    await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(),
+      storage,
+      now: initialNow,
+      fetchOptions: {
+        fetchImpl: jest.fn(async () => listedResponse([
+          ["Initial item", "/announcements/initial"],
+        ])) as unknown as typeof fetch,
+      },
+    });
+
+    const result = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(source({ contentRevision: "c".repeat(64) }), {
+        version: "d".repeat(64),
+        generatedAt: "2026-09-14T13:00:00.000Z",
+        revalidateAfter: "2026-09-14T13:30:00.000Z",
+      }),
+      storage,
+      now: new Date("2026-09-14T13:00:00.000Z"),
+      fetchOptions: {
+        fetchImpl: jest.fn(async () => listedResponse([
+          ["New item", "/announcements/new"],
+          ["Initial item", "/announcements/initial"],
+        ])) as unknown as typeof fetch,
+      },
+    });
+
+    expect(result.newItems).toEqual([expect.objectContaining({ title: "New item" })]);
+  });
+
+  it("uses a newly followed source as a silent baseline instead of backfilling notifications", async () => {
+    const storage = createMemoryStorage();
+    await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(),
+      storage,
+      now: initialNow,
+      fetchOptions: { fetchImpl: jest.fn(async () => response("Initial item")) as unknown as typeof fetch },
+    });
+    const newlyFollowed = source({
+      id: "source-2",
+      sourceUrl: "https://example.edu.tr/news",
+      contentType: "news",
+      scopeId: "university-2",
+    });
+
+    const result = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(source(), {
+        version: "d".repeat(64),
+        generatedAt: "2026-09-14T13:00:00.000Z",
+        revalidateAfter: "2026-09-14T13:30:00.000Z",
+        sources: [source(), newlyFollowed],
+      }),
+      storage,
+      now: new Date("2026-09-14T13:00:00.000Z"),
+      fetchOptions: { fetchImpl: jest.fn(async () => listedResponse([["Followed source history", "/news/history"]], "https://example.edu.tr/news")) as unknown as typeof fetch },
+    });
+
+    expect(result.collection.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Initial item" }),
+      expect.objectContaining({ title: "Followed source history" }),
+    ]));
+    expect(result.newItems).toEqual([]);
   });
 
   it("sends the known version and avoids source fetch when recipes are unchanged", async () => {
@@ -173,6 +265,147 @@ describe("device content sync", () => {
     expect(result.collection.items).toEqual([expect.objectContaining({ title: "Initial item", freshness: "stale" })]);
   });
 
+  it("keeps a leased cache stale while fetching is blocked, then restores it without a redundant request", async () => {
+    const storage = createMemoryStorage();
+    const fetchImpl = jest.fn(async () => response("Known good item"));
+    await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(),
+      storage,
+      now: initialNow,
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+    const blocked = source({ fetchAllowed: false });
+    const blockedResult = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(blocked, {
+        version: "c".repeat(64),
+        generatedAt: "2026-09-14T13:00:00.000Z",
+        revalidateAfter: "2026-09-14T13:30:00.000Z",
+      }),
+      storage,
+      now: new Date("2026-09-14T13:00:00.000Z"),
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(blockedResult.failedSourceIds).toEqual(["source-1"]);
+    expect(blockedResult.collection).toMatchObject({
+      state: "partial",
+      duplicateCount: 0,
+      items: [expect.objectContaining({ title: "Known good item", freshness: "stale" })],
+    });
+
+    const recoveredResult = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(source(), {
+        version: "d".repeat(64),
+        generatedAt: "2026-09-14T13:06:00.000Z",
+        revalidateAfter: "2026-09-14T13:36:00.000Z",
+      }),
+      storage,
+      now: new Date("2026-09-14T13:06:00.000Z"),
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(recoveredResult.failedSourceIds).toEqual([]);
+    expect(recoveredResult.collection.items).toEqual([
+      expect.objectContaining({ title: "Known good item", freshness: "fresh" }),
+    ]);
+  });
+
+  it("does not deliver queued discoveries after the backend blocks that source", async () => {
+    const storage = createMemoryStorage();
+    await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(),
+      storage,
+      now: initialNow,
+      fetchOptions: { fetchImpl: jest.fn(async () => listedResponse([["Initial", "/announcements/initial"]])) as unknown as typeof fetch },
+    });
+    const revised = source({ contentRevision: "c".repeat(64) });
+    const discovered = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(revised, {
+        version: "d".repeat(64),
+        generatedAt: "2026-09-14T13:00:00.000Z",
+        revalidateAfter: "2026-09-14T13:30:00.000Z",
+      }),
+      storage,
+      now: new Date("2026-09-14T13:00:00.000Z"),
+      fetchOptions: { fetchImpl: jest.fn(async () => listedResponse([
+        ["Discovered", "/announcements/discovered"],
+        ["Initial", "/announcements/initial"],
+      ])) as unknown as typeof fetch },
+    });
+    expect(discovered.newItems).toEqual([expect.objectContaining({ title: "Discovered" })]);
+
+    const blocked = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest({ ...revised, fetchAllowed: false }, {
+        version: "e".repeat(64),
+        generatedAt: "2026-09-14T13:31:00.000Z",
+        revalidateAfter: "2026-09-14T14:01:00.000Z",
+      }),
+      storage,
+      now: new Date("2026-09-14T13:31:00.000Z"),
+    });
+
+    expect(blocked.newItems).toEqual([]);
+    expect(blocked.failedSourceIds).toEqual(["source-1"]);
+  });
+
+  it("drops cached content immediately when an authority-revoked source disappears", async () => {
+    const storage = createMemoryStorage();
+    await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(),
+      storage,
+      now: initialNow,
+      fetchOptions: { fetchImpl: jest.fn(async () => response("Revoked item")) as unknown as typeof fetch },
+    });
+
+    const result = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(source(), {
+        version: "e".repeat(64),
+        sources: [],
+        generatedAt: "2026-09-14T13:00:00.000Z",
+        revalidateAfter: "2026-09-14T13:30:00.000Z",
+      }),
+      storage,
+      now: new Date("2026-09-14T13:00:00.000Z"),
+    });
+
+    expect(result.collection.items).toEqual([]);
+    expect(result.failedSourceIds).toEqual([]);
+  });
+
+  it("preserves a partial failure envelope on an immediate cache hit and retries it early", async () => {
+    const storage = createMemoryStorage();
+    const first = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(),
+      storage,
+      now: initialNow,
+      fetchOptions: { fetchImpl: jest.fn(async () => { throw new Error("offline"); }) as unknown as typeof fetch },
+    });
+    const cached = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: jest.fn(async () => manifest()),
+      storage,
+      now: new Date("2026-09-14T12:01:00.000Z"),
+    });
+
+    expect(first.collection.state).toBe("partial");
+    expect(cached.collection.state).toBe("partial");
+    expect(cached.failedSourceIds).toEqual(["source-1"]);
+    expect(cached.cacheHit).toBe(true);
+    const stored = await readDeviceContentCache("owner-1", { storage, now: initialNow });
+    expect(stored?.revalidateAfter).toBe("2026-09-14T12:05:00.000Z");
+  });
+
   it("never carries old content across a source definition change", async () => {
     const storage = createMemoryStorage();
     await syncDeviceContent({
@@ -198,6 +431,184 @@ describe("device content sync", () => {
 
     expect(result.failedSourceIds).toEqual(["source-1"]);
     expect(result.collection.items).toEqual([]);
+  });
+
+  it("drops cached items after their server trust lease expires while the manifest is unavailable", async () => {
+    const storage = createMemoryStorage();
+    await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(source({ validUntil: "2026-09-14T12:05:00.000Z" }), {
+        revalidateAfter: "2026-09-14T12:30:00.000Z",
+      }),
+      storage,
+      now: initialNow,
+      fetchOptions: { fetchImpl: jest.fn(async () => response("Lease-bound item")) as unknown as typeof fetch },
+    });
+
+    const result = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => { throw new Error("offline"); },
+      storage,
+      now: new Date("2026-09-14T12:06:00.000Z"),
+    });
+
+    expect(result.collection.items).toEqual([]);
+    expect(result.collection.state).toBe("fresh");
+  });
+
+  it.each([
+    [25, 0],
+    [0, 25],
+  ])("sorts the complete multi-source collection before pagination regardless of completion order", async (newDelay, oldDelay) => {
+    const storage = createMemoryStorage();
+    const oldSource = source({
+      id: "source-old",
+      sourceUrl: "https://example.edu.tr/old",
+      parserConfig: { itemSelector: "article", linkSelector: "a", titleSelector: "h2", dateSelector: "time" },
+    });
+    const newSource = source({
+      id: "source-new",
+      sourceUrl: "https://example.edu.tr/new",
+      parserConfig: { itemSelector: "article", linkSelector: "a", titleSelector: "h2", dateSelector: "time" },
+    });
+    const fetchImpl = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const isNew = url.endsWith("/new");
+      await new Promise((resolve) => setTimeout(resolve, isNew ? newDelay : oldDelay));
+      return isNew
+        ? datedResponse(url, "Newest item", "2026-09-14", "/new/item")
+        : datedResponse(url, "Older item", "2026-09-01", "/old/item");
+    });
+
+    const result = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(oldSource, { sources: [oldSource, newSource] }),
+      storage,
+      now: initialNow,
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+      concurrency: 2,
+    });
+
+    expect(result.collection.items.map((item) => item.title)).toEqual(["Newest item", "Older item"]);
+  });
+
+  it("places a newly fetched record ahead of an older retained source record", async () => {
+    const storage = createMemoryStorage();
+    const retainedSource = source({
+      id: "source-retained",
+      sourceUrl: "https://example.edu.tr/retained",
+      parserConfig: { itemSelector: "article", linkSelector: "a", titleSelector: "h2", dateSelector: "time" },
+    });
+    const changedSource = source({
+      id: "source-changed",
+      sourceUrl: "https://example.edu.tr/changed",
+      parserConfig: { itemSelector: "article", linkSelector: "a", titleSelector: "h2", dateSelector: "time" },
+    });
+    await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(retainedSource, { sources: [retainedSource, changedSource] }),
+      storage,
+      now: initialNow,
+      fetchOptions: {
+        fetchImpl: (async (input: RequestInfo | URL) => {
+          const url = String(input);
+          return datedResponse(url, url.endsWith("/retained") ? "Retained item" : "Changed old item", "2026-09-01", url.endsWith("/retained") ? "/retained/item" : "/changed/item");
+        }) as typeof fetch,
+      },
+    });
+
+    const changedRecipe = { ...changedSource, contentRevision: "c".repeat(64) };
+    const result = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(retainedSource, {
+        version: "d".repeat(64),
+        generatedAt: "2026-09-14T13:00:00.000Z",
+        revalidateAfter: "2026-09-14T13:30:00.000Z",
+        sources: [retainedSource, changedRecipe],
+      }),
+      storage,
+      now: new Date("2026-09-14T13:00:00.000Z"),
+      fetchOptions: {
+        fetchImpl: (async (input: RequestInfo | URL) => datedResponse(String(input), "Changed newest item", "2026-09-14", "/changed/item")) as typeof fetch,
+      },
+    });
+
+    expect(result.collection.items.map((item) => item.title)).toEqual(["Changed newest item", "Retained item"]);
+  });
+
+  it("bounds the display cache without rediscovering an evicted record as new", async () => {
+    const storage = createMemoryStorage();
+    const firstSource = source({ id: "source-a", sourceUrl: "https://example.edu.tr/a" });
+    const secondSource = source({ id: "source-b", sourceUrl: "https://example.edu.tr/b" });
+    const fetchImpl = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const prefix = url.endsWith("/a") ? "a" : "b";
+      return listedResponse(Array.from({ length: 60 }, (_, index) => [
+        `Source ${prefix.toUpperCase()} item ${index}`,
+        `/${prefix}/item-${index}`,
+      ] as const), url);
+    });
+
+    const result = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(firstSource, { sources: [firstSource, secondSource] }),
+      storage,
+      now: initialNow,
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+    const cached = await readDeviceContentCache("owner-1", { storage, now: initialNow });
+
+    expect(result.collection.items).toHaveLength(120);
+    expect(cached?.items).toHaveLength(100);
+    expect(cached?.snapshotIncomplete).toBe(true);
+
+    const loadCachedManifest = jest.fn(async () => manifest(firstSource, { sources: [firstSource, secondSource] }));
+    const cacheHit = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: loadCachedManifest,
+      storage,
+      now: new Date("2026-09-14T12:10:00.000Z"),
+    });
+    expect(cacheHit.collection.items).toHaveLength(100);
+    expect(cacheHit.collection.hasMore).toBe(true);
+    expect(loadCachedManifest).not.toHaveBeenCalled();
+
+    const cachedIds = new Set(cached?.items.map((item) => item.id));
+    const evicted = result.collection.items.find((item) => !cachedIds.has(item.id));
+    expect(evicted).toBeDefined();
+    const changedSource = evicted?.sourceId === firstSource.id ? firstSource : secondSource;
+    const unchangedSource = changedSource.id === firstSource.id ? secondSource : firstSource;
+    const changedPrefix = changedSource.id === firstSource.id ? "a" : "b";
+    const revisedSource = { ...changedSource, contentRevision: "c".repeat(64) };
+
+    const revised = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: async () => manifest(revisedSource, {
+        version: "d".repeat(64),
+        generatedAt: "2026-09-14T13:00:00.000Z",
+        revalidateAfter: "2026-09-14T13:30:00.000Z",
+        sources: changedSource.id === firstSource.id
+          ? [revisedSource, unchangedSource]
+          : [unchangedSource, revisedSource],
+      }),
+      storage,
+      now: new Date("2026-09-14T13:00:00.000Z"),
+      fetchOptions: {
+        fetchImpl: jest.fn(async (input: RequestInfo | URL) => listedResponse([
+          [`Source ${changedPrefix.toUpperCase()} genuinely new`, `/${changedPrefix}/genuinely-new`],
+          ...Array.from({ length: 60 }, (_, index) => [
+            `Source ${changedPrefix.toUpperCase()} item ${index}`,
+            `/${changedPrefix}/item-${index}`,
+          ] as const),
+        ], String(input))) as unknown as typeof fetch,
+      },
+    });
+
+    expect(revised.collection.items).toContainEqual(expect.objectContaining({ id: evicted?.id }));
+    expect(revised.collection.hasMore).toBe(true);
+    expect(revised.newItems).toEqual([
+      expect.objectContaining({ title: `Source ${changedPrefix.toUpperCase()} genuinely new` }),
+    ]);
   });
 });
 
@@ -227,4 +638,25 @@ function trustedRecord(): TrustedMobileContentRecord {
     sourceStatus: "active",
     sourceTrustStatus: "trusted",
   };
+}
+
+function listedResponse(
+  items: ReadonlyArray<readonly [title: string, path: string]>,
+  url = "https://example.edu.tr/announcements",
+): Response {
+  const body = items.map(([title, path]) => `<article><h2>${title}</h2><a href="${path}">Open</a></article>`).join("");
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    url,
+    headers: {
+      get: (name: string) => name.toLowerCase() === "content-type"
+        ? "text/html"
+        : name.toLowerCase() === "content-length"
+          ? String(new TextEncoder().encode(body).byteLength)
+          : null,
+    },
+    text: async () => body,
+  } as unknown as Response;
 }

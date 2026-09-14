@@ -78,6 +78,8 @@ describe("Phase 9 Calendar detail", () => {
     expect(screen.getByText("3 Ağustos 2026 – 7 Ağustos 2026")).toBeOnTheScreen();
     expect(screen.getByText(/Bitiş günü dâhil.*Saat belirtilmemiş/u)).toBeOnTheScreen();
     expect(screen.getByText("Örnek Üniversitesi Akademik Takvimi")).toBeOnTheScreen();
+    expect(screen.getByText("Resmî PDF")).toBeOnTheScreen();
+    expect(screen.getByText(/Dokunarak resmî belgeyi aç/u)).toBeOnTheScreen();
     expect(screen.getByText("Örnek Üniversitesi · Üniversite geneli")).toBeOnTheScreen();
     expect(screen.queryByText(/Mühendislik Fakültesi.*Bilgisayar Mühendisliği/u)).not.toBeOnTheScreen();
     expect(screen.queryByText(/Kayıt kimliği/u)).not.toBeOnTheScreen();

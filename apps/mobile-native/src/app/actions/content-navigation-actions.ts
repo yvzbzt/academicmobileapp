@@ -19,6 +19,12 @@ import {
 } from "../app-types";
 import { contentFeedDetailItem } from "../app-content";
 import { StaleAccountRequestError } from "../app-errors";
+import {
+  isDeviceContentRecordId,
+  isDeviceContentSaved,
+  setDeviceContentSaved,
+} from "../../content/device-saved-content";
+import { readDeviceContentCache } from "../../content/device-content-cache";
 import type { ApplicationState } from "../useApplicationState";
 import type { ApplicationActions } from "../application-actions";
 import type { ApplicationDerivedState } from "../useApplicationDerivedState";
@@ -76,7 +82,7 @@ export function createContentNavigationActions(
     contentFeedAbortControllerRef.current?.abort();
     contentFeedAbortControllerRef.current = null;
     contentFeedRequestCoordinatorRef.current.reset();
-    setAnnouncements((previous) => settleContentFeedLoading(previous));
+    setAnnouncements({ loading: false });
     setYokAnnouncements((previous) => settleContentFeedLoading(previous));
     setSummerSchool((previous) => settleContentFeedLoading(previous));
     setContentFeedPagination({ loading: false });
@@ -139,6 +145,34 @@ export function createContentNavigationActions(
       return;
     }
 
+    if (isDeviceContentRecordId(announcementId)) {
+      void isDeviceContentSaved(ownerSnapshot.ownerId, announcementId).then((saved) => {
+        if (
+          requestGeneration !== announcementSaveRequestGenerationRef.current
+          || !accountGuardRef.current.isCurrent(ownerSnapshot)
+        ) return;
+        setAnnouncementSaveStatus({
+          id: announcementId,
+          saved,
+          loading: false,
+          mutating: false,
+        });
+      }).catch(() => {
+        if (
+          requestGeneration !== announcementSaveRequestGenerationRef.current
+          || !accountGuardRef.current.isCurrent(ownerSnapshot)
+        ) return;
+        setAnnouncementSaveStatus({
+          id: announcementId,
+          saved: false,
+          loading: false,
+          mutating: false,
+          error: "Kaydetme durumu şu anda yüklenemedi.",
+        });
+      });
+      return;
+    }
+
     void apiRequest<SavedAnnouncementApiStatus>(
       `/announcements/my/saved/${encodeURIComponent(announcementId)}`,
       {},
@@ -188,6 +222,24 @@ export function createContentNavigationActions(
       mutating: true
     });
     try {
+      if (isDeviceContentRecordId(announcementId)) {
+        await trackAuthenticatedMutation(() => setDeviceContentSaved(
+          ownerSnapshot.ownerId,
+          announcementId,
+          targetSaved,
+        ));
+        if (
+          requestGeneration !== announcementSaveRequestGenerationRef.current
+          || !accountGuardRef.current.isCurrent(ownerSnapshot)
+        ) return;
+        setAnnouncementSaveStatus({
+          id: announcementId,
+          saved: targetSaved,
+          loading: false,
+          mutating: false,
+        });
+        return;
+      }
       const payload = await trackAuthenticatedMutation(() => apiRequest<SavedAnnouncementApiStatus>(
         `/announcements/my/saved/${encodeURIComponent(announcementId)}`,
         { method: targetSaved ? "PUT" : "DELETE" },
@@ -253,6 +305,43 @@ export function createContentNavigationActions(
         id: announcementId,
         loading: false,
         error: "Güvenilir içerik doğrulanamadı."
+      });
+      return;
+    }
+
+    if (isDeviceContentRecordId(announcementId)) {
+      void readDeviceContentCache(ownerSnapshot.ownerId).then((cache) => {
+        if (
+          requestGeneration !== announcementDetailRequestGenerationRef.current
+          || !accountGuardRef.current.isCurrent(ownerSnapshot)
+        ) return;
+        const record = cache?.items.find((item) => item.id === announcementId);
+        const detailItem = record ? contentFeedDetailItem(record, "academic") : null;
+        if (!detailItem) {
+          setAnnouncementDetailLoad({
+            id: announcementId,
+            loading: false,
+            error: "Bu cihaz içeriği artık güvenilir önbellekte bulunmuyor.",
+          });
+          return;
+        }
+        setActiveTrustedDetail({
+          type: "announcement",
+          id: detailItem.record.id,
+          title: detailItem.record.title,
+          item: detailItem,
+        });
+        setAnnouncementDetailLoad(null);
+      }).catch(() => {
+        if (
+          requestGeneration !== announcementDetailRequestGenerationRef.current
+          || !accountGuardRef.current.isCurrent(ownerSnapshot)
+        ) return;
+        setAnnouncementDetailLoad({
+          id: announcementId,
+          loading: false,
+          error: "Bu cihaz içeriği şu anda açılamıyor.",
+        });
       });
       return;
     }

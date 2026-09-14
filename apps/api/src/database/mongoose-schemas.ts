@@ -341,8 +341,10 @@ export const announcementSourceSchema = new Schema(
     lastContentChangedAt: { type: Date, required: false },
     healthProbe: {
       type: {
+        engineVersion: { type: String, required: false, maxlength: 64 },
         healthStatus: { type: String, required: true, enum: ["pending", "healthy", "degraded", "failed"] },
         lastCheckedAt: { type: Date, required: true },
+        lastFullCheckedAt: { type: Date, required: false },
         lastSuccessAt: { type: Date, required: false },
         lastError: { type: String, required: false, trim: true, maxlength: 1_000 },
         consecutiveFailures: { type: Number, required: true, min: 0 },

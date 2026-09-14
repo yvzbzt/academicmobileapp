@@ -8,7 +8,10 @@ export interface DeviceContentCacheRecord {
   ownerId: string;
   manifestVersion: string;
   revalidateAfter: string;
+  snapshotIncomplete: boolean;
   sourceRevisions: Record<string, string>;
+  sourceValidUntil: Record<string, string>;
+  failedSourceIds: string[];
   items: TrustedMobileContentRecord[];
   storedAt: string;
 }
@@ -20,7 +23,7 @@ export interface DeviceContentCacheStorage {
 }
 
 const DEVICE_CONTENT_CACHE_PREFIX = "native_device_content_v1";
-const DEVICE_CONTENT_CACHE_SCHEMA_VERSION = 1;
+const DEVICE_CONTENT_CACHE_SCHEMA_VERSION = 3;
 const DEFAULT_HARD_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const DIGEST_PATTERN = /^[a-f\d]{64}$/u;
 const SOURCE_REVISION_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/u;
@@ -47,7 +50,28 @@ export async function readDeviceContentCache(
     await storage.removeItem(key);
     return null;
   }
-  return parsed;
+  const activeSourceIds = new Set(Object.entries(parsed.sourceValidUntil)
+    .filter(([, validUntil]) => Date.parse(validUntil) > now.getTime())
+    .map(([sourceId]) => sourceId));
+  const leaseExpired = activeSourceIds.size !== Object.keys(parsed.sourceValidUntil).length;
+  const sourceRevisions = Object.fromEntries(Object.entries(parsed.sourceRevisions)
+    .filter(([sourceId]) => activeSourceIds.has(sourceId)));
+  const sourceValidUntil = Object.fromEntries(Object.entries(parsed.sourceValidUntil)
+    .filter(([sourceId]) => activeSourceIds.has(sourceId)));
+  const failedSourceIds = parsed.failedSourceIds.filter((sourceId) => activeSourceIds.has(sourceId));
+  const earliestLease = Object.values(sourceValidUntil).sort()[0];
+  return {
+    ...parsed,
+    revalidateAfter: leaseExpired
+      ? now.toISOString()
+      : earliestLease && earliestLease < parsed.revalidateAfter
+        ? earliestLease
+        : parsed.revalidateAfter,
+    sourceRevisions,
+    sourceValidUntil,
+    failedSourceIds,
+    items: parsed.items.filter((item) => activeSourceIds.has(item.sourceId)),
+  };
 }
 
 export async function writeDeviceContentCache(
@@ -83,19 +107,44 @@ function parseCacheRecord(value: unknown, ownerId: string): DeviceContentCacheRe
   if (!DIGEST_PATTERN.test(asString(value.manifestVersion))) return null;
   const revalidateAfter = readIsoTimestamp(value.revalidateAfter);
   const storedAt = readIsoTimestamp(value.storedAt);
-  if (!revalidateAfter || !storedAt || !isRecord(value.sourceRevisions) || !Array.isArray(value.items)) return null;
+  if (
+    !revalidateAfter
+    || !storedAt
+    || typeof value.snapshotIncomplete !== "boolean"
+    || !isRecord(value.sourceRevisions)
+    || !isRecord(value.sourceValidUntil)
+    || !Array.isArray(value.failedSourceIds)
+    || !Array.isArray(value.items)
+  ) return null;
   const sourceRevisions: Record<string, string> = {};
   for (const [sourceId, revision] of Object.entries(value.sourceRevisions)) {
     if (!sourceId || sourceId.length > 512 || typeof revision !== "string" || !SOURCE_REVISION_PATTERN.test(revision)) return null;
     sourceRevisions[sourceId] = revision;
   }
+  const sourceValidUntil: Record<string, string> = {};
+  for (const [sourceId, rawValidUntil] of Object.entries(value.sourceValidUntil)) {
+    const validUntil = readIsoTimestamp(rawValidUntil);
+    if (!sourceId || sourceId.length > 512 || !validUntil) return null;
+    sourceValidUntil[sourceId] = validUntil;
+  }
+  if (Object.keys(sourceRevisions).some((sourceId) => !(sourceId in sourceValidUntil))) return null;
+  const failedSourceIds = value.failedSourceIds;
+  if (
+    failedSourceIds.length > 512
+    || failedSourceIds.some((sourceId) => typeof sourceId !== "string" || !(sourceId in sourceValidUntil))
+    || new Set(failedSourceIds).size !== failedSourceIds.length
+  ) return null;
   const normalized = normalizeTrustedContentCollection(value.items as MobileContentRecordInput[]);
   if (normalized.omittedCount > 0 || normalized.duplicateCount > 0 || normalized.items.length !== value.items.length) return null;
+  if (normalized.items.some((item) => !(item.sourceId in sourceValidUntil))) return null;
   return {
     ownerId,
     manifestVersion: asString(value.manifestVersion),
     revalidateAfter,
+    snapshotIncomplete: value.snapshotIncomplete,
     sourceRevisions,
+    sourceValidUntil,
+    failedSourceIds: [...failedSourceIds].sort(),
     items: normalized.items,
     storedAt,
   };

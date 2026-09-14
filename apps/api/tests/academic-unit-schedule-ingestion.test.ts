@@ -14,6 +14,7 @@ import {
 } from "../src/modules/calendars/academic-unit-schedule-ingestion.service.js";
 import { InMemoryAcademicUnitScheduleRepository } from "../src/modules/calendars/in-memory-academic-unit-schedule.repository.js";
 import type { AcademicUnitScheduleType } from "../src/modules/calendars/academic-unit-schedule.types.js";
+import type { PdfOcrService } from "../src/modules/pdf/pdf-ocr.service.js";
 
 describe("academic-unit schedule ingestion", () => {
   it("does not turn CMS publication metadata into exam rows", () => {
@@ -167,7 +168,13 @@ describe("academic-unit schedule ingestion", () => {
 
     const result = await harness.service.ingestSource({ kind: "global" }, source!.id, source!.revision);
 
-    expect(result.reviewResult).toMatchObject({ outcome: "parsed_pending_review", format, parser, candidateCount: 1 });
+    expect(result.reviewResult).toMatchObject({
+      outcome: "parsed_pending_review",
+      format,
+      parser,
+      candidateCount: 1,
+      contentLengthBytes: response.body.byteLength
+    });
     expect(result.reviewResult?.candidates[0]).toMatchObject({ date: "2027-01-05", startTime: "10:00", endTime: "11:00" });
   });
 
@@ -187,6 +194,41 @@ describe("academic-unit schedule ingestion", () => {
     const [imageSource] = await image.repository.listSources({ limit: 10, offset: 0 });
     const imageResult = await image.service.ingestSource({ kind: "global" }, imageSource!.id, 0);
     expect(imageResult.reviewResult).toMatchObject({ outcome: "unsupported_ocr_review", format: "image", reasonCode: "ocr_not_configured" });
+  });
+
+  it("uses configured server OCR for a textless PDF and still requires admin review", async () => {
+    const ocrService: Pick<PdfOcrService, "extractVerifiedPdfText"> = {
+      extractVerifiedPdfText: vi.fn(async () => ({
+        provider: "test_ocr",
+        text: "05.01.2027 10:00-11:00 MAT101 Final Sinavi"
+      }))
+    };
+    const response = binaryResponse(
+      textPdf(""),
+      "application/pdf",
+      "https://schedule.uni.edu.tr/exam.pdf"
+    );
+    const harness = await createHarness("exam_schedule", response, true, undefined, undefined, ocrService);
+    await harness.service.provisionVerifiedRegistry();
+    const [source] = await harness.repository.listSources({ limit: 10, offset: 0 });
+
+    const result = await harness.service.ingestSource({ kind: "global" }, source!.id, source!.revision);
+
+    expect(ocrService.extractVerifiedPdfText).toHaveBeenCalledWith(expect.objectContaining({
+      sourceId: source!.id,
+      sourceUrl: "https://schedule.uni.edu.tr/exam.pdf",
+      pdfData: response.body,
+      expectedSha256: expect.stringMatching(/^[a-f\d]{64}$/u)
+    }));
+    expect(result).toMatchObject({
+      lifecycle: "review_required",
+      reviewResult: {
+        outcome: "parsed_pending_review",
+        format: "pdf",
+        parser: "pdf_ocr",
+        candidateCount: 1
+      }
+    });
   });
 
   it("persists a bounded review-visible failure when outbound retrieval fails", async () => {
@@ -743,7 +785,8 @@ async function createHarness(
   responseOrFetcher: SafeOutboundResponse | AcademicUnitScheduleFetcher,
   includeEvidence = true,
   calendars: InMemoryCalendarRepository = new InMemoryCalendarRepository(),
-  repository: InMemoryAcademicUnitScheduleRepository = new InMemoryAcademicUnitScheduleRepository()
+  repository: InMemoryAcademicUnitScheduleRepository = new InMemoryAcademicUnitScheduleRepository(),
+  ocrService?: Pick<PdfOcrService, "extractVerifiedPdfText">
 ) {
   const catalog = new InMemoryCatalogRepository();
   const university = await catalog.createUniversity({ name: "University", slug: "uni", city: "Ankara", type: "state", status: "active" });
@@ -791,7 +834,16 @@ async function createHarness(
       authorityDomains: ["uni.edu.tr"]
     }
   };
-  const service = new AcademicUnitScheduleIngestionService(repository, catalog, async () => [registrySource], fetcher, async () => authority, calendars, audit);
+  const service = new AcademicUnitScheduleIngestionService(
+    repository,
+    catalog,
+    async () => [registrySource],
+    fetcher,
+    async () => authority,
+    calendars,
+    audit,
+    ocrService
+  );
   return { service, repository, registrySource, calendars, audit };
 }
 

@@ -355,7 +355,9 @@ describe("Phase 10 Profile and Settings contracts", () => {
   });
 
   it("keeps additional-university follows deduplicated, owner-scoped, and limited to announcement refresh", () => {
-    const toggleFollow = functionSource(applicationModule("actions/catalog-actions.ts"), "toggleFollowedUniversity");
+    const catalogActions = applicationModule("actions/catalog-actions.ts");
+    const toggleFollow = functionSource(catalogActions, "toggleFollowedUniversity");
+    const resetOwnedContent = functionSource(catalogActions, "resetOwnedAcademicContent");
     const resetUserState = functionSource(applicationModule("actions/account-cleanup-actions.ts"), "resetUserScopedState");
 
     expect(applicationModule("useApplicationDerivedState.ts")).toContain("selectAdditionalUniversityFollows(");
@@ -368,8 +370,11 @@ describe("Phase 10 Profile and Settings contracts", () => {
     expect(toggleFollow).toContain("Promise.all(followIds.map");
     expect(toggleFollow).toContain("scope.universityId === universityId && !scope.facultyId && !scope.departmentId");
     expect(toggleFollow).toContain("accountGuardRef.current.isCurrent(ownerSnapshot)");
-    expect(toggleFollow).toContain("invalidateContentFeedOwnership();");
-    expect(toggleFollow).toContain("void refreshContentFeed();");
+    expect(toggleFollow).toContain("await resetOwnedAcademicContent(ownerSnapshot.ownerId);");
+    expect(resetOwnedContent).toContain("invalidateContentFeedOwnership();");
+    expect(resetOwnedContent).toContain("deleteDeviceContentCache(ownerId)");
+    expect(resetOwnedContent).not.toContain("deleteDeviceContentNotificationLedger(ownerId)");
+    expect(resetOwnedContent).toContain("void refreshContentFeed();");
     expect(toggleFollow).not.toContain("loadMyCalendar");
     expect(toggleFollow).not.toContain("loadUpcoming");
     expect(resetUserState).toContain("setFollowedUniversities({ loading: false });");

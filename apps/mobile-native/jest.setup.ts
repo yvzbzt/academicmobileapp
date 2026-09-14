@@ -1,3 +1,5 @@
+jest.mock("expo/fetch", () => ({ fetch: jest.fn() }));
+
 jest.mock("react-native-safe-area-context", () => {
   const React = require("react");
   const { View } = require("react-native");

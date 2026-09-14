@@ -4,6 +4,9 @@ import {
   type TrustedContentCollection,
 } from "../../content/content-trust";
 import { syncDeviceContent } from "../../content/device-content-sync";
+import { acknowledgeDeviceContentNotifications } from "../../content/device-content-notification-ledger";
+import { hydrateDeviceAcademicPdfEvents } from "../../calendar/device-academic-pdf";
+import { notifyNewDeviceContent } from "../../notifications";
 import { CONTENT_FEED_MAX_LIMIT, nextContentFeedLimit } from "../../announcements/feed-model";
 import {
   type CalendarPayload,
@@ -28,11 +31,11 @@ type Dependencies = Pick<ApplicationState,
   | "contentFeedRequestCoordinatorRef" | "registerUniversityId" | "setAnnouncements"
   | "setYokAnnouncements" | "setSummerSchool" | "contentFeedAbortControllerRef"
   | "setContentFeedPagination" | "contentFeedPagination" | "announcements" | "yokAnnouncements"
-  | "setContentFeedLimit"
+  | "setContentFeedLimit" | "notificationLifecycleRef" | "notificationPreferencesRef"
 > & Pick<ApplicationDerivedState,
   "accessToken"
 > & Pick<ApplicationActions,
-  "withLoadable" | "apiRequest"
+  "withLoadable" | "apiRequest" | "trackAuthenticatedMutation"
 >;
 
 export function createContentActions(
@@ -40,12 +43,13 @@ export function createContentActions(
 ): Pick<ApplicationActions,
   "loadMyCalendar" | "loadCourseSchedule" | "loadUpcoming" | "loadAnnouncements"
   | "loadYokAnnouncements" | "loadSummerSchool" | "refreshSummerSchool" | "refreshContentFeed"
-  | "loadMoreContentFeed"
+  | "loadMoreContentFeed" | "loadDeviceAnnouncementCollection"
 > {
   const {
     accountGuardRef,
     accessToken,
     withLoadable,
+    trackAuthenticatedMutation,
     setCalendar,
     apiRequest,
     setCourseSchedule,
@@ -61,7 +65,9 @@ export function createContentActions(
     contentFeedPagination,
     announcements,
     yokAnnouncements,
-    setContentFeedLimit
+    setContentFeedLimit,
+    notificationLifecycleRef,
+    notificationPreferencesRef,
   } = dependencies;
 
   async function loadMyCalendar(
@@ -75,6 +81,7 @@ export function createContentActions(
     await withLoadable(
       setCalendar,
       () => apiRequest<CalendarPayload>("/calendar/my", {}, token, { ownerSnapshot })
+        .then(hydrateCalendarPdfPayload)
         .then(normalizeCalendarPayloadForDisplay),
       ownerSnapshot,
       preserveDataOnRefresh
@@ -91,16 +98,16 @@ export function createContentActions(
 
     await withLoadable(
       setCourseSchedule,
-      () => apiRequest<DepartmentSchedulePayload>("/calendar/my/course-schedules", {}, token, { ownerSnapshot })
-        .then((payload) => {
-          const { sourceUrl: rawSourceUrl, ...safePayload } = payload;
-          const sourceUrl = canonicalizeOfficialAcademicUrl(rawSourceUrl);
-          return {
-            ...safePayload,
-            events: normalizeEventRecordsForDisplay(payload.events),
-            ...(sourceUrl ? { sourceUrl } : {})
-          };
-        }),
+      () => Promise.all([
+        apiRequest<DepartmentSchedulePayload>("/calendar/my/course-schedules", {}, token, { ownerSnapshot }),
+        apiRequest<DepartmentSchedulePayload>("/calendar/my/exam-schedules", {}, token, { ownerSnapshot })
+      ]).then(async ([coursePayload, examPayload]) => {
+        const [hydratedCoursePayload, hydratedExamPayload] = await Promise.all([
+          hydrateDepartmentPdfPayload(coursePayload, "Bölüm ders programı"),
+          hydrateDepartmentPdfPayload(examPayload, "Bölüm sınav programı"),
+        ]);
+        return mergeDepartmentSchedules(hydratedCoursePayload, hydratedExamPayload);
+      }),
       ownerSnapshot,
       preserveDataOnRefresh
     );
@@ -157,27 +164,51 @@ export function createContentActions(
     ownerSnapshot: NonNullable<ReturnType<typeof accountGuardRef.current.capture>>,
     limit: number,
     signal: AbortSignal | undefined,
-    requestGeneration: number,
+    requestGeneration: number | undefined,
     force: boolean,
   ): Promise<TrustedContentCollection> {
-    const result = await syncDeviceContent({
-      ownerId: ownerSnapshot.ownerId,
-      force,
-      loadManifest: (knownVersion) => apiRequest<unknown>(
-        `/announcements/my/source-manifest${knownVersion ? `?knownVersion=${encodeURIComponent(knownVersion)}` : ""}`,
-        signal ? { signal } : {},
-        token,
-        { ownerSnapshot },
-      ),
-      fetchOptions: { ...(signal ? { signal } : {}) },
-      isCurrent: () => accountGuardRef.current.isCurrent(ownerSnapshot)
-        && contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration),
+    const isCurrent = () => accountGuardRef.current.isCurrent(ownerSnapshot)
+      && (requestGeneration === undefined
+        || contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration));
+    const result = await trackAuthenticatedMutation(async () => {
+      const synced = await syncDeviceContent({
+        ownerId: ownerSnapshot.ownerId,
+        force,
+        loadManifest: (knownVersion) => apiRequest<unknown>(
+          `/announcements/my/source-manifest${knownVersion ? `?knownVersion=${encodeURIComponent(knownVersion)}` : ""}`,
+          signal ? { signal } : {},
+          token,
+          { ownerSnapshot },
+        ),
+        fetchOptions: { ...(signal ? { signal } : {}) },
+        isCurrent,
+      });
+      let scheduledItemIds: readonly string[] = [];
+      const delivery = await notifyNewDeviceContent({
+        ownerId: ownerSnapshot.ownerId,
+        items: synced.newItems,
+        lifecycle: notificationLifecycleRef.current,
+        ...(notificationPreferencesRef.current ? { preferences: notificationPreferencesRef.current } : {}),
+        getCurrentDeliveryState: () => ({
+          lifecycle: notificationLifecycleRef.current,
+          ...(notificationPreferencesRef.current ? { preferences: notificationPreferencesRef.current } : {}),
+        }),
+        onScheduledItems: (itemIds) => { scheduledItemIds = itemIds; },
+        isCurrent,
+      });
+      if (delivery === "scheduled" && scheduledItemIds.length > 0 && isCurrent()) {
+        await acknowledgeDeviceContentNotifications(
+          ownerSnapshot.ownerId,
+          scheduledItemIds,
+        );
+      }
+      return synced;
     });
     const boundedLimit = Math.max(1, Math.min(limit, CONTENT_FEED_MAX_LIMIT));
     return {
       ...result.collection,
       items: result.collection.items.slice(0, boundedLimit),
-      hasMore: result.collection.items.length > boundedLimit,
+      hasMore: result.collection.hasMore === true || result.collection.items.length > boundedLimit,
       rawItemCount: result.collection.items.length,
     };
   }
@@ -381,6 +412,78 @@ export function createContentActions(
     loadSummerSchool,
     refreshSummerSchool,
     refreshContentFeed,
-    loadMoreContentFeed
+    loadMoreContentFeed,
+    loadDeviceAnnouncementCollection
+  };
+}
+
+export async function hydrateCalendarPdfPayload(payload: CalendarPayload): Promise<CalendarPayload> {
+  const universityId = payload.calendar.universityId
+    ?? payload.events.find((event) => event.universityId)?.universityId;
+  if (!universityId) return payload;
+  const events = await hydrateDeviceAcademicPdfEvents({
+    processingMode: payload.pdfProcessingMode,
+    source: payload.devicePdf,
+    serverEvents: payload.events,
+    context: { universityId, sourceLabel: "Akademik takvim" },
+  });
+  return {
+    ...payload,
+    events,
+    ...(events.length > 0 ? { sourceStatus: "parsed" as const } : {}),
+  };
+}
+
+async function hydrateDepartmentPdfPayload(
+  payload: DepartmentSchedulePayload,
+  sourceLabel: string,
+): Promise<DepartmentSchedulePayload> {
+  const events = await hydrateDeviceAcademicPdfEvents({
+    processingMode: payload.pdfProcessingMode,
+    source: payload.devicePdf,
+    serverEvents: payload.events,
+    context: {
+      universityId: payload.profile.universityId,
+      ...(payload.profile.facultyId ? { facultyId: payload.profile.facultyId } : {}),
+      ...(payload.profile.departmentId ? { departmentId: payload.profile.departmentId } : {}),
+      sourceLabel,
+    },
+  });
+  return {
+    ...payload,
+    events,
+    ...(events.length > 0 ? { sourceStatus: "parsed" as const } : {}),
+  };
+}
+
+export function mergeDepartmentSchedules(
+  coursePayload: DepartmentSchedulePayload,
+  examPayload: DepartmentSchedulePayload
+): DepartmentSchedulePayload {
+  const courseSourceUrl = canonicalizeOfficialAcademicUrl(coursePayload.sourceUrl);
+  const examSourceUrl = canonicalizeOfficialAcademicUrl(examPayload.sourceUrl);
+  const events = [
+    ...normalizeEventRecordsForDisplay(coursePayload.events).map((event) => ({
+      ...event,
+      sourceLabel: "Bölüm ders programı",
+      ...(courseSourceUrl ? { sourceUrl: courseSourceUrl } : {})
+    })),
+    ...normalizeEventRecordsForDisplay(examPayload.events).map((event) => ({
+      ...event,
+      sourceLabel: "Bölüm sınav programı",
+      ...(examSourceUrl ? { sourceUrl: examSourceUrl } : {})
+    }))
+  ];
+  return {
+    profile: coursePayload.profile,
+    events: [...new Map(events.map((event) => [event.id, event])).values()],
+    sourceStatus: coursePayload.sourceStatus,
+    ...(courseSourceUrl ? { sourceUrl: courseSourceUrl } : {}),
+    ...(coursePayload.pdfProcessingMode ? { pdfProcessingMode: coursePayload.pdfProcessingMode } : {}),
+    ...(coursePayload.devicePdf ? { devicePdf: coursePayload.devicePdf } : {}),
+    examSourceStatus: examPayload.sourceStatus,
+    ...(examSourceUrl ? { examSourceUrl } : {}),
+    ...(examPayload.pdfProcessingMode ? { examPdfProcessingMode: examPayload.pdfProcessingMode } : {}),
+    ...(examPayload.devicePdf ? { examDevicePdf: examPayload.devicePdf } : {})
   };
 }

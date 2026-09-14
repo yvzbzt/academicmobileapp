@@ -320,7 +320,29 @@ export function createContentScreens(dependencies: Dependencies) {
       attempted={Boolean(calendar.attempted)}
       error={calendar.error}
       stale={Boolean(calendar.stale || courseSchedule.stale)}
-      partial={calendar.data?.sourceStatus === "source_only" || courseSchedule.data?.sourceStatus === "source_only"}
+      partial={calendar.data?.sourceStatus === "source_only"
+        || courseSchedule.data?.sourceStatus === "source_only"
+        || courseSchedule.data?.examSourceStatus === "source_only"}
+      officialSources={[
+        ...(calendar.data?.calendar.sourceUrl ? [{
+          id: "academic_calendar" as const,
+          title: "Akademik takvim PDF'i / kaynağı",
+          url: calendar.data.calendar.sourceUrl,
+          ...(calendar.data.pdfProcessingMode ? { pdfProcessingMode: calendar.data.pdfProcessingMode } : {}),
+        }] : []),
+        ...(courseSchedule.data?.sourceUrl ? [{
+          id: "course_schedule" as const,
+          title: "Bölüm ders programı PDF'i / kaynağı",
+          url: courseSchedule.data.sourceUrl,
+          ...(courseSchedule.data.pdfProcessingMode ? { pdfProcessingMode: courseSchedule.data.pdfProcessingMode } : {}),
+        }] : []),
+        ...(courseSchedule.data?.examSourceUrl ? [{
+          id: "exam_schedule" as const,
+          title: "Bölüm sınav programı PDF'i / kaynağı",
+          url: courseSchedule.data.examSourceUrl,
+          ...(courseSchedule.data.examPdfProcessingMode ? { pdfProcessingMode: courseSchedule.data.examPdfProcessingMode } : {}),
+        }] : []),
+      ]}
       apple={Platform.OS === "ios" ? {
         state: appleCalendarState,
         stateLabel: appleCalendarPresentation.label,
@@ -352,6 +374,7 @@ export function createContentScreens(dependencies: Dependencies) {
       onOpenAccountMenu={() => setAccountDrawerVisible(true)}
       onRefresh={() => void Promise.allSettled([loadMyCalendar(), loadCourseSchedule()])}
       onOpenItem={openCalendarItem}
+      onOpenOfficialSource={openAnnouncement}
       onCreatePersonalExam={createPersonalExam}
       onConsumeCreatePersonalExamRequest={(requestKey) => {
         setCalendarCreateIntent((current) => (

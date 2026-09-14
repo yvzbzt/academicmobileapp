@@ -18,6 +18,14 @@ export interface PdfOcrResult {
   text: string;
 }
 
+export interface VerifiedPdfOcrInput {
+  sourceId: string;
+  sourceUrl?: string;
+  pdfData?: Buffer;
+  sourceAuthority?: SourceAuthorityContext;
+  expectedSha256?: string;
+}
+
 interface DocumentAiTextSegment {
   startIndex?: string | number;
   endIndex?: string | number;
@@ -74,6 +82,18 @@ export class PdfOcrService {
     pdfData?: Buffer;
     sourceAuthority?: SourceAuthorityContext;
   }): Promise<PdfOcrResult | null> {
+    return this.extractVerifiedPdfText({
+      sourceId: input.pdfSource.id,
+      ...(input.pdfSource.url ? { sourceUrl: input.pdfSource.url } : {}),
+      ...(input.pdfData ? { pdfData: input.pdfData } : {}),
+      ...(input.sourceAuthority ? { sourceAuthority: input.sourceAuthority } : {}),
+      ...(input.pdfSource.binaryIdentityVerified && input.pdfSource.binarySha256
+        ? { expectedSha256: input.pdfSource.binarySha256 }
+        : {})
+    });
+  }
+
+  async extractVerifiedPdfText(input: VerifiedPdfOcrInput): Promise<PdfOcrResult | null> {
     const provider = (process.env.OCR_PROVIDER ?? "").trim().toLocaleLowerCase("en-US");
     if (!["google_document_ai", "document_ai"].includes(provider)) return null;
 
@@ -83,16 +103,12 @@ export class PdfOcrService {
       return null;
     }
 
-    const pdfData = input.pdfData ?? await downloadPdfData(input.pdfSource.url, input.sourceAuthority);
+    const pdfData = input.pdfData ?? await downloadPdfData(input.sourceUrl, input.sourceAuthority);
     if (!pdfData) {
-      this.logger.warn(`OCR skipped: PDF data is unavailable for source ${input.pdfSource.id}.`);
+      this.logger.warn(`OCR skipped: PDF data is unavailable for source ${input.sourceId}.`);
       return null;
     }
-    if (
-      input.pdfSource.binaryIdentityVerified
-      && input.pdfSource.binarySha256
-      && createHash("sha256").update(pdfData).digest("hex") !== input.pdfSource.binarySha256
-    ) {
+    if (input.expectedSha256 && createHash("sha256").update(pdfData).digest("hex") !== input.expectedSha256) {
       throw new Error("PDF_BINARY_IDENTITY_MISMATCH");
     }
 
@@ -104,7 +120,7 @@ export class PdfOcrService {
 
     const location = processorName.match(/\/locations\/([^/]+)\//u)?.[1] ?? process.env.DOCUMENT_AI_LOCATION ?? "eu";
     const endpoint = `https://${location}-documentai.googleapis.com/v1/${processorName}:process`;
-    this.logger.log(`Running Document AI OCR for PDF source ${input.pdfSource.id}.`);
+    this.logger.log(`Running Document AI OCR for PDF source ${input.sourceId}.`);
     const requestBody = JSON.stringify({
       rawDocument: {
         content: pdfData.toString("base64"),
@@ -135,7 +151,7 @@ export class PdfOcrService {
     }
 
     const text = documentAiPageText(body);
-    this.logger.log(`Document AI OCR completed for PDF source ${input.pdfSource.id}: ${text.length} characters.`);
+    this.logger.log(`Document AI OCR completed for PDF source ${input.sourceId}: ${text.length} characters.`);
     return text.trim() ? { provider: "google_document_ai", text } : null;
   }
 }

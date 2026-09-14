@@ -168,10 +168,18 @@ export function useApplicationDerivedState(dependencies: Dependencies) {
       })),
       ...(courseSchedule.data?.events ?? []).map((event) => ({
         ...event,
-        sourceLabel: "Bölüm ders programı",
+        sourceLabel: event.sourceLabel ?? (event.category === "course_schedule"
+          ? "Bölüm ders programı"
+          : "Bölüm sınav programı"),
         ...(courseSchedule.data?.profile.facultyId ? { facultyId: courseSchedule.data.profile.facultyId } : {}),
         ...(courseSchedule.data?.profile.departmentId ? { departmentId: courseSchedule.data.profile.departmentId } : {}),
-        ...(courseSchedule.data?.sourceUrl ? { sourceUrl: courseSchedule.data.sourceUrl } : {})
+        ...(event.sourceUrl
+          ? { sourceUrl: event.sourceUrl }
+          : event.category === "course_schedule" && courseSchedule.data?.sourceUrl
+            ? { sourceUrl: courseSchedule.data.sourceUrl }
+            : courseSchedule.data?.examSourceUrl
+              ? { sourceUrl: courseSchedule.data.examSourceUrl }
+              : {})
       }))
     ],
     [calendar.data, courseSchedule.data]

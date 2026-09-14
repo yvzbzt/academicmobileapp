@@ -7,6 +7,7 @@ async function bootstrap(): Promise<void> {
     throw new Error("CONTENT_INGESTION_WORKER_ENVIRONMENT_INVALID: MONGODB_URI is required.");
   }
   const application = await NestFactory.createApplicationContext(ContentIngestionWorkerModule, { bufferLogs: true });
+  application.flushLogs();
   application.enableShutdownHooks();
 }
 

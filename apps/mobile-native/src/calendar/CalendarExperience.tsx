@@ -32,6 +32,7 @@ import {
   usePlatformAdaptation,
   useTheme,
 } from "../design-system";
+import { canonicalizeOfficialAcademicUrl } from "../content/content-trust";
 import { runtimeDiagnostic } from "../performance/runtime-diagnostics";
 import { isDateOnlyValue } from "../temporal/academic-temporal";
 import {
@@ -86,6 +87,13 @@ export interface CalendarAppleStatus {
   connected?: boolean;
 }
 
+export interface CalendarOfficialSource {
+  id: "academic_calendar" | "course_schedule" | "exam_schedule";
+  title: string;
+  url: string;
+  pdfProcessingMode?: "device_text" | "server_ocr";
+}
+
 export interface CalendarExperienceProps {
   academicEvents: readonly CalendarAcademicEvent[];
   personalExams: readonly CalendarPersonalExam[];
@@ -102,6 +110,7 @@ export interface CalendarExperienceProps {
   google: CalendarGoogleStatus;
   apple?: CalendarAppleStatus;
   feedback?: ReactNode;
+  officialSources?: readonly CalendarOfficialSource[];
   initialView?: CalendarViewMode;
   initialAnchorDate?: string;
   now?: Date;
@@ -111,6 +120,7 @@ export interface CalendarExperienceProps {
   onOpenAccountMenu?: () => void;
   onRefresh: () => void;
   onOpenItem: (item: CalendarItem) => void;
+  onOpenOfficialSource?: (url: string) => void | Promise<unknown>;
   onCreatePersonalExam: (input: PersonalExamMutationInput) => PersonalExamMutationResult;
   onUpdatePersonalExam: (
     id: string,
@@ -181,6 +191,7 @@ export function CalendarExperience({
   google,
   apple,
   feedback,
+  officialSources = [],
   initialView = "agenda",
   initialAnchorDate,
   now,
@@ -189,6 +200,7 @@ export function CalendarExperience({
   onOpenAccountMenu,
   onRefresh,
   onOpenItem,
+  onOpenOfficialSource,
   onCreatePersonalExam,
   onUpdatePersonalExam,
   onSyncGoogle,
@@ -321,6 +333,10 @@ export function CalendarExperience({
   const month = useMemo(
     () => view === "month" ? buildMonthSummary(filteredItems, anchorDate) : [],
     [anchorDate, filteredItems, view],
+  );
+  const trustedOfficialSources = useMemo(
+    () => normalizeOfficialSources(officialSources),
+    [officialSources],
   );
   const calendarAnnouncement = view === "agenda"
     ? `Ajanda görünümü. ${displayedEntries.length} kayıt gösteriliyor${hasMoreAgendaItems ? ", daha fazla kayıt var" : ""}.`
@@ -491,6 +507,41 @@ export function CalendarExperience({
       ) : null}
 
       <CalendarAvailability error={error} onRefresh={onRefresh} state={state} />
+
+      {trustedOfficialSources.length > 0 && onOpenOfficialSource ? (
+        <Card style={[styles.officialSourcesCard, { gap: theme.spacing.sm }]} testID="calendar-official-sources">
+          <View style={[styles.officialSourcesHeading, { gap: theme.spacing.xs }]}>
+            <Ionicons color={referencePalette.academicBlue} name="document-text-outline" size={21} />
+            <Text accessibilityRole="header" style={[theme.typography.bodyStrong, { color: referencePalette.navy }]}>Resmî belgeler</Text>
+          </View>
+          {trustedOfficialSources.map((source) => (
+            <Pressable
+              accessibilityLabel={`${source.title} resmî kaynağını aç`}
+              accessibilityRole="link"
+              key={source.id}
+              onPress={() => void onOpenOfficialSource(source.url)}
+              style={({ pressed }) => [
+                styles.officialSourceRow,
+                {
+                  backgroundColor: pressed ? theme.colors.action.ghostPressed : theme.colors.background.subtle,
+                  borderRadius: theme.radii.control,
+                  gap: theme.spacing.sm,
+                  padding: theme.spacing.sm,
+                },
+              ]}
+            >
+              <View style={[styles.flexOne, { gap: theme.spacing.xxs }]}>
+                <Text style={[theme.typography.bodyStrong, { color: theme.colors.text.primary }]}>{source.title}</Text>
+                <Text style={[theme.typography.meta, { color: theme.colors.text.secondary }]}>
+                  {pdfProcessingLabel(source.pdfProcessingMode) ?? sourceDomain(source.url)}
+                </Text>
+              </View>
+              <Text style={[theme.typography.label, { color: theme.colors.text.link }]}>Kaynağı aç</Text>
+              <Ionicons color={theme.colors.text.link} name="open-outline" size={19} />
+            </Pressable>
+          ))}
+        </Card>
+      ) : null}
 
       {displayedEntries.length > 0 ? (
         <View style={styles.eventsSectionHeading}>
@@ -1672,6 +1723,32 @@ function classificationPalette(
   }
 }
 
+function normalizeOfficialSources(
+  sources: readonly CalendarOfficialSource[],
+): CalendarOfficialSource[] {
+  const byId = new Map<CalendarOfficialSource["id"], CalendarOfficialSource>();
+  for (const source of sources) {
+    const url = canonicalizeOfficialAcademicUrl(source.url);
+    if (!url) continue;
+    byId.set(source.id, { ...source, url });
+  }
+  return [...byId.values()];
+}
+
+function pdfProcessingLabel(mode?: CalendarOfficialSource["pdfProcessingMode"]): string | undefined {
+  if (mode === "server_ocr") return "Taranmış PDF · OCR işlemesi sunucuda";
+  if (mode === "device_text") return "Metin katmanlı PDF · cihazda işlenebilir";
+  return undefined;
+}
+
+function sourceDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./u, "");
+  } catch {
+    return "Resmî kaynak";
+  }
+}
+
 const styles = StyleSheet.create({
   listContent: {
     alignSelf: "center",
@@ -1680,6 +1757,19 @@ const styles = StyleSheet.create({
   },
   header: {
     alignSelf: "stretch",
+  },
+  officialSourcesCard: {
+    alignSelf: "stretch",
+  },
+  officialSourcesHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  officialSourceRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: 56,
+    minWidth: 0,
   },
   calendarHero: {
     minWidth: 0,

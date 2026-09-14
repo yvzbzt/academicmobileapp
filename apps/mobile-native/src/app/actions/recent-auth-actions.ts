@@ -15,6 +15,8 @@ import {
 } from "../../auth/recent-authentication";
 import { createManualExamStorageKey } from "../../session-integrity/manual-exam-storage";
 import { deleteDeviceContentCache } from "../../content/device-content-cache";
+import { deleteDeviceContentNotificationLedger } from "../../content/device-content-notification-ledger";
+import { deleteDeviceSavedContent } from "../../content/device-saved-content";
 import {
   GOOGLE_AUTH_CONFIGURED,
   GOOGLE_AUTH_CONFIGURATION_MESSAGE,
@@ -319,7 +321,11 @@ export function createRecentAuthActions(
         },
         {
           target: "device_content_cache",
-          run: () => deleteDeviceContentCache(currentSession.user.id)
+          run: () => Promise.all([
+            deleteDeviceContentCache(currentSession.user.id),
+            deleteDeviceContentNotificationLedger(currentSession.user.id),
+            deleteDeviceSavedContent(currentSession.user.id),
+          ]).then(() => undefined)
         },
         {
           target: "google_connection_storage",
@@ -448,7 +454,11 @@ export function createRecentAuthActions(
       },
       {
         target: "device_content_cache",
-        run: () => deleteDeviceContentCache(ownerId)
+        run: () => Promise.all([
+          deleteDeviceContentCache(ownerId),
+          deleteDeviceContentNotificationLedger(ownerId),
+          deleteDeviceSavedContent(ownerId),
+        ]).then(() => undefined)
       },
       {
         target: "google_connection_storage",

@@ -5,6 +5,7 @@ import {
   type BeforeApplicationShutdown,
   type OnApplicationBootstrap
 } from "@nestjs/common";
+import { MongoConnectionService } from "../../database/mongo-connection.service.js";
 import { AnnouncementIngestionService } from "../announcements/announcement-ingestion.service.js";
 import { CalendarIngestionService } from "../calendars/calendar-ingestion.service.js";
 
@@ -15,29 +16,35 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
   private announcementTimer: NodeJS.Timeout | null = null;
   private announcementHealthInitialTimer: NodeJS.Timeout | null = null;
   private announcementHealthTimer: NodeJS.Timeout | null = null;
+  private announcementRevisionInitialTimer: NodeJS.Timeout | null = null;
+  private announcementRevisionTimer: NodeJS.Timeout | null = null;
   private calendarInitialTimer: NodeJS.Timeout | null = null;
   private calendarTimer: NodeJS.Timeout | null = null;
   private announcementCycle: Promise<void> | null = null;
   private announcementHealthCycle: Promise<void> | null = null;
+  private announcementHealthCycleKind: "daily" | "revision" | null = null;
+  private dailyHealthQueued = false;
   private calendarCycle: Promise<void> | null = null;
   private reconciliationCycle: Promise<void> | null = null;
   private acceptingCycles = false;
 
   constructor(
-    @Inject(AnnouncementIngestionService) private readonly announcementIngestionService: Pick<AnnouncementIngestionService, "runScheduledCycle" | "runDailyHealthCycle">,
+    @Inject(MongoConnectionService) private readonly mongoConnectionService: Pick<MongoConnectionService, "connect">,
+    @Inject(AnnouncementIngestionService) private readonly announcementIngestionService: Pick<AnnouncementIngestionService, "runScheduledCycle" | "runDailyHealthCycle" | "runDeviceRevisionCycle">,
     @Inject(CalendarIngestionService) private readonly calendarIngestionService: Pick<CalendarIngestionService, "runScheduledCycle" | "reconcilePublishedCalendarNotifications">
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     if (!isContentWorkerEnabled(process.env)) return;
 
+    await this.mongoConnectionService.connect();
     this.acceptingCycles = true;
-    await this.dispatchReconciliation();
-    if (!this.acceptingCycles) return;
-
     if (process.env.ANNOUNCEMENT_AUTO_INGEST_ENABLED === "true") this.scheduleAnnouncementIngestion();
     if (process.env.ANNOUNCEMENT_HEALTH_PROBE_ENABLED !== "false") this.scheduleAnnouncementHealthProbe();
+    if (process.env.ANNOUNCEMENT_DEVICE_REVISION_ENABLED !== "false") this.scheduleAnnouncementRevisionProbe();
     if (process.env.CALENDAR_AUTO_INGEST_ENABLED === "true") this.scheduleCalendarIngestion();
+    void this.dispatchReconciliation();
+    this.logger.log("CONTENT_INGESTION_WORKER_READY");
   }
 
   async beforeApplicationShutdown(): Promise<void> {
@@ -76,16 +83,43 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
   }
 
   async runAnnouncementHealthCycle(): Promise<boolean> {
-    if (!this.acceptingCycles || this.announcementHealthCycle) return false;
+    if (!this.acceptingCycles) return false;
+    if (this.announcementHealthCycle) {
+      if (this.announcementHealthCycleKind === "revision") this.dailyHealthQueued = true;
+      return false;
+    }
     const cycle = Promise.resolve()
       .then(() => this.announcementIngestionService.runDailyHealthCycle())
       .then(() => undefined);
     this.announcementHealthCycle = cycle;
+    this.announcementHealthCycleKind = "daily";
     try {
       await cycle;
       return true;
     } finally {
-      if (this.announcementHealthCycle === cycle) this.announcementHealthCycle = null;
+      if (this.announcementHealthCycle === cycle) {
+        this.announcementHealthCycle = null;
+        this.announcementHealthCycleKind = null;
+      }
+    }
+  }
+
+  async runAnnouncementRevisionCycle(): Promise<boolean> {
+    if (!this.acceptingCycles || this.announcementHealthCycle) return false;
+    const cycle = Promise.resolve()
+      .then(() => this.announcementIngestionService.runDeviceRevisionCycle())
+      .then(() => undefined);
+    this.announcementHealthCycle = cycle;
+    this.announcementHealthCycleKind = "revision";
+    try {
+      await cycle;
+      return true;
+    } finally {
+      if (this.announcementHealthCycle === cycle) {
+        this.announcementHealthCycle = null;
+        this.announcementHealthCycleKind = null;
+      }
+      this.dispatchQueuedDailyHealthCycle();
     }
   }
 
@@ -144,6 +178,26 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
     }, initialDelayMs);
   }
 
+  private scheduleAnnouncementRevisionProbe(): void {
+    const initialDelayMs = readBoundedPositiveInteger(
+      process.env.ANNOUNCEMENT_DEVICE_REVISION_INITIAL_DELAY_MS,
+      60_000,
+      1_000,
+      60 * 60 * 1_000
+    );
+    const intervalMs = readBoundedPositiveInteger(
+      process.env.ANNOUNCEMENT_DEVICE_REVISION_INTERVAL_MS,
+      30 * 60 * 1_000,
+      5 * 60 * 1_000,
+      6 * 60 * 60 * 1_000
+    );
+    this.announcementRevisionTimer = setInterval(() => this.dispatchAnnouncementRevisionCycle(), intervalMs);
+    this.announcementRevisionInitialTimer = setTimeout(() => {
+      this.announcementRevisionInitialTimer = null;
+      this.dispatchAnnouncementRevisionCycle();
+    }, initialDelayMs);
+  }
+
   private scheduleNextAnnouncementHealthCycle(scheduleTimes: number[]): void {
     this.announcementHealthTimer = setTimeout(() => {
       this.announcementHealthTimer = null;
@@ -175,6 +229,17 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
       .catch(() => this.logger.error("CONTENT_INGESTION_ANNOUNCEMENT_HEALTH_PROBE_FAILED"));
   }
 
+  private dispatchAnnouncementRevisionCycle(): void {
+    void this.runAnnouncementRevisionCycle()
+      .catch(() => this.logger.error("CONTENT_INGESTION_ANNOUNCEMENT_DEVICE_REVISION_FAILED"));
+  }
+
+  private dispatchQueuedDailyHealthCycle(): void {
+    if (!this.acceptingCycles || !this.dailyHealthQueued || this.announcementHealthCycle) return;
+    this.dailyHealthQueued = false;
+    this.dispatchAnnouncementHealthCycle();
+  }
+
   private dispatchCalendarCycle(): void {
     void this.runCalendarCycle().catch(() => this.logger.error("CONTENT_INGESTION_CALENDAR_CYCLE_FAILED"));
   }
@@ -192,12 +257,18 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
     if (this.announcementTimer) clearInterval(this.announcementTimer);
     if (this.announcementHealthInitialTimer) clearTimeout(this.announcementHealthInitialTimer);
     if (this.announcementHealthTimer) clearTimeout(this.announcementHealthTimer);
+    if (this.announcementRevisionInitialTimer) clearTimeout(this.announcementRevisionInitialTimer);
+    if (this.announcementRevisionTimer) clearInterval(this.announcementRevisionTimer);
     if (this.calendarInitialTimer) clearTimeout(this.calendarInitialTimer);
     if (this.calendarTimer) clearTimeout(this.calendarTimer);
     this.announcementInitialTimer = null;
     this.announcementTimer = null;
     this.announcementHealthInitialTimer = null;
     this.announcementHealthTimer = null;
+    this.announcementRevisionInitialTimer = null;
+    this.announcementRevisionTimer = null;
+    this.announcementHealthCycleKind = null;
+    this.dailyHealthQueued = false;
     this.calendarInitialTimer = null;
     this.calendarTimer = null;
   }

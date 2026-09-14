@@ -126,8 +126,12 @@ export interface AnnouncementSourceRecord {
 }
 
 export interface AnnouncementSourceHealthProbe {
+  /** Exact device parser/fetch implementation that produced this probe. */
+  engineVersion?: string;
   healthStatus: AnnouncementSourceHealthStatus;
   lastCheckedAt: Date;
+  /** Last unconditional Istanbul-day safety parse; revision polls never advance it. */
+  lastFullCheckedAt?: Date;
   lastSuccessAt?: Date;
   lastError?: string;
   consecutiveFailures: number;

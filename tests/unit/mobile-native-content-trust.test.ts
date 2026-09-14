@@ -517,7 +517,9 @@ describe("mobile native content-state wiring", () => {
     expect(applicationModule("useApplicationEffects.ts")).toContain("summerSchool.attempted");
     expect(screensSource).toContain("attempted={contentFeedAttempted}");
     expect(screensSource).toContain("refreshing={contentFeedLoading && contentFeedHasRetainedData}");
-    expect(contentSource).toContain("`/announcements/my/trusted?limit=${limitOverride}`");
+    expect(contentSource).toContain("const synced = await syncDeviceContent({");
+    expect(contentSource).toContain("`/announcements/my/source-manifest${knownVersion ?");
+    expect(contentSource).toContain("items: result.collection.items.slice(0, boundedLimit)");
     expect(contentSource).toContain("`/announcements/yok/trusted?limit=${limitOverride}`");
     expect(contentSource).toContain("const nextLimit = nextContentFeedLimit(contentFeedLimit)");
     expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.beginRefresh()");
@@ -525,7 +527,9 @@ describe("mobile native content-state wiring", () => {
     expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.isCurrent(requestLease)");
     expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.captureGeneration()");
     expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.isGenerationCurrent(requestGeneration)");
-    expect(functionSource(contentNavigationSource, "invalidateContentFeedOwnership").match(/settleContentFeedLoading\(previous\)/gu)).toHaveLength(3);
+    const invalidateHandler = functionSource(contentNavigationSource, "invalidateContentFeedOwnership");
+    expect(invalidateHandler).toContain("setAnnouncements({ loading: false });");
+    expect(invalidateHandler.match(/settleContentFeedLoading\(previous\)/gu)).toHaveLength(2);
     expect(loadableHandler).toContain("isOperationCurrent: () => boolean = () => true");
     expect(screensSource).toContain("onRefresh={() => void refreshContentFeed()}");
     expect(screensSource).toContain("Promise.allSettled([loadMyCalendar(), loadCourseSchedule(), loadUpcoming(), refreshContentFeed()])");
@@ -539,14 +543,21 @@ describe("mobile native content-state wiring", () => {
 
     expect(protectedDetailHandler).toContain("++announcementDetailRequestGenerationRef.current");
     expect(protectedDetailHandler).toContain("item.record.id === announcementId");
+    expect(protectedDetailHandler).toContain("isDeviceContentRecordId(announcementId)");
+    expect(protectedDetailHandler).toContain("readDeviceContentCache(ownerSnapshot.ownerId)");
     expect(protectedDetailHandler).toContain("/announcements/my/trusted/${encodeURIComponent(announcementId)}");
     expect(protectedDetailHandler).toContain(".find((item) => item.id === announcementId)");
     expect(protectedDetailHandler).toContain("requestGeneration !== announcementDetailRequestGenerationRef.current");
     expect(screensSource).toContain("activeTrustedDetail.id === announcementDetailLoad.id");
     const invalidationCallSites = ["selectUniversity", "selectFaculty", "selectDepartment", "toggleFollowedUniversity"];
     const catalogSource = applicationModule("actions/catalog-actions.ts");
+    const resetOwnedHandler = functionSource(catalogSource, "resetOwnedAcademicContent");
+    expect(resetOwnedHandler).toContain("invalidateContentFeedOwnership();");
+    expect(resetOwnedHandler).toContain("deleteDeviceContentCache(ownerId)");
+    expect(resetOwnedHandler).not.toContain("deleteDeviceContentNotificationLedger(ownerId)");
+    expect(resetOwnedHandler).toContain("void refreshContentFeed();");
     for (const action of invalidationCallSites) {
-      expect(functionSource(catalogSource, action).match(/invalidateContentFeedOwnership\(\);/gu)).toHaveLength(1);
+      expect(functionSource(catalogSource, action)).toContain("await resetOwnedAcademicContent(ownerSnapshot.ownerId);");
     }
   });
 

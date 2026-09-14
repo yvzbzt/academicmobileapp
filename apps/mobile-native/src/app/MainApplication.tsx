@@ -151,6 +151,7 @@ export function MainApplication() {
     summerSchool: state.summerSchool,
     loadYokAnnouncements: (...args) => actions.loadYokAnnouncements(...args),
     contentFeedLimit: state.contentFeedLimit,
+    contentFeedLimitRef: state.contentFeedLimitRef,
     loadSummerSchool: (...args) => actions.loadSummerSchool(...args),
     controlledActiveRoute: derived.controlledActiveRoute,
     universities: state.universities,

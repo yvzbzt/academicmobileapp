@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import tls from "node:tls";
 import { load } from "cheerio";
+import {
+  DEVICE_SOURCE_ACCEPT_LANGUAGE,
+  DEVICE_SOURCE_USER_AGENT,
+  executeDeviceSourceRuntime,
+  type DeviceSourceRuntimeResponse
+} from "../../../../../packages/shared/src/device-source-runtime.js";
 import { safeOutboundRequest } from "../../common/network/safe-outbound-request.js";
 import {
   requireSourceAuthority,
@@ -21,6 +27,7 @@ import {
   isNavigationOrChromeTitle,
   isOfficialContentUrl,
   normalizeDisplayText,
+  officialDomainForUrl,
   sanitizeAcademicContentBody,
   toIsoString
 } from "./announcement-content-trust.js";
@@ -63,6 +70,9 @@ export interface FetchedSourceSnapshot {
 
 export interface FetchTextInput {
   accept?: string;
+  acceptLanguage?: string;
+  userAgent?: string;
+  origin?: string;
   authority?: SourceAuthorityContext;
   resource?: SourceAuthorityResource;
   etag?: string;
@@ -319,6 +329,73 @@ export function parseGenericAnnouncementHtml(
   contentType?: AnnouncementContentType
 ): ParsedAnnouncementItem[] {
   return parseHtmlDocument(input, sourceUrl, "generic", contentType);
+}
+
+/**
+ * Executes the exact parser/fetch plan shipped to devices. This deliberately
+ * stays separate from the richer legacy ingestion adapters: a successful
+ * mobile-source probe must mean that the same recipe works on a device.
+ */
+export async function fetchDeviceRuntimeSourceSnapshot(
+  sourceUrl: string,
+  parser: AnnouncementSourceParser,
+  timeoutMs = 7000,
+  authorityContext?: SourceAuthorityFetchContext,
+  validators: SourceSnapshotValidators = {},
+  contentType: AnnouncementContentType = "announcement",
+  checkedAt = new Date(),
+  parserConfig?: AnnouncementSourceParserConfig
+): Promise<FetchedSourceSnapshot> {
+  const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
+  const allowedOfficialDomain = officialDomainForUrl(officialSourceUrl);
+  if (!allowedOfficialDomain || new URL(officialSourceUrl).protocol !== "https:") {
+    throw new Error("SOURCE_RUNTIME_RECIPE_INVALID");
+  }
+  const snapshot = await executeDeviceSourceRuntime({
+    sourceUrl: officialSourceUrl,
+    allowedOfficialDomain,
+    contentType,
+    parser,
+    checkedAt: checkedAt.toISOString(),
+    ...(parserConfig ? { parserConfig } : {})
+  }, async (request): Promise<DeviceSourceRuntimeResponse> => {
+    const response = await fetchText(request.url, timeoutMs, {
+      accept: request.accept,
+      acceptLanguage: DEVICE_SOURCE_ACCEPT_LANGUAGE,
+      userAgent: DEVICE_SOURCE_USER_AGENT,
+      ...(request.origin ? { origin: request.origin } : {}),
+      ...(authorityContext ? authorityContext : {}),
+      ...(request.validators?.etag ? { etag: request.validators.etag } : {}),
+      ...(request.validators?.lastModified ? { lastModified: request.validators.lastModified } : {}),
+      maximumRedirects: 5,
+      maximumResponseBytes: 1_500_000
+    });
+    return {
+      status: response.status,
+      text: response.text,
+      finalUrl: response.finalUrl,
+      ...(response.contentType ? { contentType: response.contentType } : {}),
+      ...(response.etag ? { etag: response.etag } : {}),
+      ...(response.lastModified ? { lastModified: response.lastModified } : {})
+    };
+  }, validators);
+  return {
+    items: snapshot.items.map((item) => ({
+      title: item.title,
+      link: item.link,
+      ...(item.publicationKind === "date" && item.publishedDate
+        ? { publicationKind: "date" as const, publishedDate: item.publishedDate }
+        : item.publishedAt ? { publicationKind: "timestamp" as const, publishedAt: new Date(item.publishedAt) } : {}),
+      ...(item.sourceUpdatedAt ? { sourceUpdatedAt: new Date(item.sourceUpdatedAt) } : {}),
+      ...(item.summary ? { summary: item.summary } : {}),
+      ...(item.body?.length ? { body: item.body } : {}),
+      ...(item.keyDates?.length ? { keyDates: item.keyDates } : {})
+    })),
+    finalUrl: snapshot.finalUrl,
+    fetchStatus: snapshot.fetchStatus,
+    ...(snapshot.etag ? { etag: snapshot.etag } : {}),
+    ...(snapshot.lastModified ? { lastModified: snapshot.lastModified } : {})
+  };
 }
 
 const alanyaEventCalendarOrigin = "https://www.alanyauniversity.edu.tr";
@@ -2319,9 +2396,9 @@ async function fetchTextWithSafeRequest(
     maximumResponseBytes: input.maximumResponseBytes ?? 5 * 1024 * 1024,
     headers: {
       Accept: input.accept ?? "text/html,*/*;q=0.8",
-      "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
-      "User-Agent": crawlerUserAgent,
-      ...(isAnkaraUniversityCmsApiRequestUrl(sourceUrl) ? { Origin: ankaraUniversityOrigin } : {}),
+      "Accept-Language": input.acceptLanguage ?? "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
+      "User-Agent": input.userAgent ?? crawlerUserAgent,
+      ...(input.origin ? { Origin: input.origin } : isAnkaraUniversityCmsApiRequestUrl(sourceUrl) ? { Origin: ankaraUniversityOrigin } : {}),
       ...(input.etag ? { "If-None-Match": input.etag } : {}),
       ...(input.lastModified ? { "If-Modified-Since": input.lastModified } : {})
     },

@@ -201,6 +201,8 @@ export function useApplicationState() {
   const [summerSchool, setSummerSchool] = useState<Loadable<SummerSchoolPayload>>({ loading: false });
 
   const [preferences, setPreferences] = useState<Loadable<NotificationPreferencePayload>>({ loading: false });
+  const notificationPreferencesRef = useRef<NotificationPreferencePayload | undefined>(preferences.data);
+  notificationPreferencesRef.current = preferences.data;
 
   const [followedUniversities, setFollowedUniversities] = useState<Loadable<FollowedUniversityRecord[]>>({ loading: false });
 
@@ -313,6 +315,8 @@ export function useApplicationState() {
     registration: "unregistered",
     active: false
   });
+  const notificationLifecycleRef = useRef(notificationLifecycle);
+  notificationLifecycleRef.current = notificationLifecycle;
 
   const [notificationDestinationNotice, setNotificationDestinationNotice] = useState<NotificationDestinationNotice | null>(null);
 
@@ -345,6 +349,8 @@ export function useApplicationState() {
   const [alarmCategoriesExpanded, setAlarmCategoriesExpanded] = useState(false);
 
   const [contentFeedLimit, setContentFeedLimit] = useState(CONTENT_FEED_INITIAL_LIMIT);
+  const contentFeedLimitRef = useRef(contentFeedLimit);
+  contentFeedLimitRef.current = contentFeedLimit;
 
   const [contentFeedPagination, setContentFeedPagination] = useState<{
     loading: boolean;
@@ -545,6 +551,7 @@ export function useApplicationState() {
     setSummerSchool,
     preferences,
     setPreferences,
+    notificationPreferencesRef,
     followedUniversities,
     setFollowedUniversities,
     followedUniversityBusyId,
@@ -626,6 +633,7 @@ export function useApplicationState() {
     setAppleCalendarBusy,
     notificationLifecycle,
     setNotificationLifecycle,
+    notificationLifecycleRef,
     notificationDestinationNotice,
     setNotificationDestinationNotice,
     activeTrustedDetail,
@@ -643,6 +651,7 @@ export function useApplicationState() {
     alarmCategoriesExpanded,
     setAlarmCategoriesExpanded,
     contentFeedLimit,
+    contentFeedLimitRef,
     setContentFeedLimit,
     contentFeedPagination,
     setContentFeedPagination,

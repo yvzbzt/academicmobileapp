@@ -213,9 +213,11 @@ export function CalendarEventDetail({
               : undefined}
             detail={item.source === "personal"
               ? "Yalnızca bu hesaptaki kişisel planda saklanır"
-              : officialSourceDomain ?? "Bağlantı paylaşılmamış"}
-            icon="school-outline"
-            label="Kaynak"
+              : officialSourceDomain
+                ? `${officialSourceDomain} · Dokunarak resmî belgeyi aç`
+                : "Bağlantı paylaşılmamış"}
+            icon={officialSourceUrl && isPdfSource(officialSourceUrl) ? "document-text-outline" : "school-outline"}
+            label={officialSourceUrl && isPdfSource(officialSourceUrl) ? "Resmî PDF" : "Resmî kaynak"}
             onPress={officialSourceUrl && onOpenOfficialSource
               ? () => void onOpenOfficialSource(officialSourceUrl)
               : undefined}
@@ -376,6 +378,14 @@ function sourceDomain(url: string): string {
     return new URL(url).hostname.replace(/^www\./u, "");
   } catch {
     return "Resmî kaynak";
+  }
+}
+
+function isPdfSource(url: string): boolean {
+  try {
+    return new URL(url).pathname.toLocaleLowerCase("en-US").endsWith(".pdf");
+  } catch {
+    return false;
   }
 }
 

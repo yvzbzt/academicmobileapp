@@ -34,6 +34,7 @@ import {
   type AlarmMode,
   type AnnouncementRecord,
 } from "./app-types";
+import { type TrustedContentCollection } from "../content/content-trust";
 
 /** Cross-domain callbacks. Implementations preserve per-render state snapshots. */
 export interface ApplicationActions {
@@ -116,6 +117,7 @@ export interface ApplicationActions {
   loadCourseSchedule(tokenOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean): Promise<void>;
   loadUpcoming(tokenOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean): Promise<void>;
   loadAnnouncements(tokenOverride?: string, universityIdOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean, limitOverride?: number, signal?: AbortSignal, requestGeneration?: number, forceManifestRevalidation?: boolean): Promise<void>;
+  loadDeviceAnnouncementCollection(token: string, ownerSnapshot: AccountGenerationSnapshot, limit: number, signal: AbortSignal | undefined, requestGeneration: number | undefined, force: boolean): Promise<TrustedContentCollection>;
   loadYokAnnouncements(preserveDataOnRefresh?: boolean, limitOverride?: number, signal?: AbortSignal, requestGeneration?: number): Promise<void>;
   loadSummerSchool(tokenOverride?: string, universityIdOverride?: string, ownerSnapshot?: Readonly<{ ownerId: string; generation: number; }> | null, preserveDataOnRefresh?: boolean, signal?: AbortSignal, requestGeneration?: number): Promise<void>;
   refreshSummerSchool(): Promise<void>;

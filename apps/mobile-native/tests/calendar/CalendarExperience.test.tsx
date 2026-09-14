@@ -40,6 +40,7 @@ const callbacks = {
   onManageGoogle: jest.fn(),
   onOpenAccountMenu: jest.fn(),
   onOpenItem: jest.fn(),
+  onOpenOfficialSource: jest.fn(),
   onRefresh: jest.fn(),
   onSyncApple: jest.fn(),
   onSyncGoogle: jest.fn(),
@@ -172,6 +173,48 @@ describe("Phase 9 Calendar experience", () => {
     expect(screen.getByLabelText("Aylık takvim özeti")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Takvim" })).toBeOnTheScreen();
     expect(screen.getByText("Ağustos 2026")).toBeOnTheScreen();
+  });
+
+  it("keeps the official academic, course and exam documents reachable even without selecting an event", async () => {
+    await renderCalendar(props({
+      officialSources: [
+        {
+          id: "academic_calendar",
+          title: "Akademik takvim PDF'i / kaynağı",
+          url: "https://example.edu.tr/calendar.pdf",
+          pdfProcessingMode: "device_text",
+        },
+        {
+          id: "course_schedule",
+          title: "Bölüm ders programı PDF'i / kaynağı",
+          url: "https://example.edu.tr/course.pdf",
+          pdfProcessingMode: "server_ocr",
+        },
+        {
+          id: "exam_schedule",
+          title: "Bölüm sınav programı PDF'i / kaynağı",
+          url: "https://example.edu.tr/exam.pdf",
+        },
+      ],
+    }));
+
+    expect(screen.getByRole("header", { name: "Resmî belgeler" })).toBeOnTheScreen();
+    expect(screen.getByText("Metin katmanlı PDF · cihazda işlenebilir")).toBeOnTheScreen();
+    expect(screen.getByText("Taranmış PDF · OCR işlemesi sunucuda")).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("link", { name: "Bölüm sınav programı PDF'i / kaynağı resmî kaynağını aç" }));
+    expect(callbacks.onOpenOfficialSource).toHaveBeenCalledWith("https://example.edu.tr/exam.pdf");
+  });
+
+  it("does not render an unsafe document URL", async () => {
+    await renderCalendar(props({
+      officialSources: [{
+        id: "academic_calendar",
+        title: "Akademik takvim",
+        url: "javascript:alert(1)",
+      }],
+    }));
+
+    expect(screen.queryByTestId("calendar-official-sources")).not.toBeOnTheScreen();
   });
 
   it("shows the code-native calendar artwork at regular phone and tablet text sizes", async () => {

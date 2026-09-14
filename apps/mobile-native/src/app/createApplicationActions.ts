@@ -544,12 +544,15 @@ export function createApplicationActions(
     setAnnouncements: state.setAnnouncements,
     setYokAnnouncements: state.setYokAnnouncements,
     setSummerSchool: state.setSummerSchool,
+    trackAuthenticatedMutation: <T>(action: () => Promise<T>) => apiActions.trackAuthenticatedMutation<T>(action),
     contentFeedAbortControllerRef: state.contentFeedAbortControllerRef,
     setContentFeedPagination: state.setContentFeedPagination,
     contentFeedPagination: state.contentFeedPagination,
     announcements: state.announcements,
     yokAnnouncements: state.yokAnnouncements,
     setContentFeedLimit: state.setContentFeedLimit,
+    notificationLifecycleRef: state.notificationLifecycleRef,
+    notificationPreferencesRef: state.notificationPreferencesRef,
   });
 
   const notificationActions = createNotificationActions({
@@ -717,7 +720,7 @@ export function createApplicationActions(
       timeoutMs?: number;
     }) => apiActions.apiRequest<T>(path, options, token, requestOptions),
     setCalendar: state.setCalendar,
-    setAnnouncements: state.setAnnouncements,
+    loadDeviceAnnouncementCollection: (...args) => contentActions.loadDeviceAnnouncementCollection(...args),
     appleCalendarPermission: state.appleCalendarPermission,
     appleCalendarStoredState: state.appleCalendarStoredState,
   });
@@ -755,7 +758,7 @@ export function createApplicationActions(
       timeoutMs?: number;
     }) => apiActions.apiRequest<T>(path, options, token, requestOptions),
     setCalendar: state.setCalendar,
-    setAnnouncements: state.setAnnouncements,
+    loadDeviceAnnouncementCollection: (...args) => contentActions.loadDeviceAnnouncementCollection(...args),
     readCurrentGoogleCalendarAuthorization: (...args) => googleCalendarConnectionActions.readCurrentGoogleCalendarAuthorization(...args),
     authorizeGoogleCalendar: (...args) => googleCalendarConnectionActions.authorizeGoogleCalendar(...args),
     queueGoogleSignOut: (...args) => googleCalendarConnectionActions.queueGoogleSignOut(...args),
