@@ -200,42 +200,19 @@ export function useApplicationDerivedState(dependencies: Dependencies) {
   const contentFeedHasMore = trustedContentCollectionHasMore(announcements.data, contentFeedLimit)
     || trustedContentCollectionHasMore(yokAnnouncements.data, contentFeedLimit);
 
-  const contentFeedSecondaryErrors = [yokAnnouncements.error, summerSchool.error]
-    .filter((value): value is string => Boolean(value));
-
-  const contentFeedSourceErrors = [
-    announcements.error,
-    ...(contentFeedHasRetainedData ? contentFeedSecondaryErrors : [])
-  ].filter((value): value is string => Boolean(value));
-
-  const contentFeedError = contentFeedSourceErrors.join(" ") || undefined;
+  // YÖK and summer-school screens own their availability warnings.
+  const contentFeedError = announcements.error;
 
   const contentFeedPartial = announcements.data?.state === "partial"
-    || (
-      contentFeedHasRetainedData
-      && (
-        yokAnnouncements.data?.state === "partial"
-        || summerSchool.data?.contentState === "partial"
-      )
-    )
-    || (
-      contentFeedHasRetainedData
-      && contentFeedSourceErrors.length > 0
-      && contentFeedSourceErrors.length < 3
+    || Boolean(
+      announcements.error
+      && !announcements.data?.items.length
+      && contentFeedHasRetainedData
     );
 
   const contentFeedStale = Boolean(
     announcements.stale
     || announcements.data?.state === "stale"
-    || (
-      contentFeedHasRetainedData
-      && (
-        yokAnnouncements.stale
-        || summerSchool.stale
-        || yokAnnouncements.data?.state === "stale"
-        || summerSchool.data?.contentState === "stale"
-      )
-    )
   );
 
   const contentFeedSecondaryLoading = yokAnnouncements.loading
@@ -504,8 +481,6 @@ export function useApplicationDerivedState(dependencies: Dependencies) {
     summerSchoolAnnouncements,
     contentFeedHasRetainedData,
     contentFeedHasMore,
-    contentFeedSecondaryErrors,
-    contentFeedSourceErrors,
     contentFeedError,
     contentFeedPartial,
     contentFeedStale,
