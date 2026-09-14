@@ -602,11 +602,15 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
     expectedDefinition: AnnouncementSourceDefinitionFence
   ): Promise<AnnouncementSourceRecord | null> {
     if (!isValidObjectId(id)) return null;
+    const missingDefinitionVersion = !normalizedVersion(expectedDefinition.sourceDefinitionVersion);
     const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findOneAndUpdate({
       _id: id,
       ...sourceDefinitionFenceFilter(expectedDefinition)
     }, {
-      $set: { healthProbe: omitUndefined(input as unknown as Record<string, unknown>) }
+      $set: {
+        healthProbe: omitUndefined(input as unknown as Record<string, unknown>),
+        ...(missingDefinitionVersion ? { sourceDefinitionVersion: newSourceDefinitionVersion() } : {})
+      }
     }, { new: true });
     return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
   }
@@ -2226,13 +2230,24 @@ function escapeMongoRegex(value: string): string {
 }
 
 function sourceDefinitionFenceFilter(expected: AnnouncementSourceDefinitionFence): Record<string, unknown> {
+  const expectedDefinitionVersion = normalizedVersion(expected.sourceDefinitionVersion);
   return {
     sourceUrl: expected.sourceUrl,
     parser: expected.parser,
     parserConfig: expected.parserConfig ?? null,
-    ...(expected.sourceDefinitionVersion
-      ? { sourceDefinitionVersion: expected.sourceDefinitionVersion }
-      : { sourceDefinitionVersion: { $exists: false } }),
+    ...(expectedDefinitionVersion
+      ? { sourceDefinitionVersion: expectedDefinitionVersion }
+      : {
+          $and: [
+            {
+              $or: [
+                { sourceDefinitionVersion: { $exists: false } },
+                { sourceDefinitionVersion: null },
+                { sourceDefinitionVersion: "" }
+              ]
+            }
+          ]
+        }),
     ...(expected.notificationProducerVersion
       ? { notificationProducerVersion: expected.notificationProducerVersion }
       : { notificationProducerVersion: { $exists: false } }),

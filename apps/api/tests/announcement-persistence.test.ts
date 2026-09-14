@@ -361,6 +361,44 @@ describe("announcement source trust persistence", () => {
     }
   });
 
+  it.each([
+    ["absent", undefined],
+    ["null", null],
+    ["empty", ""]
+  ])("atomically versions a legacy Mongo source with a %s version and rejects the stale writer", async (_label, legacyVersion) => {
+    const store = new FakeAnnouncementSourceModel();
+    const mongo = new MongoAnnouncementRepository({} as never);
+    Object.defineProperty(mongo, "model", { value: async () => store });
+    const created = await mongo.upsertSource(sourceInput());
+    if (legacyVersion === undefined) delete store.records[0]!.sourceDefinitionVersion;
+    else store.records[0]!.sourceDefinitionVersion = legacyVersion;
+    const legacy = await mongo.findSourceById(created.id);
+    if (!legacy) throw new Error("Expected legacy Mongo source.");
+
+    const first = await mongo.recordSourceHealthProbe(created.id, {
+      healthStatus: "healthy",
+      lastCheckedAt: new Date("2026-09-14T12:00:00.000Z"),
+      consecutiveFailures: 0,
+      itemCount: 3,
+      contentHash: "a".repeat(64)
+    }, legacy);
+    const stale = await mongo.recordSourceHealthProbe(created.id, {
+      healthStatus: "failed",
+      lastCheckedAt: new Date("2026-09-14T12:01:00.000Z"),
+      consecutiveFailures: 1,
+      itemCount: 0,
+      contentHash: "b".repeat(64)
+    }, legacy);
+
+    expect(first?.sourceDefinitionVersion).toMatch(/^[a-f\d]{24}$/u);
+    expect(first?.healthProbe).toMatchObject({ healthStatus: "healthy", itemCount: 3 });
+    expect(stale).toBeNull();
+    expect(await mongo.findSourceById(created.id)).toMatchObject({
+      sourceDefinitionVersion: first?.sourceDefinitionVersion,
+      healthProbe: { healthStatus: "healthy", itemCount: 3 }
+    });
+  });
+
   it("rotates only the notification producer generation when a trusted source is reactivated", async () => {
     const validators = {
       etag: "etag-v1",
