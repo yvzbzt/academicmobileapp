@@ -277,6 +277,8 @@ export interface NotificationRepository {
     retainJobs?: NotificationJobCreateInput[];
   }): Promise<{ active: NotificationJobRecord[]; retired: number }>;
   retireProducedJobs(producerKey: string): Promise<number>;
+  /** Removes every producer relationship owned by this group while preserving unrelated producers on shared jobs. */
+  retireProducerGroupRelationships(producerGroupKey: string): Promise<number>;
   retireSupersededProducerJobs(producerGroupKey: string, activeProducerKey: string): Promise<number>;
   listJobsForDestinationValidation(limit: number, offset: number): Promise<NotificationJobRecord[]>;
   getWorkerBacklog(now: Date): Promise<{ due: number; retrying: number; processing: number; dead: number }>;

@@ -365,6 +365,13 @@ export class NotificationSchedulingService {
     return { active: synced.active, retired: synced.retired + retiredPrevious };
   }
 
+  async retireTrustedAnnouncementSource(source: AnnouncementSourceRecord): Promise<{ retired: number }> {
+    const producerGroupKey = announcementProducerGroupKey(source.id);
+    return {
+      retired: await this.notificationRepository.retireProducerGroupRelationships(producerGroupKey)
+    };
+  }
+
   listCalendarJobs(calendarId: string) {
     return this.notificationRepository.listJobsByCalendar(calendarId);
   }

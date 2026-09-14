@@ -245,7 +245,10 @@ describe("announcement review workflow", () => {
       discoveryMethod: "manual",
       trustReasonCodes: []
     });
-    const notificationScheduling = { syncTrustedAnnouncementSource: vi.fn(async () => ({ active: [], retired: 0 })) };
+    const notificationScheduling = {
+      syncTrustedAnnouncementSource: vi.fn(async () => ({ active: [], retired: 0 })),
+      retireTrustedAnnouncementSource: vi.fn(async () => ({ retired: 0 }))
+    };
     const ingestion = new AnnouncementIngestionService(catalog as never, repository, notificationScheduling as never);
     const ingest = vi.spyOn(ingestion, "ingestSource").mockImplementation(async (source) => ({
       sourceId: source.id,
@@ -296,10 +299,10 @@ describe("announcement review workflow", () => {
       status: "inactive",
       trustStatus: "quarantined"
     });
-    expect(notificationScheduling.syncTrustedAnnouncementSource).toHaveBeenCalledWith(
-      expect.objectContaining({ id: candidate.id, status: "inactive", trustStatus: "quarantined" }),
-      { created: [], materiallyUpdated: [], unchanged: [], removed: [] }
+    expect(notificationScheduling.retireTrustedAnnouncementSource).toHaveBeenCalledWith(
+      expect.objectContaining({ id: candidate.id, status: "inactive", trustStatus: "quarantined" })
     );
+    expect(notificationScheduling.syncTrustedAnnouncementSource).not.toHaveBeenCalled();
   });
 
   it("never republishes an approved historical snapshot while a rejected source approval is delayed or fails", async () => {

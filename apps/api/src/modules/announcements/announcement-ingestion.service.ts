@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource, type VerifiedRegistrySourceEvidence } from "../../bootstrap/verified-source-registry.js";
+import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource, type VerifiedContentSourceParserProfiles, type VerifiedRegistrySourceEvidence } from "../../bootstrap/verified-source-registry.js";
 import { resolveSourceAuthorityContext, type ResolvedSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import { evaluateSourceAuthority, SourceAuthorityError, type SourceAuthorityContext } from "../../domain/source-authority-enforcement.js";
@@ -31,6 +31,7 @@ export interface AnnouncementDiscoveryResult {
   homepageUrl?: string;
   sourceUrl?: string;
   parser?: AnnouncementSourceParser;
+  parserConfig?: AnnouncementSourceParserConfig;
   itemCount: number;
   checkedHomepageCandidates: number;
   checkedSourceCandidates: number;
@@ -272,7 +273,7 @@ export class AnnouncementIngestionService {
               suggestedUrl,
               sourceUrl: configured?.sourceUrl ?? suggestedUrl,
               parser: configured?.parser ?? slot.parser,
-              parserConfig: configured?.parserConfig,
+              parserConfig: configured ? configured.parserConfig : slot.parserConfig,
               status: configured?.status ?? "inactive",
               trustStatus: configured ? "configured" as const : "needs_review" as const,
               lastTest: presentProfileTest(configured),
@@ -288,7 +289,7 @@ export class AnnouncementIngestionService {
             sourceName: source?.sourceName,
             sourceUrl: source?.sourceUrl ?? suggestedUrl,
             parser: source?.parser ?? slot.parser,
-            parserConfig: source?.parserConfig,
+            parserConfig: source ? source.parserConfig : slot.parserConfig,
             status: source?.status ?? "inactive",
             trustStatus: source?.trustStatus ?? "quarantined",
             reviewStatus: presentedSource?.reviewStatus ?? "pending_review",
@@ -488,10 +489,6 @@ export class AnnouncementIngestionService {
       await this.retireSourceNotificationsForReview(quarantined);
       throw new BadRequestException(`Source authority validation failed: ${decision.reasonCode}.`);
     }
-    // Retire the observed producer before approval can rotate its generation.
-    // The pending-state retirement below closes the other side of the race
-    // against an already-running notification sync.
-    await this.retireSourceNotificationsForReview(existing);
     const source = await this.announcementRepository.reviewSource(existing.id, {
       decision: "approve",
       reviewedBy: actorId,
@@ -499,6 +496,9 @@ export class AnnouncementIngestionService {
       ...(input.note ? { reviewNote: input.note } : {})
     }, reviewFence);
     if (!source) throw sourceReviewConflict();
+    // The successful CAS may rotate the producer generation. Keep the
+    // observed record so cleanup still addresses the exact previous key.
+    await this.retireSourceNotificationsForReview(existing);
     await this.retireSourceNotificationsForReview(source);
     let ingestion: AnnouncementIngestionResult;
     try {
@@ -768,6 +768,7 @@ export class AnnouncementIngestionService {
       trustReasonCodes: []
     }, editFence);
     if (!updated) throw sourceReviewConflict();
+    if (definitionChanged) await this.retireSourceNotificationsForReview(existing);
     if (updated.status !== "active" || updated.trustStatus !== "trusted") {
       await this.retireSourceNotifications(updated);
       return { source: updated, ingestion: null };
@@ -1079,7 +1080,8 @@ export class AnnouncementIngestionService {
           sourceUrl: definition.url,
           contentType: definition.contentType,
           ...(definition.verificationEvidence ? { verificationEvidence: definition.verificationEvidence } : {}),
-          parser: "auto",
+          parser: definition.parser,
+          ...(definition.parserConfig ? { parserConfig: definition.parserConfig } : {}),
           priority: definition.priority,
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: "manual"
@@ -1129,7 +1131,8 @@ export class AnnouncementIngestionService {
           sourceUrl: definition.url,
           contentType: definition.contentType,
           ...(definition.verificationEvidence ? { verificationEvidence: definition.verificationEvidence } : {}),
-          parser: "auto",
+          parser: definition.parser,
+          ...(definition.parserConfig ? { parserConfig: definition.parserConfig } : {}),
           priority: definition.priority + (source.scopeType === "department" ? 15 : 10),
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: "manual"
@@ -1169,6 +1172,15 @@ export class AnnouncementIngestionService {
 
   async runDailyHealthCycle(): Promise<AnnouncementHealthProbeCycleResult> {
     return this.runHealthProbeCycle("daily");
+  }
+
+  async probeSourceForDeviceManifestById(id: string): Promise<AnnouncementHealthProbeResult> {
+    const source = await this.announcementRepository.findSourceById(id);
+    if (!source) throw new NotFoundException("Announcement source not found.");
+    if (source.status !== "active" || source.trustStatus !== "trusted" || source.approvalPending === true) {
+      throw new BadRequestException("Only published announcement sources can be device-probed.");
+    }
+    return this.probeSourceHealth(source, "daily");
   }
 
   /**
@@ -1394,6 +1406,7 @@ export class AnnouncementIngestionService {
       ...fullHealthCheckTimestamp(source.healthProbe, mode, checkedAt),
       healthStatus: "failed"
     });
+    await this.retireSourceNotificationsForReview(quarantined);
     return {
       sourceId: source.id,
       status: "failed",
@@ -1742,15 +1755,17 @@ export class AnnouncementIngestionService {
           sourceUrl: registrationDecision.canonicalUrl ?? result.sourceUrl,
           contentType: "announcement",
           parser: result.parser ?? "auto",
+          ...(result.parserConfig ? { parserConfig: result.parserConfig } : {}),
           priority: 20,
           homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
           discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
           trustReasonCodes: [registrationDecision.reasonCode]
         });
       }
-      const { sourceUrl: _sourceUrl, parser: _parser, ...rest } = result;
+      const { sourceUrl: _sourceUrl, parser: _parser, parserConfig: _parserConfig, ...rest } = result;
       void _sourceUrl;
       void _parser;
+      void _parserConfig;
       return {
         ...rest,
         status: "homepage_found_no_items",
@@ -1768,6 +1783,7 @@ export class AnnouncementIngestionService {
       sourceUrl: registrationDecision.canonicalUrl,
       contentType: "announcement",
       parser: result.parser ?? "auto",
+      ...(result.parserConfig ? { parserConfig: result.parserConfig } : {}),
       priority: 20,
       homepageUrl: canonicalizeContentUrl(officialHomepage) ?? officialHomepage,
       discoveryMethod: university.websiteUrl ? "catalog_website" : "domain_candidate",
@@ -1878,9 +1894,7 @@ export class AnnouncementIngestionService {
   }
 
   private retireSourceNotifications(source: AnnouncementSourceRecord): Promise<unknown> {
-    return this.notificationSchedulingService?.syncTrustedAnnouncementSource(source, {
-      created: [], materiallyUpdated: [], unchanged: [], removed: []
-    }) ?? Promise.resolve();
+    return this.notificationSchedulingService?.retireTrustedAnnouncementSource(source) ?? Promise.resolve();
   }
 }
 
@@ -2256,7 +2270,16 @@ async function discoverVerifiedAnnouncementSource(
   if (!verified?.announcementUrl) return null;
 
   try {
-    const items = await fetchSourceItems(verified.announcementUrl, "auto", timeoutMs, { authority, resource: "announcement" });
+    const profile = verified.parserProfiles?.announcement;
+    const parser = profile?.parser ?? "auto";
+    const items = await fetchSourceItems(
+      verified.announcementUrl,
+      parser,
+      timeoutMs,
+      { authority, resource: "announcement" },
+      "announcement",
+      profile?.parserConfig
+    );
     if (items.length === 0) return null;
     const homepageUrl = homepageFromUrl(verified.announcementUrl);
     return {
@@ -2265,7 +2288,8 @@ async function discoverVerifiedAnnouncementSource(
       status: "source_found",
       ...(homepageUrl ? { homepageUrl } : {}),
       sourceUrl: verified.announcementUrl,
-      parser: "auto",
+      parser,
+      ...(profile?.parserConfig ? { parserConfig: profile.parserConfig } : {}),
       itemCount: items.length,
       checkedHomepageCandidates: 0,
       checkedSourceCandidates: 1,
@@ -2288,12 +2312,15 @@ function verifiedContentSourceDefinitions(source: {
   announcementUrl?: string;
   newsUrl?: string;
   eventUrl?: string;
+  parserProfiles?: VerifiedContentSourceParserProfiles;
   verificationByField?: Partial<Record<"announcementUrl" | "newsUrl" | "eventUrl", VerifiedRegistrySourceEvidence>>;
 }): Array<{
   contentType: AnnouncementContentType;
   label: string;
   url: string;
   priority: number;
+  parser: AnnouncementSourceParser;
+  parserConfig?: AnnouncementSourceParserConfig;
   verificationEvidence?: AnnouncementSourceVerificationEvidence;
 }> {
   return [
@@ -2302,6 +2329,10 @@ function verifiedContentSourceDefinitions(source: {
       label: "Duyurular",
       url: source.announcementUrl,
       priority: 30,
+      parser: source.parserProfiles?.announcement?.parser ?? "auto",
+      ...(source.parserProfiles?.announcement?.parserConfig
+        ? { parserConfig: source.parserProfiles.announcement.parserConfig }
+        : {}),
       ...(source.verificationByField?.announcementUrl
         ? { verificationEvidence: toAnnouncementSourceVerificationEvidence(source.verificationByField.announcementUrl) }
         : {})
@@ -2311,6 +2342,10 @@ function verifiedContentSourceDefinitions(source: {
       label: "Haberler",
       url: source.newsUrl,
       priority: 25,
+      parser: source.parserProfiles?.news?.parser ?? "auto",
+      ...(source.parserProfiles?.news?.parserConfig
+        ? { parserConfig: source.parserProfiles.news.parserConfig }
+        : {}),
       ...(source.verificationByField?.newsUrl
         ? { verificationEvidence: toAnnouncementSourceVerificationEvidence(source.verificationByField.newsUrl) }
         : {})
@@ -2320,6 +2355,10 @@ function verifiedContentSourceDefinitions(source: {
       label: "Etkinlikler",
       url: source.eventUrl,
       priority: 24,
+      parser: source.parserProfiles?.event?.parser ?? "auto",
+      ...(source.parserProfiles?.event?.parserConfig
+        ? { parserConfig: source.parserProfiles.event.parserConfig }
+        : {}),
       ...(source.verificationByField?.eventUrl
         ? { verificationEvidence: toAnnouncementSourceVerificationEvidence(source.verificationByField.eventUrl) }
         : {})
@@ -2964,6 +3003,7 @@ interface UniversityContentSourceInventorySlot {
   sourceStatus: string;
   evidenceStatus: string;
   parser: AnnouncementSourceParser;
+  parserConfig?: AnnouncementSourceParserConfig;
   siteStructure: Record<string, unknown>;
 }
 

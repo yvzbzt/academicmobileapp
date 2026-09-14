@@ -375,6 +375,27 @@ export class MongoNotificationRepository implements NotificationRepository {
     return retired;
   }
 
+  async retireProducerGroupRelationships(producerGroupKey: string): Promise<number> {
+    const model = await this.model("NotificationJob", notificationJobSchema);
+    const producerKeyPattern = new RegExp(`^${escapeRegularExpression(producerGroupKey)}(?::|$)`, "u");
+    let retired = 0;
+    for (let attempt = 0; attempt < PRODUCER_RELATIONSHIP_CAS_ATTEMPTS; attempt += 1) {
+      const documents = await model.find({
+        $or: [{ producerKey: producerKeyPattern }, { producerKeys: producerKeyPattern }]
+      });
+      const producerKeys = new Set(documents.flatMap((document) => {
+        const job = toNotificationJobRecord(document);
+        return notificationJobProducerKeys(job)
+          .filter((producerKey) => producerBelongsToGroup(producerKey, producerGroupKey));
+      }));
+      if (producerKeys.size === 0) return retired;
+      for (const producerKey of [...producerKeys].sort()) {
+        retired += await this.retireProducedJobs(producerKey);
+      }
+    }
+    throw new Error("NOTIFICATION_PRODUCER_GROUP_RETIREMENT_CONFLICT");
+  }
+
   async retireSupersededProducerJobs(producerGroupKey: string, activeProducerKey: string): Promise<number> {
     return this.retireJobs({ producerGroupKey, producerKey: { $ne: activeProducerKey } });
   }
@@ -631,17 +652,27 @@ export class MongoNotificationRepository implements NotificationRepository {
       const remainingProducerKeys = notificationJobProducerKeys(existing).filter((key) => key !== producerKey);
       const remainingDestinations = notificationJobProducerDestinations(existing).filter((destination) => destination.producerKey !== producerKey);
       if (remainingProducerKeys.length === 0) {
-        if (!isRetirableNotificationJob(existing)) return false;
-        const retired = await model.findOneAndUpdate(
+        const shouldRetire = isRetirableNotificationJob(existing);
+        const detached = await model.findOneAndUpdate(
           producerRelationshipCasFilter(existing),
           {
-            $set: { status: "cancelled" },
-            $inc: { revision: 1, producerRelationRevision: 1 },
-            $unset: { processingClaimId: 1, processingLeaseUntil: 1 }
+            ...(shouldRetire ? { $set: { status: "cancelled" } } : {}),
+            $inc: {
+              producerRelationRevision: 1,
+              ...(shouldRetire ? { revision: 1 } : {})
+            },
+            $unset: {
+              producerKey: 1,
+              producerKeys: 1,
+              producerDestinations: 1,
+              producerGroupKey: 1,
+              processingClaimId: 1,
+              processingLeaseUntil: 1
+            }
           },
           { returnDocument: "after" }
         );
-        if (retired) return true;
+        if (detached) return shouldRetire;
         continue;
       }
       const switched = switchToProducerDestination({
@@ -815,6 +846,14 @@ function notificationJobProducerKeys(job: Pick<NotificationJobRecord, "producerK
 
 function notificationJobHasProducer(job: Pick<NotificationJobRecord, "producerKey" | "producerKeys">, producerKey: string): boolean {
   return notificationJobProducerKeys(job).includes(producerKey);
+}
+
+function producerBelongsToGroup(producerKey: string, producerGroupKey: string): boolean {
+  return producerKey === producerGroupKey || producerKey.startsWith(`${producerGroupKey}:`);
+}
+
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function normalizeProducedJobInput(input: NotificationJobCreateInput, producerKey: string): NotificationJobCreateInput {

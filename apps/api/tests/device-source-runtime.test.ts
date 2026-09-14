@@ -50,6 +50,79 @@ describe("shared device source runtime", () => {
     expect(rss).toEqual([expect.objectContaining({ link: "https://example.edu.tr/four" })]);
   });
 
+  it("parses full English month names from configured HTML as date-only values", () => {
+    const months = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December",
+    ];
+    const items = parseDeviceSourceRuntimeDocument(months.map((month) => `
+      <article class="item">
+        <a href="/news/${month.toLocaleLowerCase("en-US")}"><span class="title">${month} research update</span></a>
+        <span class="date">1 ${month} 2026, Monday</span>
+      </article>
+    `).join(""), recipe({
+      contentType: "news",
+      parser: "html",
+      parserConfig: {
+        itemSelector: ".item",
+        titleSelector: ".title",
+        linkSelector: "a",
+        dateSelector: ".date",
+      },
+    }));
+
+    expect(items.map(({ publicationKind, publishedDate }) => ({ publicationKind, publishedDate }))).toEqual(
+      months.map((_month, index) => ({
+        publicationKind: "date",
+        publishedDate: `2026-${String(index + 1).padStart(2, "0")}-01`,
+      })),
+    );
+  });
+
+  it("rejects generic homepage chrome while retaining typed listing rows and document links", () => {
+    const news = parseDeviceSourceRuntimeDocument(`
+      <main>
+        <ul class="quick-links">
+          <li><a href="https://net.example.edu.tr/">Student system</a></li>
+          <li><a href="/about">About us</a></li>
+          <li><a href="/">EXAMPLE SCIENCE NEWS</a></li>
+        </ul>
+        <section class="news-list"><div class="news-item">
+          <a href="/news/research-award">Research award announced</a>
+        </div></section>
+      </main>
+    `, recipe({
+      sourceUrl: "https://example.edu.tr/news",
+      contentType: "news",
+    }));
+    const announcements = parseDeviceSourceRuntimeDocument(`
+      <main>
+        <a href="https://library.example.edu.tr/">Library</a>
+        <a href="/announcements">ANNOUNCEMENTS</a>
+        <a href="/files/duyuru_belge/privacy.pdf">Click here</a>
+        <a href="/files/duyuru_belge/final-results.pdf">Final appointment results</a>
+      </main>
+    `, recipe());
+
+    expect(news.map((item) => item.title)).toEqual(["Research award announced"]);
+    expect(announcements.map((item) => item.title)).toEqual(["Final appointment results"]);
+  });
+
+  it("does not treat a content-type word in the source hostname as item evidence", () => {
+    const items = parseDeviceSourceRuntimeDocument(`
+      <main>
+        <a href="/privacy">Privacy policy and personal data protection</a>
+        <a href="/news/research-award">Research award announced</a>
+      </main>
+    `, recipe({
+      sourceUrl: "https://news.example.edu.tr/news",
+      allowedOfficialDomain: "example.edu.tr",
+      contentType: "news",
+    }));
+
+    expect(items.map((item) => item.title)).toEqual(["Research award announced"]);
+  });
+
   it("filters freshness from the server checkedAt for dates, timestamps, academic years, events and undated items", () => {
     const generic = parseDeviceSourceRuntimeDocument(JSON.stringify({ data: [
       { title: "Old date notice", href: "/old-date", publishedDate: "2024-09-13" },

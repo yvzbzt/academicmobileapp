@@ -359,6 +359,62 @@ describe("announcement discovery and ingestion", () => {
       .toHaveLength(3);
   });
 
+  it("provisions reviewed registry URLs with their exact parser recipes", async () => {
+    const universities: UniversityRecord[] = [
+      {
+        id: "kahramanmaras-sutcu-imam-universitesi",
+        name: "KAHRAMANMARAŞ SÜTÇÜ İMAM ÜNİVERSİTESİ",
+        slug: "kahramanmaras-sutcu-imam-universitesi",
+        city: "KAHRAMANMARAŞ",
+        type: "state",
+        websiteUrl: "https://www.ksu.edu.tr/",
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      {
+        id: "burdur-mehmet-akif-ersoy-universitesi",
+        name: "BURDUR MEHMET AKİF ERSOY ÜNİVERSİTESİ",
+        slug: "burdur-mehmet-akif-ersoy-universitesi",
+        city: "BURDUR",
+        type: "state",
+        websiteUrl: "https://www.mehmetakif.edu.tr/",
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    ];
+    const repository = new InMemoryAnnouncementRepository();
+
+    await new AnnouncementIngestionService(createCatalogRepository(universities), repository)
+      .provisionStaticAnnouncementSources();
+    const sources = await repository.listAllSources({ limit: 5_000 });
+
+    expect(sources.find((source) => source.scopeId === universities[0]!.id && source.contentType === "announcement"))
+      .toMatchObject({
+        sourceUrl: "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
+        parser: "html",
+        parserConfig: {
+          itemSelector: "main article.card.blog-card",
+          dateSelector: ".card-body > .text-muted.small"
+        },
+        status: "inactive",
+        trustStatus: "quarantined"
+      });
+    expect(sources.find((source) => source.scopeId === universities[1]!.id && source.contentType === "news"))
+      .toMatchObject({
+        sourceUrl: "https://www.mehmetakif.edu.tr/tr/contents/47",
+        parser: "html",
+        parserConfig: { contentSelector: ".text-sm.text-left.text-slate-400" }
+      });
+    expect(sources.find((source) => source.scopeId === universities[1]!.id && source.contentType === "event"))
+      .toMatchObject({
+        sourceUrl: "https://www.mehmetakif.edu.tr/tr/contents/46",
+        parser: "html",
+        parserConfig: { contentSelector: "div:has(> img[src='/location_blue.svg']) + div" }
+      });
+  });
+
   it("does not add a registry duplicate when a validated legacy GTU URL already exists", async () => {
     const gtu: UniversityRecord = {
       id: "gebze-teknik-universitesi",
@@ -407,7 +463,14 @@ describe("announcement discovery and ingestion", () => {
     expect(universitySource("istanbul-teknik-universitesi")?.announcementUrl)
       .toBe("https://haberler.itu.edu.tr/");
     expect(universitySource("kahramanmaras-sutcu-imam-universitesi")?.announcementUrl)
-      .toBe("https://www.ksu.edu.tr/default?DId=103100");
+      .toBe("https://www.ksu.edu.tr/default?DId=KSU&MI=42546");
+    expect(universitySource("kahramanmaras-sutcu-imam-universitesi")?.parserProfiles?.announcement)
+      .toMatchObject({ parser: "html", parserConfig: { itemSelector: "main article.card.blog-card" } });
+    expect(universitySource("burdur-mehmet-akif-ersoy-universitesi")?.parserProfiles)
+      .toMatchObject({
+        news: { parser: "html", parserConfig: { dateSelector: "div:has(> img[src='/calendar_gray.svg']) + div" } },
+        event: { parser: "html", parserConfig: { dateSelector: "div:has(> img[src='/calendar_blue.svg']) + div" } }
+      });
     expect(academicUnits.find((source) => source.departmentId === "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__elektrik-elektronik-muhendisligi")?.newsUrl)
       .toBe("https://eee.agu.edu.tr/haberler");
   });
@@ -484,6 +547,53 @@ describe("announcement discovery and ingestion", () => {
     expect(result.status).toBe("source_found");
     expect(result.sourceUrl).toBe("https://agu.edu.tr/duyurular");
     expect(result.itemCount).toBe(2);
+  });
+
+  it("carries a reviewed registry parser recipe into the quarantined discovery candidate", async () => {
+    const university: UniversityRecord = {
+      id: "kahramanmaras-sutcu-imam-universitesi",
+      name: "KAHRAMANMARAŞ SÜTÇÜ İMAM ÜNİVERSİTESİ",
+      slug: "kahramanmaras-sutcu-imam-universitesi",
+      city: "KAHRAMANMARAŞ",
+      type: "state",
+      websiteUrl: "https://www.ksu.edu.tr/",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    stubFetch({
+      "https://www.ksu.edu.tr/default?DId=KSU&MI=42546": `
+        <main>
+          <a href="/student-system">Öğrenci sistemi</a>
+          <article class="card blog-card"><div class="card-body">
+            <h3><a href="/default?DId=123456">Yeni araştırma duyurusu</a></h3>
+            <div class="text-muted small">14 Eylül 2026</div>
+            <p>Resmî duyuru özeti</p>
+          </div></article>
+        </main>
+      `
+    });
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(createCatalogRepository([university]), repository);
+
+    const discovered = await discoverAnnouncementSourceForUniversity(university, { timeoutMs: 1_000 });
+    await service.runSourceDiscovery({ concurrency: 1 });
+    const persisted = (await repository.listAllSources({ limit: 100 }))
+      .find((source) => source.scopeId === university.id);
+
+    expect(discovered).toMatchObject({
+      status: "source_found",
+      parser: "html",
+      parserConfig: { itemSelector: "main article.card.blog-card" },
+      itemCount: 1,
+      sampleTitles: ["Yeni araştırma duyurusu"]
+    });
+    expect(persisted).toMatchObject({
+      status: "inactive",
+      trustStatus: "quarantined",
+      parser: "html",
+      parserConfig: { itemSelector: "main article.card.blog-card" }
+    });
   });
 
   it("inserts discovered sources once as quarantined candidates and leaves every existing trust decision byte-for-byte unchanged", async () => {

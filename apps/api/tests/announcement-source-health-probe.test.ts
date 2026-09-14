@@ -114,7 +114,10 @@ describe("daily announcement source health probe", () => {
       };
     });
     const replaceItems = vi.spyOn(repository, "replaceItemsForSource");
-    const notifications = { syncTrustedAnnouncementSource: vi.fn() };
+    const notifications = {
+      syncTrustedAnnouncementSource: vi.fn(),
+      retireTrustedAnnouncementSource: vi.fn(async () => ({ retired: 0 }))
+    };
     const service = new AnnouncementIngestionService(catalogRepository(), repository, notifications as never);
 
     const first = await service.runDailyHealthCycle();
@@ -296,6 +299,35 @@ describe("daily announcement source health probe", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("can immediately establish the device-manifest probe for one published source", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const source = await createSource(repository);
+    await createSource(repository, {
+      id: "unrelated-source",
+      sourceUrl: "https://agu.edu.tr/other-announcements"
+    });
+    const request = vi.fn(async () => ({
+      status: 200,
+      headers: { "content-type": "text/html" },
+      body: "<article class='item'><a href='/one'><span class='title'>Registration announcement</span></a></article>"
+    }));
+    stubRequest(request);
+    const service = new AnnouncementIngestionService(catalogRepository(), repository);
+
+    await expect(service.probeSourceForDeviceManifestById(source.id)).resolves.toMatchObject({
+      sourceId: source.id,
+      status: "healthy",
+      itemCount: 1
+    });
+    expect((await repository.findSourceById(source.id))?.healthProbe).toMatchObject({
+      engineVersion: DEVICE_SOURCE_RUNTIME_VERSION,
+      healthStatus: "healthy",
+      itemCount: 1
+    });
+    expect((await repository.findSourceById("unrelated-source"))?.healthProbe).toBeUndefined();
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it("quarantines an authority-breaking redirect while keeping errors bounded", async () => {
     const repository = new InMemoryAnnouncementRepository();
     const source = await createSource(repository);
@@ -304,7 +336,10 @@ describe("daily announcement source health probe", () => {
       headers: { location: "https://untrusted.example.com/announcements" },
       body: ""
     }));
-    const notifications = { syncTrustedAnnouncementSource: vi.fn() };
+    const notifications = {
+      syncTrustedAnnouncementSource: vi.fn(),
+      retireTrustedAnnouncementSource: vi.fn(async () => ({ retired: 0 }))
+    };
     const service = new AnnouncementIngestionService(catalogRepository(), repository, notifications as never);
 
     const result = await service.runDailyHealthCycle();
@@ -320,6 +355,9 @@ describe("daily announcement source health probe", () => {
       }
     });
     expect(notifications.syncTrustedAnnouncementSource).not.toHaveBeenCalled();
+    expect(notifications.retireTrustedAnnouncementSource).toHaveBeenCalledWith(
+      expect.objectContaining({ id: source.id, status: "inactive", trustStatus: "quarantined" })
+    );
   });
 });
 

@@ -165,6 +165,168 @@ describe("announcement notification production", () => {
     expect((await notifications.listJobsByCalendar(`announcement-source:${source.id}`))[0]?.status).toBe("cancelled");
   });
 
+  it("retires an active source's snapshot producer before its definition is replaced", async () => {
+    const snapshotId = "64a000000000000000000011";
+    const producerGeneration = "64d000000000000000000011";
+    const source: AnnouncementSourceRecord = {
+      ...sourceInput("university", "university-1", "source-definition-change"),
+      sourceDefinitionVersion: "64c000000000000000000011",
+      notificationProducerVersion: producerGeneration,
+      activeSnapshotId: snapshotId,
+      createdAt: new Date("2026-08-04T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-04T00:00:00.000Z")
+    };
+    const item = snapshotAnnouncementItem(source, snapshotId, "Definition change announcement");
+    const reference = toPersistenceReference(item);
+    if (!reference) throw new Error("Expected snapshot reference.");
+    const announcements = {
+      findSourceById: async (id: string) => id === source.id ? source : null,
+      findTrustedItemByIdInScope: async (input: { announcementId: string }) =>
+        input.announcementId === item.id ? { source, item } : null,
+      acknowledgeNotificationProduction: async () => 1
+    } as unknown as AnnouncementRepository;
+    const notifications = new InMemoryNotificationRepository();
+    const scheduler = new NotificationSchedulingService(notifications, announcements);
+    const now = new Date("2026-08-04T10:00:00.000Z");
+    await scheduler.syncTrustedAnnouncementSource(source, {
+      created: [reference],
+      materiallyUpdated: [],
+      unchanged: [],
+      removed: [],
+      snapshotId
+    }, now);
+    expect(await notifications.listDueJobs(now, 10)).toHaveLength(1);
+
+    await expect(scheduler.retireTrustedAnnouncementSource(source)).resolves.toEqual({ retired: 1 });
+    expect(await notifications.listDueJobs(now, 10)).toEqual([]);
+  });
+
+  it("retires every generation for one source without cancelling a shared producer's job", async () => {
+    const notifications = new InMemoryNotificationRepository();
+    const scheduler = new NotificationSchedulingService(notifications, {} as AnnouncementRepository);
+    const now = new Date("2026-08-04T10:15:00.000Z");
+    const sourceA: AnnouncementSourceRecord = {
+      ...sourceInput("university", "university-1", "source-group-a"),
+      notificationProducerVersion: "generation-a",
+      activeSnapshotId: "snapshot-a-new",
+      createdAt: now,
+      updatedAt: now
+    };
+    const sourceB: AnnouncementSourceRecord = {
+      ...sourceInput("university", "university-1", "source-group-b"),
+      notificationProducerVersion: "generation-b",
+      activeSnapshotId: "snapshot-b",
+      createdAt: now,
+      updatedAt: now
+    };
+    const groupA = `announcement-source:${sourceA.id}`;
+    const groupB = `announcement-source:${sourceB.id}`;
+    const oldKeyA = `${groupA}:generation:generation-old:snapshot:snapshot-a-old`;
+    const newKeyA = `${groupA}:generation:generation-a:snapshot:snapshot-a-new`;
+    const keyB = `${groupB}:generation:generation-b:snapshot:snapshot-b`;
+    const job = {
+      calendarId: oldKeyA,
+      eventId: "shared-announcement",
+      destinationType: "announcement" as const,
+      destinationId: "shared-announcement-a",
+      destinationScopeType: "university" as const,
+      destinationScopeId: "university-1",
+      destinationFingerprint: "a".repeat(64),
+      eventType: "announcement" as const,
+      universityId: "university-1",
+      title: "Shared trusted announcement",
+      category: "announcement" as const,
+      offsetDays: 0,
+      trigger: "at_time" as const,
+      scheduledAt: now,
+      status: "scheduled" as const
+    };
+    await notifications.syncProducedJobs({ producerKey: oldKeyA, producerGroupKey: groupA, jobs: [job] });
+    await notifications.syncProducedJobs({
+      producerKey: newKeyA,
+      producerGroupKey: groupA,
+      jobs: [{ ...job, calendarId: newKeyA, destinationId: "shared-announcement-a-new" }]
+    });
+    await notifications.syncProducedJobs({
+      producerKey: keyB,
+      producerGroupKey: groupB,
+      jobs: [{ ...job, calendarId: keyB, destinationId: "shared-announcement-b" }]
+    });
+
+    await expect(scheduler.retireTrustedAnnouncementSource(sourceA)).resolves.toEqual({ retired: 0 });
+    await expect(notifications.listDueJobs(now, 10)).resolves.toEqual([
+      expect.objectContaining({ producerKey: keyB, producerKeys: [keyB], status: "scheduled" })
+    ]);
+    await expect(scheduler.retireTrustedAnnouncementSource(sourceB)).resolves.toEqual({ retired: 1 });
+    await expect(notifications.listDueJobs(now, 10)).resolves.toEqual([]);
+  });
+
+  it("does not resurrect a retired source when another source later reuses its deduplicated job", async () => {
+    const notifications = new InMemoryNotificationRepository();
+    const scheduler = new NotificationSchedulingService(notifications, {} as AnnouncementRepository);
+    const now = new Date("2026-08-04T10:20:00.000Z");
+    const sourceA: AnnouncementSourceRecord = {
+      ...sourceInput("university", "university-1", "source-reuse-a"),
+      notificationProducerVersion: "generation-a",
+      activeSnapshotId: "snapshot-a",
+      createdAt: now,
+      updatedAt: now
+    };
+    const sourceB: AnnouncementSourceRecord = {
+      ...sourceInput("university", "university-1", "source-reuse-b"),
+      notificationProducerVersion: "generation-b",
+      activeSnapshotId: "snapshot-b",
+      createdAt: now,
+      updatedAt: now
+    };
+    const groupA = `announcement-source:${sourceA.id}`;
+    const groupB = `announcement-source:${sourceB.id}`;
+    const keyA = `${groupA}:generation:generation-a:snapshot:snapshot-a`;
+    const keyB = `${groupB}:generation:generation-b:snapshot:snapshot-b`;
+    const job = {
+      calendarId: keyA,
+      eventId: "reused-announcement",
+      destinationType: "announcement" as const,
+      destinationId: "reused-announcement-a",
+      destinationScopeType: "university" as const,
+      destinationScopeId: "university-1",
+      destinationFingerprint: "b".repeat(64),
+      eventType: "announcement" as const,
+      universityId: "university-1",
+      title: "Reused trusted announcement",
+      category: "announcement" as const,
+      offsetDays: 0,
+      trigger: "at_time" as const,
+      scheduledAt: now,
+      status: "scheduled" as const
+    };
+
+    await notifications.syncProducedJobs({ producerKey: keyA, producerGroupKey: groupA, jobs: [job] });
+    await expect(scheduler.retireTrustedAnnouncementSource(sourceA)).resolves.toEqual({ retired: 1 });
+    const [retiredA] = await notifications.listJobsByCalendar(keyA);
+    expect(retiredA).toEqual(expect.objectContaining({ status: "cancelled" }));
+    expect(retiredA).not.toHaveProperty("producerKey");
+    expect(retiredA).not.toHaveProperty("producerKeys");
+    expect(retiredA).not.toHaveProperty("producerDestinations");
+
+    await notifications.syncProducedJobs({
+      producerKey: keyB,
+      producerGroupKey: groupB,
+      jobs: [{ ...job, calendarId: keyB, destinationId: "reused-announcement-b" }]
+    });
+    await expect(notifications.listDueJobs(now, 10)).resolves.toEqual([
+      expect.objectContaining({ producerKey: keyB, producerKeys: [keyB], status: "scheduled" })
+    ]);
+
+    await expect(scheduler.retireTrustedAnnouncementSource(sourceB)).resolves.toEqual({ retired: 1 });
+    await expect(notifications.listDueJobs(now, 10)).resolves.toEqual([]);
+    const [retiredB] = await notifications.listJobsByCalendar(keyB);
+    expect(retiredB).toEqual(expect.objectContaining({ status: "cancelled" }));
+    expect(retiredB).not.toHaveProperty("producerKey");
+    expect(retiredB).not.toHaveProperty("producerKeys");
+    expect(retiredB).not.toHaveProperty("producerDestinations");
+  });
+
   it("does not let a stale snapshot sync retire or overwrite the newer snapshot jobs", async () => {
     const snapshotA = "64a000000000000000000001";
     const snapshotB = "64a000000000000000000002";

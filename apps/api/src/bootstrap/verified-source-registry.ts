@@ -54,12 +54,33 @@ export interface VerifiedUniversitySource {
   eventUrl?: string;
   calendarUrl?: string;
   summerSchoolUrl?: string;
+  parserProfiles?: VerifiedContentSourceParserProfiles;
   rawUrls?: Partial<Record<VerifiedUniversitySourceUrlField, string>>;
   verificationByField?: Partial<Record<VerifiedUniversitySourceUrlField, VerifiedRegistrySourceEvidence>>;
   quarantinedSources?: QuarantinedVerifiedSource[];
 }
 
 export type VerifiedUniversitySourceUrlField = "websiteUrl" | "announcementUrl" | "newsUrl" | "eventUrl" | "calendarUrl" | "summerSchoolUrl";
+
+export type VerifiedContentSourceType = "announcement" | "news" | "event";
+
+export interface VerifiedContentSourceParserConfig {
+  itemSelector?: string;
+  titleSelector?: string;
+  linkSelector?: string;
+  dateSelector?: string;
+  contentSelector?: string;
+}
+
+export interface VerifiedContentSourceParserProfile {
+  parser: "auto" | "rss" | "html";
+  parserConfig?: VerifiedContentSourceParserConfig;
+}
+
+export type VerifiedContentSourceParserProfiles = Partial<Record<
+  VerifiedContentSourceType,
+  VerifiedContentSourceParserProfile
+>>;
 
 export interface VerifiedAcademicUnitSource {
   scopeType: "faculty" | "department";
@@ -75,6 +96,7 @@ export interface VerifiedAcademicUnitSource {
   eventUrl?: string;
   courseScheduleUrl?: string;
   examScheduleUrl?: string;
+  parserProfiles?: VerifiedContentSourceParserProfiles;
   rawUrls?: Partial<Record<VerifiedAcademicUnitSourceUrlField, string>>;
   verificationByField?: Partial<Record<VerifiedAcademicUnitSourceUrlField, VerifiedRegistrySourceEvidence>>;
   quarantinedSources?: QuarantinedVerifiedSource[];
@@ -92,6 +114,7 @@ interface RawVerifiedUniversitySource {
   eventUrl?: unknown;
   calendarUrl?: unknown;
   summerSchoolUrl?: unknown;
+  parserProfiles?: unknown;
   verificationByField?: unknown;
 }
 
@@ -109,6 +132,7 @@ interface RawVerifiedAcademicUnitSource {
   eventUrl?: unknown;
   courseScheduleUrl?: unknown;
   examScheduleUrl?: unknown;
+  parserProfiles?: unknown;
   verificationByField?: unknown;
 }
 
@@ -269,12 +293,14 @@ function normalizeVerifiedSource(
       ...resolvedOwnership
     }
   );
+  const parserProfiles = normalizeContentSourceParserProfiles(input.parserProfiles, evaluated.operationalUrls);
 
   return {
     universityId,
     universityName,
     ...(city ? { city } : {}),
     ...evaluated.operationalUrls,
+    ...(Object.keys(parserProfiles).length > 0 ? { parserProfiles } : {}),
     ...(Object.keys(verificationByField).length > 0 ? { verificationByField } : {}),
     rawUrls,
     quarantinedSources: evaluated.quarantinedSources
@@ -328,6 +354,7 @@ function normalizeAcademicUnitSource(
       ...resolvedOwnership
     }
   );
+  const parserProfiles = normalizeContentSourceParserProfiles(input.parserProfiles, evaluated.operationalUrls);
 
   return {
     scopeType,
@@ -338,6 +365,7 @@ function normalizeAcademicUnitSource(
     ...(departmentId ? { departmentId } : {}),
     ...(departmentName ? { departmentName } : {}),
     ...evaluated.operationalUrls,
+    ...(Object.keys(parserProfiles).length > 0 ? { parserProfiles } : {}),
     ...(Object.keys(verificationByField).length > 0 ? { verificationByField } : {}),
     rawUrls,
     quarantinedSources: evaluated.quarantinedSources
@@ -367,6 +395,50 @@ function normalizeSourceAuthority(input: unknown): VerifiedSourceAuthority | nul
 
 const universitySourceFields: readonly VerifiedUniversitySourceUrlField[] = ["websiteUrl", "announcementUrl", "newsUrl", "eventUrl", "calendarUrl", "summerSchoolUrl"];
 const academicUnitSourceFields: readonly VerifiedAcademicUnitSourceUrlField[] = ["websiteUrl", "announcementUrl", "newsUrl", "eventUrl", "courseScheduleUrl", "examScheduleUrl"];
+const contentSourceUrlFields = {
+  announcement: "announcementUrl",
+  news: "newsUrl",
+  event: "eventUrl"
+} as const satisfies Record<VerifiedContentSourceType, string>;
+const parserConfigFields = ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "contentSelector"] as const;
+
+function normalizeContentSourceParserProfiles(
+  input: unknown,
+  operationalUrls: Partial<Record<string, string>>
+): VerifiedContentSourceParserProfiles {
+  const profiles: VerifiedContentSourceParserProfiles = {};
+  if (!isRecord(input)) return profiles;
+  for (const [contentType, urlField] of Object.entries(contentSourceUrlFields) as Array<[
+    VerifiedContentSourceType,
+    typeof contentSourceUrlFields[VerifiedContentSourceType]
+  ]>) {
+    if (!operationalUrls[urlField]) continue;
+    const raw = input[contentType];
+    if (!isRecord(raw) || (raw.parser !== "auto" && raw.parser !== "rss" && raw.parser !== "html")) continue;
+    const parserConfig = normalizeContentSourceParserConfig(raw.parserConfig);
+    if (raw.parserConfig !== undefined && !parserConfig) continue;
+    profiles[contentType] = {
+      parser: raw.parser,
+      ...(parserConfig ? { parserConfig } : {})
+    };
+  }
+  return profiles;
+}
+
+function normalizeContentSourceParserConfig(input: unknown): VerifiedContentSourceParserConfig | undefined {
+  if (input === undefined) return undefined;
+  if (!isRecord(input) || Object.keys(input).some((key) => !parserConfigFields.includes(key as typeof parserConfigFields[number]))) {
+    return undefined;
+  }
+  const parserConfig: VerifiedContentSourceParserConfig = {};
+  for (const field of parserConfigFields) {
+    if (input[field] === undefined) continue;
+    const selector = readBoundedString(input[field], 300);
+    if (!selector) return undefined;
+    parserConfig[field] = selector;
+  }
+  return Object.keys(parserConfig).length > 0 ? parserConfig : undefined;
+}
 
 function readRawUrls<TField extends string>(input: object, fields: readonly TField[]): Partial<Record<TField, string>> {
   const urls: Partial<Record<TField, string>> = {};

@@ -231,9 +231,18 @@ export class InMemoryNotificationRepository implements NotificationRepository {
           producerDestinations: remainingDestinations,
           updatedAt: now
         }, remainingDestinations[0]));
-      } else if (isRetirableJob(existing)) {
-        this.jobs.set(id, retireJob(existing, now));
-        retired += 1;
+      } else {
+        const detached = clearProducerRelationships({
+          ...existing,
+          producerRelationRevision: (existing.producerRelationRevision ?? 0) + 1,
+          updatedAt: now
+        });
+        if (isRetirableJob(existing)) {
+          this.jobs.set(id, retireJob(detached, now));
+          retired += 1;
+        } else {
+          this.jobs.set(id, detached);
+        }
       }
     }
 
@@ -258,17 +267,24 @@ export class InMemoryNotificationRepository implements NotificationRepository {
         notificationJobProducerDestinations(existing),
         producerDestinationFor(raw, input.producerKey)
       );
+      const relatedJob = {
+        ...existing,
+        producerKey: existing.producerKey ?? input.producerKey,
+        producerKeys,
+        producerDestinations,
+        ...(!existing.producerGroupKey && input.producerGroupKey ? { producerGroupKey: input.producerGroupKey } : {}),
+        updatedAt: now
+      };
       if (notificationJobProducerMatchKey(existing) === notificationJobProducerMatchKey(jobInput)
         && existing.destinationId !== raw.destinationId) {
-        const related = switchToProducerDestination({ ...existing, producerKeys, producerDestinations, updatedAt: now }, producerDestinationFor(raw, input.producerKey));
+        const related = switchToProducerDestination(relatedJob, producerDestinationFor(raw, input.producerKey));
         this.jobs.set(existing.id, related);
         active.push(related);
         continue;
       }
       if (notificationJobMaterialKey(existing) === notificationJobMaterialKey(jobInput) && existing.status !== "cancelled") {
-        const related = { ...existing, producerKeys, producerDestinations, updatedAt: now };
-        this.jobs.set(existing.id, related);
-        active.push(related);
+        this.jobs.set(existing.id, relatedJob);
+        active.push(relatedJob);
         continue;
       }
       const updated = clearJobClaim({
@@ -302,9 +318,17 @@ export class InMemoryNotificationRepository implements NotificationRepository {
       const producerKeys = [...new Set([...notificationJobProducerKeys(existing), input.producerKey])];
       const producerDestination = producerDestinationFor(raw, input.producerKey);
       const producerDestinations = upsertProducerDestination(notificationJobProducerDestinations(existing), producerDestination);
+      const relatedJob = {
+        ...existing,
+        producerKey: existing.producerKey ?? input.producerKey,
+        producerKeys,
+        producerDestinations,
+        ...(!existing.producerGroupKey && input.producerGroupKey ? { producerGroupKey: input.producerGroupKey } : {}),
+        updatedAt: now
+      };
       const related = existing.destinationId !== raw.destinationId
-        ? switchToProducerDestination({ ...existing, producerKeys, producerDestinations, updatedAt: now }, producerDestination)
-        : { ...existing, producerKeys, producerDestinations, updatedAt: now };
+        ? switchToProducerDestination(relatedJob, producerDestination)
+        : relatedJob;
       this.jobs.set(existing.id, related);
       if (!active.some((job) => job.id === related.id)) active.push(related);
     }
@@ -326,10 +350,31 @@ export class InMemoryNotificationRepository implements NotificationRepository {
           producerDestinations: remainingDestinations,
           updatedAt: now
         }, remainingDestinations[0]));
-      } else if (isRetirableJob(job)) {
-        this.jobs.set(id, retireJob(job, now));
-        retired += 1;
+      } else {
+        const detached = clearProducerRelationships({
+          ...job,
+          producerRelationRevision: (job.producerRelationRevision ?? 0) + 1,
+          updatedAt: now
+        });
+        if (isRetirableJob(job)) {
+          this.jobs.set(id, retireJob(detached, now));
+          retired += 1;
+        } else {
+          this.jobs.set(id, detached);
+        }
       }
+    }
+    return retired;
+  }
+
+  async retireProducerGroupRelationships(producerGroupKey: string): Promise<number> {
+    const producerKeys = new Set(
+      [...this.jobs.values()].flatMap((job) => notificationJobProducerKeys(job)
+        .filter((producerKey) => producerBelongsToGroup(producerKey, producerGroupKey)))
+    );
+    let retired = 0;
+    for (const producerKey of [...producerKeys].sort()) {
+      retired += await this.retireProducedJobs(producerKey);
     }
     return retired;
   }
@@ -587,6 +632,10 @@ function notificationJobHasProducer(job: Pick<NotificationJobRecord, "producerKe
   return notificationJobProducerKeys(job).includes(producerKey);
 }
 
+function producerBelongsToGroup(producerKey: string, producerGroupKey: string): boolean {
+  return producerKey === producerGroupKey || producerKey.startsWith(`${producerGroupKey}:`);
+}
+
 function normalizeProducedJobInput(input: NotificationJobCreateInput, producerKey: string): NotificationJobCreateInput {
   const producerDestination = producerDestinationFor(input, producerKey);
   if (input.destinationType !== "announcement" || !input.destinationScopeType || !input.destinationScopeId || !input.destinationFingerprint) {
@@ -664,6 +713,15 @@ function isRetirableJob(job: NotificationJobRecord): boolean {
 
 function retireJob(job: NotificationJobRecord, now: Date): NotificationJobRecord {
   return clearJobClaim({ ...job, status: "cancelled", revision: job.revision + 1, updatedAt: now });
+}
+
+function clearProducerRelationships(job: NotificationJobRecord): NotificationJobRecord {
+  const cleared = { ...job };
+  delete cleared.producerKey;
+  delete cleared.producerKeys;
+  delete cleared.producerDestinations;
+  delete cleared.producerGroupKey;
+  return cleared;
 }
 
 function clearJobClaim(job: NotificationJobRecord): NotificationJobRecord {

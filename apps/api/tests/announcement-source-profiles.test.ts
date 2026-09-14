@@ -44,6 +44,79 @@ describe("university content source profiles", () => {
       .toHaveLength(208);
   });
 
+  it("returns reviewed registry recipes before provisioning and lets persisted admin settings win", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(catalog(), repository);
+    const before = await service.listUniversityContentSourceProfilesForAdmin({ kind: "global" });
+    const beforeSlot = before.universities
+      .find((item) => item.universityId === "kahramanmaras-sutcu-imam-universitesi")
+      ?.slots.find((slot) => slot.contentType === "announcement");
+
+    expect(beforeSlot).toMatchObject({
+      suggestedUrl: "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
+      sourceUrl: "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
+      parser: "html",
+      parserConfig: {
+        itemSelector: "main article.card.blog-card",
+        titleSelector: ".card-body h3 a[href]",
+        linkSelector: ".card-body h3 a[href]",
+        dateSelector: ".card-body > .text-muted.small",
+        contentSelector: ".card-body > p"
+      }
+    });
+
+    await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "kahramanmaras-sutcu-imam-universitesi",
+      sourceName: "Admin override",
+      sourceUrl: "https://www.ksu.edu.tr/duyurular",
+      contentType: "announcement",
+      parser: "auto",
+      parserConfig: { itemSelector: ".admin-row" },
+      priority: 50,
+      status: "inactive",
+      trustStatus: "quarantined"
+    });
+    const after = await service.listUniversityContentSourceProfilesForAdmin({ kind: "global" });
+    const afterSlot = after.universities
+      .find((item) => item.universityId === "kahramanmaras-sutcu-imam-universitesi")
+      ?.slots.find((slot) => slot.contentType === "announcement");
+
+    expect(afterSlot).toMatchObject({
+      suggestedUrl: "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
+      sourceUrl: "https://www.ksu.edu.tr/duyurular",
+      parser: "auto",
+      parserConfig: { itemSelector: ".admin-row" }
+    });
+  });
+
+  it("does not graft a registry parser config onto a persisted source without one", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(catalog(), repository);
+    await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "kahramanmaras-sutcu-imam-universitesi",
+      sourceName: "Admin auto parser",
+      sourceUrl: "https://www.ksu.edu.tr/duyurular",
+      contentType: "announcement",
+      parser: "auto",
+      priority: 50,
+      status: "inactive",
+      trustStatus: "quarantined"
+    });
+
+    const result = await service.listUniversityContentSourceProfilesForAdmin({ kind: "global" });
+    const slot = result.universities
+      .find((item) => item.universityId === "kahramanmaras-sutcu-imam-universitesi")
+      ?.slots.find((item) => item.contentType === "announcement");
+
+    expect(slot).toMatchObject({
+      sourceUrl: "https://www.ksu.edu.tr/duyurular",
+      parser: "auto"
+    });
+    expect(slot?.parserConfig).toBeUndefined();
+  });
+
   it("validates editable CSS selector profiles", async () => {
     const dto = plainToInstance(UpdateUniversityContentSourceProfileDto, {
       sourceUrl: "https://www.agu.edu.tr/duyurular",
@@ -85,6 +158,31 @@ describe("university content source profiles", () => {
         body: [expect.objectContaining({ text: "Kayıt işlemleri öğrenci bilgi sisteminden yapılacaktır." })]
       })
     ]);
+  });
+
+  it("parses full English month names in configured publication dates", () => {
+    const months = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December",
+    ];
+    const items = parseConfiguredAnnouncementHtml(months.map((month) => `
+      <article class="item">
+        <a href="/news/${month.toLocaleLowerCase("en-US")}"><span class="title">${month} research update</span></a>
+        <span class="date">1 ${month} 2026, Monday</span>
+      </article>
+    `).join(""), "https://example.edu.tr/news", {
+      itemSelector: ".item",
+      titleSelector: ".title",
+      linkSelector: "a",
+      dateSelector: ".date"
+    }, "news");
+
+    expect(items.map(({ publicationKind, publishedDate }) => ({ publicationKind, publishedDate }))).toEqual(
+      months.map((_month, index) => ({
+        publicationKind: "date",
+        publishedDate: `2026-${String(index + 1).padStart(2, "0")}-01`
+      }))
+    );
   });
 
   it("saves a missing slot and previews it without requiring source approval", async () => {

@@ -1,6 +1,6 @@
 import { load } from "cheerio/slim";
 
-export const DEVICE_SOURCE_RUNTIME_VERSION = "device-source-runtime-v1" as const;
+export const DEVICE_SOURCE_RUNTIME_VERSION = "device-source-runtime-v2" as const;
 export const DEVICE_SOURCE_ACCEPT_LANGUAGE = "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6" as const;
 export const DEVICE_SOURCE_USER_AGENT = "AcademicMobileContent/1.0" as const;
 
@@ -91,7 +91,7 @@ const JSON_ACCEPT = "application/json";
 const HTML_ACCEPT = "text/html,application/xhtml+xml";
 const ANKARA_ORIGIN = "https://www.ankara.edu.tr";
 const ATU_ODATA_BASE_URL = "https://odata.atu.edu.tr/odata/DataService.svc";
-const TURKISH_MONTHS: Readonly<Record<string, number>> = {
+const NAMED_MONTHS: Readonly<Record<string, number>> = {
   ocak: 1,
   subat: 2,
   mart: 3,
@@ -104,6 +104,18 @@ const TURKISH_MONTHS: Readonly<Record<string, number>> = {
   ekim: 10,
   kasim: 11,
   aralik: 12,
+  january: 1,
+  february: 2,
+  march: 3,
+  april: 4,
+  may: 5,
+  june: 6,
+  july: 7,
+  august: 8,
+  september: 9,
+  october: 10,
+  november: 11,
+  december: 12,
 };
 
 export async function executeDeviceSourceRuntime(
@@ -540,11 +552,27 @@ function parseGenericHtml(
       const row = link.closest("article, li, tr, .item, .card, .well, .media, .duyuru, .announcement, .haber, .news, .etkinlik, .event, .cbp-item");
       const heading = row.find("h1,h2,h3,h4,h5,h6").filter((_i, node) => normalizeText($(node).text()).length > 3).last();
       const time = row.find("time, .date, .tarih").first();
+      const title = link.attr("title") || link.find("img").attr("alt") || link.text() || heading.text();
+      const href = link.attr("href");
+      const date = time.attr("datetime") || time.text();
+      const summary = row.find("p, .description, .summary").first().text();
+      if (!hasGenericHtmlItemEvidence({
+        recipe,
+        baseUrl,
+        title,
+        href,
+        date,
+        summary,
+        ancestorIdentity: link.parents().addBack().map((_i, node) => {
+          const candidate = $(node);
+          return `${candidate.is("article") ? "article" : ""} ${candidate.attr("class") ?? ""} ${candidate.attr("id") ?? ""}`;
+        }).get().join(" "),
+      })) return;
       const record = createItem(recipe, baseUrl, {
-        title: link.attr("title") || link.find("img").attr("alt") || link.text() || heading.text(),
-        link: link.attr("href"),
-        date: time.attr("datetime") || time.text(),
-        summary: row.find("p, .description, .summary").first().text(),
+        title,
+        link: href,
+        date,
+        summary,
       });
       if (record) items.push(record);
     });
@@ -552,6 +580,45 @@ function parseGenericHtml(
   } catch {
     return [];
   }
+}
+
+function hasGenericHtmlItemEvidence(input: {
+  recipe: DeviceSourceRuntimeRecipe;
+  baseUrl: string;
+  title?: string | undefined;
+  href?: string | undefined;
+  date?: string | undefined;
+  summary?: string | undefined;
+  ancestorIdentity: string;
+}): boolean {
+  const link = resolveTrustedUrl(input.href, input.recipe, input.baseUrl);
+  if (!link || isListingNavigationUrl(link, input.recipe.sourceUrl)) return false;
+
+  const pathTypes = contentTypeHints(new URL(link).pathname);
+  const titleTypes = contentTypeHints(input.title ?? "");
+  if (titleTypes.has(input.recipe.contentType) || pathTypes.has(input.recipe.contentType)) return true;
+  if (pathTypes.size > 0) return false;
+
+  const ancestors = fold(input.ancestorIdentity);
+  if (/(?:^|\s)article(?:\s|$)/u.test(ancestors)) return true;
+  const typedRow = input.recipe.contentType === "announcement"
+    ? /(?:^|[^\p{L}\p{N}])(?:announcement|duyuru|ilan|notice)(?:[^\p{L}\p{N}]|$)/u
+    : input.recipe.contentType === "news"
+      ? /(?:^|[^\p{L}\p{N}])(?:haber|news)(?:[^\p{L}\p{N}]|$)/u
+      : /(?:^|[^\p{L}\p{N}])(?:etkinlik|event)(?:[^\p{L}\p{N}]|$)/u;
+  if (typedRow.test(ancestors)) return true;
+  if (Object.keys(readPublication(input.date, false)).length > 0) return true;
+  return normalizeText(input.summary).length >= 24;
+}
+
+function contentTypeHints(value: string): Set<DeviceSourceRuntimeContentType> {
+  const words = new Set(fold(value).split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  const types = new Set<DeviceSourceRuntimeContentType>();
+  if (["announcement", "announcements", "duyuru", "duyurular", "duyurusu", "ilan", "ilanlar", "notice", "notices"]
+    .some((word) => words.has(word))) types.add("announcement");
+  if (["haber", "haberler", "news"].some((word) => words.has(word))) types.add("news");
+  if (["etkinlik", "etkinlikler", "event", "events"].some((word) => words.has(word))) types.add("event");
+  return types;
 }
 
 function parseSyndicatedDocument(
@@ -924,8 +991,8 @@ function readDateOnly(value: string): string | null {
   if (iso) return validDateParts(Number(iso[1]), Number(iso[2]), Number(iso[3]));
   const numeric = normalized.match(/(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\D|$)/u);
   if (numeric) return validDateParts(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
-  const named = fold(normalized).match(/(?:^|\D)(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(\d{4})(?:\D|$)/u);
-  return named ? validDateParts(Number(named[3]), TURKISH_MONTHS[named[2]!]!, Number(named[1])) : null;
+  const named = fold(normalized).match(/(?:^|\D)(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik|january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})(?:\D|$)/u);
+  return named ? validDateParts(Number(named[3]), NAMED_MONTHS[named[2]!]!, Number(named[1])) : null;
 }
 
 function validDateParts(year: number, month: number, day: number): string | null {
@@ -1007,16 +1074,19 @@ function isListingNavigationUrl(candidate: string, sourceUrl: string): boolean {
   const source = canonicalUrl(sourceUrl);
   if (source && canonicalUrl(candidate) === source) return true;
   const path = candidateUrl.pathname.replace(/\/+$/u, "") || "/";
-  return /\/(?:duyuru[-_]?arsiv|arsiv|archive|archives)$/iu.test(path)
+  return (path === "/" && !candidateUrl.hash.startsWith("#!/"))
+    || /\/(?:duyuru[-_]?arsiv|arsiv|archive|archives)$/iu.test(path)
     || /\/date\/20\d{2}\/(?:0?[1-9]|1[0-2])$/iu.test(path)
     || /(?:^|\/)(?:duyuru|haber|etkinlik)\/(?:liste|index(?:\.html?)?)$/iu.test(path)
     || /(?:^|\/)(?:duyurular|haberler|etkinlikler|announcements|events|news)$/iu.test(path);
 }
 
 function isNavigationTitle(value: string): boolean {
-  const title = fold(value);
+  const title = fold(value).replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, "");
   return !/[\p{L}\p{N}]/u.test(title)
-    || /^(?:next|previous|home|read more|devami(?:ni oku)?|onceki|sonraki|menu|ana ?sayfa|tum (?:duyurular|haberler|etkinlikler)|all (?:announcements|news|events)|arsiv)$/u.test(title)
+    || /^(?:next|previous|home|read more|click here|devami(?:ni oku)?|onceki|sonraki|menu|ana ?sayfa|t[ıi]klay[ıi]n[ıi]z|detay|ayrinti|arsiv)$/u.test(title)
+    || /^(?:duyuru(?:lar)?|haber(?:ler)?|etkinlik(?:ler)?|announcement(?:s)?|news|event(?:s)?)$/u.test(title)
+    || /^(?:tum (?:duyurular|haberler|etkinlikler)|all (?:announcements|news|events))$/u.test(title)
     || /^(?:sayfa\s+)?\d+(?:\s*\/\s*\d+)?$/u.test(title);
 }
 

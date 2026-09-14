@@ -3091,7 +3091,7 @@ function UniversitySourceProfileCard(props: any) {
       </header>
       <form
         className="universitySourceForm"
-        key={`${university.universityId}:${slot.contentType}:${displayedUrl}:${JSON.stringify(slot.parserConfig ?? {})}`}
+        key={`${university.universityId}:${slot.contentType}:${displayedUrl}:${slot.parser}:${JSON.stringify(slot.parserConfig ?? {})}`}
         onSubmit={(event) => props.saveUniversitySourceProfile(event, university.universityId, slot.contentType)}
       >
         <input type="hidden" name="sourceName" value={slot.sourceName ?? `${university.universityName} ${label}`} />

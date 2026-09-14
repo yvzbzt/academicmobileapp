@@ -132,6 +132,10 @@ function buildSlot(source, authority, homepageUrl, definition) {
   const unavailable = unavailableAuthority(authority, homepageUrl);
   const directDocument = effectiveUrl ? /\.(?:pdf|docx?|xlsx?)(?:$|[?#])/iu.test(effectiveUrl) : false;
   const detectedFormat = directDocument ? "document" : detectSourceFormat(effectiveUrl);
+  const parserProfile = sourceUrl
+    ? readParserProfile(source.parserProfiles?.[definition.contentType], `${source.universityId}/${definition.contentType}`)
+    : undefined;
+  const parser = parserProfile?.parser ?? "auto";
   return {
     contentType: definition.contentType,
     ...(sourceUrl ? { sourceUrl } : !unavailable ? { candidateUrl: homepageUrl } : {}),
@@ -142,11 +146,16 @@ function buildSlot(source, authority, homepageUrl, definition) {
       : optionalText(source[definition.statusField]) ?? (sourceUrl ? "source_found" : "source_not_found"),
     evidenceStatus: verificationEvidence ? "final_revalidated" : "not_attached",
     ...(verificationEvidence ? { verificationEvidence } : {}),
-    parser: "auto",
+    parser,
+    ...(parserProfile?.parserConfig ? { parserConfig: parserProfile.parserConfig } : {}),
     siteStructure: {
       kind: directDocument ? "direct_document" : definition.kind,
       detectedFormat,
-      extractionMode: directDocument ? "document_text" : detectedFormat === "html" ? "html_dom_auto" : `${detectedFormat}_auto`,
+      extractionMode: directDocument
+        ? "document_text"
+        : parserProfile?.parserConfig
+          ? "html_dom_configured"
+          : detectedFormat === "html" ? "html_dom_auto" : `${detectedFormat}_auto`,
       description: directDocument
         ? "Doğrudan PDF/Office belgesi; metin ve tablo tarihleri otomatik çıkarılır."
         : detectedFormat === "json"
@@ -165,6 +174,29 @@ function detectSourceFormat(value) {
   if (/(?:^|\/)feed\/?$/iu.test(pathname) || /\.(?:rss|atom|xml)$/iu.test(pathname)) return "feed";
   if (/(?:^|\/)(?:api|json|wp-json)(?:\/|$)/iu.test(pathname)) return "json";
   return "html";
+}
+
+function readParserProfile(value, label) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value) || !["auto", "rss", "html"].includes(value.parser)) {
+    fail(`parser profile is invalid for ${label}`);
+  }
+  const allowedFields = ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "contentSelector"];
+  const rawConfig = value.parserConfig;
+  if (rawConfig === undefined) return { parser: value.parser };
+  if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)
+    || Object.keys(rawConfig).some((key) => !allowedFields.includes(key))) {
+    fail(`parser config is invalid for ${label}`);
+  }
+  const parserConfig = {};
+  for (const field of allowedFields) {
+    if (rawConfig[field] === undefined) continue;
+    const selector = optionalText(rawConfig[field]);
+    if (!selector || selector.length > 300) fail(`parser selector is invalid for ${label}/${field}`);
+    parserConfig[field] = selector;
+  }
+  if (Object.keys(parserConfig).length === 0) fail(`parser config is empty for ${label}`);
+  return { parser: value.parser, parserConfig };
 }
 
 function unavailableAuthority(authority, homepageUrl) {

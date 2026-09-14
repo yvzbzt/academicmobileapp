@@ -9793,16 +9793,23 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://sciencenews.mehmetakif.edu.tr/haberler/",
+          "sourceUrl": "https://www.mehmetakif.edu.tr/tr/contents/47",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
           "evidenceStatus": "not_attached",
-          "parser": "auto",
+          "parser": "html",
+          "parserConfig": {
+            "itemSelector": "main a[href^='/content/'][href*='/1/']",
+            "titleSelector": ".text-left.font-thin.text-maku_text-500",
+            "linkSelector": "a[href^='/content/']",
+            "dateSelector": "div:has(> img[src='/calendar_gray.svg']) + div",
+            "contentSelector": ".text-sm.text-left.text-slate-400"
+          },
           "siteStructure": {
             "kind": "listing",
             "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
+            "extractionMode": "html_dom_configured",
             "description": "Haber liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
             "selectorHints": {
               "item": [
@@ -9840,16 +9847,23 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://sciencenews.mehmetakif.edu.tr/etkinlikler/",
+          "sourceUrl": "https://www.mehmetakif.edu.tr/tr/contents/46",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
           "evidenceStatus": "not_attached",
-          "parser": "auto",
+          "parser": "html",
+          "parserConfig": {
+            "itemSelector": "main a[href^='/content/'][href*='/1/']",
+            "titleSelector": ".text-justify.text-slate-700.font-semibold",
+            "linkSelector": "a[href^='/content/']",
+            "dateSelector": "div:has(> img[src='/calendar_blue.svg']) + div",
+            "contentSelector": "div:has(> img[src='/location_blue.svg']) + div"
+          },
           "siteStructure": {
             "kind": "listing",
             "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
+            "extractionMode": "html_dom_configured",
             "description": "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
             "selectorHints": {
               "item": [
@@ -27023,16 +27037,23 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://www.ksu.edu.tr/default?DId=103100",
+          "sourceUrl": "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
           "evidenceStatus": "not_attached",
-          "parser": "auto",
+          "parser": "html",
+          "parserConfig": {
+            "itemSelector": "main article.card.blog-card",
+            "titleSelector": ".card-body h3 a[href]",
+            "linkSelector": ".card-body h3 a[href]",
+            "dateSelector": ".card-body > .text-muted.small",
+            "contentSelector": ".card-body > p"
+          },
           "siteStructure": {
             "kind": "listing",
             "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
+            "extractionMode": "html_dom_configured",
             "description": "Duyuru liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
             "selectorHints": {
               "item": [

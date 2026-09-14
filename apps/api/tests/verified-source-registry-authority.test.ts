@@ -128,6 +128,20 @@ describe("verified source authority registry", () => {
       calendarUrl: expect.stringContaining("gantep.edu.tr"),
       summerSchoolUrl: expect.stringContaining("gaziantep.edu.tr")
     }));
+
+    expect(byId.get("kahramanmaras-sutcu-imam-universitesi")).toEqual(expect.objectContaining({
+      announcementUrl: "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
+      parserProfiles: {
+        announcement: expect.objectContaining({
+          parser: "html",
+          parserConfig: expect.objectContaining({ itemSelector: "main article.card.blog-card" })
+        })
+      }
+    }));
+    expect(byId.get("burdur-mehmet-akif-ersoy-universitesi")?.parserProfiles).toEqual({
+      news: expect.objectContaining({ parser: "html" }),
+      event: expect.objectContaining({ parser: "html" })
+    });
   });
 
   it("allows national authority only for its own scope and quarantines institutional YOK bindings", async () => {

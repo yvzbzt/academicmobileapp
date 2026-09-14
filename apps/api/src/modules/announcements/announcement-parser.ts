@@ -1349,6 +1349,7 @@ function isListingNavigationUrl(input: string): boolean {
   try {
     const url = new URL(input);
     const pathname = url.pathname.replace(/\/+$/u, "") || "/";
+    if (pathname === "/" && !url.hash.startsWith("#!/")) return true;
     if (/\/(?:duyuru[-_]?arsiv|arsiv|archive|archives)$/iu.test(pathname)) return true;
     if (/\/date\/20\d{2}\/(?:0?[1-9]|1[0-2])$/iu.test(pathname)) return true;
     if (/(?:^|\/)(?:duyuru|haber|etkinlik)\/(?:liste|index(?:\.html?)?)$/iu.test(pathname)) return true;
@@ -2057,7 +2058,7 @@ function parseDateMaybe(input: string): Date | undefined {
   }
   const timestamp = Date.parse(input);
   if (!Number.isNaN(timestamp)) return new Date(timestamp);
-  return parseTurkishDate(input);
+  return parseNamedDate(input);
 }
 
 function parsePublicationMaybe(input: string): ParsedPublication | undefined {
@@ -2075,9 +2076,9 @@ function parsePublicationMaybe(input: string): ParsedPublication | undefined {
     const publishedDate = createCalendarDateString(Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3]));
     return publishedDate ? { publicationKind: "date", publishedDate } : undefined;
   }
-  const turkishDate = parseTurkishDateParts(trimmed, false);
-  if (turkishDate) {
-    const publishedDate = createCalendarDateString(turkishDate.year, turkishDate.month, turkishDate.day);
+  const namedDate = parseNamedDateParts(trimmed, false);
+  if (namedDate) {
+    const publishedDate = createCalendarDateString(namedDate.year, namedDate.month, namedDate.day);
     return publishedDate ? { publicationKind: "date", publishedDate } : undefined;
   }
   return undefined;
@@ -2091,19 +2092,19 @@ function parseExplicitSourceTimestamp(input: string): Date | undefined {
   return Number.isNaN(timestamp) ? undefined : new Date(timestamp);
 }
 
-function parseTurkishDate(input: string): Date | undefined {
-  const parts = parseTurkishDateParts(input, false);
+function parseNamedDate(input: string): Date | undefined {
+  const parts = parseNamedDateParts(input, false);
   return parts ? createUtcCalendarDate(parts.year, parts.month, parts.day) : undefined;
 }
 
-function parseTurkishDateParts(input: string, exact: boolean): { year: number; month: number; day: number } | undefined {
+function parseNamedDateParts(input: string, exact: boolean): { year: number; month: number; day: number } | undefined {
   const normalized = foldAnchorTitle(input);
   const expression = exact
-    ? /^(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(20\d{2})$/u
-    : /\b(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(20\d{2})\b/u;
+    ? /^(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik|january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})$/u
+    : /\b(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik|january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})\b/u;
   const match = normalized.match(expression);
   if (!match?.[1] || !match[2] || !match[3]) return undefined;
-  const month = turkishMonths[match[2]];
+  const month = namedMonths[match[2]];
   return month ? { year: Number(match[3]), month, day: Number(match[1]) } : undefined;
 }
 
@@ -2327,7 +2328,7 @@ function readBayburtPortalMediaItem(
   return { rawTitle, link, ...(published ? { published } : {}) };
 }
 
-const turkishMonths: Record<string, number> = {
+const namedMonths: Record<string, number> = {
   ocak: 1,
   subat: 2,
   mart: 3,
@@ -2339,7 +2340,19 @@ const turkishMonths: Record<string, number> = {
   eylul: 9,
   ekim: 10,
   kasim: 11,
-  aralik: 12
+  aralik: 12,
+  january: 1,
+  february: 2,
+  march: 3,
+  april: 4,
+  may: 5,
+  june: 6,
+  july: 7,
+  august: 8,
+  september: 9,
+  october: 10,
+  november: 11,
+  december: 12
 };
 
 function readJsonRawText(record: Record<string, unknown>, keys: string[]): string | undefined {

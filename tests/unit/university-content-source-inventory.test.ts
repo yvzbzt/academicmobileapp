@@ -15,6 +15,7 @@ const inventory = readJson("../../apps/api/src/bootstrap/university-content-sour
       evidenceStatus: "final_revalidated" | "not_attached";
       verificationEvidence?: unknown;
       parser: string;
+      parserConfig?: Record<string, string>;
       siteStructure: { description: string; detectedFormat: string; extractionMode: string; selectorHints: Record<string, string[]> };
     }>;
   }>;
@@ -34,7 +35,7 @@ describe("208-university content source inventory", () => {
     for (const university of inventory.universities) {
       expect(university.slots.map(({ contentType }) => contentType).sort()).toEqual(expectedContentTypes);
       for (const slot of university.slots) {
-        expect(slot.parser).toBe("auto");
+        expect(["auto", "html", "rss"]).toContain(slot.parser);
         expect(slot.siteStructure.description).toBeTruthy();
         expect(slot.siteStructure.selectorHints.link).toBeTruthy();
         if (slot.status === "candidate_found") {
@@ -66,6 +67,30 @@ describe("208-university content source inventory", () => {
       .toMatchObject({ detectedFormat: "json", extractionMode: "json_auto" });
     expect(tnku?.slots.find(({ contentType }) => contentType === "event")?.siteStructure)
       .toMatchObject({ detectedFormat: "json", extractionMode: "json_auto" });
+  });
+
+  it("keeps reviewed university-specific HTML recipes in the editable inventory", () => {
+    const maku = inventory.universities.find(({ universityId }) => universityId === "burdur-mehmet-akif-ersoy-universitesi");
+    const ksu = inventory.universities.find(({ universityId }) => universityId === "kahramanmaras-sutcu-imam-universitesi");
+
+    expect(maku?.slots.find(({ contentType }) => contentType === "news")).toMatchObject({
+      sourceUrl: "https://www.mehmetakif.edu.tr/tr/contents/47",
+      parser: "html",
+      parserConfig: { itemSelector: "main a[href^='/content/'][href*='/1/']" },
+      siteStructure: { extractionMode: "html_dom_configured" }
+    });
+    expect(maku?.slots.find(({ contentType }) => contentType === "event")).toMatchObject({
+      sourceUrl: "https://www.mehmetakif.edu.tr/tr/contents/46",
+      parser: "html",
+      parserConfig: { titleSelector: ".text-justify.text-slate-700.font-semibold" },
+      siteStructure: { extractionMode: "html_dom_configured" }
+    });
+    expect(ksu?.slots.find(({ contentType }) => contentType === "announcement")).toMatchObject({
+      sourceUrl: "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
+      parser: "html",
+      parserConfig: { itemSelector: "main article.card.blog-card" },
+      siteStructure: { extractionMode: "html_dom_configured" }
+    });
   });
 });
 

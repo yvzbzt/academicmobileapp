@@ -744,9 +744,31 @@
     "calendarStatus": "source_found",
     "summerSchoolStatus": "source_found",
     "newsStatus": "source_found",
-    "newsUrl": "https://sciencenews.mehmetakif.edu.tr/haberler/",
+    "newsUrl": "https://www.mehmetakif.edu.tr/tr/contents/47",
     "eventStatus": "source_found",
-    "eventUrl": "https://sciencenews.mehmetakif.edu.tr/etkinlikler/"
+    "eventUrl": "https://www.mehmetakif.edu.tr/tr/contents/46",
+    "parserProfiles": {
+      "news": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "main a[href^='/content/'][href*='/1/']",
+          "titleSelector": ".text-left.font-thin.text-maku_text-500",
+          "linkSelector": "a[href^='/content/']",
+          "dateSelector": "div:has(> img[src='/calendar_gray.svg']) + div",
+          "contentSelector": ".text-sm.text-left.text-slate-400"
+        }
+      },
+      "event": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "main a[href^='/content/'][href*='/1/']",
+          "titleSelector": ".text-justify.text-slate-700.font-semibold",
+          "linkSelector": "a[href^='/content/']",
+          "dateSelector": "div:has(> img[src='/calendar_blue.svg']) + div",
+          "contentSelector": "div:has(> img[src='/location_blue.svg']) + div"
+        }
+      }
+    }
   },
   {
     "universityId": "bursa-teknik-universitesi",
@@ -1860,14 +1882,26 @@
     "universityId": "kahramanmaras-sutcu-imam-universitesi",
     "universityName": "KAHRAMANMARAŞ SÜTÇÜ İMAM ÜNİVERSİTESİ",
     "city": "KAHRAMANMARAŞ",
-    "announcementUrl": "https://www.ksu.edu.tr/default?DId=103100",
+    "announcementUrl": "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
     "calendarUrl": null,
     "summerSchoolUrl": null,
     "announcementStatus": "source_found",
     "calendarStatus": "source_not_found",
     "summerSchoolStatus": "failed",
     "newsStatus": "source_not_found",
-    "eventStatus": "source_not_found"
+    "eventStatus": "source_not_found",
+    "parserProfiles": {
+      "announcement": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "main article.card.blog-card",
+          "titleSelector": ".card-body h3 a[href]",
+          "linkSelector": ".card-body h3 a[href]",
+          "dateSelector": ".card-body > .text-muted.small",
+          "contentSelector": ".card-body > p"
+        }
+      }
+    }
   },
   {
     "universityId": "kapadokya-universitesi-nevsehir",

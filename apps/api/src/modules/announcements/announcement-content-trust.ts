@@ -481,7 +481,19 @@ const approvedAnnouncementSourceUrlUpgrades = [
   ],
   [
     "https://www.ksu.edu.tr/default.aspx?DId=103100",
-    "https://www.ksu.edu.tr/default?DId=103100"
+    "https://www.ksu.edu.tr/default?DId=KSU&MI=42546"
+  ],
+  [
+    "https://www.ksu.edu.tr/default?DId=103100",
+    "https://www.ksu.edu.tr/default?DId=KSU&MI=42546"
+  ],
+  [
+    "https://sciencenews.mehmetakif.edu.tr/haberler/",
+    "https://www.mehmetakif.edu.tr/tr/contents/47"
+  ],
+  [
+    "https://sciencenews.mehmetakif.edu.tr/etkinlikler/",
+    "https://www.mehmetakif.edu.tr/tr/contents/46"
   ]
 ] as const;
 

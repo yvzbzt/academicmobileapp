@@ -163,7 +163,10 @@ describe("academic content trust primitives", () => {
     ["http://bilnews.bilkent.edu.tr/", "https://bilkentnews.bilkent.edu.tr/"],
     ["https://beykent.edu.tr/duyurular", "https://www.beykent.edu.tr/duyurular"],
     ["http://haberler.itu.edu.tr/", "https://haberler.itu.edu.tr/"],
-    ["https://www.ksu.edu.tr/default.aspx?DId=103100", "https://www.ksu.edu.tr/default?DId=103100"],
+    ["https://www.ksu.edu.tr/default.aspx?DId=103100", "https://www.ksu.edu.tr/default?DId=KSU&MI=42546"],
+    ["https://www.ksu.edu.tr/default?DId=103100", "https://www.ksu.edu.tr/default?DId=KSU&MI=42546"],
+    ["https://sciencenews.mehmetakif.edu.tr/haberler/", "https://www.mehmetakif.edu.tr/tr/contents/47"],
+    ["https://sciencenews.mehmetakif.edu.tr/etkinlikler/", "https://www.mehmetakif.edu.tr/tr/contents/46"],
     ["http://eee.agu.edu.tr/haberler", "https://eee.agu.edu.tr/haberler"]
   ])("keeps the validated registry URL upgrade %s on one candidate identity", (legacyUrl, approvedUrl) => {
     expect(canonicalAnnouncementSourceIdentityKey(legacyUrl))
