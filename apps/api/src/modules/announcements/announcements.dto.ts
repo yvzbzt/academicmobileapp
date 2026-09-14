@@ -16,6 +16,13 @@ export class MyAnnouncementsQueryDto {
 
 }
 
+export class MobileSourceManifestQueryDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-f\d]{64}$/u)
+  knownVersion?: string;
+}
+
 export class AnnouncementDiscoveryRequestDto {
   @IsOptional()
   @IsInt()

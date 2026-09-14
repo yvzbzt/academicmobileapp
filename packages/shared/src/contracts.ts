@@ -164,6 +164,47 @@ export interface TrustedAcademicContentCollectionDto {
   failedSourceCount: number;
 }
 
+export type MobileAcademicContentSourceParser = "auto" | "rss" | "html";
+
+export interface MobileAcademicContentSourceParserConfigDto {
+  itemSelector?: string;
+  titleSelector?: string;
+  linkSelector?: string;
+  dateSelector?: string;
+  contentSelector?: string;
+}
+
+/**
+ * A short-lived, server-approved recipe for fetching public academic content
+ * directly from a device. Server-only headers, credentials and verification
+ * evidence must never be added to this contract.
+ */
+export interface MobileAcademicContentSourceDto {
+  id: string;
+  sourceName: string;
+  sourceUrl: string;
+  allowedHostname: string;
+  contentType: AcademicContentType;
+  scopeType: AcademicContentScopeType;
+  scopeId: string;
+  parser: MobileAcademicContentSourceParser;
+  parserConfig?: MobileAcademicContentSourceParserConfigDto;
+  definitionVersion: string;
+  contentRevision: string;
+  checkedAt: string;
+  validUntil: string;
+}
+
+export interface MobileAcademicContentSourceManifestDto {
+  schemaVersion: 1;
+  version: string;
+  /** True when source definitions or observed source content changed. */
+  refreshRequired: boolean;
+  generatedAt: string;
+  revalidateAfter: string;
+  sources: MobileAcademicContentSourceDto[];
+}
+
 export const NOTIFICATION_DELIVERY_CONSENT_VERSION = "phase3-v1" as const;
 
 export interface NotificationPreferenceDto {

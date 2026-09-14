@@ -5,7 +5,7 @@ import { Roles } from "../../common/decorators/roles.decorator.js";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard.js";
 import { RolesGuard } from "../../common/guards/roles.guard.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
-import { AnnouncementDiscoveryRequestDto, AnnouncementIngestionRequestDto, AnnouncementReviewItemsQueryDto, AnnouncementSourceReviewDto, AnnouncementSourcesQueryDto, CreateAnnouncementSourceDto, DeleteContentLlmApiKeyDto, MyAnnouncementsQueryDto, PreviewUniversityContentSourceProfileDto, RunContentLlmReviewDto, RunSingleContentLlmReviewDto, UpdateAnnouncementReviewItemDto, UpdateAnnouncementSourceDto, UpdateContentLlmSettingsDto, UpdateUniversityContentSourceProfileDto } from "./announcements.dto.js";
+import { AnnouncementDiscoveryRequestDto, AnnouncementIngestionRequestDto, AnnouncementReviewItemsQueryDto, AnnouncementSourceReviewDto, AnnouncementSourcesQueryDto, CreateAnnouncementSourceDto, DeleteContentLlmApiKeyDto, MobileSourceManifestQueryDto, MyAnnouncementsQueryDto, PreviewUniversityContentSourceProfileDto, RunContentLlmReviewDto, RunSingleContentLlmReviewDto, UpdateAnnouncementReviewItemDto, UpdateAnnouncementSourceDto, UpdateContentLlmSettingsDto, UpdateUniversityContentSourceProfileDto } from "./announcements.dto.js";
 import { AnnouncementIngestionService } from "./announcement-ingestion.service.js";
 import { AnnouncementReviewService } from "./announcement-review.service.js";
 import { AnnouncementsService } from "./announcements.service.js";
@@ -27,6 +27,13 @@ export class AnnouncementsController {
   @Roles("student")
   getMyTrustedAnnouncementCollection(@CurrentUser() user: AuthenticatedUser, @Query() query: MyAnnouncementsQueryDto) {
     return this.announcementsService.getMyAnnouncementsCollection(user.id, query.limit);
+  }
+
+  @Get("my/source-manifest")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("student")
+  getMySourceManifest(@CurrentUser() user: AuthenticatedUser, @Query() query: MobileSourceManifestQueryDto) {
+    return this.announcementsService.getMySourceManifest(user.id, query.knownVersion);
   }
 
   @Get("my/trusted/:announcementId")

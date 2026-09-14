@@ -55,6 +55,7 @@ export const endpointCatalog: EndpointContract[] = [
 
   { method: "GET", path: "/announcements/my", authRequired: true, roles: studentRoles, rateLimit: "standard" },
   { method: "GET", path: "/announcements/my/trusted", authRequired: true, roles: studentRoles, rateLimit: "standard" },
+  { method: "GET", path: "/announcements/my/source-manifest", authRequired: true, roles: studentRoles, rateLimit: "standard" },
   { method: "GET", path: "/announcements/my/trusted/:announcementId", authRequired: true, roles: studentRoles, rateLimit: "standard" },
   { method: "GET", path: "/announcements/my/saved/:announcementId", authRequired: true, roles: studentRoles, rateLimit: "standard" },
   { method: "PUT", path: "/announcements/my/saved/:announcementId", authRequired: true, roles: studentRoles, rateLimit: "standard" },

@@ -509,6 +509,153 @@ describe("trusted announcement API contract", () => {
   });
 });
 
+describe("mobile academic content source manifest", () => {
+  it("returns only fresh trusted recipes for the student's selected and followed scopes", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const now = new Date("2026-09-14T12:00:00.000Z");
+    const primary = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "ankara-university",
+      sourceName: "Ankara announcements",
+      sourceUrl: "https://www.ankara.edu.tr/duyurular/",
+      homepageUrl: "https://www.ankara.edu.tr/",
+      contentType: "announcement",
+      parser: "html",
+      parserConfig: { itemSelector: "article", titleSelector: "h2", linkSelector: "a" },
+      priority: 20,
+      status: "active",
+      trustStatus: "trusted",
+      healthStatus: "healthy",
+      lastSuccessAt: new Date("2026-09-14T11:00:00.000Z"),
+      contentHash: "a".repeat(64)
+    });
+    const followed = await repository.upsertSource({
+      scopeType: "faculty",
+      scopeId: "followed-faculty",
+      ownerUniversityId: "gazi-university",
+      sourceName: "Followed faculty news",
+      sourceUrl: "https://muhendislik.gazi.edu.tr/haberler",
+      homepageUrl: "https://muhendislik.gazi.edu.tr/",
+      contentType: "news",
+      parser: "rss",
+      priority: 10,
+      status: "active",
+      trustStatus: "trusted",
+      healthStatus: "healthy",
+      lastSuccessAt: new Date("2026-09-14T10:30:00.000Z"),
+      contentHash: "b".repeat(64)
+    });
+    await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "ankara-university",
+      sourceName: "Failed source",
+      sourceUrl: "https://www.ankara.edu.tr/haberler/bozuk",
+      homepageUrl: "https://www.ankara.edu.tr/",
+      contentType: "news",
+      parser: "auto",
+      priority: 5,
+      status: "active",
+      trustStatus: "trusted",
+      healthStatus: "failed",
+      lastSuccessAt: new Date("2026-09-14T10:00:00.000Z"),
+      lastError: "SOURCE_FETCH_FAILED"
+    });
+    await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "ankara-university",
+      sourceName: "Expired source",
+      sourceUrl: "https://www.ankara.edu.tr/etkinlikler/eski",
+      homepageUrl: "https://www.ankara.edu.tr/",
+      contentType: "event",
+      parser: "auto",
+      priority: 4,
+      status: "active",
+      trustStatus: "trusted",
+      healthStatus: "healthy",
+      lastSuccessAt: new Date("2026-09-12T00:00:00.000Z")
+    });
+    await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "unfollowed-university",
+      sourceName: "Out of scope source",
+      sourceUrl: "https://www.itu.edu.tr/duyurular",
+      homepageUrl: "https://www.itu.edu.tr/",
+      contentType: "announcement",
+      parser: "auto",
+      priority: 3,
+      status: "active",
+      trustStatus: "trusted",
+      healthStatus: "healthy",
+      lastSuccessAt: new Date("2026-09-14T11:00:00.000Z")
+    });
+    const follows = {
+      async listFollowedAcademicScopesByUserId() {
+        return [{ universityId: "gazi-university", facultyId: "followed-faculty" }];
+      }
+    };
+    const service = new AnnouncementsService(
+      createAuthRepository(),
+      repository,
+      undefined,
+      undefined,
+      undefined,
+      follows as never
+    );
+
+    const manifest = await service.getMySourceManifest("student-1", undefined, now);
+
+    expect(manifest).toEqual(expect.objectContaining({
+      schemaVersion: 1,
+      refreshRequired: true,
+      generatedAt: now.toISOString(),
+      sources: [
+        expect.objectContaining({
+          id: followed.id,
+          sourceUrl: "https://muhendislik.gazi.edu.tr/haberler",
+          allowedHostname: "muhendislik.gazi.edu.tr",
+          contentType: "news",
+          scopeType: "faculty",
+          scopeId: "followed-faculty",
+          parser: "rss"
+        }),
+        expect.objectContaining({
+          id: primary.id,
+          sourceUrl: "https://www.ankara.edu.tr/duyurular",
+          allowedHostname: "www.ankara.edu.tr",
+          parserConfig: { itemSelector: "article", titleSelector: "h2", linkSelector: "a" }
+        })
+      ]
+    }));
+    expect(manifest.version).toMatch(/^[a-f\d]{64}$/u);
+    expect(manifest.sources.every((source) => source.validUntil > now.toISOString())).toBe(true);
+    expect(JSON.stringify(manifest)).not.toContain("SOURCE_FETCH_FAILED");
+    expect(JSON.stringify(manifest)).not.toContain("contentHash");
+    expect(JSON.stringify(manifest)).not.toContain("verificationEvidence");
+
+    const unchanged = await service.getMySourceManifest("student-1", manifest.version, now);
+    expect(unchanged.refreshRequired).toBe(false);
+    expect(unchanged.sources).toHaveLength(2);
+
+    await repository.recordSourceCheck(primary.id, {
+      healthStatus: "healthy",
+      lastCheckedAt: now,
+      lastSuccessAt: now,
+      contentHash: "c".repeat(64)
+    });
+    const changed = await service.getMySourceManifest("student-1", manifest.version, now);
+    expect(changed.refreshRequired).toBe(true);
+    expect(changed.version).not.toBe(manifest.version);
+
+    expect(endpointCatalog).toContainEqual({
+      method: "GET",
+      path: "/announcements/my/source-manifest",
+      authRequired: true,
+      roles: ["student"],
+      rateLimit: "standard"
+    });
+  });
+});
+
 async function approveAllReviewItems(repository: InMemoryAnnouncementRepository, sourceId: string) {
   for (const item of await repository.listReviewItems({ sourceIds: [sourceId] })) {
     if (!item.contentFingerprint) throw new Error("Expected content fingerprint.");

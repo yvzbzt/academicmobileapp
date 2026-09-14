@@ -1,12 +1,17 @@
 import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
-import type { TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
+import { createHash } from "node:crypto";
+import type { MobileAcademicContentSourceDto, MobileAcademicContentSourceManifestDto, TrustedAcademicContentCollectionDto, TrustedAcademicContentDto } from "../../../../../packages/shared/src/contracts.js";
 import type { AuthRepository } from "../auth/auth.types.js";
 import type { CatalogRepository } from "../catalog/catalog.types.js";
 import type { UserDataRepository } from "../users/user-data.types.js";
 import { AnnouncementIngestionService, YOK_ANNOUNCEMENT_SCOPE_ID, YOK_ANNOUNCEMENT_SOURCE_URL } from "./announcement-ingestion.service.js";
-import { academicContentLogicalIdentityKey, canonicalContentKey, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
+import { academicContentLogicalIdentityKey, canonicalContentKey, canonicalizeContentUrl, compareAcademicContentDuplicateRecency, toTrustedAcademicContentDto } from "./announcement-content-trust.js";
 import type { AnnouncementItem, AnnouncementRepository, AnnouncementSourceRecord, SavedAnnouncementStatus } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
+
+const MOBILE_SOURCE_MANIFEST_SCHEMA_VERSION = 1 as const;
+const DEFAULT_MOBILE_SOURCE_TRUST_TTL_MS = 36 * 60 * 60 * 1_000;
+const DEFAULT_MOBILE_SOURCE_REVALIDATE_MS = 30 * 60 * 1_000;
 
 @Injectable()
 export class AnnouncementsService {
@@ -57,6 +62,44 @@ export class AnnouncementsService {
       sources.length,
       persistedFailedSourceCount(sources)
     );
+  }
+
+  async getMySourceManifest(
+    userId: string,
+    knownVersion?: string,
+    now = new Date()
+  ): Promise<MobileAcademicContentSourceManifestDto> {
+    const user = await this.authRepository.findUserById(userId);
+    if (!user) throw new NotFoundException("User not found.");
+    const scopes = await this.academicScopesForUser(userId, user);
+    const sources = uniqueSources((await Promise.all(
+      scopes.map((scope) => this.announcementRepository.listSourcesByScope(scope))
+    )).flat());
+    const trustTtlMs = boundedDuration(
+      process.env.MOBILE_CONTENT_SOURCE_TRUST_TTL_MS,
+      DEFAULT_MOBILE_SOURCE_TRUST_TTL_MS,
+      60 * 60 * 1_000,
+      7 * 24 * 60 * 60 * 1_000
+    );
+    const manifestSources = sources
+      .map((source) => toMobileSource(source, now, trustTtlMs))
+      .filter((source): source is MobileAcademicContentSourceDto => source !== null)
+      .sort(compareMobileSources);
+    const version = mobileSourceManifestVersion(manifestSources);
+    const revalidateMs = boundedDuration(
+      process.env.MOBILE_CONTENT_SOURCE_REVALIDATE_MS,
+      DEFAULT_MOBILE_SOURCE_REVALIDATE_MS,
+      5 * 60 * 1_000,
+      24 * 60 * 60 * 1_000
+    );
+    return {
+      schemaVersion: MOBILE_SOURCE_MANIFEST_SCHEMA_VERSION,
+      version,
+      refreshRequired: knownVersion !== version,
+      generatedAt: now.toISOString(),
+      revalidateAfter: new Date(now.getTime() + revalidateMs).toISOString(),
+      sources: manifestSources
+    };
   }
 
   async getMyTrustedAnnouncement(userId: string, announcementId: string): Promise<TrustedAcademicContentDto> {
@@ -195,6 +238,87 @@ function uniqueScopes(scopes: readonly AnnouncementScopeInput[]): AnnouncementSc
 
 function uniqueSources(sources: readonly AnnouncementSourceRecord[]): AnnouncementSourceRecord[] {
   return [...new Map(sources.map((source) => [source.id, source])).values()];
+}
+
+function toMobileSource(
+  source: AnnouncementSourceRecord,
+  now: Date,
+  trustTtlMs: number
+): MobileAcademicContentSourceDto | null {
+  if (
+    source.status !== "active"
+    || source.trustStatus !== "trusted"
+    || source.approvalPending === true
+    || source.healthStatus !== "healthy"
+    || !source.lastSuccessAt
+  ) return null;
+  const validUntil = new Date(source.lastSuccessAt.getTime() + trustTtlMs);
+  if (validUntil.getTime() <= now.getTime()) return null;
+  const canonical = canonicalizeContentUrl(source.canonicalUrl ?? source.sourceUrl);
+  if (!canonical) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(canonical);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || !parsed.hostname) return null;
+  const definitionVersion = source.sourceDefinitionVersion?.trim();
+  if (!definitionVersion) return null;
+  return {
+    id: source.id,
+    sourceName: source.sourceName,
+    sourceUrl: canonical,
+    allowedHostname: parsed.hostname.toLowerCase(),
+    contentType: source.contentType ?? "announcement",
+    scopeType: source.scopeType,
+    scopeId: source.scopeId,
+    parser: source.parser,
+    ...(source.parserConfig ? { parserConfig: { ...source.parserConfig } } : {}),
+    definitionVersion,
+    contentRevision: opaqueSourceContentRevision(source),
+    checkedAt: source.lastSuccessAt.toISOString(),
+    validUntil: validUntil.toISOString()
+  };
+}
+
+function opaqueSourceContentRevision(source: AnnouncementSourceRecord): string {
+  return createHash("sha256")
+    .update("academic-mobile:device-source-content:v1\0")
+    .update(source.id)
+    .update("\0")
+    .update(source.contentHash ?? source.lastContentChangedAt?.toISOString() ?? "unobserved")
+    .digest("hex");
+}
+
+function mobileSourceManifestVersion(sources: readonly MobileAcademicContentSourceDto[]): string {
+  const hash = createHash("sha256").update("academic-mobile:device-source-manifest:v1\0");
+  for (const source of sources) {
+    hash.update(JSON.stringify({
+      id: source.id,
+      sourceUrl: source.sourceUrl,
+      contentType: source.contentType,
+      scopeType: source.scopeType,
+      scopeId: source.scopeId,
+      parser: source.parser,
+      parserConfig: source.parserConfig,
+      definitionVersion: source.definitionVersion,
+      contentRevision: source.contentRevision
+    })).update("\0");
+  }
+  return hash.digest("hex");
+}
+
+function compareMobileSources(left: MobileAcademicContentSourceDto, right: MobileAcademicContentSourceDto): number {
+  return left.scopeType.localeCompare(right.scopeType, "en-US")
+    || left.scopeId.localeCompare(right.scopeId, "en-US")
+    || left.contentType.localeCompare(right.contentType, "en-US")
+    || left.id.localeCompare(right.id, "en-US");
+}
+
+function boundedDuration(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback;
 }
 
 async function loadAcademicHierarchyByScope(
