@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import type { ClientRequest, IncomingMessage } from "node:http";
+import https, { type RequestOptions } from "node:https";
 import { describe, expect, it, vi } from "vitest";
 import {
   APPLE_JWKS_URL,
@@ -14,6 +17,7 @@ import {
 
 const firstPublicAddress: ResolvedOutboundAddress = { address: "93.184.216.34", family: 4 };
 const secondPublicAddress: ResolvedOutboundAddress = { address: "142.250.74.14", family: 4 };
+const publicIpv6Address: ResolvedOutboundAddress = { address: "2606:4700:4700::1111", family: 6 };
 
 describe("safe outbound requests", () => {
   it("rejects unsafe URL forms and literal private destinations before transport", () => {
@@ -106,6 +110,105 @@ describe("safe outbound requests", () => {
       firstPublicAddress,
       secondPublicAddress
     ]);
+  });
+
+  it("contains an unreachable pinned IPv6 socket error and falls back to pinned IPv4", async () => {
+    type AutoSelectRequestOptions = RequestOptions & { autoSelectFamily?: boolean };
+    const attempts: Array<{ autoSelectFamily: boolean | undefined; family: RequestOptions["family"] }> = [];
+    const lookupRanAfterRequestReturn: boolean[] = [];
+    let escapedNetworkError: unknown;
+    const requestSpy = vi.spyOn(https, "request");
+
+    requestSpy.mockImplementation(((
+      _url: URL,
+      options: AutoSelectRequestOptions,
+      onResponse: (response: IncomingMessage) => void
+    ) => {
+      attempts.push({
+        autoSelectFamily: options.autoSelectFamily,
+        family: options.family
+      });
+      const request = new EventEmitter() as EventEmitter & {
+        destroy: (error?: Error) => ClientRequest;
+        end: () => ClientRequest;
+        setTimeout: () => ClientRequest;
+      };
+      request.setTimeout = () => request as unknown as ClientRequest;
+      request.destroy = (error?: Error) => {
+        if (error) process.nextTick(() => request.emit("error", error));
+        process.nextTick(() => request.emit("close"));
+        return request as unknown as ClientRequest;
+      };
+      request.end = () => request as unknown as ClientRequest;
+      const lookup = options.lookup as unknown as (
+        hostname: string,
+        lookupOptions: { all: false },
+        callback: (error: Error | null, address: string, family: number) => void
+      ) => void;
+      let requestReturned = false;
+      lookup("example.edu.tr", { all: false }, (error, address, family) => {
+        lookupRanAfterRequestReturn.push(requestReturned);
+        if (error) {
+          request.emit("error", error);
+          return;
+        }
+
+        if (family === 6) {
+          const socket = new EventEmitter();
+          socket.once("error", (socketError) => request.emit("error", socketError));
+          const unreachable = Object.assign(new Error(`connect ENETUNREACH ${address}:443`), {
+            code: "ENETUNREACH"
+          });
+          try {
+            socket.emit("error", unreachable);
+          } catch (networkError) {
+            escapedNetworkError = networkError;
+            process.nextTick(() => request.emit("error", unreachable));
+          }
+          request.emit("close");
+          return;
+        }
+
+        const response = new EventEmitter() as EventEmitter & {
+          destroy: () => void;
+          headers: IncomingMessage["headers"];
+          socket: { remoteAddress: string };
+          statusCode: number;
+        };
+        response.destroy = () => undefined;
+        response.headers = { "content-type": "text/plain" };
+        response.socket = { remoteAddress: address };
+        response.statusCode = 200;
+        onResponse(response as unknown as IncomingMessage);
+        process.nextTick(() => {
+          response.emit("data", Buffer.from("ipv4 fallback"));
+          response.emit("end");
+          request.emit("close");
+        });
+      });
+      requestReturned = true;
+      return request as unknown as ClientRequest;
+    }) as never);
+
+    try {
+      await expect(safeOutboundRequest("https://example.edu.tr/announcements", {
+        timeoutMs: 1_000
+      }, {
+        resolveHostname: async () => [publicIpv6Address, firstPublicAddress]
+      })).resolves.toEqual(expect.objectContaining({
+        body: Buffer.from("ipv4 fallback"),
+        remoteAddress: firstPublicAddress.address,
+        status: 200
+      }));
+      expect(attempts).toEqual([
+        { autoSelectFamily: false, family: 6 },
+        { autoSelectFamily: false, family: 4 }
+      ]);
+      expect(lookupRanAfterRequestReturn).toEqual([true, true]);
+      expect(escapedNetworkError).toBeUndefined();
+    } finally {
+      requestSpy.mockRestore();
+    }
   });
 
   it("returns a 304 conditional response without requiring a redirect location", async () => {

@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import http, { type IncomingHttpHeaders, type OutgoingHttpHeaders } from "node:http";
-import https from "node:https";
+import https, { type RequestOptions as HttpsRequestOptions } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 
 export interface ResolvedOutboundAddress {
@@ -654,18 +654,25 @@ function requestPinnedHop(
 ): Promise<SafeOutboundHopResponse> {
   const url = new URL(urlString);
   const client = url.protocol === "https:" ? https : http;
+  // requestResolvedHop owns address-family fallback; keep this connection on
+  // exactly one pinned address and let listeners attach before connect errors.
   const lookup: LookupFunction = (_hostname, options, callback) => {
-    if (options.all) callback(null, [{ address: pinnedAddress.address, family: pinnedAddress.family }]);
-    else callback(null, pinnedAddress.address, pinnedAddress.family);
+    process.nextTick(() => {
+      if (options.all) callback(null, [{ address: pinnedAddress.address, family: pinnedAddress.family }]);
+      else callback(null, pinnedAddress.address, pinnedAddress.family);
+    });
   };
 
   return new Promise((resolve, reject) => {
-    const request = client.request(url, {
+    const requestOptions: HttpsRequestOptions & { autoSelectFamily: false } = {
       agent: false,
+      autoSelectFamily: false,
+      family: pinnedAddress.family,
       method: input.method,
       headers: input.headers,
       lookup
-    }, (response) => {
+    };
+    const request = client.request(url, requestOptions, (response) => {
       let remoteAddress: string;
       try {
         remoteAddress = response.socket.remoteAddress ?? "";
