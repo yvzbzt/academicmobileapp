@@ -30,7 +30,7 @@ describe("university source discovery core", () => {
       ...EXCLUDED_UNIVERSITIES.map(({ universityId, universityName }) => ({ universityId, universityName })),
       ...Array.from({ length: 201 }, (_, index) => ({
         universityId: `test-universitesi-${index + 1}`,
-        universityName: `TEST ÃœNÄ°VERSÄ°TESÄ° ${index + 1}`,
+        universityName: `TEST ÜNİVERSİTESİ ${index + 1}`,
         announcementUrl: `https://test-${index + 1}.edu.tr/duyurular`
       }))
     ];
@@ -49,7 +49,7 @@ describe("university source discovery core", () => {
       ...sources,
       {
         universityId: "gelecek-test-universitesi",
-        universityName: "GELECEK TEST ÃœNÄ°VERSÄ°TESÄ°",
+        universityName: "GELECEK TEST ÜNİVERSİTESİ",
         city: "Ankara",
         announcementUrl: "https://gelecek-test.edu.tr/duyurular"
       }
