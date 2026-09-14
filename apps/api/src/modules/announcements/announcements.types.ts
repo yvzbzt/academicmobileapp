@@ -84,6 +84,12 @@ export interface AnnouncementSourceRecord {
   lastModified?: string;
   contentHash?: string;
   lastContentChangedAt?: Date;
+  /**
+   * Daily device-manifest safety probe. These validators deliberately do not
+   * share state with ingestion: a probe must never make a later ingestion
+   * request incorrectly accept a stale 304 response.
+   */
+  healthProbe?: AnnouncementSourceHealthProbe;
   /** Atomic pointer to the complete student-visible snapshot. Missing on legacy sources. */
   activeSnapshotId?: string;
   /** Monotonic CAS generation for every snapshot activation or invalidation. Legacy sources are generation zero. */
@@ -117,6 +123,19 @@ export interface AnnouncementSourceRecord {
   verificationEvidence?: AnnouncementSourceVerificationEvidence;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface AnnouncementSourceHealthProbe {
+  healthStatus: AnnouncementSourceHealthStatus;
+  lastCheckedAt: Date;
+  lastSuccessAt?: Date;
+  lastError?: string;
+  consecutiveFailures: number;
+  itemCount?: number;
+  etag?: string;
+  lastModified?: string;
+  contentHash?: string;
+  lastContentChangedAt?: Date;
 }
 
 export interface UniversityCalendarSourceProfileRecord {
@@ -305,6 +324,8 @@ export type SourceCheckInput = Pick<
   | "processingVersion"
 >;
 
+export type SourceHealthProbeInput = AnnouncementSourceHealthProbe;
+
 export type AnnouncementSourceDefinitionFence = Pick<
   AnnouncementSourceRecord,
   "sourceUrl" | "parser" | "parserConfig" | "contentType" | "sourceDefinitionVersion" | "notificationProducerVersion" | "approvalPending" | "reviewedAt"
@@ -448,6 +469,11 @@ export interface AnnouncementRepository {
     expectedDefinition?: AnnouncementSourceDefinitionFence,
     /** Optional CAS fence for health/validator writes; null means no active snapshot. */
     expectedActiveSnapshotId?: string | null
+  ): Promise<AnnouncementSourceRecord | null>;
+  recordSourceHealthProbe(
+    id: string,
+    input: SourceHealthProbeInput,
+    expectedDefinition: AnnouncementSourceDefinitionFence
   ): Promise<AnnouncementSourceRecord | null>;
   replaceItemsForSource(
     source: AnnouncementSourceRecord,

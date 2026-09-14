@@ -13,15 +13,18 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
   private readonly logger = new Logger(ContentIngestionWorkerService.name);
   private announcementInitialTimer: NodeJS.Timeout | null = null;
   private announcementTimer: NodeJS.Timeout | null = null;
+  private announcementHealthInitialTimer: NodeJS.Timeout | null = null;
+  private announcementHealthTimer: NodeJS.Timeout | null = null;
   private calendarInitialTimer: NodeJS.Timeout | null = null;
   private calendarTimer: NodeJS.Timeout | null = null;
   private announcementCycle: Promise<void> | null = null;
+  private announcementHealthCycle: Promise<void> | null = null;
   private calendarCycle: Promise<void> | null = null;
   private reconciliationCycle: Promise<void> | null = null;
   private acceptingCycles = false;
 
   constructor(
-    @Inject(AnnouncementIngestionService) private readonly announcementIngestionService: Pick<AnnouncementIngestionService, "runScheduledCycle">,
+    @Inject(AnnouncementIngestionService) private readonly announcementIngestionService: Pick<AnnouncementIngestionService, "runScheduledCycle" | "runDailyHealthCycle">,
     @Inject(CalendarIngestionService) private readonly calendarIngestionService: Pick<CalendarIngestionService, "runScheduledCycle" | "reconcilePublishedCalendarNotifications">
   ) {}
 
@@ -33,6 +36,7 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
     if (!this.acceptingCycles) return;
 
     if (process.env.ANNOUNCEMENT_AUTO_INGEST_ENABLED === "true") this.scheduleAnnouncementIngestion();
+    if (process.env.ANNOUNCEMENT_HEALTH_PROBE_ENABLED !== "false") this.scheduleAnnouncementHealthProbe();
     if (process.env.CALENDAR_AUTO_INGEST_ENABLED === "true") this.scheduleCalendarIngestion();
   }
 
@@ -41,6 +45,7 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
     this.clearTimers();
     await Promise.allSettled([
       ...(this.announcementCycle ? [this.announcementCycle] : []),
+      ...(this.announcementHealthCycle ? [this.announcementHealthCycle] : []),
       ...(this.calendarCycle ? [this.calendarCycle] : []),
       ...(this.reconciliationCycle ? [this.reconciliationCycle] : [])
     ]);
@@ -67,6 +72,20 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
       return true;
     } finally {
       if (this.calendarCycle === cycle) this.calendarCycle = null;
+    }
+  }
+
+  async runAnnouncementHealthCycle(): Promise<boolean> {
+    if (!this.acceptingCycles || this.announcementHealthCycle) return false;
+    const cycle = Promise.resolve()
+      .then(() => this.announcementIngestionService.runDailyHealthCycle())
+      .then(() => undefined);
+    this.announcementHealthCycle = cycle;
+    try {
+      await cycle;
+      return true;
+    } finally {
+      if (this.announcementHealthCycle === cycle) this.announcementHealthCycle = null;
     }
   }
 
@@ -110,6 +129,32 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
     }, initialDelayMs);
   }
 
+  private scheduleAnnouncementHealthProbe(): void {
+    const initialDelayMs = readBoundedPositiveInteger(
+      process.env.ANNOUNCEMENT_HEALTH_PROBE_INITIAL_DELAY_MS,
+      30_000,
+      1_000,
+      60 * 60 * 1_000
+    );
+    const scheduleTimes = parseDailyScheduleTimes(process.env.ANNOUNCEMENT_HEALTH_PROBE_SCHEDULE_TIMES ?? "05:30");
+    if (scheduleTimes.length > 0) this.scheduleNextAnnouncementHealthCycle(scheduleTimes);
+    this.announcementHealthInitialTimer = setTimeout(() => {
+      this.announcementHealthInitialTimer = null;
+      this.dispatchAnnouncementHealthCycle();
+    }, initialDelayMs);
+  }
+
+  private scheduleNextAnnouncementHealthCycle(scheduleTimes: number[]): void {
+    this.announcementHealthTimer = setTimeout(() => {
+      this.announcementHealthTimer = null;
+      void this.runAnnouncementHealthCycle()
+        .catch(() => this.logger.error("CONTENT_INGESTION_ANNOUNCEMENT_HEALTH_PROBE_FAILED"))
+        .finally(() => {
+          if (this.acceptingCycles) this.scheduleNextAnnouncementHealthCycle(scheduleTimes);
+        });
+    }, millisecondsUntilNextDailyRun(scheduleTimes));
+  }
+
   private scheduleNextCalendarCycle(scheduleTimes: number[]): void {
     this.calendarTimer = setTimeout(() => {
       this.calendarTimer = null;
@@ -123,6 +168,11 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
 
   private dispatchAnnouncementCycle(): void {
     void this.runAnnouncementCycle().catch(() => this.logger.error("CONTENT_INGESTION_ANNOUNCEMENT_CYCLE_FAILED"));
+  }
+
+  private dispatchAnnouncementHealthCycle(): void {
+    void this.runAnnouncementHealthCycle()
+      .catch(() => this.logger.error("CONTENT_INGESTION_ANNOUNCEMENT_HEALTH_PROBE_FAILED"));
   }
 
   private dispatchCalendarCycle(): void {
@@ -140,10 +190,14 @@ export class ContentIngestionWorkerService implements OnApplicationBootstrap, Be
   private clearTimers(): void {
     if (this.announcementInitialTimer) clearTimeout(this.announcementInitialTimer);
     if (this.announcementTimer) clearInterval(this.announcementTimer);
+    if (this.announcementHealthInitialTimer) clearTimeout(this.announcementHealthInitialTimer);
+    if (this.announcementHealthTimer) clearTimeout(this.announcementHealthTimer);
     if (this.calendarInitialTimer) clearTimeout(this.calendarInitialTimer);
     if (this.calendarTimer) clearTimeout(this.calendarTimer);
     this.announcementInitialTimer = null;
     this.announcementTimer = null;
+    this.announcementHealthInitialTimer = null;
+    this.announcementHealthTimer = null;
     this.calendarInitialTimer = null;
     this.calendarTimer = null;
   }
@@ -180,4 +234,8 @@ export function millisecondsUntilNextDailyRun(scheduleTimes: number[], now = new
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readBoundedPositiveInteger(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, readPositiveInteger(value, fallback)));
 }

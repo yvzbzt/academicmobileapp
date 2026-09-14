@@ -339,6 +339,23 @@ export const announcementSourceSchema = new Schema(
     lastModified: { type: String, required: false, maxlength: 128 },
     contentHash: { type: String, required: false, match: /^[a-f\d]{64}$/u },
     lastContentChangedAt: { type: Date, required: false },
+    healthProbe: {
+      type: {
+        healthStatus: { type: String, required: true, enum: ["pending", "healthy", "degraded", "failed"] },
+        lastCheckedAt: { type: Date, required: true },
+        lastSuccessAt: { type: Date, required: false },
+        lastError: { type: String, required: false, trim: true, maxlength: 1_000 },
+        consecutiveFailures: { type: Number, required: true, min: 0 },
+        itemCount: { type: Number, required: false, min: 0 },
+        etag: { type: String, required: false, maxlength: 512 },
+        lastModified: { type: String, required: false, maxlength: 128 },
+        contentHash: { type: String, required: false, match: /^[a-f\d]{64}$/u },
+        lastContentChangedAt: { type: Date, required: false }
+      },
+      required: false,
+      default: undefined,
+      _id: false
+    },
     activeSnapshotId: { type: String, required: false },
     snapshotStateRevision: { type: Number, required: false, min: 0, default: 0 },
     pendingSnapshotId: { type: String, required: false },

@@ -245,14 +245,20 @@ function toMobileSource(
   now: Date,
   trustTtlMs: number
 ): MobileAcademicContentSourceDto | null {
+  const health = source.healthProbe ?? {
+    healthStatus: source.healthStatus,
+    lastSuccessAt: source.lastSuccessAt,
+    contentHash: source.contentHash,
+    lastContentChangedAt: source.lastContentChangedAt
+  };
   if (
     source.status !== "active"
     || source.trustStatus !== "trusted"
     || source.approvalPending === true
-    || source.healthStatus !== "healthy"
-    || !source.lastSuccessAt
+    || health.healthStatus !== "healthy"
+    || !health.lastSuccessAt
   ) return null;
-  const validUntil = new Date(source.lastSuccessAt.getTime() + trustTtlMs);
+  const validUntil = new Date(health.lastSuccessAt.getTime() + trustTtlMs);
   if (validUntil.getTime() <= now.getTime()) return null;
   const canonical = canonicalizeContentUrl(source.canonicalUrl ?? source.sourceUrl);
   if (!canonical) return null;
@@ -277,17 +283,20 @@ function toMobileSource(
     ...(source.parserConfig ? { parserConfig: { ...source.parserConfig } } : {}),
     definitionVersion,
     contentRevision: opaqueSourceContentRevision(source),
-    checkedAt: source.lastSuccessAt.toISOString(),
+    checkedAt: health.lastSuccessAt.toISOString(),
     validUntil: validUntil.toISOString()
   };
 }
 
 function opaqueSourceContentRevision(source: AnnouncementSourceRecord): string {
+  const observedContent = source.healthProbe
+    ? source.healthProbe.contentHash ?? source.healthProbe.lastContentChangedAt?.toISOString()
+    : source.contentHash ?? source.lastContentChangedAt?.toISOString();
   return createHash("sha256")
     .update("academic-mobile:device-source-content:v1\0")
     .update(source.id)
     .update("\0")
-    .update(source.contentHash ?? source.lastContentChangedAt?.toISOString() ?? "unobserved")
+    .update(observedContent ?? "unobserved")
     .digest("hex");
 }
 

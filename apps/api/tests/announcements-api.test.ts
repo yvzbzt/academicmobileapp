@@ -654,6 +654,52 @@ describe("mobile academic content source manifest", () => {
       rateLimit: "standard"
     });
   });
+
+  it("prefers a successful daily probe over legacy ingestion health and fails closed after a probe failure", async () => {
+    const repository = new InMemoryAnnouncementRepository();
+    const now = new Date("2026-09-14T12:00:00.000Z");
+    const source = await repository.upsertSource({
+      scopeType: "university",
+      scopeId: "ankara-university",
+      sourceName: "Ankara events",
+      sourceUrl: "https://www.ankara.edu.tr/etkinlikler/",
+      homepageUrl: "https://www.ankara.edu.tr/",
+      contentType: "event",
+      parser: "auto",
+      priority: 20,
+      status: "active",
+      trustStatus: "trusted",
+      healthStatus: "failed",
+      lastSuccessAt: new Date("2026-09-01T00:00:00.000Z"),
+      contentHash: "a".repeat(64)
+    });
+    await repository.recordSourceHealthProbe(source.id, {
+      healthStatus: "healthy",
+      lastCheckedAt: new Date("2026-09-14T11:00:00.000Z"),
+      lastSuccessAt: new Date("2026-09-14T11:00:00.000Z"),
+      consecutiveFailures: 0,
+      itemCount: 2,
+      contentHash: "b".repeat(64),
+      lastContentChangedAt: new Date("2026-09-14T11:00:00.000Z")
+    }, source);
+    const service = new AnnouncementsService(createAuthRepository(), repository);
+
+    const healthy = await service.getMySourceManifest("student-1", undefined, now);
+    expect(healthy.sources).toEqual([expect.objectContaining({ id: source.id, contentType: "event" })]);
+    const probed = await repository.findSourceById(source.id);
+    await repository.recordSourceHealthProbe(source.id, {
+      ...probed!.healthProbe!,
+      healthStatus: "degraded",
+      lastCheckedAt: now,
+      lastError: "SOURCE_FETCH_FAILED",
+      consecutiveFailures: 1
+    }, probed!);
+
+    const failed = await service.getMySourceManifest("student-1", healthy.version, now);
+    expect(failed.sources).toEqual([]);
+    expect(failed.refreshRequired).toBe(true);
+    expect(failed.version).not.toBe(healthy.version);
+  });
 });
 
 async function approveAllReviewItems(repository: InMemoryAnnouncementRepository, sourceId: string) {

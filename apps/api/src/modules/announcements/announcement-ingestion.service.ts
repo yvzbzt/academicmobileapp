@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource, type VerifiedRegistrySourceEvidence } from "../../bootstrap/verified-source-registry.js";
 import { resolveSourceAuthorityContext, type ResolvedSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
@@ -14,7 +15,7 @@ import {
   normalizeAnnouncementSourceVerificationEvidence
 } from "./announcement-source-evidence.js";
 import { sameAnnouncementSourceParserConfig } from "./announcements.types.js";
-import type { AnnouncementAdminSourceListQuery, AnnouncementContentType, AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceEditFence, AnnouncementSourceParser, AnnouncementSourceParserConfig, AnnouncementSourceRecord, AnnouncementSourceReviewFence, AnnouncementSourceScope, AnnouncementSourceStatus, AnnouncementSourceVerificationEvidence, AnnouncementTrustStatus, UniversityCalendarSourceProfileRecord, UpsertUniversityCalendarSourceProfileInput } from "./announcements.types.js";
+import type { AnnouncementAdminSourceListQuery, AnnouncementContentType, AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementRepository, AnnouncementSourceCandidateInput, AnnouncementSourceEditFence, AnnouncementSourceHealthProbe, AnnouncementSourceParser, AnnouncementSourceParserConfig, AnnouncementSourceRecord, AnnouncementSourceReviewFence, AnnouncementSourceScope, AnnouncementSourceStatus, AnnouncementSourceVerificationEvidence, AnnouncementTrustStatus, UniversityCalendarSourceProfileRecord, UpsertUniversityCalendarSourceProfileInput } from "./announcements.types.js";
 import { NotificationSchedulingService } from "../notifications/notifications.service.js";
 import {
   STUDENT_RELEVANCE_CLASSIFICATION_VERSION,
@@ -49,6 +50,23 @@ export interface AnnouncementIngestionResult {
     counts: StudentRelevanceAuditCounts;
   };
   error?: string;
+}
+
+export interface AnnouncementHealthProbeResult {
+  sourceId: string;
+  status: "healthy" | "degraded" | "failed";
+  itemCount: number;
+  contentChanged: boolean;
+  error?: string;
+}
+
+export interface AnnouncementHealthProbeCycleResult {
+  checkedSources: number;
+  healthy: number;
+  degraded: number;
+  failed: number;
+  changed: number;
+  results: AnnouncementHealthProbeResult[];
 }
 
 export interface AnnouncementSourcePreviewResult {
@@ -118,6 +136,7 @@ const ANNOUNCEMENT_NOTIFICATION_RETRY_MAX_ITEMS = 5_000;
 @Injectable()
 export class AnnouncementIngestionService {
   private running = false;
+  private healthProbeCycle: Promise<AnnouncementHealthProbeCycleResult> | null = null;
   private staticSourcesPromise: Promise<AnnouncementRegistryProvisionResult> | null = null;
 
   constructor(
@@ -260,6 +279,7 @@ export class AnnouncementIngestionService {
             };
           }
           const source = sourceBySlot.get(`${university.universityId}\u0000${slot.contentType}`);
+          const presentedSource = source ? presentSourceForAdmin(source) : undefined;
           return {
             ...slot,
             suggestedUrl,
@@ -270,7 +290,8 @@ export class AnnouncementIngestionService {
             parserConfig: source?.parserConfig,
             status: source?.status ?? "inactive",
             trustStatus: source?.trustStatus ?? "quarantined",
-            reviewStatus: source ? presentSourceForAdmin(source).reviewStatus : "pending_review",
+            reviewStatus: presentedSource?.reviewStatus ?? "pending_review",
+            ...(presentedSource?.healthProbe ? { healthProbe: presentedSource.healthProbe } : {}),
             lastTest: presentProfileTest(source)
           };
         })
@@ -1143,6 +1164,179 @@ export class AnnouncementIngestionService {
     } finally {
       this.running = false;
     }
+  }
+
+  async runDailyHealthCycle(): Promise<AnnouncementHealthProbeCycleResult> {
+    if (this.healthProbeCycle) return this.healthProbeCycle;
+    const cycle = this.executeDailyHealthCycle();
+    this.healthProbeCycle = cycle;
+    try {
+      return await cycle;
+    } finally {
+      if (this.healthProbeCycle === cycle) this.healthProbeCycle = null;
+    }
+  }
+
+  private async executeDailyHealthCycle(): Promise<AnnouncementHealthProbeCycleResult> {
+    const sources = await this.listAllActiveSources();
+    const results = await runAnnouncementSourcesWithConcurrency(
+      sources,
+      readPositiveInteger(process.env.ANNOUNCEMENT_HEALTH_PROBE_CONCURRENCY, 6),
+      (source) => this.probeSourceHealth(source)
+    );
+    return {
+      checkedSources: results.length,
+      healthy: results.filter((result) => result.status === "healthy").length,
+      degraded: results.filter((result) => result.status === "degraded").length,
+      failed: results.filter((result) => result.status === "failed").length,
+      changed: results.filter((result) => result.contentChanged).length,
+      results
+    };
+  }
+
+  private async probeSourceHealth(source: AnnouncementSourceRecord): Promise<AnnouncementHealthProbeResult> {
+    const checkedAt = new Date();
+    try {
+      const authority = await this.resolveAuthorityForSource(source);
+      const registrationDecision = authority
+        ? evaluateSourceAuthority(authority.context, {
+          boundary: "registration",
+          resource: sourceAuthorityResource(source.contentType),
+          url: source.sourceUrl
+        })
+        : missingSourceOwnerDecision(source, source.sourceUrl, "registration");
+      if (!authority || !registrationDecision.allowed) {
+        return this.quarantineHealthProbeSource(source, registrationDecision, checkedAt);
+      }
+
+      const previous = source.healthProbe;
+      const snapshot = await fetchSourceSnapshot(
+        source.sourceUrl,
+        source.parser,
+        readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
+        { authority: authority.context, resource: sourceAuthorityResource(source.contentType) },
+        {
+          ...(previous?.etag ? { etag: previous.etag } : {}),
+          ...(previous?.lastModified ? { lastModified: previous.lastModified } : {})
+        },
+        source.contentType,
+        source.parserConfig
+      );
+      const publicationDecision = evaluateSourceAuthority(authority.context, {
+        boundary: "publication",
+        resource: sourceAuthorityResource(source.contentType),
+        url: source.sourceUrl,
+        finalRedirectUrl: snapshot.finalUrl
+      });
+      if (!publicationDecision.allowed) {
+        return this.quarantineHealthProbeSource(source, publicationDecision, checkedAt);
+      }
+
+      if (snapshot.fetchStatus === "not_modified") {
+        const previousItemCount = previous?.itemCount ?? 0;
+        if (!previous?.lastSuccessAt || !previous.contentHash || previousItemCount === 0) {
+          throw new Error("SOURCE_HEALTH_PROBE_NOT_MODIFIED_WITHOUT_BASELINE");
+        }
+        const etag = snapshot.etag ?? previous.etag;
+        const lastModified = snapshot.lastModified ?? previous.lastModified;
+        await this.persistHealthProbe(source, {
+          healthStatus: "healthy",
+          lastCheckedAt: checkedAt,
+          lastSuccessAt: checkedAt,
+          consecutiveFailures: 0,
+          itemCount: previousItemCount,
+          ...(etag ? { etag } : {}),
+          ...(lastModified ? { lastModified } : {}),
+          contentHash: previous.contentHash,
+          ...(previous.lastContentChangedAt ? { lastContentChangedAt: previous.lastContentChangedAt } : {})
+        });
+        return { sourceId: source.id, status: "healthy", itemCount: previousItemCount, contentChanged: false };
+      }
+
+      const rejectedItemDecision = snapshot.items
+        .map((item) => evaluateSourceAuthority(authority.context, {
+          boundary: "publication",
+          resource: sourceAuthorityResource(source.contentType),
+          url: item.link
+        }))
+        .find((decision) => !decision.allowed);
+      if (rejectedItemDecision) {
+        return this.quarantineHealthProbeSource(source, rejectedItemDecision, checkedAt);
+      }
+      if (snapshot.items.length === 0) throw new Error("SOURCE_HEALTH_PROBE_EMPTY");
+
+      // Device refreshes follow parsed listing changes, not rotating banners,
+      // analytics markup, or other irrelevant response-body differences.
+      const contentHash = healthProbeContentHash(snapshot.items);
+      const contentChanged = contentHash !== previous?.contentHash;
+      await this.persistHealthProbe(source, {
+        healthStatus: "healthy",
+        lastCheckedAt: checkedAt,
+        lastSuccessAt: checkedAt,
+        consecutiveFailures: 0,
+        itemCount: snapshot.items.length,
+        ...(snapshot.etag ? { etag: snapshot.etag } : {}),
+        ...(snapshot.lastModified ? { lastModified: snapshot.lastModified } : {}),
+        contentHash,
+        ...(contentChanged
+          ? { lastContentChangedAt: checkedAt }
+          : previous?.lastContentChangedAt ? { lastContentChangedAt: previous.lastContentChangedAt } : {})
+      });
+      return {
+        sourceId: source.id,
+        status: "healthy",
+        itemCount: snapshot.items.length,
+        contentChanged
+      };
+    } catch (error) {
+      if (error instanceof SourceAuthorityError) {
+        return this.quarantineHealthProbeSource(source, error.decision, checkedAt);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED") {
+        return { sourceId: source.id, status: "failed", itemCount: 0, contentChanged: false, error: message };
+      }
+      const errorCode = healthProbeErrorCode(message);
+      const failures = (source.healthProbe?.consecutiveFailures ?? 0) + 1;
+      await this.persistHealthProbe(source, failedHealthProbe(source.healthProbe, checkedAt, errorCode, failures));
+      return {
+        sourceId: source.id,
+        status: failures >= 3 ? "failed" : "degraded",
+        itemCount: 0,
+        contentChanged: false,
+        error: errorCode
+      };
+    }
+  }
+
+  private async quarantineHealthProbeSource(
+    source: AnnouncementSourceRecord,
+    decision: SourceAuthorityDecision,
+    checkedAt: Date
+  ): Promise<AnnouncementHealthProbeResult> {
+    const quarantined = await this.announcementRepository.quarantineSource(source.id, [decision.reasonCode], source);
+    if (!quarantined) throw new Error("ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED");
+    const failures = (source.healthProbe?.consecutiveFailures ?? 0) + 1;
+    const errorCode = `SOURCE_AUTHORITY_${decision.reasonCode.toLocaleUpperCase("en-US")}`;
+    await this.persistHealthProbe(source, {
+      ...failedHealthProbe(source.healthProbe, checkedAt, errorCode, failures),
+      healthStatus: "failed"
+    });
+    return {
+      sourceId: source.id,
+      status: "failed",
+      itemCount: 0,
+      contentChanged: false,
+      error: errorCode
+    };
+  }
+
+  private async persistHealthProbe(
+    source: AnnouncementSourceRecord,
+    probe: AnnouncementSourceHealthProbe
+  ): Promise<void> {
+    const updated = await this.announcementRepository.recordSourceHealthProbe(source.id, probe, source);
+    if (!updated) throw new Error("ANNOUNCEMENT_SOURCE_DEFINITION_CHANGED");
   }
 
   async ingestSource(source: AnnouncementSourceRecord): Promise<AnnouncementIngestionResult> {
@@ -2512,6 +2706,45 @@ export async function runAnnouncementSourcesWithConcurrency<TOutput>(
     .map((result) => result.value);
 }
 
+function healthProbeContentHash(items: readonly { title: string; link: string; publishedAt?: Date; publishedDate?: string; sourceUpdatedAt?: Date }[]): string {
+  const hash = createHash("sha256").update("academic-mobile:source-health-probe:v1\0");
+  for (const item of items) {
+    hash.update(JSON.stringify({
+      title: item.title,
+      link: item.link,
+      publishedAt: item.publishedAt?.toISOString(),
+      publishedDate: item.publishedDate,
+      sourceUpdatedAt: item.sourceUpdatedAt?.toISOString()
+    })).update("\0");
+  }
+  return hash.digest("hex");
+}
+
+function failedHealthProbe(
+  previous: AnnouncementSourceHealthProbe | undefined,
+  checkedAt: Date,
+  error: string,
+  consecutiveFailures: number
+): AnnouncementSourceHealthProbe {
+  return {
+    healthStatus: consecutiveFailures >= 3 ? "failed" : "degraded",
+    lastCheckedAt: checkedAt,
+    ...(previous?.lastSuccessAt ? { lastSuccessAt: previous.lastSuccessAt } : {}),
+    lastError: healthProbeErrorCode(error),
+    consecutiveFailures,
+    ...(previous?.itemCount !== undefined ? { itemCount: previous.itemCount } : {}),
+    ...(previous?.etag ? { etag: previous.etag } : {}),
+    ...(previous?.lastModified ? { lastModified: previous.lastModified } : {}),
+    ...(previous?.contentHash ? { contentHash: previous.contentHash } : {}),
+    ...(previous?.lastContentChangedAt ? { lastContentChangedAt: previous.lastContentChangedAt } : {})
+  };
+}
+
+function healthProbeErrorCode(error: string): string {
+  return error.trim().match(/^([A-Z][A-Z0-9_]{2,79})(?::|$)/u)?.[1]
+    ?? "SOURCE_HEALTH_PROBE_FAILED";
+}
+
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -2570,16 +2803,33 @@ function presentSourceForAdmin(source: AnnouncementSourceRecord) {
         semanticReasons: ["approval_health_check_incomplete"]
       }
     : undefined);
-  const { verificationEvidence: _verificationEvidence, ...presentedSource } = source;
+  const {
+    verificationEvidence: _verificationEvidence,
+    healthProbe: _healthProbe,
+    ...presentedSource
+  } = source;
   void _verificationEvidence;
   return {
     ...presentedSource,
+    ...(source.healthProbe ? { healthProbe: presentHealthProbe(source.healthProbe) } : {}),
     reviewStatus: verified
       ? "trusted" as const
       : source.trustStatus === "rejected" ? "rejected" as const : "pending_review" as const,
     ...(evidence
       ? { evidence, verification: evidence }
       : {})
+  };
+}
+
+function presentHealthProbe(probe: AnnouncementSourceHealthProbe) {
+  return {
+    healthStatus: probe.healthStatus,
+    lastCheckedAt: probe.lastCheckedAt,
+    ...(probe.lastSuccessAt ? { lastSuccessAt: probe.lastSuccessAt } : {}),
+    ...(probe.lastError ? { lastError: healthProbeErrorCode(probe.lastError) } : {}),
+    consecutiveFailures: Math.max(0, Math.min(probe.consecutiveFailures, 10_000)),
+    ...(probe.itemCount !== undefined ? { itemCount: Math.max(0, Math.min(probe.itemCount, 100_000)) } : {}),
+    ...(probe.lastContentChangedAt ? { lastContentChangedAt: probe.lastContentChangedAt } : {})
   };
 }
 

@@ -8,7 +8,7 @@ import { canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, createA
 import { carryAnnouncementReviewState, emptyAnnouncementPersistenceDelta, fingerprintFor, planAnnouncementReplacement, reviewMutationDelta, toPersistenceReference } from "./announcement-persistence.js";
 import { assertAnnouncementSourceOwnershipImmutable, assertAnnouncementSourceVerificationEvidenceMatchesDefinition, normalizeAnnouncementSourceOwnership, normalizeAnnouncementSourceVerificationEvidence, sameAnnouncementSourceVerificationEvidence } from "./announcement-source-evidence.js";
 import { AnnouncementReviewConflictError, sameAnnouncementSourceParserConfig } from "./announcements.types.js";
-import type { AnnouncementAdminSourceListQuery, AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementReviewFence, AnnouncementReviewItemUpdate, AnnouncementReviewMutationResult, AnnouncementSourceCandidateInput, AnnouncementSourceDefinitionFence, AnnouncementSourceEditFence, AnnouncementSourceRecord, AnnouncementSourceReviewFence, AnnouncementSourceReviewMutation, AnnouncementSourceScope, AnnouncementSourceStatus, AnnouncementSourceVerificationAttachResult, AnnouncementSourceVerificationEvidence, AnnouncementTrustReason, SavedAnnouncementRecord, SourceCheckInput, UniversityCalendarSourceProfileRecord, UpsertAnnouncementSourceInput, UpsertUniversityCalendarSourceProfileInput } from "./announcements.types.js";
+import type { AnnouncementAdminSourceListQuery, AnnouncementItem, AnnouncementPersistenceDelta, AnnouncementPersistenceReference, AnnouncementReplacementOptions, AnnouncementRepository, AnnouncementReviewFence, AnnouncementReviewItemUpdate, AnnouncementReviewMutationResult, AnnouncementSourceCandidateInput, AnnouncementSourceDefinitionFence, AnnouncementSourceEditFence, AnnouncementSourceRecord, AnnouncementSourceReviewFence, AnnouncementSourceReviewMutation, AnnouncementSourceScope, AnnouncementSourceStatus, AnnouncementSourceVerificationAttachResult, AnnouncementSourceVerificationEvidence, AnnouncementTrustReason, SavedAnnouncementRecord, SourceCheckInput, SourceHealthProbeInput, UniversityCalendarSourceProfileRecord, UpsertAnnouncementSourceInput, UpsertUniversityCalendarSourceProfileInput } from "./announcements.types.js";
 
 @Injectable()
 export class MongoAnnouncementRepository implements AnnouncementRepository {
@@ -593,6 +593,21 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
           ...(expectedActiveSnapshotId !== undefined ? snapshotPointerFenceFilter(expectedActiveSnapshotId) : {})
         }, update, { new: true })
       : await model.findByIdAndUpdate(id, update, { new: true });
+    return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
+  }
+
+  async recordSourceHealthProbe(
+    id: string,
+    input: SourceHealthProbeInput,
+    expectedDefinition: AnnouncementSourceDefinitionFence
+  ): Promise<AnnouncementSourceRecord | null> {
+    if (!isValidObjectId(id)) return null;
+    const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findOneAndUpdate({
+      _id: id,
+      ...sourceDefinitionFenceFilter(expectedDefinition)
+    }, {
+      $set: { healthProbe: omitUndefined(input as unknown as Record<string, unknown>) }
+    }, { new: true });
     return document ? toDomainRecord<AnnouncementSourceRecord>(document) : null;
   }
 
@@ -2120,7 +2135,8 @@ const sourceValidatorFields = [
   "lastModified",
   "contentHash",
   "processingVersion",
-  "lastContentChangedAt"
+  "lastContentChangedAt",
+  "healthProbe"
 ] as const;
 
 const sourceValidatorUnset = Object.fromEntries(

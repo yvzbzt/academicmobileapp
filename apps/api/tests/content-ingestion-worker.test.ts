@@ -31,6 +31,7 @@ describe("content ingestion worker", () => {
     await fixture.worker.onApplicationBootstrap();
 
     expect(fixture.announcement.runScheduledCycle).not.toHaveBeenCalled();
+    expect(fixture.announcement.runDailyHealthCycle).not.toHaveBeenCalled();
     expect(fixture.calendar.runScheduledCycle).not.toHaveBeenCalled();
     expect(fixture.calendar.reconcilePublishedCalendarNotifications).not.toHaveBeenCalled();
   });
@@ -56,6 +57,7 @@ describe("content ingestion worker", () => {
 
     expect(fixture.calendar.reconcilePublishedCalendarNotifications).toHaveBeenCalledTimes(1);
     expect(fixture.announcement.runScheduledCycle).not.toHaveBeenCalled();
+    expect(fixture.announcement.runDailyHealthCycle).not.toHaveBeenCalled();
     expect(fixture.calendar.runScheduledCycle).not.toHaveBeenCalled();
     await fixture.worker.beforeApplicationShutdown();
   });
@@ -65,6 +67,7 @@ describe("content ingestion worker", () => {
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("CONTENT_INGESTION_WORKER_ENABLED", "true");
     vi.stubEnv("ANNOUNCEMENT_AUTO_INGEST_ENABLED", "true");
+    vi.stubEnv("ANNOUNCEMENT_HEALTH_PROBE_ENABLED", "false");
     vi.stubEnv("ANNOUNCEMENT_INGEST_INITIAL_DELAY_MS", "1");
     vi.stubEnv("ANNOUNCEMENT_SCHEDULER_TICK_MS", "30000");
     vi.stubEnv("CALENDAR_AUTO_INGEST_ENABLED", "true");
@@ -96,6 +99,63 @@ describe("content ingestion worker", () => {
     expect(fixture.calendar.runScheduledCycle).toHaveBeenCalledTimes(1);
   });
 
+  it("runs the source health probe once on the Istanbul daily schedule without overlap", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-14T02:29:00.000Z"));
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("CONTENT_INGESTION_WORKER_ENABLED", "true");
+    vi.stubEnv("ANNOUNCEMENT_AUTO_INGEST_ENABLED", "false");
+    vi.stubEnv("ANNOUNCEMENT_HEALTH_PROBE_ENABLED", "true");
+    vi.stubEnv("ANNOUNCEMENT_HEALTH_PROBE_INITIAL_DELAY_MS", "3600000");
+    vi.stubEnv("ANNOUNCEMENT_HEALTH_PROBE_SCHEDULE_TIMES", "05:30");
+    vi.stubEnv("CALENDAR_AUTO_INGEST_ENABLED", "false");
+    let releaseHealth!: () => void;
+    const fixture = createWorker({
+      healthCycle: () => new Promise<void>((resolve) => { releaseHealth = resolve; })
+    });
+
+    await fixture.worker.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(fixture.announcement.runDailyHealthCycle).toHaveBeenCalledTimes(1);
+    await expect(fixture.worker.runAnnouncementHealthCycle()).resolves.toBe(false);
+
+    const draining = fixture.worker.beforeApplicationShutdown();
+    releaseHealth();
+    await draining;
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1_000);
+    expect(fixture.announcement.runDailyHealthCycle).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs a bounded startup probe and drains it on shutdown without overlap", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-14T12:00:00.000Z"));
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("CONTENT_INGESTION_WORKER_ENABLED", "true");
+    vi.stubEnv("ANNOUNCEMENT_AUTO_INGEST_ENABLED", "false");
+    vi.stubEnv("ANNOUNCEMENT_HEALTH_PROBE_ENABLED", "true");
+    vi.stubEnv("ANNOUNCEMENT_HEALTH_PROBE_INITIAL_DELAY_MS", "1");
+    vi.stubEnv("ANNOUNCEMENT_HEALTH_PROBE_SCHEDULE_TIMES", "23:59");
+    vi.stubEnv("CALENDAR_AUTO_INGEST_ENABLED", "false");
+    let releaseHealth!: () => void;
+    const fixture = createWorker({
+      healthCycle: () => new Promise<void>((resolve) => { releaseHealth = resolve; })
+    });
+
+    await fixture.worker.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fixture.announcement.runDailyHealthCycle).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fixture.announcement.runDailyHealthCycle).toHaveBeenCalledTimes(1);
+    await expect(fixture.worker.runAnnouncementHealthCycle()).resolves.toBe(false);
+
+    const draining = fixture.worker.beforeApplicationShutdown();
+    releaseHealth();
+    await draining;
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1_000);
+    expect(fixture.announcement.runDailyHealthCycle).toHaveBeenCalledTimes(1);
+  });
+
   it("uses Istanbul wall-clock daily schedules", () => {
     expect(parseDailyScheduleTimes("18:30, bad, 06:30, 24:00")).toEqual([390, 1110]);
     expect(millisecondsUntilNextDailyRun([390, 1110], new Date("2026-09-04T03:00:00.000Z"))).toBe(30 * 60 * 1_000);
@@ -105,17 +165,19 @@ describe("content ingestion worker", () => {
 
 function createWorker(input: {
   announcementCycle?: () => Promise<void>;
+  healthCycle?: () => Promise<void>;
   calendarCycle?: () => Promise<void>;
 } = {}) {
   const announcement = {
-    runScheduledCycle: vi.fn(input.announcementCycle ?? (async () => undefined))
+    runScheduledCycle: vi.fn(input.announcementCycle ?? (async () => undefined)),
+    runDailyHealthCycle: vi.fn(input.healthCycle ?? (async () => undefined))
   };
   const calendar = {
     runScheduledCycle: vi.fn(input.calendarCycle ?? (async () => undefined)),
     reconcilePublishedCalendarNotifications: vi.fn(async () => ({ checked: 0, reconciled: 0, failed: 0 }))
   };
   const worker = new ContentIngestionWorkerService(
-    announcement as Pick<AnnouncementIngestionService, "runScheduledCycle">,
+    announcement as unknown as Pick<AnnouncementIngestionService, "runScheduledCycle" | "runDailyHealthCycle">,
     calendar as Pick<CalendarIngestionService, "runScheduledCycle" | "reconcilePublishedCalendarNotifications">
   );
   return { worker, announcement, calendar };
