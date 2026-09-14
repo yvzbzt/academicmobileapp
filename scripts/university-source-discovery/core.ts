@@ -161,13 +161,28 @@ export interface VerifiedOutputShape {
 export function buildTargetManifest(
   sourceRecords: CanonicalUniversityRecord[],
   treeRecords: UniversityTreeRecord[],
+  canonicalUniversityIds: readonly string[],
   now = new Date()
 ): TargetManifest {
-  if (sourceRecords.length !== 205) {
-    throw new Error(`Expected 205 canonical universities, received ${sourceRecords.length}.`);
+  const sourceIds = sourceRecords.map((record) => record.universityId);
+  const duplicateSourceIds = duplicates(sourceIds);
+  const duplicateCanonicalIds = duplicates([...canonicalUniversityIds]);
+  const sourceIdSet = new Set(sourceIds);
+  const canonicalIdSet = new Set(canonicalUniversityIds);
+  const missingSourceIds = canonicalUniversityIds.filter((id) => !sourceIdSet.has(id));
+  const unknownSourceIds = sourceIds.filter((id) => !canonicalIdSet.has(id));
+  if (duplicateSourceIds.length > 0 || duplicateCanonicalIds.length > 0 || missingSourceIds.length > 0 || unknownSourceIds.length > 0) {
+    throw new Error(
+      `Canonical source registry mismatch: duplicateSources=${duplicateSourceIds.join(",")}; duplicateCatalog=${duplicateCanonicalIds.join(",")}; missingSources=${missingSourceIds.join(",")}; unknownSources=${unknownSourceIds.join(",")}.`
+    );
   }
 
   const excludedIds = new Set<string>(EXCLUDED_UNIVERSITIES.map((record) => record.universityId));
+  const missingExclusionIds = EXCLUDED_UNIVERSITIES.filter((record) => !canonicalIdSet.has(record.universityId)).map((record) => record.universityId);
+  if (missingExclusionIds.length > 0) {
+    throw new Error(`Configured exclusions are absent from the canonical catalog: ${missingExclusionIds.join(",")}.`);
+  }
+  const expectedTargetCount = canonicalUniversityIds.filter((id) => !excludedIds.has(id)).length;
   const treeByName = new Map<string, UniversityTreeRecord>();
   for (const treeRecord of treeRecords) {
     if (!treeRecord.name) continue;
@@ -225,15 +240,15 @@ export function buildTargetManifest(
   if (duplicateIds.length > 0 || duplicateNames.length > 0) {
     throw new Error(`Duplicate targets found: ids=${duplicateIds.join(",")}; names=${duplicateNames.join(",")}.`);
   }
-  if (targets.length !== 198) {
-    throw new Error(`Expected exactly 198 target universities, received ${targets.length}.`);
+  if (targets.length !== expectedTargetCount) {
+    throw new Error(`Expected exactly ${expectedTargetCount} target universities, received ${targets.length}.`);
   }
 
   return {
     schemaVersion: DISCOVERY_SCHEMA_VERSION,
     generatedAt: now.toISOString(),
     sourceUniversityCount: sourceRecords.length,
-    expectedTargetCount: 198,
+    expectedTargetCount,
     targetCount: targets.length,
     exclusionCount: EXCLUDED_UNIVERSITIES.length,
     targets: targets.sort((left, right) => left.universityName.localeCompare(right.universityName, "tr-TR")),

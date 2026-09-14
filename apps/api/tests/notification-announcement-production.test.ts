@@ -22,7 +22,8 @@ describe("announcement notification production", () => {
     const firstDelta = await announcements.replaceItemsForSource(source, [announcementItem(source, "parser-first")]);
     const persistedId = firstDelta.created[0]?.id;
     expect(persistedId).toBe("parser-first");
-    await expect(scheduler.syncTrustedAnnouncementSource(source, firstDelta, now)).rejects.toThrow("SIMULATED_SYNC_RESPONSE_LOSS");
+    const firstApproval = await approveReviewItem(announcements, persistedId!);
+    await expect(scheduler.syncTrustedAnnouncementSource(source, firstApproval.delta, now)).rejects.toThrow("SIMULATED_SYNC_RESPONSE_LOSS");
     expect((await notifications.listDueJobs(now, 10))).toEqual([
       expect.objectContaining({ destinationId: persistedId, producerKeys: [`announcement-source:${source.id}`] })
     ]);
@@ -51,7 +52,8 @@ describe("announcement notification production", () => {
     const facultyScheduler = new NotificationSchedulingService(facultyNotifications, facultyAnnouncements);
     const facultySource = await facultyAnnouncements.upsertSource(sourceInput("faculty", "faculty-1", "faculty-source"));
     const facultyDelta = await facultyAnnouncements.replaceItemsForSource(facultySource, [announcementItem(facultySource, "faculty-item")]);
-    const facultySync = await facultyScheduler.syncTrustedAnnouncementSource(facultySource, facultyDelta, now);
+    const facultyApproval = await approveReviewItem(facultyAnnouncements, facultyDelta.created[0]!.id);
+    const facultySync = await facultyScheduler.syncTrustedAnnouncementSource(facultySource, facultyApproval.delta, now);
     expect(facultySync.active).toEqual([
       expect.objectContaining({
         universityId: "*",
@@ -89,7 +91,8 @@ describe("announcement notification production", () => {
     const yokDelta = await yokAnnouncements.replaceItemsForSource(yokSource, [
       { ...announcementItem(yokSource, "yok-item"), link: "https://www.yok.gov.tr/duyurular/yok-item" }
     ]);
-    const yokSync = await yokScheduler.syncTrustedAnnouncementSource(yokSource, yokDelta, now);
+    const yokApproval = await approveReviewItem(yokAnnouncements, yokDelta.created[0]!.id);
+    const yokSync = await yokScheduler.syncTrustedAnnouncementSource(yokSource, yokApproval.delta, now);
     expect(yokSync.active).toEqual([
       expect.objectContaining({ universityId: "*", category: "yok_event", destinationId: yokDelta.created[0]?.id })
     ]);
@@ -145,7 +148,8 @@ describe("announcement notification production", () => {
     const source = await announcements.upsertSource(sourceInput("university", "university-1", "source-empty"));
     const now = new Date("2026-08-04T10:00:00.000Z");
     const created = await announcements.replaceItemsForSource(source, [announcementItem(source, "empty-retirement-item")]);
-    await scheduler.syncTrustedAnnouncementSource(source, created, now);
+    const approval = await approveReviewItem(announcements, created.created[0]!.id);
+    await scheduler.syncTrustedAnnouncementSource(source, approval.delta, now);
     expect(await notifications.listDueJobs(now, 10)).toHaveLength(1);
 
     const nonAuthoritativeEmpty = await announcements.replaceItemsForSource(source, []);
@@ -476,6 +480,17 @@ function announcementItem(source: AnnouncementSourceRecord, id: string): Announc
     fetchedAt: "2026-08-04T08:00:00.000Z",
     trustStatus: "trusted"
   };
+}
+
+async function approveReviewItem(repository: InMemoryAnnouncementRepository, itemId: string) {
+  const current = await repository.findReviewItemById(itemId);
+  if (!current?.item.contentFingerprint) throw new Error("Expected reviewable announcement item.");
+  const approved = await repository.updateReviewItem(itemId, { reviewStatus: "approved" }, {
+    expectedContentFingerprint: current.item.contentFingerprint,
+    ...(current.item.reviewRevision ? { expectedReviewRevision: current.item.reviewRevision } : {})
+  });
+  if (!approved) throw new Error("Expected approved announcement item.");
+  return approved;
 }
 
 function snapshotAnnouncementItem(

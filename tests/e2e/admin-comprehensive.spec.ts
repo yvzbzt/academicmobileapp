@@ -457,12 +457,23 @@ test("208-university source workbench exposes editable URL, parser, structure an
   await expect(announcementCard).toContainText("Duyuru liste sayfası");
   await expect(announcementCard).toContainText("https://qa.edu.tr/duyurular");
   await expect(announcementCard.getByLabel("Duyuru liste öğesi seçici")).toHaveValue("main article a");
-  await announcementCard.getByRole("button", { name: "Test Et / Önizle ve Devreye Al", exact: true }).click();
+  const announcementPreviewWrites = () => mock.writes.filter((write) =>
+    write.method === "POST"
+      && write.path === "/admin/announcements/source-profiles/qa-university/announcement/preview");
+  await announcementCard.getByRole("button", { name: "Test Et / Önizle", exact: true }).click();
   await expect(announcementCard.getByRole("status")).toContainText("3/3 içerik");
   await expect(announcementCard.getByRole("status")).toContainText("Kayıt Yenileme Duyurusu");
+  await expect(announcementCard.getByRole("status")).toContainText("Devreye alma: İstenmedi");
+  expect(announcementPreviewWrites().map((write) => write.body)).toEqual([
+    { activateWhenHealthy: false }
+  ]);
+
+  await announcementCard.getByRole("button", { name: "Önizle ve Devreye Al", exact: true }).click();
   await expect(announcementCard.getByRole("status")).toContainText("Devreye alma: Aktif");
-  expect(mock.writes.find((write) => write.method === "POST" && write.path === "/admin/announcements/source-profiles/qa-university/announcement/preview")?.body)
-    .toEqual({ activateWhenHealthy: true });
+  expect(announcementPreviewWrites().map((write) => write.body)).toEqual([
+    { activateWhenHealthy: false },
+    { activateWhenHealthy: true }
+  ]);
 
   await announcementCard.getByLabel("Duyuru çekilen URL").fill("https://qa.edu.tr/yeni-duyurular");
   await announcementCard.getByLabel("Duyuru parser").selectOption("rss");
@@ -491,8 +502,12 @@ test("208-university source workbench exposes editable URL, parser, structure an
   await calendarCard.getByRole("button", { name: "Kaydet", exact: true }).click();
   expect(mock.writes.find((write) => write.method === "PUT" && write.path === "/admin/announcements/source-profiles/qa-university/academic_calendar")?.body)
     .toMatchObject({ sourceUrl: "https://qa.edu.tr/takvim-2026.pdf", parser: "auto" });
-  await calendarCard.getByRole("button", { name: "Test Et / Önizle ve Devreye Al", exact: true }).click();
+  await calendarCard.getByRole("button", { name: "Test Et / Önizle", exact: true }).click();
   await expect(calendarCard.getByRole("status")).toContainText("2026-2027 Akademik Takvim");
+  await expect(calendarCard.getByRole("status")).toContainText("Devreye alma: İstenmedi");
+  expect(mock.writes.filter((write) => write.method === "POST"
+    && write.path === "/admin/announcements/source-profiles/qa-university/academic_calendar/preview").map((write) => write.body))
+    .toEqual([{ activateWhenHealthy: false }]);
   await workbench.screenshot({ path: resolve(evidenceDir, "university-source-workbench-208.png") });
 });
 
@@ -1577,7 +1592,7 @@ async function installMockApi(page: Page) {
         parsedItemCount: isCalendar ? 1 : 3,
         acceptedItemCount: isCalendar ? 1 : 3,
         testedAt: "2026-09-11T09:00:00.000Z",
-        activationStatus: "active",
+        activationStatus: body.activateWhenHealthy === true ? "active" : "not_requested",
         samples: isCalendar
           ? [{ title: "2026-2027 Akademik Takvim", url: configuredUrl }]
           : [

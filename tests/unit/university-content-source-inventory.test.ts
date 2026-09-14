@@ -6,7 +6,7 @@ const inventory = readJson("../../apps/api/src/bootstrap/university-content-sour
   summary: { universities: number; sourceSlots: number };
   universities: Array<{
     universityId: string;
-    authority: { status: "verified" | "quarantined"; homepageUrl?: string };
+    authority: { status: "verified" | "quarantined"; homepageUrl?: string; domains: string[] };
     slots: Array<{
       contentType: string;
       sourceUrl?: string;
@@ -15,7 +15,7 @@ const inventory = readJson("../../apps/api/src/bootstrap/university-content-sour
       evidenceStatus: "final_revalidated" | "not_attached";
       verificationEvidence?: unknown;
       parser: string;
-      siteStructure: { description: string; selectorHints: Record<string, string[]> };
+      siteStructure: { description: string; detectedFormat: string; extractionMode: string; selectorHints: Record<string, string[]> };
     }>;
   }>;
 };
@@ -37,7 +37,11 @@ describe("208-university content source inventory", () => {
         expect(slot.parser).toBe("auto");
         expect(slot.siteStructure.description).toBeTruthy();
         expect(slot.siteStructure.selectorHints.link).toBeTruthy();
-        if (slot.status === "candidate_found") expect(slot.sourceUrl).toMatch(/^https?:\/\//u);
+        if (slot.status === "candidate_found") {
+          expect(slot.sourceUrl).toMatch(/^https:\/\//u);
+          const hostname = new URL(slot.sourceUrl!).hostname;
+          expect(university.authority.domains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))).toBe(true);
+        }
         if (slot.status === "needs_review") {
           expect(slot.sourceUrl).toBeUndefined();
           expect(slot.candidateUrl).toBe(university.authority.homepageUrl);
@@ -49,6 +53,19 @@ describe("208-university content source inventory", () => {
         expect(Boolean(slot.verificationEvidence)).toBe(slot.evidenceStatus === "final_revalidated");
       }
     }
+  });
+
+  it("shows feed and JSON API sources with their actual extraction flow", () => {
+    const afsu = inventory.universities.find(({ universityId }) => universityId === "afyonkarahisar-saglik-bilimleri-universitesi");
+    const atlas = inventory.universities.find(({ universityId }) => universityId === "istanbul-atlas-universitesi");
+    const tnku = inventory.universities.find(({ universityId }) => universityId === "tekirdag-namik-kemal-universitesi");
+
+    expect(afsu?.slots.find(({ contentType }) => contentType === "announcement")?.siteStructure)
+      .toMatchObject({ detectedFormat: "feed", extractionMode: "feed_auto" });
+    expect(atlas?.slots.find(({ contentType }) => contentType === "news")?.siteStructure)
+      .toMatchObject({ detectedFormat: "json", extractionMode: "json_auto" });
+    expect(tnku?.slots.find(({ contentType }) => contentType === "event")?.siteStructure)
+      .toMatchObject({ detectedFormat: "json", extractionMode: "json_auto" });
   });
 });
 

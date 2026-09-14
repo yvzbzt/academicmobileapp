@@ -1104,11 +1104,15 @@ function App() {
     setMessage(`${contentType === "academic_calendar" ? "Akademik takvim" : contentTypeLabels[contentType]} kaynak profili kaydedildi`);
   }
 
-  async function previewUniversitySourceProfile(universityId: string, contentType: UniversityContentSourceType) {
+  async function previewUniversitySourceProfile(
+    universityId: string,
+    contentType: UniversityContentSourceType,
+    activateWhenHealthy: boolean
+  ) {
     if (!ensureToken()) return;
     const preview = await request<AnnouncementSourcePreview>(
       `/admin/announcements/source-profiles/${encodeURIComponent(universityId)}/${contentType}/preview`,
-      { method: "POST", body: JSON.stringify({ activateWhenHealthy: true }) }
+      { method: "POST", body: JSON.stringify({ activateWhenHealthy }) }
     );
     setSourceTestPreviews((current) => ({ ...current, [`${universityId}\u0000${contentType}`]: preview }));
     await loadSourceProfiles();
@@ -2968,7 +2972,8 @@ function UniversitySourceProfileCard(props: any) {
         {!configured && <p className="inlineHint">Önizleme için önce URL ve parser yapısını kaydedin.</p>}
         <div className="sourceActions">
           <button className="btn btn-primary" disabled={!props.hasToken}><Save size={16} /> Kaydet</button>
-          <button className="btn btn-secondary" type="button" onClick={() => props.previewUniversitySourceProfile(university.universityId, slot.contentType)} disabled={!props.hasToken || !configured}><Play size={16} /> Test Et / Önizle ve Devreye Al</button>
+          <button className="btn btn-secondary" type="button" onClick={() => props.previewUniversitySourceProfile(university.universityId, slot.contentType, false)} disabled={!props.hasToken || !configured}><Play size={16} /> Test Et / Önizle</button>
+          <button className="btn btn-secondary" type="button" onClick={() => props.previewUniversitySourceProfile(university.universityId, slot.contentType, true)} disabled={!props.hasToken || !configured}><Play size={16} /> Önizle ve Devreye Al</button>
         </div>
         {slot.adminPath && <span className="inlineHint">İşlenen takvimlerin yayın yönetimi: {slot.adminPath}</span>}
       </form>

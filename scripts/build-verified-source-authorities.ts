@@ -38,13 +38,15 @@ const yokTreePath = "data/yok-university-faculty-tree.json";
 const outputPath = "apps/api/src/bootstrap/verified-source-authorities.json";
 
 /**
- * The checked-in YOK crawl has two known identity defects. These bindings are
+ * The checked-in YOK crawl has known identity/coverage defects. These bindings are
  * stable catalog-ID decisions, not hostname guesses:
  * - IYTE's YOK URL was crawled with an incorrect page title.
+ * - Turk-Japanese Science and Technology University is absent from the crawl.
  * - Izmir Kavram has no checked-in YOK authority URL and remains quarantined.
  */
 const curatedHomepageBindings: Readonly<Record<string, string>> = {
-  "izmir-yuksek-teknoloji-enstitusu": "https://www.iyte.edu.tr/"
+  "izmir-yuksek-teknoloji-enstitusu": "https://www.iyte.edu.tr/",
+  "turk-japon-bilim-ve-teknoloji-universitesi": "https://www.tju.edu.tr/"
 };
 
 /**
@@ -62,7 +64,10 @@ const checkedInAliases: Readonly<Record<string, readonly string[]>> = {
  * the bound root, independently of candidate source registries.
  */
 const curatedOfficialAliases: Readonly<Record<string, readonly string[]>> = {
-  "manisa-cel-l-bayar-universitesi": ["https://www.mcbu.edu.tr/"]
+  "fatih-sultan-mehmet-vakif-universitesi-istanbul": ["https://www.fatihsultan.edu.tr/"],
+  "izmir-katip-celebi-universitesi": ["https://ikcu.edu.tr/"],
+  "manisa-cel-l-bayar-universitesi": ["https://www.mcbu.edu.tr/"],
+  "sabanci-universitesi-istanbul": ["https://sabanciuniv.edu.tr/"]
 };
 
 export async function buildVerifiedSourceAuthorities(root = process.cwd()): Promise<VerifiedSourceAuthoritiesFile> {
@@ -81,7 +86,7 @@ export async function buildVerifiedSourceAuthorities(root = process.cwd()): Prom
       ? [treeByDomain.get(authorityDomain(curatedHomepage) ?? "")].filter(isDefined)
       : treeByName.get(normalizeUniversityName(university.name)) ?? [];
     const primary = matchedTreeRecords[0];
-    if (!primary) {
+    if (!primary && !curatedHomepage) {
       return {
         universityId: university.slug,
         status: "quarantined",
@@ -92,16 +97,18 @@ export async function buildVerifiedSourceAuthorities(root = process.cwd()): Prom
       };
     }
 
-    const evidence: VerifiedSourceAuthorityEvidence[] = [{ type: "YOK_HOMEPAGE", url: canonicalEvidenceUrl(primary.homepageUrl) }];
+    const evidence: VerifiedSourceAuthorityEvidence[] = primary
+      ? [{ type: "YOK_HOMEPAGE", url: canonicalEvidenceUrl(primary.homepageUrl) }]
+      : [];
     const domains = new Set<string>();
-    addAuthorityDomain(domains, primary.homepageUrl);
+    if (primary) addAuthorityDomain(domains, primary.homepageUrl);
 
     if (curatedHomepage) {
       evidence.push({ type: "CURATED_CATALOG_BINDING", url: canonicalEvidenceUrl(curatedHomepage) });
       addAuthorityDomain(domains, curatedHomepage);
     }
 
-    if (university.slug === "gaziantep-universitesi" && primary.finalHomepageUrl) {
+    if (university.slug === "gaziantep-universitesi" && primary?.finalHomepageUrl) {
       evidence.push({ type: "OBSERVED_OFFICIAL_REDIRECT", url: canonicalEvidenceUrl(primary.finalHomepageUrl) });
       addAuthorityDomain(domains, primary.finalHomepageUrl);
     }

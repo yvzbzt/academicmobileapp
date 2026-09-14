@@ -72,7 +72,7 @@ describe("verified source authority registry", () => {
     expect(new Set(domains).size).toBe(domains.length);
   });
 
-  it("removes cross-institution university URLs from operational fields without losing raw evidence", async () => {
+  it("removes cross-institution URLs and keeps verified replacements operational", async () => {
     const sources = await listVerifiedUniversitySources();
     const byId = new Map(sources.map((source) => [source.universityId, source]));
 
@@ -109,21 +109,22 @@ describe("verified source authority registry", () => {
     const asbu = byId.get("ankara-sosyal-bilimler-universitesi");
     expect(asbu).toEqual(expect.objectContaining({
       announcementUrl: "https://www.asbu.edu.tr/tr/duyurular",
+      newsUrl: "https://www.asbu.edu.tr/tr/haberler",
+      eventUrl: "https://www.asbu.edu.tr/tr/etkinlikler",
       calendarUrl: expect.stringContaining("oidb.asbu.edu.tr")
     }));
-    expect(asbu).not.toHaveProperty("newsUrl");
-    expect(asbu).not.toHaveProperty("eventUrl");
     expect(asbu).not.toHaveProperty("summerSchoolUrl");
-    expect(asbu?.quarantinedSources?.map((item) => item.field).sort()).toEqual(["eventUrl", "newsUrl", "summerSchoolUrl"]);
+    expect(asbu?.quarantinedSources?.map((item) => item.field)).toEqual(["summerSchoolUrl"]);
 
     const gibtu = byId.get("gaziantep-islam-bilim-ve-teknoloji-universitesi");
     expect(gibtu).not.toHaveProperty("announcementUrl");
-    expect(gibtu).not.toHaveProperty("calendarUrl");
     expect(gibtu).not.toHaveProperty("summerSchoolUrl");
-    expect(gibtu?.quarantinedSources).toHaveLength(3);
+    expect(gibtu?.calendarUrl).toBe("https://www.gibtu.edu.tr/akademiktakvim");
+    expect(gibtu?.quarantinedSources).toEqual([]);
 
-    expect(byId.get("gaziantep-universitesi")).toEqual(expect.objectContaining({
-      announcementUrl: expect.stringContaining("gaziantep.edu.tr"),
+    const gaziantep = byId.get("gaziantep-universitesi");
+    expect(gaziantep).not.toHaveProperty("announcementUrl");
+    expect(gaziantep).toEqual(expect.objectContaining({
       calendarUrl: expect.stringContaining("gantep.edu.tr"),
       summerSchoolUrl: expect.stringContaining("gaziantep.edu.tr")
     }));
@@ -134,10 +135,8 @@ describe("verified source authority registry", () => {
     const namikKemal = universitySources.find((source) => source.universityId === "tekirdag-namik-kemal-universitesi");
     expect(namikKemal).not.toHaveProperty("announcementUrl");
     expect(namikKemal).not.toHaveProperty("newsUrl");
-    expect(namikKemal).not.toHaveProperty("eventUrl");
-    expect(namikKemal?.quarantinedSources).toEqual(expect.arrayContaining([
-      expect.objectContaining({ reasonCode: "national_authority_scope_mismatch" })
-    ]));
+    expect(namikKemal?.eventUrl).toBe("https://bhi.nku.edu.tr/json/nku.json2.php?sid=");
+    expect(namikKemal?.quarantinedSources).toEqual([]);
 
     const academicUnits = await listVerifiedAcademicUnitSources();
     const yokBoundUnits = academicUnits.filter((source) =>
@@ -184,9 +183,9 @@ describe("verified source authority registry", () => {
       ...academicUnitSources.flatMap((source) => source.quarantinedSources ?? [])
     ];
 
-    expect({ rawUniversityCount, rawAcademicUnitCount }).toEqual({ rawUniversityCount: 636, rawAcademicUnitCount: 6146 });
-    expect(operationalCount + quarantined.length).toBe(6782);
-    expect(quarantined).toHaveLength(167);
+    expect({ rawUniversityCount, rawAcademicUnitCount }).toEqual({ rawUniversityCount: 609, rawAcademicUnitCount: 6146 });
+    expect(operationalCount + quarantined.length).toBe(rawUniversityCount + rawAcademicUnitCount);
+    expect(quarantined).toHaveLength(98);
     expect(new Set(quarantined.map((source) => source.id)).size).toBe(quarantined.length);
   });
 });

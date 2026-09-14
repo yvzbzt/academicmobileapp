@@ -301,7 +301,7 @@ async function main(cli: CliOptions): Promise<void> {
       await finalRevalidate(manifest, checkpoint, inputs, runtime);
     } else {
       await runDiscovery(manifest, checkpoint, inputs, runtime, cli.mode === "pilot");
-      if (cli.mode === "run" && allTargetsTerminal(checkpoint)) {
+      if (cli.mode === "run" && allTargetsTerminal(checkpoint, manifest.expectedTargetCount)) {
         await finalRevalidate(manifest, checkpoint, inputs, runtime);
       }
     }
@@ -351,7 +351,11 @@ async function loadInputs(): Promise<LoadedInputs> {
 }
 
 async function prepareManifestAndAudit(inputs: LoadedInputs, outputDir: string): Promise<TargetManifest> {
-  const manifest = buildTargetManifest(inputs.sources, inputs.tree.universities);
+  const manifest = buildTargetManifest(
+    inputs.sources,
+    inputs.tree.universities,
+    inputs.catalog.universities.map((record) => record.slug)
+  );
   const targetsById = new Map(manifest.targets.map((target) => [target.universityId, target]));
   for (const unit of inputs.units) {
     const target = targetsById.get(unit.universityId);
@@ -398,7 +402,7 @@ async function prepareManifestAndAudit(inputs: LoadedInputs, outputDir: string):
     files: auditedFiles,
     duplicateAkdenizAttachmentCount: Math.max(0, akdenizInputPaths.length - akdenizHashes.size),
     validation: {
-      targetCountIs198: manifest.targetCount === 198,
+      targetCountMatchesExpected: manifest.targetCount === manifest.expectedTargetCount,
       exclusionCountIs7: manifest.exclusionCount === 7,
       allManualDomainsPresent: missingManualDomains.length === 0,
       akdenizAttachmentsIdentical: akdenizHashes.size === 1
@@ -1668,11 +1672,11 @@ async function aggregateArtifacts(
     writeJsonLines(join(outputDir, "verification-manifest.jsonl"), allVerifications)
   ]);
 
-  const allTargetsTerminalValue = allTargetsTerminal(checkpoint);
+  const allTargetsTerminalValue = allTargetsTerminal(checkpoint, manifest.expectedTargetCount);
   const allUnitsTerminal = academicUnits.every((unit) => terminalStatuses.has(unit.status));
   const revalidationComplete = Boolean(checkpoint.finalRevalidation?.completedAt);
   const allVerifiedRevalidated = verified.every((record) => Boolean(record.finalRevalidatedAt));
-  const crawlComplete = manifest.targetCount === 198 && allTargetsTerminalValue && allUnitsTerminal && revalidationComplete;
+  const crawlComplete = manifest.targetCount === manifest.expectedTargetCount && allTargetsTerminalValue && allUnitsTerminal && revalidationComplete;
   const verifiedDataGreen = crawlComplete
     && allVerifiedRevalidated
     && checkpoint.finalRevalidation?.failed === 0
@@ -2026,8 +2030,8 @@ function renderCounts(counts: Record<string, number>): string {
   return entries.length > 0 ? entries.map(([key, value]) => `${key}=${value}`).join(", ") : "none";
 }
 
-function allTargetsTerminal(checkpoint: Checkpoint): boolean {
-  return Object.values(checkpoint.targets).length === 198
+function allTargetsTerminal(checkpoint: Checkpoint, expectedTargetCount: number): boolean {
+  return Object.values(checkpoint.targets).length === expectedTargetCount
     && Object.values(checkpoint.targets).every((target) => terminalStatuses.has(target.status));
 }
 

@@ -86,6 +86,32 @@ describe("generic announcement listing parser evidence", () => {
     `, "https://example.edu.tr/duyurular", "announcement")).toEqual([]);
   });
 
+  it.each([
+    ["fullSide", "announcement", "duyurular"],
+    ["rightSidebar", "event", "etkinlikler"]
+  ] as const)("retains an evidenced listing in the legacy %s content column", (className, contentType, path) => {
+    expect(parseGenericAnnouncementHtml(`
+      <aside class="${className}"><section class="${contentType}"><div class="list"><ul>
+        <li><a href="/${path}/2026-2027-ogrenci-bulusmasi">2026-2027 Öğrenci Buluşması</a></li>
+      </ul></div></section></aside>
+    `, `https://example.edu.tr/${path}`, contentType)).toEqual([
+      expect.objectContaining({ link: `https://example.edu.tr/${path}/2026-2027-ogrenci-bulusmasi` })
+    ]);
+  });
+
+  it("still rejects links in a plain unclassified aside", () => {
+    expect(parseGenericAnnouncementHtml(`
+      <aside><article>
+        <a href="/duyurular/sidebar-baglantisi">2026 Sidebar Duyurusu</a>
+      </article></aside>
+    `, "https://example.edu.tr/duyurular", "announcement")).toEqual([]);
+    expect(parseGenericAnnouncementHtml(`
+      <aside class="fullSide" role="complementary"><article>
+        <a href="/duyurular/semantik-sidebar-baglantisi">2026 Semantik Sidebar Duyurusu</a>
+      </article></aside>
+    `, "https://example.edu.tr/duyurular", "announcement")).toEqual([]);
+  });
+
   it("derives a title only from a bounded evidenced card around an icon-only detail link", () => {
     const items = parseGenericAnnouncementHtml(`
       <div class="news-card">
@@ -294,5 +320,281 @@ describe("generic announcement listing parser evidence", () => {
       ]
     }), "https://example.edu.tr/duyurular", "auto", "announcement"))
       .toThrow("SOURCE_JSON_LAYOUT_INVALID");
+  });
+
+  it.each([
+    ["news", "haber", "2026-09-13", "Bayburt Universitesi Akademik Basari Haberi"],
+    ["event", "etkinlik", "2026-09-15", "Bayburt Universitesi Ogrenci Kariyer Etkinligi"]
+  ] as const)("parses the official Bayburt portal %s response shape", (contentType, route, date, title) => {
+    const sourceUrl = `https://apiportal.bayburt.edu.tr/api/web/department/medyalist/tr/${route}/30?depid=1`;
+    const items = parseFetchedSourceItems(JSON.stringify({
+      response: [{
+        tarih: `${date}T00:00:00`,
+        medyaresx_object: { baslik: title },
+        domain: `https://bayburt.edu.tr/medya/${route}/ogrenci-icerigi-p9146`
+      }],
+      status: true,
+      errors: []
+    }), sourceUrl, "auto", contentType);
+
+    expect(items).toEqual([expect.objectContaining({
+      title,
+      link: `https://bayburt.edu.tr/medya/${route}/ogrenci-icerigi-p9146`,
+      publicationKind: "date",
+      publishedDate: date
+    })]);
+  });
+
+  it("keeps the Bayburt portal shape locked to its official endpoint and authority", () => {
+    const payload = (domain: string) => JSON.stringify({
+      response: [{
+        tarih: "2026-09-13T00:00:00",
+        medyaresx_object: { baslik: "Bayburt Universitesi Akademik Basari Haberi" },
+        domain
+      }]
+    });
+
+    expect(() => parseFetchedSourceItems(
+      payload("https://bayburt.edu.tr/medya/haber/akademik-basari-p9146"),
+      "https://example.edu.tr/api/web/department/medyalist/tr/haber/30?depid=1",
+      "auto",
+      "news"
+    )).toThrow("SOURCE_JSON_LAYOUT_INVALID");
+    expect(() => parseFetchedSourceItems(
+      payload("https://attacker.example/medya/haber/akademik-basari-p9146"),
+      "https://apiportal.bayburt.edu.tr/api/web/department/medyalist/tr/haber/30?depid=1",
+      "auto",
+      "news"
+    )).toThrow("SOURCE_JSON_LAYOUT_INVALID");
+    expect(() => parseFetchedSourceItems(
+      payload("https://bayburt.edu.tr/medya/haber/akademik-basari-p9146"),
+      "https://apiportal.bayburt.edu.tr/api/web/department/medyalist/tr/haber/30?depid=1",
+      "auto",
+      "event"
+    )).toThrow("SOURCE_JSON_LAYOUT_INVALID");
+  });
+
+  it("parses Alanya University's exact embedded event calendar newest-first without hiding historical rows", () => {
+    const sourceUrl = "https://www.alanyauniversity.edu.tr/tr/events.calendar";
+    const events = [
+      {
+        id: "7",
+        title: "Arşiv Öğrenci Buluşması",
+        start: "2020-05-04 09:00:00",
+        end: "2020-05-04 11:00:00",
+        url: "https://www.alanyauniversity.edu.tr/tr/events.single/id/7"
+      },
+      {
+        id: "455",
+        title: "Dünya Kimya Günü / Öğrenci sunumları",
+        start: "2026-04-07 10:00:00",
+        end: "2026-04-08 11:00:00",
+        url: "https://www.alanyauniversity.edu.tr/tr/events.single/id/455"
+      }
+    ];
+    const html = `
+      <div id="calendar"></div>
+      <script>
+        $('#calendar').fullCalendar({
+          events: ${JSON.stringify(events)},
+          eventColor: '#42b8d4'
+        });
+      </script>`;
+
+    expect(parseFetchedSourceItems(html, sourceUrl, "auto", "event")).toEqual([
+      expect.objectContaining({
+        title: "Dünya Kimya Günü / Öğrenci sunumları",
+        link: "https://www.alanyauniversity.edu.tr/tr/events.single/id/455",
+        keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-04-07", endDate: "2026-04-08" }]
+      }),
+      expect.objectContaining({
+        title: "Arşiv Öğrenci Buluşması",
+        link: "https://www.alanyauniversity.edu.tr/tr/events.single/id/7",
+        keyDates: [{ label: "Etkinlik tarihi", startDate: "2020-05-04" }]
+      })
+    ]);
+  });
+
+  it("keeps the Alanya embedded calendar adapter locked to its exact source and schema", () => {
+    const sourceUrl = "https://www.alanyauniversity.edu.tr/tr/events.calendar";
+    const event = {
+      id: "455",
+      title: "Dünya Kimya Günü",
+      start: "2026-04-07 10:00:00",
+      end: "2026-04-07 11:00:00",
+      url: "https://www.alanyauniversity.edu.tr/tr/events.single/id/455"
+    };
+    const html = (value: object) => `
+      <div id="calendar"></div>
+      <script>$('#calendar').fullCalendar({ events: ${JSON.stringify([value])}, eventColor: '#42b8d4' });</script>`;
+
+    expect(() => parseFetchedSourceItems(html(event), sourceUrl, "auto", "news"))
+      .toThrow("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+    expect(() => parseFetchedSourceItems(html({ ...event, url: `${event.url}0` }), sourceUrl, "auto", "event"))
+      .toThrow("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+    expect(() => parseFetchedSourceItems(html({ ...event, category: "event" }), sourceUrl, "auto", "event"))
+      .toThrow("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+  });
+
+  it("parses TNKU's exact event JSON, drops its sentinel, and resolves detail links at the site root", () => {
+    const sourceUrl = "https://bhi.nku.edu.tr/json/nku.json2.php?sid=";
+    const payload = [{
+      id: "69889",
+      start: "2026-09-28 10:00:00",
+      end: "2026-09-28 12:00:00",
+      title: "Veteriner Fakültesi Oryantasyon Eğitimi",
+      description: "Başlangıç:2026-09-28&nbsp;Bitiş:2026-09-28<br/>Saat:10:00-12:00",
+      url: "haberler/veteriner-fakültesi-oryantasyon-eğitimi/s/69889",
+      color: "#6495ED"
+    }, {
+      id: "69814",
+      start: "2026-11-12 09:00:00",
+      end: "2026-11-14 17:00:00",
+      allDay: "true",
+      title: "Diyabetik Ayakta Yapay Zeka Uygulamaları Sempozyumu",
+      description: "Başlangıç:2026-11-12&nbsp;Bitiş:2026-11-13<br/>Saat:09:00-17:00",
+      url: "haberler/diyabetik-ayakta-yapay-zeka-uygulamalari-sempozyumu/s/69814",
+      color: "#c82333"
+    }, {
+      date: "2023-12-19 14:00:00",
+      type: "Baslangıc",
+      title: "Giris 1<font color=#FF0000> Başlangıç</font>",
+      description: "bilgi yok",
+      url: "/"
+    }];
+
+    expect(parseFetchedSourceItems(JSON.stringify(payload), sourceUrl, "auto", "event")).toEqual([
+      expect.objectContaining({
+        title: "Veteriner Fakültesi Oryantasyon Eğitimi",
+        link: "https://bhi.nku.edu.tr/haberler/veteriner-fak%C3%BCltesi-oryantasyon-e%C4%9Fitimi/s/69889",
+        keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-09-28" }]
+      }),
+      expect.objectContaining({
+        title: "Diyabetik Ayakta Yapay Zeka Uygulamaları Sempozyumu",
+        link: "https://bhi.nku.edu.tr/haberler/diyabetik-ayakta-yapay-zeka-uygulamalari-sempozyumu/s/69814",
+        keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-11-12", endDate: "2026-11-13" }]
+      })
+    ]);
+  });
+
+  it("keeps the TNKU event adapter locked to the exact endpoint, type, and row identity", () => {
+    const sourceUrl = "https://bhi.nku.edu.tr/json/nku.json2.php?sid=";
+    const row = {
+      id: "69889",
+      start: "2026-09-28 10:00:00",
+      end: "2026-09-28 12:00:00",
+      title: "Veteriner Fakültesi Oryantasyon Eğitimi",
+      description: "Başlangıç:2026-09-28",
+      url: "haberler/veteriner-fakültesi-oryantasyon-eğitimi/s/69889",
+      color: "#6495ED"
+    };
+
+    expect(() => parseFetchedSourceItems(JSON.stringify([row]), sourceUrl, "auto", "news"))
+      .toThrow("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    expect(() => parseFetchedSourceItems(JSON.stringify([row]), `${sourceUrl}&start=2026-09-01`, "auto", "event"))
+      .toThrow("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    expect(() => parseFetchedSourceItems(
+      JSON.stringify([row]),
+      "https://bhi.nku.edu.tr/json/nku.json2.php/archive?sid=",
+      "auto",
+      "event"
+    )).toThrow("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    expect(() => parseFetchedSourceItems(JSON.stringify([row]), sourceUrl, "html", "event"))
+      .toThrow("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    expect(() => parseFetchedSourceItems(
+      JSON.stringify([{ ...row, url: "haberler/veteriner-fakültesi-oryantasyon-eğitimi/s/1" }]),
+      sourceUrl,
+      "auto",
+      "event"
+    )).toThrow("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    expect(() => parseFetchedSourceItems(
+      JSON.stringify([{ ...row, url: "haberler/alt-dizin/veteriner-fakültesi-oryantasyon-eğitimi/s/69889" }]),
+      sourceUrl,
+      "auto",
+      "event"
+    )).toThrow("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    expect(parseFetchedSourceItems(
+      JSON.stringify([{ ...row, end: "2026-09-28 09:59:59" }]),
+      sourceUrl,
+      "auto",
+      "event"
+    )).toEqual([]);
+    expect(parseFetchedSourceItems(
+      JSON.stringify([{ ...row, url: "haberler/veteriner-fakültesi-ben-kimim?-etkinliği/s/69889" }]),
+      sourceUrl,
+      "auto",
+      "event"
+    )).toEqual([expect.objectContaining({
+      link: "https://bhi.nku.edu.tr/haberler/veteriner-fak%C3%BCltesi-ben-kimim%3F-etkinli%C4%9Fi/s/69889"
+    })]);
+    expect(() => parseFetchedSourceItems(JSON.stringify([{
+      date: "2023-12-19 14:00:00",
+      type: "Baslangıc",
+      title: "Giris 1<font color=#FF0000> Başlangıç</font>",
+      description: "bilgi yok",
+      url: "/"
+    }, row]), sourceUrl, "auto", "event")).toThrow("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+  });
+
+  it("parses only the repeated official KTUN news table and rejects chrome or layout drift", () => {
+    const row = (title: string, slug: string, date: string, detailSlug = slug) => `
+      <tr>
+        <td><a href="/tr/Universite/HaberDetay/${slug}">${title}</a></td>
+        <td>${date}</td>
+        <td><a class="btn" href="/tr/Universite/HaberDetay/${detailSlug}">Detay</a></td>
+      </tr>`;
+    const firstRow = row(
+      "KTÜN Başarı Çıtasını Her Yıl Daha Yukarı Taşıyor",
+      "ktun_basari_citasini_yukari_tasiyor_1372",
+      "11.09.2026"
+    );
+    const secondRow = row(
+      "Öğrencimizden Drone Racing World Cup’ta İkincilik Başarısı",
+      "ogrencimizden_drone_racing_basari_1371",
+      "10.09.2026"
+    );
+    const html = `
+      <nav><a href="/tr/Universite/HaberDetay/menu_haberi_9999">Menü Haberi</a></nav>
+      <aside><a href="/tr/Universite/HaberDetay/sidebar_haberi_9998">Sidebar Haberi</a></aside>
+      <main id="mainContent"><div class="table-responsive">
+        <table class="table table-striped table-hover">
+          <thead><tr><th>Haberler</th><th>Yayın Tarihi</th><th></th></tr></thead>
+          <tbody>${firstRow}${secondRow}</tbody>
+        </table>
+      </div></main>`;
+    const sourceUrl = "https://www.ktun.edu.tr/tr/Universite/TumHaberler";
+
+    expect(parseFetchedSourceItems(html, sourceUrl, "auto", "news")).toEqual([
+      expect.objectContaining({
+        title: "KTÜN Başarı Çıtasını Her Yıl Daha Yukarı Taşıyor",
+        link: "https://www.ktun.edu.tr/tr/Universite/HaberDetay/ktun_basari_citasini_yukari_tasiyor_1372",
+        publicationKind: "date",
+        publishedDate: "2026-09-11"
+      }),
+      expect.objectContaining({
+        title: "Öğrencimizden Drone Racing World Cup’ta İkincilik Başarısı",
+        link: "https://www.ktun.edu.tr/tr/Universite/HaberDetay/ogrencimizden_drone_racing_basari_1371",
+        publicationKind: "date",
+        publishedDate: "2026-09-10"
+      })
+    ]);
+    expect(() => parseFetchedSourceItems(html, sourceUrl, "auto", "announcement"))
+      .toThrow("SOURCE_HTML_LAYOUT_INVALID");
+    expect(() => parseFetchedSourceItems(html, "https://ktun.edu.tr/tr/Universite/TumHaberler", "auto", "news"))
+      .toThrow("SOURCE_HTML_LAYOUT_INVALID");
+    expect(() => parseFetchedSourceItems(html, "https://www.ktun.edu.tr/tr/Universite/Haberler", "auto", "news"))
+      .toThrow("SOURCE_HTML_LAYOUT_INVALID");
+    expect(() => parseFetchedSourceItems(
+      html.replace(secondRow, ""),
+      sourceUrl,
+      "auto",
+      "news"
+    )).toThrow("SOURCE_LAYOUT_INVALID:KTUN_NEWS");
+    expect(() => parseFetchedSourceItems(
+      html.replace("ogrencimizden_drone_racing_basari_1371\">Detay", "baska_haber_1400\">Detay"),
+      sourceUrl,
+      "auto",
+      "news"
+    )).toThrow("SOURCE_LAYOUT_INVALID:KTUN_NEWS");
   });
 });

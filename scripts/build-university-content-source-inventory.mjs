@@ -105,7 +105,7 @@ if (checkOnly) {
 
 function buildUniversity(source, authority) {
   if (!authority) fail(`authority missing for ${source.universityId}`);
-  const homepageUrl = firstUrl(source.websiteUrl, authority.authorityUrls);
+  const homepageUrl = firstAuthorityHttpsUrl(source.websiteUrl, authority.authorityUrls, authority);
   return {
     universityId: requiredText(source.universityId, "universityId"),
     universityName: requiredText(source.universityName, "universityName"),
@@ -125,28 +125,46 @@ function buildUniversity(source, authority) {
 }
 
 function buildSlot(source, authority, homepageUrl, definition) {
-  const sourceUrl = optionalUrl(source[definition.urlField]);
+  const hasRawSourceUrl = Boolean(optionalText(source[definition.urlField]));
+  const sourceUrl = authorityHttpsUrl(source[definition.urlField], authority);
   const effectiveUrl = sourceUrl ?? (!unavailableAuthority(authority, homepageUrl) ? homepageUrl : undefined);
-  const verificationEvidence = source.verificationByField?.[definition.evidenceField];
+  const verificationEvidence = sourceUrl ? source.verificationByField?.[definition.evidenceField] : undefined;
   const unavailable = unavailableAuthority(authority, homepageUrl);
   const directDocument = effectiveUrl ? /\.(?:pdf|docx?|xlsx?)(?:$|[?#])/iu.test(effectiveUrl) : false;
+  const detectedFormat = directDocument ? "document" : detectSourceFormat(effectiveUrl);
   return {
     contentType: definition.contentType,
     ...(sourceUrl ? { sourceUrl } : !unavailable ? { candidateUrl: homepageUrl } : {}),
     status: sourceUrl ? "candidate_found" : unavailable ? "authority_unavailable" : "needs_review",
     resolution: sourceUrl ? "candidate" : unavailable ? "quarantined" : "missing",
-    sourceStatus: optionalText(source[definition.statusField]) ?? (sourceUrl ? "source_found" : "source_not_found"),
+    sourceStatus: hasRawSourceUrl && !sourceUrl
+      ? "source_rejected"
+      : optionalText(source[definition.statusField]) ?? (sourceUrl ? "source_found" : "source_not_found"),
     evidenceStatus: verificationEvidence ? "final_revalidated" : "not_attached",
     ...(verificationEvidence ? { verificationEvidence } : {}),
     parser: "auto",
     siteStructure: {
       kind: directDocument ? "direct_document" : definition.kind,
-      detectedFormat: directDocument ? "document" : "html",
-      extractionMode: directDocument ? "document_text" : "html_dom_auto",
-      description: directDocument ? "Doğrudan PDF/Office belgesi; metin ve tablo tarihleri otomatik çıkarılır." : definition.description,
+      detectedFormat,
+      extractionMode: directDocument ? "document_text" : detectedFormat === "html" ? "html_dom_auto" : `${detectedFormat}_auto`,
+      description: directDocument
+        ? "Doğrudan PDF/Office belgesi; metin ve tablo tarihleri otomatik çıkarılır."
+        : detectedFormat === "json"
+          ? "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır."
+          : detectedFormat === "feed"
+            ? "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır."
+            : definition.description,
       selectorHints: definition.selectorHints
     }
   };
+}
+
+function detectSourceFormat(value) {
+  if (!value) return "html";
+  const { pathname } = new URL(value);
+  if (/(?:^|\/)feed\/?$/iu.test(pathname) || /\.(?:rss|atom|xml)$/iu.test(pathname)) return "feed";
+  if (/(?:^|\/)(?:api|json|wp-json)(?:\/|$)/iu.test(pathname)) return "json";
+  return "html";
 }
 
 function unavailableAuthority(authority, homepageUrl) {
@@ -196,8 +214,22 @@ function validateInventory(inventory, catalogIds) {
   if (inventory.summary.sourceSlots !== 832) fail(`expected 832 source slots, got ${inventory.summary.sourceSlots}`);
 }
 
-function firstUrl(value, values) {
-  return optionalUrl(value) ?? (Array.isArray(values) ? values.map(optionalUrl).find(Boolean) : undefined);
+function firstAuthorityHttpsUrl(value, values, authority) {
+  return [value, ...(Array.isArray(values) ? values : [])]
+    .map((candidate) => authorityHttpsUrl(candidate, authority))
+    .find(Boolean);
+}
+
+function authorityHttpsUrl(value, authority) {
+  const normalized = optionalUrl(value);
+  if (!normalized || authority.status !== "verified" || !Array.isArray(authority.authorityDomains)) return undefined;
+  const url = new URL(normalized);
+  if (url.protocol !== "https:") return undefined;
+  const hostname = url.hostname.toLocaleLowerCase("en-US").replace(/\.$/u, "");
+  return authority.authorityDomains.some((domain) => {
+    const normalizedDomain = optionalText(domain)?.toLocaleLowerCase("en-US").replace(/\.$/u, "");
+    return normalizedDomain && (hostname === normalizedDomain || hostname.endsWith(`.${normalizedDomain}`));
+  }) ? normalized : undefined;
 }
 
 function optionalUrl(value) {

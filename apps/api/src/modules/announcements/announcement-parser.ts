@@ -118,6 +118,19 @@ export async function fetchSourceSnapshot(
   parserConfig?: AnnouncementSourceParserConfig
 ): Promise<FetchedSourceSnapshot> {
   const officialSourceUrl = requireOfficialSourceUrl(sourceUrl);
+  const ankaraCmsSnapshot = await fetchAnkaraUniversityCmsItems(
+    officialSourceUrl,
+    timeoutMs,
+    authorityContext,
+    validators,
+    contentType
+  );
+  if (ankaraCmsSnapshot) {
+    return {
+      ...ankaraCmsSnapshot,
+      items: ankaraCmsSnapshot.items.slice(0, 30)
+    };
+  }
   const atuSnapshot = await fetchAtuContentItems(officialSourceUrl, timeoutMs, authorityContext, validators);
   if (atuSnapshot) {
     return {
@@ -171,8 +184,20 @@ export function parseFetchedSourceItems(
   contentType?: AnnouncementContentType,
   parserConfig?: AnnouncementSourceParserConfig
 ): ParsedAnnouncementItem[] {
+  const nkuEventJsonSource = describeNkuEventJsonSource(sourceUrl, contentType);
+  if (nkuEventJsonSource) {
+    if (parser !== "auto") throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    return parseNkuEventJson(input, nkuEventJsonSource);
+  }
+  const alanyaEventCalendarSource = describeAlanyaEventCalendarSource(sourceUrl, contentType);
+  if (alanyaEventCalendarSource) {
+    if (parser !== "auto" && parser !== "html") throw new Error("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+    return parseAlanyaEventCalendarHtml(input, alanyaEventCalendarSource);
+  }
+  const ankaraCmsDescriptor = describeAnkaraUniversityCmsSource(sourceUrl, contentType);
+  if (ankaraCmsDescriptor) return parseAnkaraUniversityCmsPayload(input, ankaraCmsDescriptor);
   if (parser === "auto" && looksLikeJson(input)) {
-    const items = parseJsonAnnouncements(input, sourceUrl);
+    const items = parseJsonAnnouncements(input, sourceUrl, contentType);
     if (items.length > 0 || isExplicitEmptyJsonSnapshot(input)) return items;
     throw new Error("SOURCE_JSON_LAYOUT_INVALID");
   }
@@ -188,6 +213,7 @@ export function parseFetchedSourceItems(
     if (items.length > 0) return items;
     throw new Error("SOURCE_HTML_SELECTOR_LAYOUT_INVALID");
   }
+  if (isKtunNewsListingSource(sourceUrl, contentType)) return parseKtunNewsListingHtml(input, sourceUrl);
   if (isYokSourceUrl(sourceUrl)) return parseYokAnnouncementHtml(input, sourceUrl);
   if (isAnkaraUniversitySourceUrl(sourceUrl)) return parseAnkaraUniversityAnnouncementHtml(input, sourceUrl);
   const items = parseGenericAnnouncementHtml(input, sourceUrl, contentType);
@@ -293,6 +319,295 @@ export function parseGenericAnnouncementHtml(
   contentType?: AnnouncementContentType
 ): ParsedAnnouncementItem[] {
   return parseHtmlDocument(input, sourceUrl, "generic", contentType);
+}
+
+const alanyaEventCalendarOrigin = "https://www.alanyauniversity.edu.tr";
+const nkuEventOrigin = "https://bhi.nku.edu.tr";
+
+interface CalendarTimestamp {
+  date: string;
+  value: string;
+}
+
+function describeAlanyaEventCalendarSource(
+  sourceUrl: string,
+  contentType?: AnnouncementContentType
+): string | null {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return null;
+  }
+  if (url.hostname !== "www.alanyauniversity.edu.tr" || url.pathname !== "/tr/events.calendar") return null;
+  if (url.protocol !== "https:" || url.search || url.hash || contentType !== "event") {
+    throw new Error("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+  }
+  return url.toString();
+}
+
+function parseAlanyaEventCalendarHtml(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
+  const $ = load(input);
+  const calendarScripts = $("script").toArray()
+    .map((element) => $(element).html() ?? "")
+    .filter((script) => /\$\(\s*["']#calendar["']\s*\)\.fullCalendar\s*\(/u.test(script));
+  const match = calendarScripts[0]?.match(/\bevents\s*:\s*(\[[\s\S]*\])\s*,\s*eventColor\s*:/u);
+  if ($('[id="calendar"]').length !== 1 || calendarScripts.length !== 1 || !match?.[1]) {
+    throw new Error("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(match[1]);
+  } catch {
+    throw new Error("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+  }
+  if (!Array.isArray(payload) || payload.length > 2_000) throw new Error("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+
+  const rows = payload.map((value) => {
+    if (!isJsonRecord(value) || Object.keys(value).sort().join(",") !== "end,id,start,title,url") {
+      throw new Error("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+    }
+    const id = value.id;
+    const rawTitle = value.title;
+    const start = readCalendarTimestamp(value.start);
+    const end = readCalendarTimestamp(value.end);
+    if (
+      typeof id !== "string"
+      || !/^\d{1,12}$/u.test(id)
+      || typeof rawTitle !== "string"
+      || !normalizeDisplayText(rawTitle, 500)
+      || !start
+      || !end
+      || end.value < start.value
+      || value.url !== `${alanyaEventCalendarOrigin}/tr/events.single/id/${id}`
+    ) throw new Error("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+    return { id, rawTitle, start, end, url: value.url };
+  }).sort((left, right) => right.start.value.localeCompare(left.start.value) || Number(right.id) - Number(left.id));
+
+  return dedupeParsedItems(rows.map((row) => {
+    const trust = evaluateContentTrust({
+      rawTitle: row.rawTitle,
+      url: row.url,
+      officialSourceUrl: sourceUrl,
+      contentType: "event"
+    });
+    if (trust.status !== "trusted" || !trust.title || !trust.canonicalUrl) {
+      throw new Error("SOURCE_LAYOUT_INVALID:ALANYA_EVENT");
+    }
+    return {
+      title: trust.title,
+      rawTitle: trust.rawTitle,
+      link: trust.canonicalUrl,
+      keyDates: [{
+        label: "Etkinlik tarihi",
+        startDate: row.start.date,
+        ...(row.end.date !== row.start.date ? { endDate: row.end.date } : {})
+      }]
+    };
+  }));
+}
+
+function describeNkuEventJsonSource(
+  sourceUrl: string,
+  contentType?: AnnouncementContentType
+): string | null {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return null;
+  }
+  if (url.hostname !== "bhi.nku.edu.tr") return null;
+  if (url.pathname !== "/json/nku.json2.php") {
+    if (url.pathname.startsWith("/json/nku")) throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    return null;
+  }
+  if (
+    url.protocol !== "https:"
+    || url.search !== "?sid="
+    || url.hash
+    || contentType !== "event"
+  ) throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+  return url.toString();
+}
+
+function parseNkuEventJson(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(input);
+  } catch {
+    throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+  }
+  if (!Array.isArray(payload) || payload.length === 0 || payload.length > 10_000) {
+    throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+  }
+
+  let sentinelCount = 0;
+  const results: ParsedAnnouncementItem[] = [];
+  for (const [index, value] of payload.entries()) {
+    if (isNkuEventSentinel(value)) {
+      sentinelCount += 1;
+      if (sentinelCount > 1 || index !== payload.length - 1) throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+      continue;
+    }
+    if (!isJsonRecord(value)) throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    const id = value.id;
+    const rawTitle = value.title;
+    const description = value.description;
+    const rawUrl = value.url;
+    const allDay = value.allDay;
+    const start = readCalendarTimestamp(value.start);
+    const end = readCalendarTimestamp(value.end);
+    const urlMatch = typeof rawUrl === "string"
+      ? rawUrl.match(/^haberler\/([^/\\\u0000-\u001f]{1,2000})\/s\/(\d{1,12})$/u)
+      : null;
+    if (
+      typeof id !== "string"
+      || !/^\d{1,12}$/u.test(id)
+      || typeof rawTitle !== "string"
+      || !normalizeDisplayText(rawTitle, 500)
+      || typeof description !== "string"
+      || typeof rawUrl !== "string"
+      || (allDay !== undefined && allDay !== "true")
+      || !start
+      || !end
+    ) throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    if (end.value < start.value) continue;
+    if (!urlMatch || urlMatch[2] !== id || /%(?:2f|5c)/iu.test(rawUrl)) {
+      throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    }
+
+    const rawLinkUrl = new URL(nkuEventOrigin);
+    rawLinkUrl.pathname = `/${rawUrl}`;
+    const link = canonicalizeContentUrl(rawLinkUrl.toString(), `${nkuEventOrigin}/`);
+    if (!link) throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+    const linkUrl = new URL(link);
+    if (
+      linkUrl.protocol !== "https:"
+      || linkUrl.hostname !== "bhi.nku.edu.tr"
+      || linkUrl.search
+      || linkUrl.hash
+      || !/^\/haberler\/[^/]+\/s\/\d{1,12}$/u.test(linkUrl.pathname)
+      || !linkUrl.pathname.endsWith(`/s/${id}`)
+    ) throw new Error("SOURCE_LAYOUT_INVALID:NKU_EVENT");
+
+    const item = finalizeParsedItem({ rawTitle, link, summary: description, richBody: description }, sourceUrl);
+    if (!item) continue;
+    const endDate = allDay === "true" ? previousCalendarDate(end.date) : end.date;
+    if (!endDate || endDate < start.date) continue;
+    results.push({
+      ...item,
+      keyDates: [{
+        label: "Etkinlik tarihi",
+        startDate: start.date,
+        ...(endDate !== start.date ? { endDate } : {})
+      }]
+    });
+  }
+  return dedupeParsedItems(results);
+}
+
+function isNkuEventSentinel(value: unknown): boolean {
+  if (!isJsonRecord(value) || Object.keys(value).sort().join(",") !== "date,description,title,type,url") return false;
+  return value.url === "/"
+    && typeof value.description === "string"
+    && readCalendarTimestamp(value.date) !== undefined
+    && typeof value.type === "string"
+    && foldAnchorTitle(value.type) === "baslangic"
+    && typeof value.title === "string"
+    && foldAnchorTitle(value.title).includes("giris");
+}
+
+function readCalendarTimestamp(value: unknown): CalendarTimestamp | undefined {
+  if (typeof value !== "string") return undefined;
+  const match = value.match(/^(20\d{2})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/u);
+  if (!match?.[1] || !match[2] || !match[3] || !match[4] || !match[5] || !match[6]) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (!createUtcCalendarDate(year, month, day) || hour > 23 || minute > 59 || second > 59) return undefined;
+  return { date: `${match[1]}-${match[2]}-${match[3]}`, value };
+}
+
+function previousCalendarDate(value: string): string | undefined {
+  const match = value.match(/^(20\d{2})-(\d{2})-(\d{2})$/u);
+  if (!match?.[1] || !match[2] || !match[3]) return undefined;
+  const date = createUtcCalendarDate(Number(match[1]), Number(match[2]), Number(match[3]));
+  if (!date) return undefined;
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+const ktunNewsItemSelector = "main#mainContent .table-responsive > table.table.table-striped.table-hover > tbody > tr";
+
+function isKtunNewsListingSource(sourceUrl: string, contentType?: AnnouncementContentType): boolean {
+  try {
+    const url = new URL(sourceUrl);
+    return contentType === "news"
+      && url.protocol === "https:"
+      && url.hostname === "www.ktun.edu.tr"
+      && url.pathname === "/tr/Universite/TumHaberler"
+      && !url.search
+      && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
+function parseKtunNewsListingHtml(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
+  const $ = load(input);
+  const tables = $("main#mainContent .table-responsive > table.table.table-striped.table-hover");
+  const table = tables.first();
+  const headings = table.find("> thead > tr").first().children("th");
+  const rows = table.find("> tbody > tr");
+  const validRows = rows.length >= 2 && rows.length <= 80 && rows.toArray().every((element) => {
+    const row = $(element);
+    const cells = row.children("td");
+    const titleAnchor = cells.eq(0).children("a");
+    const detailAnchor = cells.eq(2).children("a");
+    const title = normalizeDisplayText(titleAnchor.text(), 500);
+    const date = normalizeDisplayText(cells.eq(1).text(), 200);
+    const titleUrl = canonicalizeContentUrl(titleAnchor.attr("href") ?? "", sourceUrl);
+    const detailUrl = canonicalizeContentUrl(detailAnchor.attr("href") ?? "", sourceUrl);
+    if (
+      row.closest("nav,aside,footer").length
+      || cells.length !== 3
+      || titleAnchor.length !== 1
+      || detailAnchor.length !== 1
+      || !title
+      || isLowValueAnchorTitle(title)
+      || foldAnchorTitle(detailAnchor.text()) !== "detay"
+      || !titleUrl
+      || canonicalContentKey(titleUrl) !== canonicalContentKey(detailUrl ?? "")
+      || parsePublicationMaybe(date)?.publicationKind !== "date"
+    ) return false;
+    const url = new URL(titleUrl);
+    return url.protocol === "https:"
+      && url.hostname === "www.ktun.edu.tr"
+      && /^\/tr\/Universite\/HaberDetay\/[^/?#]{1,500}_\d{1,12}$/u.test(url.pathname)
+      && !url.search
+      && !url.hash;
+  });
+  if (
+    tables.length !== 1
+    || table.closest("nav,aside,footer").length
+    || headings.length !== 3
+    || foldAnchorTitle(headings.eq(0).text()) !== "haberler"
+    || foldAnchorTitle(headings.eq(1).text()) !== "yayin tarihi"
+    || normalizeDisplayText(headings.eq(2).text())
+    || !validRows
+  ) throw new Error("SOURCE_LAYOUT_INVALID:KTUN_NEWS");
+
+  return parseConfiguredAnnouncementHtml(input, sourceUrl, {
+    itemSelector: ktunNewsItemSelector,
+    titleSelector: "td:first-child > a",
+    linkSelector: "td:first-child > a",
+    dateSelector: "td:nth-child(2)"
+  }, "news");
 }
 
 /** Uses admin-maintained CSS selectors when a university changes its listing layout. */
@@ -503,7 +818,11 @@ export function cleanText(input?: string): string {
   return normalizeDisplayText(input);
 }
 
-export function parseJsonAnnouncements(input: string, sourceUrl: string): ParsedAnnouncementItem[] {
+export function parseJsonAnnouncements(
+  input: string,
+  sourceUrl: string,
+  contentType?: AnnouncementContentType
+): ParsedAnnouncementItem[] {
   let data: unknown;
   try {
     data = JSON.parse(input);
@@ -512,7 +831,7 @@ export function parseJsonAnnouncements(input: string, sourceUrl: string): Parsed
   }
 
   const items: ParsedAnnouncementItem[] = [];
-  collectJsonAnnouncementItems(data, sourceUrl, items, 0, Array.isArray(data));
+  collectJsonAnnouncementItems(data, sourceUrl, items, 0, Array.isArray(data), contentType);
   return dedupeParsedItems(items);
 }
 
@@ -572,6 +891,12 @@ function parseHtmlDocument(
       : rawHref;
     const ancestors = anchorAncestors.get(anchor.index ?? 0) ?? [];
     if (ancestors.some((ancestor) => isChromeHtmlAncestor(ancestor, profile))) continue;
+    if (profile === "ankara" && (
+      !ancestors.some((ancestor) => readClassNames(ancestor.attributes).has("entry-title"))
+      || !ancestors.some((ancestor) => (
+        ancestor.tag === "article" && isAnkaraAnnouncementArticle({ classes: readClassNames(ancestor.attributes) })
+      ))
+    )) continue;
     let rawTitle = anchor[4] ?? "";
     let normalizedTitle = normalizeDisplayText(rawTitle, 500);
     if (profile === "generic" && (!normalizedTitle || isLowValueAnchorTitle(normalizedTitle))) {
@@ -735,9 +1060,14 @@ function buildAnchorAncestorChains(input: string, anchorIndexes: number[]): Map<
 
 function isChromeHtmlAncestor(ancestor: HtmlAncestor, profile: HtmlParserProfile = "generic"): boolean {
   if (ancestor.tag === "ancestor-depth-overflow") return true;
-  if (["nav", "footer", "aside"].includes(ancestor.tag)) return true;
   const role = foldAnchorTitle(readHtmlAttribute(ancestor.attributes, "role") ?? "");
+  if (["nav", "footer"].includes(ancestor.tag)) return true;
+  if (ancestor.tag === "aside") {
+    const classes = readClassNames(ancestor.attributes);
+    if (role === "complementary" || profile !== "generic" || (!classes.has("fullside") && !classes.has("rightsidebar"))) return true;
+  }
   if (["banner", "contentinfo", "menu", "menubar", "navigation"].includes(role)) return true;
+  if (["html", "body"].includes(ancestor.tag)) return false;
   return [readHtmlAttribute(ancestor.attributes, "class"), readHtmlAttribute(ancestor.attributes, "id")]
     .filter((value): value is string => Boolean(value))
     .flatMap((value) => value.split(/\s+/u))
@@ -853,15 +1183,22 @@ export function assertSourceAdapterLayout(
   }
 
   const hasContentRoot = elements.some((element) => element.id === "content");
-  const announcementRows = readArticleBlocks(input).filter((row) => (
-    row.classes.has("post") && row.classes.has("announcement")
-  ));
+  const announcementRows = readArticleBlocks(input).filter(isAnkaraAnnouncementArticle);
   const hasMalformedRow = announcementRows.some((row) => (
     !/<[a-z][\w-]*\b[^>]*class=["'][^"']*\bentry-title\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["'][^"']+["']/iu.test(row.body)
   ));
   if (!hasContentRoot || announcementRows.length < 2 || hasMalformedRow) {
     throw new Error("SOURCE_LAYOUT_INVALID:ANKARA");
   }
+}
+
+function isAnkaraAnnouncementArticle(row: { classes: Set<string> }): boolean {
+  return (row.classes.has("post") && row.classes.has("announcement"))
+    || (
+      row.classes.has("type-post")
+      && row.classes.has("status-publish")
+      && (row.classes.has("category-duyurular") || row.classes.has("category-gecmis-duyurular"))
+    );
 }
 
 function readArticleBlocks(input: string): Array<{ classes: Set<string>; body: string }> {
@@ -1177,7 +1514,191 @@ function isAnkaraUniversitySourceUrl(input: string): boolean {
 }
 
 const crawlerUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36 AcademicCalendarAnnouncementCrawler/1.0";
+const ankaraUniversityOrigin = "https://www.ankara.edu.tr";
+const ankaraUniversityCmsHost = "ubys.ankara.edu.tr";
+const ankaraUniversityCmsPaths = {
+  news: "/api/CMS/GetMainNews",
+  event: "/api/CMS/GetMainevents"
+} as const;
 const atuODataBaseUrl = "https://odata.atu.edu.tr/odata/DataService.svc";
+
+interface AnkaraUniversityCmsDescriptor {
+  contentType: "news" | "event";
+  publicRoute: "haber" | "etkinlik";
+  sourceUrl: string;
+}
+
+async function fetchAnkaraUniversityCmsItems(
+  sourceUrl: string,
+  timeoutMs: number,
+  authorityContext: SourceAuthorityFetchContext | undefined,
+  validators: SourceSnapshotValidators,
+  contentType: AnnouncementContentType | undefined
+): Promise<FetchedSourceSnapshot | null> {
+  const descriptor = describeAnkaraUniversityCmsSource(sourceUrl, contentType);
+  if (!descriptor) return null;
+  if (authorityContext && authorityContext.resource !== descriptor.contentType) {
+    throw new Error("ANKARA_CMS_SOURCE_INVALID");
+  }
+
+  const response = await fetchText(sourceUrl, timeoutMs, {
+    accept: "application/json",
+    ...(authorityContext ? authorityContext : {}),
+    ...validators
+  });
+  if (canonicalContentKey(response.finalUrl) !== canonicalContentKey(sourceUrl)) {
+    throw new Error("ANKARA_CMS_REDIRECT_INVALID");
+  }
+  if (response.status === 304) {
+    return {
+      items: [],
+      finalUrl: response.finalUrl,
+      fetchStatus: "not_modified",
+      ...(response.etag ? { etag: response.etag } : {}),
+      ...(response.lastModified ? { lastModified: response.lastModified } : {})
+    };
+  }
+  if (!response.contentType || !/^application\/json(?:\s*;|$)/iu.test(response.contentType)) {
+    throw new Error("ANKARA_CMS_CONTENT_TYPE_INVALID");
+  }
+  if (response.contentHash && response.contentHash === validators.contentHash) {
+    return {
+      items: [],
+      finalUrl: response.finalUrl,
+      fetchStatus: "not_modified",
+      ...(response.etag ? { etag: response.etag } : {}),
+      ...(response.lastModified ? { lastModified: response.lastModified } : {}),
+      contentHash: response.contentHash
+    };
+  }
+
+  return {
+    items: parseAnkaraUniversityCmsPayload(response.text, descriptor),
+    finalUrl: response.finalUrl,
+    fetchStatus: "fetched",
+    ...(response.etag ? { etag: response.etag } : {}),
+    ...(response.lastModified ? { lastModified: response.lastModified } : {}),
+    ...(response.contentHash ? { contentHash: response.contentHash } : {})
+  };
+}
+
+function describeAnkaraUniversityCmsSource(
+  sourceUrl: string,
+  contentType: AnnouncementContentType | undefined
+): AnkaraUniversityCmsDescriptor | null {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return null;
+  }
+  if (url.hostname !== ankaraUniversityCmsHost || !url.pathname.startsWith("/api/CMS/")) return null;
+
+  const expectedContentType = url.pathname === ankaraUniversityCmsPaths.news
+    ? "news"
+    : url.pathname === ankaraUniversityCmsPaths.event
+      ? "event"
+      : null;
+  const expectedKeys = ["Page", "PageSize", "websiteId", "languageCode"];
+  if (
+    url.protocol !== "https:"
+    || !expectedContentType
+    || contentType !== expectedContentType
+    || [...url.searchParams].length !== expectedKeys.length
+    || expectedKeys.some((key) => url.searchParams.getAll(key).length !== 1)
+    || !/^\d+$/u.test(url.searchParams.get("Page") ?? "")
+    || !/^(?:[1-9]|[12]\d|30)$/u.test(url.searchParams.get("PageSize") ?? "")
+    || url.searchParams.get("websiteId") !== "1"
+    || url.searchParams.get("languageCode") !== "tr-TR"
+  ) throw new Error("ANKARA_CMS_SOURCE_INVALID");
+
+  return {
+    contentType: expectedContentType,
+    publicRoute: expectedContentType === "news" ? "haber" : "etkinlik",
+    sourceUrl: url.toString()
+  };
+}
+
+function parseAnkaraUniversityCmsPayload(
+  input: string,
+  descriptor: AnkaraUniversityCmsDescriptor
+): ParsedAnnouncementItem[] {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(input);
+  } catch {
+    throw new Error("ANKARA_CMS_RESPONSE_INVALID");
+  }
+  if (!isJsonRecord(payload) || !Array.isArray(payload.items) || payload.items.length > 30) {
+    throw new Error("ANKARA_CMS_RESPONSE_INVALID");
+  }
+
+  return dedupeParsedItems(payload.items.map((value) => {
+    if (!isJsonRecord(value)) throw new Error("ANKARA_CMS_RESPONSE_INVALID");
+    const rawTitle = value.baslik;
+    const slug = value.url;
+    const publishedAt = readAnkaraUniversityCmsTimestamp(value.publishDate);
+    const summary = readAnkaraUniversityCmsOptionalText(value, "aciklama");
+    const richBody = readAnkaraUniversityCmsOptionalText(value, "icerik") ?? summary;
+    if (
+      typeof rawTitle !== "string"
+      || typeof slug !== "string"
+      || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(slug)
+      || !publishedAt
+    ) throw new Error("ANKARA_CMS_RESPONSE_INVALID");
+
+    const item = finalizeParsedItem({
+      rawTitle,
+      link: `${ankaraUniversityOrigin}/${descriptor.publicRoute}/${slug}`,
+      publicationKind: "timestamp",
+      publishedAt,
+      ...(summary ? { summary } : {}),
+      ...(richBody ? { richBody } : {})
+    }, descriptor.sourceUrl);
+    if (!item) throw new Error("ANKARA_CMS_RESPONSE_INVALID");
+    if (descriptor.contentType !== "event") return item;
+
+    const eventStart = readAnkaraUniversityCmsTimestamp(value.eventDateTime);
+    const eventEnd = value.eventEndDateTime == null
+      ? undefined
+      : readAnkaraUniversityCmsTimestamp(value.eventEndDateTime);
+    if (!eventStart || (value.eventEndDateTime != null && !eventEnd)) {
+      throw new Error("ANKARA_CMS_RESPONSE_INVALID");
+    }
+    const startDate = formatIstanbulCalendarDate(eventStart);
+    const endDate = eventEnd && eventEnd >= eventStart ? formatIstanbulCalendarDate(eventEnd) : undefined;
+    return {
+      ...item,
+      keyDates: [{
+        label: "Etkinlik tarihi",
+        startDate,
+        ...(endDate && endDate !== startDate ? { endDate } : {})
+      }]
+    };
+  }));
+}
+
+function readAnkaraUniversityCmsOptionalText(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  if (value == null) return undefined;
+  if (typeof value !== "string") throw new Error("ANKARA_CMS_RESPONSE_INVALID");
+  return value;
+}
+
+function readAnkaraUniversityCmsTimestamp(value: unknown): Date | undefined {
+  if (typeof value !== "string") return undefined;
+  return parseExplicitSourceTimestamp(value);
+}
+
+function formatIstanbulCalendarDate(value: Date): string {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(value).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
 
 interface AtuContentDescriptor {
   groupType: 1 | 2 | 4;
@@ -1657,20 +2178,25 @@ function collectJsonAnnouncementItems(
   sourceUrl: string,
   output: ParsedAnnouncementItem[],
   depth: number,
-  allowItem: boolean
+  allowItem: boolean,
+  contentType?: AnnouncementContentType
 ): void {
   if (depth > 8 || output.length >= 120) return;
   if (Array.isArray(value)) {
-    for (const item of value) collectJsonAnnouncementItems(item, sourceUrl, output, depth + 1, true);
+    for (const item of value) collectJsonAnnouncementItems(item, sourceUrl, output, depth + 1, true, contentType);
     return;
   }
 
   if (!isJsonRecord(value)) return;
-  const rawTitle = readJsonRawText(value, ["title", "baslik", "başlık", "name", "subject", "headline"]);
-  const link = readJsonRawText(value, ["link", "url", "href", "permalink", "slug"]);
+  const bayburtMedia = readBayburtPortalMediaItem(value, sourceUrl, contentType);
+  const rawTitle = readJsonRawText(value, ["title", "baslik", "başlık", "name", "subject", "headline"])
+    ?? bayburtMedia?.rawTitle;
+  const link = readJsonRawText(value, ["link", "url", "href", "permalink", "slug"])
+    ?? bayburtMedia?.link;
   const summary = readJsonRawText(value, ["summary", "description", "excerpt", "ozet", "özet"]);
   const richBody = readJsonRawText(value, ["body", "content", "html", "icerik", "içerik", "HTMLicerik", "MetinIcerik"]);
-  const published = readJsonRawText(value, ["publishedAt", "publishDate", "pubDate", "date", "createdAt", "baslamaTarihi", "BaşlamaTarihi"]);
+  const published = readJsonRawText(value, ["publishedAt", "publishDate", "pubDate", "date", "createdAt", "baslamaTarihi", "BaşlamaTarihi"])
+    ?? bayburtMedia?.published;
   const updated = readJsonRawText(value, ["sourceUpdatedAt", "updatedAt", "modifiedAt", "updateDate", "lastModified", "guncellenmeTarihi", "GüncellenmeTarihi"]);
   const absoluteLink = link ? canonicalizeContentUrl(link, sourceUrl) : null;
 
@@ -1691,10 +2217,37 @@ function collectJsonAnnouncementItems(
 
   for (const [key, nested] of Object.entries(value)) {
     const normalizedKey = foldAnchorTitle(key);
-    if (jsonCollectionKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, true);
-    else if (jsonWrapperKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, Array.isArray(nested));
-    else if (allowItem && jsonItemWrapperKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, true);
+    if (jsonCollectionKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, true, contentType);
+    else if (jsonWrapperKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, Array.isArray(nested), contentType);
+    else if (allowItem && jsonItemWrapperKeys.has(normalizedKey)) collectJsonAnnouncementItems(nested, sourceUrl, output, depth + 1, true, contentType);
   }
+}
+
+function readBayburtPortalMediaItem(
+  record: Record<string, unknown>,
+  sourceUrl: string,
+  contentType?: AnnouncementContentType
+): { rawTitle: string; link: string; published?: string } | undefined {
+  try {
+    const url = new URL(sourceUrl);
+    const route = url.pathname.match(/^\/api\/web\/department\/medyalist\/(?:tr|en)\/(haber|etkinlik)\/\d+$/u)?.[1];
+    if (
+      url.hostname !== "apiportal.bayburt.edu.tr"
+      || !route
+      || contentType !== (route === "haber" ? "news" : "event")
+    ) return undefined;
+  } catch {
+    return undefined;
+  }
+
+  const media = record.medyaresx_object;
+  if (!isJsonRecord(media)) return undefined;
+  const rawTitle = readJsonRawText(media, ["baslik"]);
+  const link = readJsonRawText(record, ["domain"]);
+  if (!rawTitle || !link) return undefined;
+  const rawPublished = readJsonRawText(record, ["tarih"]);
+  const published = rawPublished?.match(/^\d{4}-\d{2}-\d{2}(?=T)/u)?.[0] ?? rawPublished;
+  return { rawTitle, link, ...(published ? { published } : {}) };
 }
 
 const turkishMonths: Record<string, number> = {
@@ -1768,6 +2321,7 @@ async function fetchTextWithSafeRequest(
       Accept: input.accept ?? "text/html,*/*;q=0.8",
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6",
       "User-Agent": crawlerUserAgent,
+      ...(isAnkaraUniversityCmsApiRequestUrl(sourceUrl) ? { Origin: ankaraUniversityOrigin } : {}),
       ...(input.etag ? { "If-None-Match": input.etag } : {}),
       ...(input.lastModified ? { "If-Modified-Since": input.lastModified } : {})
     },
@@ -1801,6 +2355,17 @@ async function fetchTextWithSafeRequest(
     ...(contentType ? { contentType } : {}),
     ...(response.status === 304 ? {} : { contentHash: createHash("sha256").update(response.body).digest("hex") })
   };
+}
+
+function isAnkaraUniversityCmsApiRequestUrl(sourceUrl: string): boolean {
+  try {
+    const url = new URL(sourceUrl);
+    return url.protocol === "https:"
+      && url.hostname === ankaraUniversityCmsHost
+      && Object.values(ankaraUniversityCmsPaths).includes(url.pathname as (typeof ankaraUniversityCmsPaths)[keyof typeof ankaraUniversityCmsPaths]);
+  } catch {
+    return false;
+  }
 }
 
 function normalizedResponseValidator(value: string | string[] | undefined, maximumLength: number): string | undefined {

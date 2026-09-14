@@ -9,35 +9,35 @@
     "byContentType": {
       "announcement": {
         "total": 208,
-        "candidateFound": 185,
-        "needsReview": 22,
+        "candidateFound": 165,
+        "needsReview": 42,
         "authorityUnavailable": 1,
         "finalRevalidated": 0,
         "directDocuments": 0
       },
       "news": {
         "total": 208,
-        "candidateFound": 110,
-        "needsReview": 97,
+        "candidateFound": 108,
+        "needsReview": 99,
         "authorityUnavailable": 1,
         "finalRevalidated": 0,
         "directDocuments": 0
       },
       "event": {
         "total": 208,
-        "candidateFound": 109,
-        "needsReview": 98,
+        "candidateFound": 107,
+        "needsReview": 100,
         "authorityUnavailable": 1,
         "finalRevalidated": 0,
         "directDocuments": 0
       },
       "academic_calendar": {
         "total": 208,
-        "candidateFound": 115,
-        "needsReview": 92,
+        "candidateFound": 114,
+        "needsReview": 93,
         "authorityUnavailable": 1,
         "finalRevalidated": 0,
-        "directDocuments": 108
+        "directDocuments": 105
       }
     }
   },
@@ -72,7 +72,7 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://www.agu.edu.tr/duyurular",
+          "sourceUrl": "https://w3.agu.edu.tr/index.php",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -119,7 +119,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://www.agu.edu.tr/haberler",
+          "sourceUrl": "https://w3.agu.edu.tr/index.php",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -166,10 +166,10 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://www.agu.edu.tr/etkinlikler",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.agu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -1221,7 +1221,7 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://afsu.edu.tr/category/duyurular/",
+          "sourceUrl": "https://afsu.edu.tr/category/duyurular/feed/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -1229,9 +1229,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Duyuru liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "feed",
+            "extractionMode": "feed_auto",
+            "description": "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -2286,7 +2286,7 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://alanya.edu.tr/duyurular/",
+          "sourceUrl": "https://www.alanyauniversity.edu.tr/tr/announcements.all",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -2333,7 +2333,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://alanya.edu.tr/haberler/",
+          "sourceUrl": "https://www.alanyauniversity.edu.tr/tr/news.all",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -2380,7 +2380,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://alanya.edu.tr/etkinlikler/",
+          "sourceUrl": "https://www.alanyauniversity.edu.tr/tr/events.calendar",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -2427,17 +2427,17 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://oidb.alanya.edu.tr/media/qw0jn2dk/2025-2026-on-lisans-lisans-akademik-takvimi.pdf",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.alanyauniversity.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "homepage_found_no_items",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
-            "kind": "direct_document",
-            "detectedFormat": "document",
-            "extractionMode": "document_text",
-            "description": "Doğrudan PDF/Office belgesi; metin ve tablo tarihleri otomatik çıkarılır.",
+            "kind": "calendar_document_or_page",
+            "detectedFormat": "html",
+            "extractionMode": "html_dom_auto",
+            "description": "Akademik takvim HTML sayfası veya PDF/Office belge bağlantısı; tablo ve tarih aralıkları otomatik algılanır.",
             "selectorHints": {
               "item": [
                 "table tbody tr",
@@ -3658,7 +3658,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://ankaramedipol.edu.tr/etkinlikler/",
+          "sourceUrl": "https://ankaramedipol.edu.tr/etkinlikler",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -3705,7 +3705,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://ankaramedipol.edu.tr/wp-content/uploads/2026/06/2026-2027-AMU-ONLISANS-LISANS-AKADEMIK-TAKVIM.pdf",
+          "sourceUrl": "https://ankaramedipol.edu.tr/sites/default/files/document/2026-2027-AMU-ONLISANS-LISANS-AKADEMIK-TAKVIM.pdf",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -3824,7 +3824,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://www.ankara.edu.tr/haberler/",
+          "sourceUrl": "https://www.mgu.edu.tr/mgu-haberler/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -4037,7 +4037,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://www.ankara.edu.tr/haberler/",
+          "sourceUrl": "https://www.asbu.edu.tr/tr/haberler",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -4084,7 +4084,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://www.ankara.edu.tr/etkinlikler/",
+          "sourceUrl": "https://www.asbu.edu.tr/tr/etkinlikler",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -4250,7 +4250,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://www.ankara.edu.tr/haberler/",
+          "sourceUrl": "https://ubys.ankara.edu.tr/api/CMS/GetMainNews?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -4258,9 +4258,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Haber liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "json",
+            "extractionMode": "json_auto",
+            "description": "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -4297,7 +4297,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://oidb.ankara.edu.tr/events/",
+          "sourceUrl": "https://ubys.ankara.edu.tr/api/CMS/GetMainevents?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -4305,9 +4305,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
+            "detectedFormat": "json",
+            "extractionMode": "json_auto",
+            "description": "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -4676,7 +4676,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://antalya.edu.tr/haberler/",
+          "sourceUrl": "https://www.belek.edu.tr/Home/News/2",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -4723,10 +4723,10 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://antalya.edu.tr/etkinlikler/",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.belek.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -4983,7 +4983,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://antalya.edu.tr/files/academic_calendar/2025-2026/25-26-OnlisansLisans.pdf",
+          "sourceUrl": "https://antalya.edu.tr/storage/uploads/ortak/genel/2026/07/2ce92903-945f-4955-a5b3-37fc85cbc482.pdf",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -5528,7 +5528,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://www.adiguzel.edu.tr/tr/haberler/",
+          "sourceUrl": "https://www.adiguzel.edu.tr/category/haberler/feed/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -5536,9 +5536,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Haber liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "feed",
+            "extractionMode": "feed_auto",
+            "description": "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -5575,7 +5575,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://www.adiguzel.edu.tr/tr/etkinlikler/",
+          "sourceUrl": "https://www.adiguzel.edu.tr/category/etkinlikler/feed/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -5583,9 +5583,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
+            "detectedFormat": "feed",
+            "extractionMode": "feed_auto",
+            "description": "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -5741,7 +5741,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://atauni.edu.tr/news/",
+          "sourceUrl": "https://atauni.edu.tr/category/haberler/feed/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -5749,9 +5749,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Haber liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "feed",
+            "extractionMode": "feed_auto",
+            "description": "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -6333,10 +6333,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://haber.adu.edu.tr/ogrenci-duyuru/2026-2027-egitim-ogretim-yili-guz-yariyili-lisansustu-egitimi-icin-erken-basvuru-duyurusu-320019165/",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.adu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -6551,10 +6551,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://bau.edu.tr/haberler",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://bau.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -7876,7 +7876,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://bayburt.edu.tr/haberler/",
+          "sourceUrl": "https://apiportal.bayburt.edu.tr/api/web/department/medyalist/tr/haber/30?depid=1",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -7884,9 +7884,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Haber liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "json",
+            "extractionMode": "json_auto",
+            "description": "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -7923,7 +7923,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://bayburt.edu.tr/etkinlikler/",
+          "sourceUrl": "https://apiportal.bayburt.edu.tr/api/web/department/medyalist/tr/etkinlik/30?depid=1",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -7931,9 +7931,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
+            "detectedFormat": "json",
+            "extractionMode": "json_auto",
+            "description": "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -9746,10 +9746,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://sciencenews.mehmetakif.edu.tr/",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.mehmetakif.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -11165,7 +11165,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://krtknadmn.karatekin.edu.tr/files/oidb/2026/2026-2027%20AKADEM%C4%B0K%20TAKV%C4%B0M%20-%20Akademik%20TakvimTR%20%C4%B0ngilizce.pdf",
+          "sourceUrl": "https://krtknadmn.karatekin.edu.tr/files/oidb/2026/2026-2027%20E%C4%9Fitim%20%C3%B6%C4%9Fretim%20Y%C4%B1l%C4%B1%20%20Akademik%20Takvim%20Tasla%C4%9F%C4%B1%2013.07.2026.pdf",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -13778,12 +13778,17 @@
       "city": "İSTANBUL",
       "authority": {
         "status": "verified",
-        "homepageUrl": "https://www.fsm.edu.tr/",
+        "homepageUrl": "https://www.fatihsultan.edu.tr/",
         "domains": [
+          "fatihsultan.edu.tr",
           "fsm.edu.tr"
         ],
         "reasonCodes": [],
         "evidence": [
+          {
+            "type": "CURATED_CATALOG_BINDING",
+            "url": "https://www.fatihsultan.edu.tr/"
+          },
           {
             "type": "YOK_HOMEPAGE",
             "url": "https://www.fsm.edu.tr/"
@@ -13840,7 +13845,7 @@
         },
         {
           "contentType": "news",
-          "candidateUrl": "https://www.fsm.edu.tr/",
+          "candidateUrl": "https://www.fatihsultan.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -13887,7 +13892,7 @@
         },
         {
           "contentType": "event",
-          "candidateUrl": "https://www.fsm.edu.tr/",
+          "candidateUrl": "https://www.fatihsultan.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -13934,7 +13939,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "candidateUrl": "https://www.fsm.edu.tr/",
+          "candidateUrl": "https://www.fatihsultan.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -14858,10 +14863,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://gaziantep.edu.tr/duyuru_detay.php?duyuru_ID=51470",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.gibtu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "homepage_found_no_items",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -14999,17 +15004,17 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://oidb.gantep.edu.tr/upload/files/2026-2027%20Lisans-%C3%96nlisans%20Akademik%20Takvim.pdf",
+          "sourceUrl": "https://www.gibtu.edu.tr/akademiktakvim",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
-            "kind": "direct_document",
-            "detectedFormat": "document",
-            "extractionMode": "document_text",
-            "description": "Doğrudan PDF/Office belgesi; metin ve tablo tarihleri otomatik çıkarılır.",
+            "kind": "calendar_document_or_page",
+            "detectedFormat": "html",
+            "extractionMode": "html_dom_auto",
+            "description": "Akademik takvim HTML sayfası veya PDF/Office belge bağlantısı; tablo ve tarih aralıkları otomatik algılanır.",
             "selectorHints": {
               "item": [
                 "table tbody tr",
@@ -15076,10 +15081,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://gaziantep.edu.tr/duyuru_detay.php?duyuru_ID=51470",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.gantep.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -15289,10 +15294,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://www.gtu.edu.tr/icerik/9/30904/display.aspx",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.gtu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -18323,10 +18328,10 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "http://bilnews.bilkent.edu.tr/news/",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.bilkent.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -18702,10 +18707,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://iste.edu.tr/duyuru-merkezi/oidb/2026/06/24/6751",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.iste.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -19128,7 +19133,7 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://arel.edu.tr/arelifs-sinav-duyurusu-arelifs-exam-announcement/",
+          "sourceUrl": "https://arel.edu.tr/category/duyurular/feed/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -19136,9 +19141,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Duyuru liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "feed",
+            "extractionMode": "feed_auto",
+            "description": "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -19175,7 +19180,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://arel.edu.tr/haberler/",
+          "sourceUrl": "https://arel.edu.tr/category/haberler/feed/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -19183,9 +19188,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Haber liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "feed",
+            "extractionMode": "feed_auto",
+            "description": "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -19222,7 +19227,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://arel.edu.tr/etkinlikler/",
+          "sourceUrl": "https://arel.edu.tr/category/etkinlikler/feed/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -19230,9 +19235,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
+            "detectedFormat": "feed",
+            "extractionMode": "feed_auto",
+            "description": "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -19341,7 +19346,7 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://www.atlas.edu.tr/haber-etkinlik/20-06-2026-tarihli-ogretim-uyesi-ilani-duyurusu",
+          "sourceUrl": "https://www.atlas.edu.tr/wp-json/wp/v2/haber-etkinlik?per_page=30&icerik-turu-kategorisi=105&_fields=link,title,date,modified,excerpt,content",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -19349,9 +19354,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Duyuru liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "json",
+            "extractionMode": "json_auto",
+            "description": "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -19388,7 +19393,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://www.atlas.edu.tr/haberler/",
+          "sourceUrl": "https://www.atlas.edu.tr/wp-json/wp/v2/haber-etkinlik?per_page=30&icerik-turu-kategorisi=42&_fields=link,title,date,modified,excerpt,content",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -19396,9 +19401,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Haber liste sayfası; bağlantı, başlık ve tarih otomatik algılanır.",
+            "detectedFormat": "json",
+            "extractionMode": "json_auto",
+            "description": "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -19435,7 +19440,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://www.atlas.edu.tr/etkinlikler/",
+          "sourceUrl": "https://www.atlas.edu.tr/wp-json/wp/v2/haber-etkinlik?per_page=30&icerik-turu-kategorisi=43&_fields=link,title,date,modified,excerpt,content",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -19443,9 +19448,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
+            "detectedFormat": "json",
+            "extractionMode": "json_auto",
+            "description": "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -20406,10 +20411,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://galata.edu.tr/tr/duyurular/detail/24-06-2026-33290-tarih-ve-sayili-akademik-ilan",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.galata.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -22536,10 +22541,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://izu.edu.tr/haberler/2026/06/29/2025-2026-akademik-yili-yaz-okulu-duyurusu",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.izu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -23435,7 +23440,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "http://haberler.itu.edu.tr/haberler/",
+          "sourceUrl": "https://haberler.itu.edu.tr/haberler",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -24879,10 +24884,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://bakircay.edu.tr/duyuru-haber.aspx?type=0&id=4124",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://bakircay.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -25020,7 +25025,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://oidb.bakircay.edu.tr/Sayfalar/Yuklenenler/2026_2027_E%C4%9Fitim_%C3%96%C4%9Fretim_Y%C4%B1l%C4%B1_%C3%96n.pdf",
+          "sourceUrl": "https://oidb.bakircay.edu.tr/Yuklenenler/2026_2027_E%C4%9Fitim_%C3%96%C4%9Fretim_Y%C4%B1l%C4%B1_%C3%96n.pdf",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -25092,10 +25097,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://idu.edu.tr/duyuru-haber.aspx?type=2&id=237",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.idu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -25503,12 +25508,17 @@
       "city": "İZMİR",
       "authority": {
         "status": "verified",
-        "homepageUrl": "https://www.ikc.edu.tr/",
+        "homepageUrl": "https://ikcu.edu.tr/",
         "domains": [
-          "ikc.edu.tr"
+          "ikc.edu.tr",
+          "ikcu.edu.tr"
         ],
         "reasonCodes": [],
         "evidence": [
+          {
+            "type": "CURATED_CATALOG_BINDING",
+            "url": "https://ikcu.edu.tr/"
+          },
           {
             "type": "YOK_HOMEPAGE",
             "url": "https://www.ikc.edu.tr/"
@@ -25565,7 +25575,7 @@
         },
         {
           "contentType": "news",
-          "candidateUrl": "https://www.ikc.edu.tr/",
+          "candidateUrl": "https://ikcu.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -25612,7 +25622,7 @@
         },
         {
           "contentType": "event",
-          "candidateUrl": "https://www.ikc.edu.tr/",
+          "candidateUrl": "https://ikcu.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -25659,7 +25669,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "candidateUrl": "https://www.ikc.edu.tr/",
+          "candidateUrl": "https://ikcu.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -26255,7 +26265,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://iyte.edu.tr/etkinlikler/",
+          "sourceUrl": "https://iyte.edu.tr/etkinlikler/feed/",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -26263,9 +26273,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
+            "detectedFormat": "feed",
+            "extractionMode": "feed_auto",
+            "description": "Resmî RSS/Atom akışı; içerik öğeleri otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -28078,10 +28088,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://kastamonu.edu.tr/tr/haberler",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.kastamonu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -28219,7 +28229,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://oidb.kastamonu.edu.tr/images/2025/dokumanlar/Akademik%20Takvim%201.pdf",
+          "sourceUrl": "https://oidb.kastamonu.edu.tr/images/2026/Documents/Akademik%20Takvim%202026.pdf",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -29782,10 +29792,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://mezun.ku.edu.tr/mezunlardan-haberler/",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.ku.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -30208,7 +30218,7 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "http://konyateknik.edu.tr/tr/Birim/Duyurular/?brm=d1F1wAF+vXIA5AjVsPhdTA==",
+          "sourceUrl": "https://www.ktun.edu.tr/tr/Universite/TumDuyurular",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -30255,7 +30265,7 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "http://konyateknik.edu.tr/haberler/",
+          "sourceUrl": "https://www.ktun.edu.tr/tr/Universite/TumHaberler",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -30302,7 +30312,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "http://konyateknik.edu.tr/etkinlikler/",
+          "sourceUrl": "https://www.ktun.edu.tr/tr/Universite/TumEtkinlikTakvimi",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -30349,17 +30359,17 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "http://konyateknik.edu.tr/Resimler/AkademikTakvim/leeAkademikTakvim-2025-2026.pdf",
+          "sourceUrl": "https://www.ktun.edu.tr/tr/Universite/AkademikTakvim",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
-            "kind": "direct_document",
-            "detectedFormat": "document",
-            "extractionMode": "document_text",
-            "description": "Doğrudan PDF/Office belgesi; metin ve tablo tarihleri otomatik çıkarılır.",
+            "kind": "calendar_document_or_page",
+            "detectedFormat": "html",
+            "extractionMode": "html_dom_auto",
+            "description": "Akademik takvim HTML sayfası veya PDF/Office belge bağlantısı; tablo ve tarih aralıkları otomatik algılanır.",
             "selectorHints": {
               "item": [
                 "table tbody tr",
@@ -30775,7 +30785,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://birimler.dpu.edu.tr/app/views/panel/ckfinder/userfiles/27/files/2025-2026_Lisansuestue_Egitim_Enstituesue_Akademik_Takvimi_webde_olan_04_03_2026(1).pdf",
+          "sourceUrl": "https://birimler.dpu.edu.tr/app/views/panel/ckfinder/userfiles/66/files/2026-2027_GENEL_AKADEM_K_TAKV_M_(GUeNCEL).pdf",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -31414,7 +31424,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://ozal.edu.tr/userfiles/files/etkinlik/etkinlik1/Etkinlik126/Bahar/Duyuru56/Duyuru80/Etkinlik%20haziran/2026-2027%20MT%C3%9C%20AKADEM%C4%B0K%20TAKV%C4%B0M.pdf",
+          "sourceUrl": "https://oidb.ozal.edu.tr/subdomain_files/oidb.ozal.edu.tr/files/21/T%C3%BCm%20Dosyalar/Akademik%20Takvim/2026-2027%20MT%C3%9C%20AKADEM%C4%B0K%20TAKV%C4%B0M.pdf",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -33195,10 +33205,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://www.mu.edu.tr/tr/haberler",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.mu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -33408,10 +33418,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://munzur.edu.tr/haberdetay.aspx?News_ID=65310",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.munzur.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -34047,10 +34057,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://nevsehir.edu.tr/tr/tumduyurular/tip/4",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.nevsehir.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -35892,7 +35902,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "sourceUrl": "https://studentservices.ozyegin.edu.tr/sites/default/files/upload/OgrenciHizmetleri/2026-2027_akademik_takvim_tr.pdf",
+          "sourceUrl": "https://www.ozyegin.edu.tr/sites/default/files/upload/OgrenciHizmetleri/2026.09.08_2026-2027_akademik_takvim_tr.pdf",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -36588,12 +36598,17 @@
       "city": "İSTANBUL",
       "authority": {
         "status": "verified",
-        "homepageUrl": "https://www.sabanciuniv.edu/",
+        "homepageUrl": "https://sabanciuniv.edu.tr/",
         "domains": [
-          "sabanciuniv.edu"
+          "sabanciuniv.edu",
+          "sabanciuniv.edu.tr"
         ],
         "reasonCodes": [],
         "evidence": [
+          {
+            "type": "CURATED_CATALOG_BINDING",
+            "url": "https://sabanciuniv.edu.tr/"
+          },
           {
             "type": "YOK_HOMEPAGE",
             "url": "https://www.sabanciuniv.edu/"
@@ -36650,7 +36665,7 @@
         },
         {
           "contentType": "news",
-          "candidateUrl": "https://www.sabanciuniv.edu/",
+          "candidateUrl": "https://sabanciuniv.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -36697,7 +36712,7 @@
         },
         {
           "contentType": "event",
-          "candidateUrl": "https://www.sabanciuniv.edu/",
+          "candidateUrl": "https://sabanciuniv.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -36744,7 +36759,7 @@
         },
         {
           "contentType": "academic_calendar",
-          "candidateUrl": "https://www.sabanciuniv.edu/",
+          "candidateUrl": "https://sabanciuniv.edu.tr/",
           "status": "needs_review",
           "resolution": "missing",
           "sourceStatus": "source_not_found",
@@ -38094,10 +38109,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://siirt.edu.tr/haber-etkinlik/tumu/977575.html",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://siirt.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -38520,10 +38535,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://www.sivas.edu.tr/tum-haberler/",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.sivas.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -39798,10 +39813,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://www.yok.gov.tr/",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.nku.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "homepage_found_no_items",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -39845,10 +39860,10 @@
         },
         {
           "contentType": "news",
-          "sourceUrl": "https://www.yok.gov.tr/news/",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.nku.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -39892,7 +39907,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://www.yok.gov.tr/events/",
+          "sourceUrl": "https://bhi.nku.edu.tr/json/nku.json2.php?sid=",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -39900,9 +39915,9 @@
           "parser": "auto",
           "siteStructure": {
             "kind": "listing",
-            "detectedFormat": "html",
-            "extractionMode": "html_dom_auto",
-            "description": "Etkinlik liste sayfası; bağlantı, başlık ve etkinlik tarihi otomatik algılanır.",
+            "detectedFormat": "json",
+            "extractionMode": "json_auto",
+            "description": "Resmî JSON API; başlık, bağlantı ve tarih alanları otomatik ayrıştırılır.",
             "selectorHints": {
               "item": [
                 "article",
@@ -40011,10 +40026,10 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://www.etu.edu.tr/tr/haberler",
-          "status": "candidate_found",
-          "resolution": "candidate",
-          "sourceStatus": "source_found",
+          "candidateUrl": "https://www.etu.edu.tr/",
+          "status": "needs_review",
+          "resolution": "missing",
+          "sourceStatus": "source_not_found",
           "evidenceStatus": "not_attached",
           "parser": "auto",
           "siteStructure": {
@@ -42780,7 +42795,7 @@
       "slots": [
         {
           "contentType": "announcement",
-          "sourceUrl": "https://yeditepe.edu.tr/duyuru",
+          "sourceUrl": "https://yeditepe.edu.tr/tr/duyuru?page=0",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -42874,7 +42889,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://yeditepe.edu.tr/etkinlikler/",
+          "sourceUrl": "https://yeditepe.edu.tr/tr/etkinlikler",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",
@@ -43087,7 +43102,7 @@
         },
         {
           "contentType": "event",
-          "sourceUrl": "https://ogi.yildiz.edu.tr/etkinlikler/",
+          "sourceUrl": "https://www.yildiz.edu.tr/medya/ytu-etkinlik-takvimi",
           "status": "candidate_found",
           "resolution": "candidate",
           "sourceStatus": "source_found",

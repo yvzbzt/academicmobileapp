@@ -5,6 +5,7 @@ import {
   type SafeOutboundHopResponse
 } from "../src/common/network/safe-outbound-request.js";
 import {
+  currentAcademicYear,
   discoverAtuAcademicCalendarPdf,
   discoverAcademicCalendarPdfFromHomepages,
   downloadPdf,
@@ -110,6 +111,112 @@ describe("calendar PDF network trust", () => {
     )).resolves.toBeNull();
     expect(requestHop).toHaveBeenCalled();
     expect(requestHop.mock.calls.every(([url]) => new URL(String(url)).hostname.endsWith("example.edu.tr"))).toBe(true);
+  });
+
+  it("discovers a generic HTTPS PDF embedded by an explicit academic-calendar wrapper", async () => {
+    const requestHop = vi.fn(async (_url: string, pinnedAddress: ResolvedOutboundAddress): Promise<SafeOutboundHopResponse> => ({
+      status: 200,
+      headers: { "content-type": "text/html" },
+      body: Buffer.from(`
+        <html>
+          <head><title>Example University</title></head>
+          <body>
+            <span class="page_title">Akademik Takvim</span>
+            <object data="/media/20260813084214_8627c0de.pdf" type="application/pdf"></object>
+            <iframe src="/media/20260813084214_8627c0de.pdf"></iframe>
+          </body>
+        </html>
+      `),
+      remoteAddress: pinnedAddress.address
+    }));
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [publicAddress],
+      requestHop
+    });
+
+    await expect(discoverAcademicCalendarPdfFromHomepages(
+      university,
+      ["https://www.example.edu.tr/akademik-takvim"],
+      1_000,
+      new Set(["https://www.example.edu.tr/akademik-takvim"]),
+      () => false
+    )).resolves.toEqual({
+      sourceUrl: "https://www.example.edu.tr/media/20260813084214_8627c0de.pdf",
+      title: "Akademik Takvim"
+    });
+    expect(requestHop).toHaveBeenCalledTimes(1);
+  });
+
+  it("discovers only the visible PDF link in a current-year calendar table row", async () => {
+    const academicYear = currentAcademicYear();
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [publicAddress],
+      requestHop: async (_url, pinnedAddress): Promise<SafeOutboundHopResponse> => ({
+        status: 200,
+        headers: { "content-type": "text/html" },
+        body: Buffer.from(`
+          <span class="page_title">Akademik Takvim</span>
+          <table><tr><td>
+            ${academicYear} Eğitim-Öğretim Yılı Ön Lisans ve Lisans Programları Akademik Takvimi
+            <a href="/media/copied-stale-target.pdf">&nbsp;</a>
+            için <a href="/media/current-target.pdf">tıklayınız</a>
+          </td></tr></table>
+        `),
+        remoteAddress: pinnedAddress.address
+      })
+    });
+
+    await expect(discoverAcademicCalendarPdfFromHomepages(
+      university,
+      ["https://www.example.edu.tr/akademik-takvim"],
+      1_000,
+      new Set(["https://www.example.edu.tr/akademik-takvim"]),
+      () => false
+    )).resolves.toMatchObject({
+      sourceUrl: "https://www.example.edu.tr/media/current-target.pdf",
+      title: expect.stringContaining(academicYear)
+    });
+  });
+
+  it.each([
+    [
+      "a generic PDF link",
+      '<span class="page_title">Akademik Takvim</span><a href="/media/generic.pdf">Dosyayı indir</a>'
+    ],
+    [
+      "an embedded HTTP PDF",
+      '<span class="page_title">Akademik Takvim</span><object data="http://www.example.edu.tr/media/generic.pdf" type="application/pdf"></object>'
+    ],
+    [
+      "an embedded cross-authority PDF",
+      '<span class="page_title">Akademik Takvim</span><object data="https://evil.example/media/generic.pdf" type="application/pdf"></object>'
+    ],
+    [
+      "an embedded stale PDF",
+      '<span class="page_title">2022-2023 Akademik Takvim</span><object data="/media/generic.pdf" type="application/pdf"></object>'
+    ],
+    [
+      "an embedded PDF without a calendar-page heading",
+      '<span class="page_title">Belgeler</span><object data="/media/generic.pdf" type="application/pdf"></object>'
+    ]
+  ])("does not widen calendar-wrapper trust to %s", async (_label, html) => {
+    setSafeOutboundRequestDependenciesForTesting({
+      resolveHostname: async () => [publicAddress],
+      requestHop: async (_url, pinnedAddress): Promise<SafeOutboundHopResponse> => ({
+        status: 200,
+        headers: { "content-type": "text/html" },
+        body: Buffer.from(html),
+        remoteAddress: pinnedAddress.address
+      })
+    });
+
+    await expect(discoverAcademicCalendarPdfFromHomepages(
+      university,
+      ["https://www.example.edu.tr/akademik-takvim"],
+      1_000,
+      new Set(["https://www.example.edu.tr/akademik-takvim"]),
+      () => false
+    )).resolves.toBeNull();
   });
 
   it("rejects a PDF redirect that leaves the official university domain", async () => {

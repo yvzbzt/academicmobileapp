@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   EXCLUDED_UNIVERSITIES,
@@ -26,17 +25,61 @@ describe("university source discovery core", () => {
     expect(normalizeUniversityName("AĞRI İBRAHİM ÇEÇEN ÜNİVERSİTESİ")).toBe("agri ibrahim cecen universitesi");
   });
 
-  it("constructs exactly 198 targets from the canonical 205 and enforces seven exclusions", async () => {
-    const sources = JSON.parse(await readFile("apps/api/src/bootstrap/verified-university-sources.json", "utf8"));
-    const tree = JSON.parse(await readFile("data/yok-university-faculty-tree.json", "utf8"));
-    const manifest = buildTargetManifest(sources, tree.universities, new Date("2026-07-16T00:00:00.000Z"));
+  it("derives 201 targets from the canonical 208 while preserving explicit exclusions", () => {
+    const sources = [
+      ...EXCLUDED_UNIVERSITIES.map(({ universityId, universityName }) => ({ universityId, universityName })),
+      ...Array.from({ length: 201 }, (_, index) => ({
+        universityId: `test-universitesi-${index + 1}`,
+        universityName: `TEST ÃœNÄ°VERSÄ°TESÄ° ${index + 1}`,
+        announcementUrl: `https://test-${index + 1}.edu.tr/duyurular`
+      }))
+    ];
+    const canonicalIds = sources.map((record) => record.universityId);
+    const manifest = buildTargetManifest(sources, [], canonicalIds, new Date("2026-07-16T00:00:00.000Z"));
 
-    expect(manifest.sourceUniversityCount).toBe(205);
-    expect(manifest.targetCount).toBe(198);
-    expect(manifest.exclusionCount).toBe(7);
-    expect(manifest.targets).toHaveLength(198);
-    expect(new Set(manifest.targets.map((target) => target.universityId)).size).toBe(198);
+    expect(manifest.sourceUniversityCount).toBe(208);
+    expect(manifest.expectedTargetCount).toBe(201);
+    expect(manifest.targetCount).toBe(manifest.expectedTargetCount);
+    expect(manifest.exclusionCount).toBe(EXCLUDED_UNIVERSITIES.length);
+    expect(manifest.targets).toHaveLength(manifest.expectedTargetCount);
+    expect(new Set(manifest.targets.map((target) => target.universityId)).size).toBe(manifest.expectedTargetCount);
     expect(manifest.targets.some((target) => EXCLUDED_UNIVERSITIES.some((excluded) => excluded.universityId === target.universityId))).toBe(false);
+
+    const expandedSources = [
+      ...sources,
+      {
+        universityId: "gelecek-test-universitesi",
+        universityName: "GELECEK TEST ÃœNÄ°VERSÄ°TESÄ°",
+        city: "Ankara",
+        announcementUrl: "https://gelecek-test.edu.tr/duyurular"
+      }
+    ];
+    const expanded = buildTargetManifest(
+      expandedSources,
+      [],
+      expandedSources.map((record) => record.universityId),
+      new Date("2026-07-16T00:00:00.000Z")
+    );
+    expect(expanded.expectedTargetCount).toBe(manifest.expectedTargetCount + 1);
+    expect(expanded.targetCount).toBe(manifest.targetCount + 1);
+  });
+
+  it("fails closed when the source registry diverges from the canonical catalog", () => {
+    const sources = [
+      ...EXCLUDED_UNIVERSITIES.map(({ universityId, universityName }) => ({ universityId, universityName })),
+      {
+        universityId: "mevcut-test-universitesi",
+        universityName: "MEVCUT TEST UNIVERSITESI",
+        announcementUrl: "https://mevcut-test.edu.tr/duyurular"
+      }
+    ];
+
+    expect(() => buildTargetManifest(
+      sources,
+      [],
+      [...sources.map((record) => record.universityId), "eksik-test-universitesi"],
+      new Date("2026-07-16T00:00:00.000Z")
+    )).toThrow(/missingSources=eksik-test-universitesi/u);
   });
 
   it("canonicalizes relative URLs and removes tracking without destroying hash routes", () => {

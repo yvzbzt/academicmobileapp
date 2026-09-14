@@ -1052,11 +1052,65 @@ function extractAcademicCalendarLinks(html: string, baseUrl: string): Discovered
   const embeddedLinks = [...html.matchAll(/(?:href|src|url|file|link)["'\s:=]+([^"'<>\s]*(?:akademik[-_%20]*takvim|academic[-_%20]*calendar)[^"'<>\s]*)/gi)];
   return [
     ...anchors.map((anchor) => toCalendarLink(cleanText(anchor[1]), cleanText((anchor[2] ?? "").replace(/<[^>]+>/g, " ")), baseUrl)),
-    ...embeddedLinks.map((match) => toCalendarLink(cleanText(match[1]), cleanText(match[1]), baseUrl))
+    ...embeddedLinks.map((match) => toCalendarLink(cleanText(match[1]), cleanText(match[1]), baseUrl)),
+    ...extractCalendarViewerPdfs(html, baseUrl),
+    ...extractCurrentCalendarTableRowPdfs(html, baseUrl)
   ]
     .filter((link): link is DiscoveredCalendarPdf => Boolean(link))
     .filter((link, index, links) => links.findIndex((candidate) => candidate.sourceUrl === link.sourceUrl) === index)
     .sort((left, right) => scoreCalendarSource(right) - scoreCalendarSource(left));
+}
+
+function extractCalendarViewerPdfs(html: string, baseUrl: string): DiscoveredCalendarPdf[] {
+  const wrapperTitle = extractCalendarWrapperTitle(html);
+  if (!containsCalendarHint("", baseUrl) || !containsCalendarHint(wrapperTitle, "")) return [];
+
+  return [...html.matchAll(/<(?:iframe|embed|object)\b[^>]*(?:src|data)=["']([^"']+)["'][^>]*>/gi)]
+    .map((match) => {
+      try {
+        const sourceUrl = new URL(cleanText(match[1]), baseUrl).toString();
+        if (new URL(sourceUrl).protocol !== "https:" || !looksLikePdfUrl(sourceUrl)) return null;
+        if (!isFreshAcademicContent({ title: wrapperTitle, url: sourceUrl }).accepted) return null;
+        return { sourceUrl, title: wrapperTitle };
+      } catch {
+        return null;
+      }
+    })
+    .filter((link): link is DiscoveredCalendarPdf => Boolean(link));
+}
+
+function extractCurrentCalendarTableRowPdfs(html: string, baseUrl: string): DiscoveredCalendarPdf[] {
+  const wrapperTitle = extractCalendarWrapperTitle(html);
+  if (!containsCalendarHint("", baseUrl) || !containsCalendarHint(wrapperTitle, "")) return [];
+
+  return [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].flatMap((row) => {
+    const rowHtml = row[1] ?? "";
+    const title = cleanText(rowHtml.replace(/<[^>]+>/g, " "));
+    if (!containsCalendarHint(title, "") || inferAcademicYear([title]) !== currentAcademicYear()) return [];
+
+    return [...rowHtml.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+      .map((anchor) => {
+        const linkText = cleanText((anchor[2] ?? "").replace(/<[^>]+>/g, " "));
+        if (!linkText) return null;
+        try {
+          const sourceUrl = new URL(cleanText(anchor[1]), baseUrl).toString();
+          if (new URL(sourceUrl).protocol !== "https:" || !looksLikePdfUrl(sourceUrl)) return null;
+          return { sourceUrl, title };
+        } catch {
+          return null;
+        }
+      })
+      .filter((link): link is DiscoveredCalendarPdf => Boolean(link));
+  });
+}
+
+function extractCalendarWrapperTitle(html: string): string {
+  const candidates = [
+    ...html.matchAll(/<title\b[^>]*>([\s\S]*?)<\/title>/gi),
+    ...html.matchAll(/<h[1-2]\b[^>]*>([\s\S]*?)<\/h[1-2]>/gi),
+    ...html.matchAll(/<(?:div|span)\b[^>]*class=["'][^"']*(?:page[-_\s]?title|page[-_\s]?header)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|span)>/gi)
+  ].map((match) => cleanText((match[1] ?? "").replace(/<[^>]+>/g, " ")));
+  return candidates.find((candidate) => containsCalendarHint(candidate, "")) ?? "";
 }
 
 function toCalendarLink(href: string | undefined, title: string | undefined, baseUrl: string): DiscoveredCalendarPdf | null {

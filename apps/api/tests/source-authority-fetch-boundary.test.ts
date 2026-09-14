@@ -192,6 +192,181 @@ describe("announcement source-authority fetch boundary", () => {
     }
   });
 
+  it.each([
+    {
+      contentType: "news" as const,
+      resource: "news" as const,
+      endpoint: "GetMainNews",
+      publicRoute: "haber",
+      slug: "ogrenciler-icin-akademik-basari-haberi",
+      title: "Öğrenciler İçin Akademik Başarı Haberi",
+      publishedAt: "2026-09-13T10:15:00Z"
+    },
+    {
+      contentType: "event" as const,
+      resource: "event" as const,
+      endpoint: "GetMainevents",
+      publicRoute: "etkinlik",
+      slug: "ogrenci-kariyer-bulusmasi",
+      title: "Öğrenci Kariyer Buluşması",
+      publishedAt: "2026-09-10T11:39:24.67Z"
+    }
+  ])("fetches Ankara University's official UBYS $contentType endpoint with its required origin", async ({
+    contentType,
+    resource,
+    endpoint,
+    publicRoute,
+    slug,
+    title,
+    publishedAt
+  }) => {
+    const sourceUrl = `https://ubys.ankara.edu.tr/api/CMS/${endpoint}?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR`;
+    const ankaraAuthority: SourceAuthorityContext = {
+      ...authority,
+      ownerAcademicEntityId: "ankara-universitesi",
+      ownerUniversityId: "ankara-universitesi",
+      resolvedOwnerAcademicEntityId: "ankara-universitesi",
+      resolvedOwnerUniversityId: "ankara-universitesi",
+      scopeId: "ankara-universitesi",
+      authorityDomains: ["ankara.edu.tr"]
+    };
+    const requestHop = vi.fn(async (
+      _url: string,
+      pinnedAddress: ResolvedOutboundAddress
+    ): Promise<SafeOutboundHopResponse> => ({
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: Buffer.from(JSON.stringify({
+        items: [{
+          baslik: title,
+          aciklama: "Öğrenciler için resmi üniversite içeriği.",
+          icerik: "<p>Güvenli ayrıntı metni.</p>",
+          url: slug,
+          publishDate: publishedAt,
+          ...(contentType === "event" ? {
+            eventDateTime: "2026-09-14T07:00:00Z",
+            eventEndDateTime: "2026-09-18T14:30:00Z"
+          } : {})
+        }]
+      })),
+      remoteAddress: pinnedAddress.address
+    }));
+    setSafeOutboundRequestDependenciesForTesting({ resolveHostname: async () => [publicAddress], requestHop });
+
+    const snapshot = await fetchSourceSnapshot(
+      sourceUrl,
+      "auto",
+      1_000,
+      { authority: ankaraAuthority, resource },
+      {},
+      contentType
+    );
+
+    expect(snapshot.items).toEqual([expect.objectContaining({
+      title,
+      link: `https://www.ankara.edu.tr/${publicRoute}/${slug}`,
+      publicationKind: "timestamp",
+      publishedAt: new Date(publishedAt),
+      summary: "Öğrenciler için resmi üniversite içeriği.",
+      ...(contentType === "event" ? {
+        keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-09-14", endDate: "2026-09-18" }]
+      } : {})
+    })]);
+    expect(requestHop).toHaveBeenCalledOnce();
+    expect(requestHop).toHaveBeenCalledWith(
+      expect.stringMatching(`^https://ubys\\.ankara\\.edu\\.tr/api/CMS/${endpoint}\\?`),
+      publicAddress,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Accept: "application/json",
+          Origin: "https://www.ankara.edu.tr"
+        })
+      })
+    );
+  });
+
+  it.each([
+    ["https://ubys.ankara.edu.tr/api/CMS/GetMainNews?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR", "event"],
+    ["https://ubys.ankara.edu.tr/api/CMS/GetMainNews?Page=0&PageSize=20&websiteId=2&languageCode=tr-TR", "news"],
+    ["https://ubys.ankara.edu.tr/api/CMS/GetMainNewsPreview?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR", "news"]
+  ] as const)("rejects an Ankara UBYS source whose endpoint contract is not exact", async (sourceUrl, contentType) => {
+    const requestHop = vi.fn();
+    setSafeOutboundRequestDependenciesForTesting({ resolveHostname: async () => [publicAddress], requestHop });
+
+    await expect(fetchSourceSnapshot(sourceUrl, "auto", 1_000, undefined, {}, contentType))
+      .rejects.toThrow("ANKARA_CMS_SOURCE_INVALID");
+    expect(requestHop).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cross-owner UBYS redirect before issuing the redirected request", async () => {
+    const sourceUrl = "https://ubys.ankara.edu.tr/api/CMS/GetMainNews?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR";
+    const ankaraAuthority: SourceAuthorityContext = {
+      ...authority,
+      ownerAcademicEntityId: "ankara-universitesi",
+      ownerUniversityId: "ankara-universitesi",
+      resolvedOwnerAcademicEntityId: "ankara-universitesi",
+      resolvedOwnerUniversityId: "ankara-universitesi",
+      scopeId: "ankara-universitesi",
+      authorityDomains: ["ankara.edu.tr"]
+    };
+    const requestHop = vi.fn(async (
+      _url: string,
+      pinnedAddress: ResolvedOutboundAddress
+    ): Promise<SafeOutboundHopResponse> => ({
+      status: 302,
+      headers: { location: "https://attacker.example/api/CMS/GetMainNews" },
+      body: Buffer.alloc(0),
+      remoteAddress: pinnedAddress.address
+    }));
+    setSafeOutboundRequestDependenciesForTesting({ resolveHostname: async () => [publicAddress], requestHop });
+
+    await expect(fetchSourceSnapshot(
+      sourceUrl,
+      "auto",
+      1_000,
+      { authority: ankaraAuthority, resource: "news" },
+      {},
+      "news"
+    )).rejects.toMatchObject({
+      name: "SourceAuthorityError",
+      decision: { reasonCode: "redirect_domain_mismatch" }
+    });
+    expect(requestHop).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["text/html", JSON.stringify({ items: [] }), "ANKARA_CMS_CONTENT_TYPE_INVALID"],
+    ["application/json", JSON.stringify({
+      items: [{
+        baslik: "Güvenli görünen haber",
+        aciklama: "Açıklama",
+        icerik: "<p>İçerik</p>",
+        url: "https://attacker.example/stolen",
+        publishDate: "2026-09-13T10:15:00Z"
+      }]
+    }), "ANKARA_CMS_RESPONSE_INVALID"]
+  ])("rejects an invalid Ankara UBYS response before publishing items", async (responseContentType, body, errorCode) => {
+    const requestHop = vi.fn(async (
+      _url: string,
+      pinnedAddress: ResolvedOutboundAddress
+    ): Promise<SafeOutboundHopResponse> => ({
+      status: 200,
+      headers: { "content-type": responseContentType },
+      body: Buffer.from(body),
+      remoteAddress: pinnedAddress.address
+    }));
+    setSafeOutboundRequestDependenciesForTesting({ resolveHostname: async () => [publicAddress], requestHop });
+
+    await expect(fetchSourceSnapshot(
+      "https://ubys.ankara.edu.tr/api/CMS/GetMainNews?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR",
+      "auto",
+      1_000,
+      undefined,
+      {},
+      "news"
+    )).rejects.toThrow(errorCode);
+  });
+
   it("hydrates only a bounded number of generic detail pages with bounded concurrency and response size", async () => {
     let activeDetails = 0;
     let maximumActiveDetails = 0;

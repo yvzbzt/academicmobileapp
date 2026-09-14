@@ -1109,12 +1109,18 @@
       "universityId": "fatih-sultan-mehmet-vakif-universitesi-istanbul",
       "status": "verified",
       "authorityDomains": [
+        "fatihsultan.edu.tr",
         "fsm.edu.tr"
       ],
       "authorityUrls": [
+        "https://www.fatihsultan.edu.tr/",
         "https://www.fsm.edu.tr/"
       ],
       "evidence": [
+        {
+          "type": "CURATED_CATALOG_BINDING",
+          "url": "https://www.fatihsultan.edu.tr/"
+        },
         {
           "type": "YOK_HOMEPAGE",
           "url": "https://www.fsm.edu.tr/"
@@ -2056,12 +2062,18 @@
       "universityId": "izmir-katip-celebi-universitesi",
       "status": "verified",
       "authorityDomains": [
-        "ikc.edu.tr"
+        "ikc.edu.tr",
+        "ikcu.edu.tr"
       ],
       "authorityUrls": [
+        "https://ikcu.edu.tr/",
         "https://www.ikc.edu.tr/"
       ],
       "evidence": [
+        {
+          "type": "CURATED_CATALOG_BINDING",
+          "url": "https://ikcu.edu.tr/"
+        },
         {
           "type": "YOK_HOMEPAGE",
           "url": "https://www.ikc.edu.tr/"
@@ -2950,12 +2962,18 @@
       "universityId": "sabanci-universitesi-istanbul",
       "status": "verified",
       "authorityDomains": [
-        "sabanciuniv.edu"
+        "sabanciuniv.edu",
+        "sabanciuniv.edu.tr"
       ],
       "authorityUrls": [
+        "https://sabanciuniv.edu.tr/",
         "https://www.sabanciuniv.edu/"
       ],
       "evidence": [
+        {
+          "type": "CURATED_CATALOG_BINDING",
+          "url": "https://sabanciuniv.edu.tr/"
+        },
         {
           "type": "YOK_HOMEPAGE",
           "url": "https://www.sabanciuniv.edu/"

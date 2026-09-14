@@ -394,13 +394,12 @@ describe("announcement discovery and ingestion", () => {
     expect(JSON.stringify(gtuSources[0])).toBe(before);
   });
 
-  it("keeps every independently approved source upgrade in the static registries", async () => {
+  it("keeps approved listing sources and rejects detail-only announcement URLs", async () => {
     const universities = await listVerifiedUniversitySources();
     const academicUnits = await listVerifiedAcademicUnitSources();
     const universitySource = (id: string) => universities.find((source) => source.universityId === id);
 
-    expect(universitySource("gebze-teknik-universitesi")?.announcementUrl)
-      .toBe("https://www.gtu.edu.tr/icerik/9/30904/display.aspx");
+    expect(universitySource("gebze-teknik-universitesi")?.announcementUrl).toBeUndefined();
     expect(universitySource("ihsan-dogramaci-bilkent-universitesi-ankara")?.announcementUrl)
       .toBe("https://bilkentnews.bilkent.edu.tr/");
     expect(universitySource("istanbul-beykent-universitesi")?.announcementUrl)
@@ -1273,6 +1272,37 @@ describe("announcement discovery and ingestion", () => {
     })]);
   });
 
+  it("accepts Ankara University's current Avada announcement rows without admitting sidebar links", () => {
+    const items = parseAnkaraUniversityAnnouncementHtml(`
+      <body class="mobile-menu-design-modern avada-has-main-nav-search-icon">
+        <main id="content">
+        <article class="fusion-post-medium-alternate post-101 post type-post status-publish category-duyurular category-gecmis-duyurular">
+          <h2 class="blog-shortcode-post-title entry-title">
+            <a href="/2026/09/14/yatay-gecis-basvuru-duyurusu/">Yatay Geçiş Başvuru Duyurusu</a>
+          </h2>
+          <a href="/author/editor/">Site Editörü</a>
+          <span class="updated">2026-09-14T13:49:50+03:00</span>
+        </article>
+        <article class="fusion-post-medium-alternate post-102 post type-post status-publish category-duyurular">
+          <h2 class="blog-shortcode-post-title entry-title">
+            <a href="/2026/09/08/dikey-gecis-kayit-duyurusu/">Dikey Geçiş Kesin Kayıt Duyurusu</a>
+          </h2>
+          <span class="updated">2026-09-08T15:46:40+03:00</span>
+        </article>
+        <aside class="widget-area">
+          <a href="/iletisim/">Personel İletişim</a>
+        </aside>
+        </main>
+      </body>
+    `);
+
+    expect(items.map((item) => item.title)).toEqual([
+      "Yatay Geçiş Başvuru Duyurusu",
+      "Dikey Geçiş Kesin Kayıt Duyurusu"
+    ]);
+    expect(items.some((item) => item.link.endsWith("/iletisim"))).toBe(false);
+  });
+
   it("rejects adapter layouts where one plausible row is the only surviving signal", () => {
     expect(() => parseYokAnnouncementHtml(`
       <main>
@@ -1287,6 +1317,16 @@ describe("announcement discovery and ingestion", () => {
           <h2 class="entry-title"><a href="/duyuru/one">Tek geçerli görünen duyuru</a></h2>
         </article>
       </div>
+    `)).toThrow("SOURCE_LAYOUT_INVALID:ANKARA");
+    expect(() => parseAnkaraUniversityAnnouncementHtml(`
+      <main id="content">
+        <article class="post type-post status-publish category-haberler">
+          <h2 class="entry-title"><a href="/haber/one">Birinci haber</a></h2>
+        </article>
+        <article class="post type-post status-publish category-haberler">
+          <h2 class="entry-title"><a href="/haber/two">Ikinci haber</a></h2>
+        </article>
+      </main>
     `)).toThrow("SOURCE_LAYOUT_INVALID:ANKARA");
   });
 
