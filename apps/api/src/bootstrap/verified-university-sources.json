@@ -633,7 +633,7 @@
           "itemSelector": "main li.list-group-item:has(.col-10 a[href*='/etkinlikler/'])",
           "titleSelector": ".col-10 a[href]",
           "linkSelector": ".col-10 a[href]",
-          "dateSelector": ".col-2"
+          "eventDateSelector": ".col-2"
         }
       }
     }
@@ -2435,7 +2435,7 @@
           "itemSelector": "article.media:has(h4 a[href*='/event/'])",
           "titleSelector": "h4 a[href]",
           "linkSelector": "h4 a[href]",
-          "dateSelector": "li:has(i.fa-calendar)"
+          "eventDateSelector": "li:has(i.fa-calendar)"
         }
       }
     }

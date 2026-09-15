@@ -449,9 +449,10 @@ describe("shared device source runtime", () => {
     expect(nku[0]).toMatchObject({ link: "https://bhi.nku.edu.tr/haberler/faculty-orientation/s/69889" });
     expect(bayburt[0]).toMatchObject({ publishedDate: "2026-09-13" });
     expect(ktun).toHaveLength(2);
-    expect(bandirma[0]).toMatchObject({
+    expect(bandirma[0]).toEqual({
+      title: "Student meeting",
       link: "https://www.bandirma.edu.tr/tr/www/Etkinlik/Liste/student-meeting-1775?k=-1",
-      publishedDate: "2026-08-29",
+      keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-08-29" }],
     });
   });
 
@@ -465,16 +466,17 @@ describe("shared device source runtime", () => {
       finalUrl: "https://www.bandirma.edu.tr/tr/www/Etkinlik/Liste?k=-1",
       contentType: "text/html",
       text: `
-        <div class="etkinlik"><div class="tarih">29 Agustos 2026</div><a class="etkinlikLink"
+        <div class="etkinlik"><div class="tarih">22 Ekim 2026</div><a class="etkinlikLink"
           data-id="1775" data-birimseo="www" data-lang="tr" data-slug="student-meeting"
           href="#seciliEtkinlikDetay">Student meeting</a></div>
       `,
     }));
 
     expect(snapshot.profile).toBe("bandirma_event");
-    expect(snapshot.items[0]).toMatchObject({
+    expect(snapshot.items[0]).toEqual({
+      title: "Student meeting",
       link: "https://www.bandirma.edu.tr/tr/www/Etkinlik/Liste/student-meeting-1775?k=-1",
-      publishedDate: "2026-08-29",
+      keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-10-22" }],
     });
   });
 

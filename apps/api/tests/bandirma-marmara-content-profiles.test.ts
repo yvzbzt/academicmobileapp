@@ -25,7 +25,9 @@ describe("Bandırma and Marmara source profiles", () => {
     expect(source.eventUrl).toBe("https://bandirma.edu.tr/tr/www/Etkinlik/Liste?k=-1");
     const items = await parse(source.universityId, "event", `<div class="etkinlik"><div class="tarih"><span>29</span> <span>Ağustos</span> <span>2026</span></div><h3><a class="etkinlikLink" data-id="1775" data-birimseo="www" data-lang="tr" data-slug="Engelsiz-Dalis" href="#seciliEtkinlikDetay">Engelsiz Dalış</a></h3><a href="https://facebook.com/share">Paylaş</a></div>`);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ title: "Engelsiz Dalış", publishedDate: "2026-08-29", link: "https://bandirma.edu.tr/tr/www/Etkinlik/Liste/Engelsiz-Dalis-1775?k=-1" });
+    expect(items[0]).toMatchObject({ title: "Engelsiz Dalış", keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-08-29" }], link: "https://bandirma.edu.tr/tr/www/Etkinlik/Liste/Engelsiz-Dalis-1775?k=-1" });
+    expect(items[0]?.publishedDate).toBeUndefined();
+    expect(items[0]?.publishedAt).toBeUndefined();
   });
 
   it.each(["announcement", "news"] as const)("reads Marmara %s standalone headings and keeps faculty subdomain links", async (contentType) => {
@@ -35,9 +37,11 @@ describe("Bandırma and Marmara source profiles", () => {
     expect(items[0]).toMatchObject({ title: "DGS Kayıt İşlemleri", publishedDate: "2026-09-10", link: new URL(href, "https://www.marmara.edu.tr").toString() });
   });
 
-  it("reads Marmara event cards without the shared news sidebar", async () => {
+  it("keeps future Marmara event dates without inventing a publication date or reading the shared news sidebar", async () => {
     const items = await parse("marmara-universitesi-istanbul", "event", `<article class="media"><h4><a href="/event/karadeniz-kongresi">Mavi Karadeniz Kongresi</a></h4><ul><li><i class="fa fa-calendar"></i>22.10.2026</li></ul></article><article class="media"><h4><a href="/news/yan-haber">Yan haber</a></h4><ul><li><i class="fa fa-calendar"></i>15.09.2026</li></ul></article>`);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ title: "Mavi Karadeniz Kongresi", publishedDate: "2026-10-22" });
+    expect(items[0]).toMatchObject({ title: "Mavi Karadeniz Kongresi", keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-10-22" }] });
+    expect(items[0]?.publishedDate).toBeUndefined();
+    expect(items[0]?.publishedAt).toBeUndefined();
   });
 });

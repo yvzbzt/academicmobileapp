@@ -553,11 +553,11 @@ function parseBandirmaEvent(input: string, recipe: DeviceSourceRuntimeRecipe): D
     const trusted = resolveTrustedUrl(target.toString(), recipe);
     const title = normalizeText(link.text());
     if (!trusted || !title) return;
-    const publishedDate = readDateOnly(link.closest(".etkinlik").find(".tarih").text());
+    const startDate = readDateOnly(link.closest(".etkinlik").find(".tarih").text());
     items.push({
       title,
       link: trusted,
-      ...(publishedDate ? { publicationKind: "date", publishedDate } : {}),
+      ...(startDate ? { keyDates: [{ label: "Etkinlik tarihi", startDate }] } : {}),
     });
   });
   if (items.length === 0) throw runtimeError("SOURCE_LAYOUT_INVALID:BANDIRMA_EVENT");

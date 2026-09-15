@@ -53,9 +53,10 @@ describe("Bartın official archive profiles", () => {
     const source = sources.find((candidate) => candidate.universityId === "bartin-universitesi")!;
     const sourceUrl = source[`${contentType}Url`]!;
     const profile = source.parserProfiles![contentType]!;
+    const listedDate = contentType === "event" ? "19/11/2026" : "11/09/2026";
     const items = parseDeviceSourceRuntimeDocument(`<main>
       <li class="list-group-item"><a href="/arsiv/2026/9/${route}-arsiv.html">2026/9 13</a></li>
-      <li class="list-group-item"><div class="row col-12"><div class="col-2">11/09/2026</div>
+      <li class="list-group-item"><div class="row col-12"><div class="col-2">${listedDate}</div>
       <div class="col-10"><a href="/${route}/yeni-akademik-yil.html">Yeni Akademik Yıl Bilgilendirmesi</a></div></div></li>
       <li class="list-group-item"><div class="row col-12"><div class="col-2">11/09/2026</div>
       <div class="col-10"><a href="https://untrusted.invalid/${route}/foreign.html">Kurum Dışı İçerik</a></div></div></li>
@@ -65,7 +66,14 @@ describe("Bartın official archive profiles", () => {
       checkedAt: "2026-09-15T12:00:00.000Z",
     });
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ title: "Yeni Akademik Yıl Bilgilendirmesi", publishedDate: "2026-09-11",
+    expect(items[0]).toMatchObject({ title: "Yeni Akademik Yıl Bilgilendirmesi",
       link: `https://www.bartin.edu.tr/${route}/yeni-akademik-yil.html` });
+    if (contentType === "event") {
+      expect(items[0]?.keyDates).toEqual([{ label: "Etkinlik tarihi", startDate: "2026-11-19" }]);
+      expect(items[0]?.publishedDate).toBeUndefined();
+      expect(items[0]?.publishedAt).toBeUndefined();
+    } else {
+      expect(items[0]?.publishedDate).toBe("2026-09-11");
+    }
   });
 });
