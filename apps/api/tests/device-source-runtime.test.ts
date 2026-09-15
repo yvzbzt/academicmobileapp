@@ -61,6 +61,7 @@ describe("shared device source runtime", () => {
         <span class="date">1 ${month} 2026, Monday</span>
       </article>
     `).join(""), recipe({
+      checkedAt: "2026-12-14T12:00:00.000Z",
       contentType: "news",
       parser: "html",
       parserConfig: {
@@ -225,7 +226,7 @@ describe("shared device source runtime", () => {
   it("reads adjacent Turkish date spans and abbreviated months without inventing dates", () => {
     const items = parseDeviceSourceRuntimeDocument(`<article><a href="/event/1">Yeni öğrenci etkinliği</a><time><span>24</span><span>Eyl</span><span>2026</span></time></article>
       <article><a href="/event/2">Aralık etkinliği</a><time>02 Ara. 2026</time></article>
-      <article><a href="/event/3">Tarihsiz etkinlik</a><time>31Şub2026</time></article>`, recipe({ contentType: "event", parser: "html", parserConfig: { itemSelector: "article", titleSelector: "a", linkSelector: "a", dateSelector: "time" } }));
+      <article><a href="/event/3">Tarihsiz etkinlik</a><time>31Şub2026</time></article>`, recipe({ checkedAt: "2026-12-14T12:00:00.000Z", contentType: "event", parser: "html", parserConfig: { itemSelector: "article", titleSelector: "a", linkSelector: "a", dateSelector: "time" } }));
     expect(items.map(item => item.publishedDate)).toEqual(["2026-09-24", "2026-12-02", undefined]);
   });
 
@@ -233,7 +234,7 @@ describe("shared device source runtime", () => {
     const dates = ["Eylül15 2026", "Eylül 15,2026", "Eyl. 15 2026", "September 15, 2026", "Şubat31 2026", "Eylül32 2026", "Unknown15 2026"];
     const items = parseDeviceSourceRuntimeDocument(dates.map((date, index) =>
       `<article><a href="/news/${index}">Research update ${index}</a><time>${date}</time></article>`
-    ).join(""), recipe({ contentType: "news", parser: "html", parserConfig: { itemSelector: "article", linkSelector: "a", dateSelector: "time" } }));
+    ).join(""), recipe({ checkedAt: "2026-09-15T12:00:00.000Z", contentType: "news", parser: "html", parserConfig: { itemSelector: "article", linkSelector: "a", dateSelector: "time" } }));
     expect(items.map((item) => item.publishedDate)).toEqual([
       "2026-09-15", "2026-09-15", "2026-09-15", "2026-09-15", undefined, undefined, undefined,
     ]);
@@ -290,6 +291,36 @@ describe("shared device source runtime", () => {
     expect(events.map((item) => item.title)).toEqual(["2020 alumni current meeting"]);
   });
 
+  it("omits future publication metadata without losing articles and uses the Istanbul day for date-only values", () => {
+    const dates = ["2026-09-16", "2026-09-15", "2026-09-14", "2026-09-14T21:30:00.001Z", "2026-09-14T21:30:00.000Z", "2026-09-15T00:15:00+03:00", "31 Şubat 2026"];
+    const items = parseDeviceSourceRuntimeDocument(JSON.stringify({ items: dates.map((date, index) => ({
+      title: `Research announcement ${index}`, url: `/notice/${index}`, publishedAt: date, summary: "Congress dates remain in the source summary.",
+    })) }), recipe({ checkedAt: "2026-09-14T21:30:00.000Z" }));
+    expect(items).toHaveLength(dates.length);
+    expect(items.map((item) => item.publishedDate ?? item.publishedAt)).toEqual([
+      undefined, "2026-09-15", "2026-09-14", undefined, "2026-09-14T21:30:00.000Z", "2026-09-14T21:15:00.000Z", undefined,
+    ]);
+    for (const index of [0, 3, 6]) {
+      expect(items[index]?.publicationKind).toBeUndefined();
+      expect(items[index]?.keyDates).toBeUndefined();
+      expect(items[index]?.summary).toBe("Congress dates remain in the source summary.");
+    }
+    const rss = parseDeviceSourceRuntimeDocument('<rss><channel><item><title>Upcoming congress notice</title><link>https://example.edu.tr/notice/congress</link><pubDate>Thu, 15 Oct 2026 09:42:00 +0300</pubDate></item></channel></rss>', recipe({ parser: "rss" }));
+    expect(rss).toEqual([{ title: "Upcoming congress notice", link: "https://example.edu.tr/notice/congress" }]);
+  });
+
+  it("preserves explicit future event dates while discarding future publication metadata", () => {
+    const items = parseDeviceSourceRuntimeDocument('<article><a href="/event/congress">Upcoming congress</a><time class="publication">15 October 2026</time><time class="event">15 October 2026</time><p>The congress runs 15–18 October 2026.</p></article>', recipe({
+      contentType: "event", parser: "html", parserConfig: { itemSelector: "article", linkSelector: "a", dateSelector: ".publication", eventDateSelector: ".event", contentSelector: "p" },
+    }));
+    expect(items).toHaveLength(1);
+    expect(items[0]?.keyDates).toEqual([{ label: "Etkinlik tarihi", startDate: "2026-10-15" }]);
+    expect(items[0]?.publicationKind).toBeUndefined();
+    expect(items[0]?.publishedDate).toBeUndefined();
+    expect(items[0]?.publishedAt).toBeUndefined();
+    expect(items[0]?.summary).toBe("The congress runs 15–18 October 2026.");
+  });
+
   it("executes ATU's bounded two-hop OData plan and applies validators only to content", async () => {
     const requests: DeviceSourceRuntimeRequest[] = [];
     const transport = vi.fn(async (request: DeviceSourceRuntimeRequest) => {
@@ -339,7 +370,8 @@ describe("shared device source runtime", () => {
     }));
 
     expect((await run("2026-09-14T12:00:00.000Z")).items[0]?.publishedAt).toBeUndefined();
-    expect((await run("2028-09-14T12:00:00.000Z")).items[0]?.publishedAt).toBe("2030-01-01T00:00:00.000Z");
+    expect((await run("2028-09-14T12:00:00.000Z")).items[0]?.publishedAt).toBeUndefined();
+    expect((await run("2030-01-01T00:00:00.000Z")).items[0]?.publishedAt).toBe("2030-01-01T00:00:00.000Z");
   });
 
   it("parses the Ankara CMS contract including event dates", () => {

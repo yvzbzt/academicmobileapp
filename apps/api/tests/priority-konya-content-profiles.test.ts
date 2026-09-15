@@ -57,15 +57,28 @@ describe("curated Konya university content profiles", () => {
   it.each(["announcement", "event"] as const)("reads Necmettin Erbakan %s cards without share/navigation links", async (contentType) => {
     const container = contentType === "announcement" ? "col-md-11" : "col-md-8";
     const path = contentType === "announcement" ? "duyuru" : "etkinlik";
-    const items = await parse("necmettin-erbakan-universitesi-konya", contentType, `<a href="/tr/${path}lar">SEÇİMİ TEMİZLE</a><div class="${container}"><div class="tarih">24 Eylül 2026 | <span>09:00</span></div><div class="baslik"><a href="https://erbakan.edu.tr/tr/${path}/egitim-sempozyumu-2136">Eğitim Sempozyumu</a></div><div class="spot">Sempozyum programı kaynakta yayımlandı.</div><a href="https://facebook.com/share">Paylaş</a></div>`);
+    const items = await parse("necmettin-erbakan-universitesi-konya", contentType, `<a href="/tr/${path}lar">SEÇİMİ TEMİZLE</a><div class="${container}"><div class="tarih">${contentType === "announcement" ? "14" : "24"} Eylül 2026 | <span>09:00</span></div><div class="baslik"><a href="https://erbakan.edu.tr/tr/${path}/egitim-sempozyumu-2136">Eğitim Sempozyumu</a></div><div class="spot">Sempozyum programı kaynakta yayımlandı.</div><a href="https://facebook.com/share">Paylaş</a></div>`);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ title: "Eğitim Sempozyumu", summary: "Sempozyum programı kaynakta yayımlandı." });
     if (contentType === "event") {
       expect(items[0]?.keyDates).toEqual([{ label: "Etkinlik tarihi", startDate: "2026-09-24" }]);
       expect(items[0]?.publishedDate).toBeUndefined();
     } else {
-      expect(items[0]?.publishedDate).toBe("2026-09-24");
+      expect(items[0]?.publishedDate).toBe("2026-09-14");
     }
+  });
+
+  it("does not label the NEÜ congress start badge as a future publication date", async () => {
+    const items = await parse("necmettin-erbakan-universitesi-konya", "announcement", `<div class="col-md-11">
+      <div class="tarih">15 Ekim 2026 | <span>09:42</span></div>
+      <div class="baslik"><a href="https://erbakan.edu.tr/tr/duyuru/karabuk-universitesi-uluslararasi-karabuk-saglik-bilimleri-kongre-duyurusu-28260">Karabük Üniversitesi Uluslararası Karabük Sağlık Bilimleri Kongre Duyurusu</a></div>
+      <div class="spot">15-18 Ekim 2026 tarihlerinde Uluslararası Karabük Sağlık Bilimleri Kongresi düzenlenecektir.</div></div>`);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.summary).toContain("15-18 Ekim 2026");
+    expect(items[0]?.publishedDate).toBeUndefined();
+    expect(items[0]?.publishedAt).toBeUndefined();
+    expect(items[0]?.publicationKind).toBeUndefined();
+    expect(items[0]?.keyDates).toBeUndefined();
   });
 
   it("reads Necmettin Erbakan full image alt headlines rather than the truncated display heading", async () => {

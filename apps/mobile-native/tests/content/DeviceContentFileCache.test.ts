@@ -97,7 +97,7 @@ describe("private device content file cache", () => {
     await expect(readDeviceContentCache("owner-1", { now })).resolves.toBeNull();
   });
 
-  it("invalidates populated v3 snapshots once without clearing the separate notification ledger", async () => {
+  it.each([3, 4])("invalidates populated v%s snapshots once without clearing the separate notification ledger", async (schemaVersion) => {
     const record = cacheRecord();
     await recordDeviceContentDiscovery({
       ownerId: record.ownerId, now,
@@ -109,12 +109,12 @@ describe("private device content file cache", () => {
     expect(ledgerBefore).not.toBeNull();
     await writeDeviceContentCache(record);
     const filename = [...files.keys()][0]!;
-    files.set(filename, JSON.stringify({ schemaVersion: 3, ...record }));
+    files.set(filename, JSON.stringify({ schemaVersion, ...record }));
     await expect(readDeviceContentCache(record.ownerId, { now })).resolves.toBeNull();
     expect(files.has(filename)).toBe(false);
     expect(await AsyncStorage.getItem(ledgerKey)).toBe(ledgerBefore);
     await writeDeviceContentCache(record);
-    expect(JSON.parse(files.get(filename)!).schemaVersion).toBe(4);
+    expect(JSON.parse(files.get(filename)!).schemaVersion).toBe(5);
     await expect(readDeviceContentCache(record.ownerId, { now })).resolves.toEqual(record);
     expect(await AsyncStorage.getItem(ledgerKey)).toBe(ledgerBefore);
   });
@@ -122,7 +122,7 @@ describe("private device content file cache", () => {
   it("migrates a current-schema owner cache only after a file write succeeds", async () => {
     const record = cacheRecord();
     const key = createDeviceContentCacheKey("owner-1");
-    await AsyncStorage.setItem(key, JSON.stringify({ schemaVersion: 4, ...record }));
+    await AsyncStorage.setItem(key, JSON.stringify({ schemaVersion: 5, ...record }));
     await expect(readDeviceContentCache("owner-1", { now })).resolves.toMatchObject({ items: record.items });
     jest.mocked(FileSystem.writeAsStringAsync).mockRejectedValueOnce(new Error("disk full"));
     await expect(writeDeviceContentCache(record)).rejects.toThrow("disk full");

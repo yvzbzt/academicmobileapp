@@ -557,7 +557,7 @@ describe("device content sync", () => {
     });
     const original = await readDeviceContentCache("owner-1", { storage, now: initialNow });
     storage.values.set(createDeviceContentCacheKey("owner-1"), JSON.stringify({
-      schemaVersion: 4, ...original, items: original!.items.slice(0, 100), snapshotIncomplete: true,
+      schemaVersion: 5, ...original, items: original!.items.slice(0, 100), snapshotIncomplete: true,
     }));
     failing = true;
     const unavailableRecipes = recipes.map((recipe) => recipe.id === failedSource.id && failure === "blocked"
@@ -640,7 +640,7 @@ describe("device content sync", () => {
     // An incomplete snapshot acknowledges every source revision but contains
     // only the first 100. Repair it even before its revalidation time.
     storage.values.set(createDeviceContentCacheKey("owner-1"), JSON.stringify({
-      schemaVersion: 4,
+      schemaVersion: 5,
       ...cached,
       items: cached!.items.slice(0, 100),
       snapshotIncomplete: true,

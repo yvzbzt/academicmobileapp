@@ -773,7 +773,18 @@ function filterFreshItems(
 ): DeviceSourceRuntimeItem[] {
   const checkedAt = strictReferenceDate(recipe.checkedAt);
   if (!checkedAt) throw runtimeError("SOURCE_RUNTIME_RECIPE_INVALID");
-  return items.filter((item) => isFreshItem(item, recipe.contentType, checkedAt));
+  const checkedDate = istanbulDate(checkedAt.toISOString());
+  return items.filter((item) => isFreshItem(item, recipe.contentType, checkedAt)).map((item) => {
+    if (
+      (item.publishedDate && item.publishedDate > checkedDate)
+      || (item.publishedAt && Date.parse(item.publishedAt) > checkedAt.getTime())
+    ) {
+      // CMS date badges can contain future event dates. Keep the content, not a false publication claim.
+      const { publicationKind: _kind, publishedDate: _date, publishedAt: _timestamp, ...undated } = item;
+      return undated;
+    }
+    return item;
+  });
 }
 
 function isFreshItem(

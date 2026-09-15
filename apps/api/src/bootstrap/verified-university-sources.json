@@ -1813,13 +1813,19 @@
     "universityName": "İSTANBUL ÜNİVERSİTESİ",
     "city": "İSTANBUL",
     "announcementUrl": null,
+    "newsUrl": "https://iletim.istanbul.edu.tr/index.php/category/universite/feed/",
     "calendarUrl": null,
     "summerSchoolUrl": null,
     "announcementStatus": "homepage_not_found",
     "calendarStatus": "source_not_found",
     "summerSchoolStatus": "failed",
-    "newsStatus": "homepage_not_found",
-    "eventStatus": "homepage_not_found"
+    "newsStatus": "source_found",
+    "eventStatus": "homepage_not_found",
+    "parserProfiles": {
+      "news": {
+        "parser": "rss"
+      }
+    }
   },
   {
     "universityId": "istanbul-universitesi-cerrahpasa",

@@ -23,7 +23,7 @@ export interface DeviceContentCacheStorage {
 }
 
 const DEVICE_CONTENT_CACHE_PREFIX = "native_device_content_v1";
-const DEVICE_CONTENT_CACHE_SCHEMA_VERSION = 4;
+const DEVICE_CONTENT_CACHE_SCHEMA_VERSION = 5;
 const DEFAULT_HARD_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const DIGEST_PATTERN = /^[a-f\d]{64}$/u;
 const SOURCE_REVISION_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/u;

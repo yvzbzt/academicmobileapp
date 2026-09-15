@@ -143,7 +143,7 @@ describe("device source parser", () => {
 
   it.each([
     ["14.09.2026", "2026-09-14"],
-    ["Yayın: 7/1/2027", "2027-01-07"],
+    ["Yayın: 7/1/2027", undefined],
     ["31 Şubat 2026", undefined],
   ])("normalizes common Turkish listing dates (%s)", (dateText, publishedDate) => {
     const records = parseDeviceSourceDocument(
