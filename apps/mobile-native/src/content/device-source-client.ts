@@ -66,7 +66,7 @@ export async function fetchDeviceContentSource(
     });
     let snapshot;
     try {
-      snapshot = await executeDeviceSourceRuntime(source, transport);
+      snapshot = await executeDeviceSourceRuntime({ ...source, checkedAt: now.toISOString() }, transport);
     } catch (error) {
       if (error instanceof DeviceSourceFetchError) throw error;
       const message = error instanceof Error ? error.message : "";

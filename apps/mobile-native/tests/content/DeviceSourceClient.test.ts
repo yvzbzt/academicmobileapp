@@ -223,6 +223,30 @@ describe("device source fetch boundary", () => {
     })]);
   });
 
+  it.each([
+    ["2026-09-14T11:30:00.000Z", "2026-09-14T11:30:00.000Z"],
+    ["2026-09-14T12:30:00.000Z", undefined],
+  ])("evaluates publication %s against device fetch time without changing the source trust check", async (publishedAt, expectedPublication) => {
+    const approvedSource = Object.freeze(source({ contentType: "news" }));
+    const fetchImpl = jest.fn(async () => response({
+      url: approvedSource.sourceUrl,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [{
+        title: "Recent university news",
+        url: "/news/recent",
+        publishedAt,
+      }] }),
+    }));
+
+    const collection = await fetchDeviceContentSource(approvedSource, { fetchImpl: fetchImpl as typeof fetch, now });
+
+    expect(collection.items).toHaveLength(1);
+    expect(collection.items[0]?.publishedAt).toBe(expectedPublication);
+    expect(collection.items[0]?.publicationKind).toBe(expectedPublication ? "timestamp" : undefined);
+    expect(collection.items[0]?.fetchedAt).toBe(now.toISOString());
+    expect(approvedSource.checkedAt).toBe("2026-09-14T11:00:00.000Z");
+  });
+
   it("accepts a redirect within the backend-approved university domain", async () => {
     const fetchImpl = jest.fn(async (input: RequestInfo | URL) => String(input) === "https://example.edu.tr/announcements"
       ? response({
