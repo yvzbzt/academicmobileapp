@@ -182,6 +182,46 @@ describe("shared device source runtime", () => {
       .toThrow("SOURCE_LAYOUT_INVALID:KTUN_EVENT");
   });
 
+  it("keeps current Istanbul event dates correct even when an old Android timezone database reports GMT+2", () => {
+    const DateTimeFormat = Intl.DateTimeFormat;
+    const staleTimezone = vi.spyOn(Intl, "DateTimeFormat").mockImplementation((locales, options) => (
+      new DateTimeFormat(locales, { ...options, timeZone: "Etc/GMT-2" })
+    ));
+    try {
+      const items = parseDeviceSourceRuntimeDocument(JSON.stringify([
+        { title: "Teknofest yarışmalarına sende katıl", start: "/Date(1768165200000)/", end: "/Date(1770843600000)/", url: "/Resimler/EtkinlikResim/teknofest.jpeg" },
+        { title: "Mavi Vatan", start: "/Date(1784754000000)/", end: "/Date(1787432400000)/", url: "/Resimler/EtkinlikResim/mavi-vatan.jpeg" },
+      ]), recipe({ sourceUrl: "https://www.ktun.edu.tr/tr/Universite/findAll", allowedOfficialDomain: "ktun.edu.tr", contentType: "event" }));
+      expect(items.map((item) => item.keyDates)).toEqual([
+        [{ label: "Etkinlik tarihi", startDate: "2026-01-12", endDate: "2026-02-12" }],
+        [{ label: "Etkinlik tarihi", startDate: "2026-07-23", endDate: "2026-08-23" }],
+      ]);
+      expect(staleTimezone).not.toHaveBeenCalled();
+    } finally {
+      staleTimezone.mockRestore();
+    }
+  });
+
+  it("retains historical Istanbul offsets before the 2016 local-midnight transition", () => {
+    const DateTimeFormat = Intl.DateTimeFormat;
+    const formatter = vi.spyOn(Intl, "DateTimeFormat").mockImplementation((locales, options) => (
+      new DateTimeFormat(locales, options)
+    ));
+    try {
+      const items = parseDeviceSourceRuntimeDocument(JSON.stringify([
+        { title: "Historical winter event", start: `/Date(${Date.parse("2016-01-11T21:00:00Z")})/`, end: `/Date(${Date.parse("2016-01-12T21:00:00Z")})/`, url: "/events/winter" },
+        { title: "Timezone transition event", start: `/Date(${Date.parse("2016-09-06T20:59:59.999Z")})/`, end: `/Date(${Date.parse("2016-09-06T21:00:00.000Z")})/`, url: "/events/transition" },
+      ]), recipe({ sourceUrl: "https://www.ktun.edu.tr/tr/Universite/findAll", allowedOfficialDomain: "ktun.edu.tr", contentType: "event", checkedAt: "2016-09-14T12:00:00.000Z" }));
+      expect(items.map((item) => item.keyDates)).toEqual([
+        [{ label: "Etkinlik tarihi", startDate: "2016-01-11", endDate: "2016-01-12" }],
+        [{ label: "Etkinlik tarihi", startDate: "2016-09-06", endDate: "2016-09-07" }],
+      ]);
+      expect(formatter).toHaveBeenCalledTimes(3);
+    } finally {
+      formatter.mockRestore();
+    }
+  });
+
   it("reads adjacent Turkish date spans and abbreviated months without inventing dates", () => {
     const items = parseDeviceSourceRuntimeDocument(`<article><a href="/event/1">Yeni öğrenci etkinliği</a><time><span>24</span><span>Eyl</span><span>2026</span></time></article>
       <article><a href="/event/2">Aralık etkinliği</a><time>02 Ara. 2026</time></article>

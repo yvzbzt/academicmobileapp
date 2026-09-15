@@ -192,13 +192,21 @@ async function readBoundedText(response: Response, maximumBytes: number): Promis
 }
 
 function requireSafeTarget(value: string, source: DeviceContentSource): string {
+  let target: URL;
+  try {
+    target = new URL(value);
+  } catch {
+    throw new DeviceSourceFetchError("redirect_rejected");
+  }
   const canonical = canonicalizeOfficialAcademicUrl(value);
   if (
     !canonical
-    || new URL(canonical).protocol !== "https:"
+    || target.protocol !== "https:"
+    || target.hostname.replace(/\.$/u, "") !== new URL(canonical).hostname
     || officialDomainForUrl(canonical) !== source.allowedOfficialDomain
   ) throw new DeviceSourceFetchError("redirect_rejected");
-  return canonical;
+  // Canonical identity strips slashes and rewrites queries; neither is safe for a network request.
+  return target.toString();
 }
 
 function canonicalRequestKey(value: string): string {

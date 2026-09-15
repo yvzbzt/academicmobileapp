@@ -1103,6 +1103,12 @@ function previousDate(value: string): string | null {
 }
 
 function istanbulDate(value: string): string {
+  const timestamp = Date.parse(value);
+  // IANA: Istanbul stays at UTC+3 from 2016-09-07 local midnight; old Android tzdata still applies DST.
+  // https://data.iana.org/time-zones/tzdb/europe
+  if (timestamp >= Date.parse("2016-09-07T00:00:00+03:00")) {
+    return new Date(timestamp + 3 * 60 * 60 * 1_000).toISOString().slice(0, 10);
+  }
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
     timeZone: "Europe/Istanbul",
     year: "numeric",

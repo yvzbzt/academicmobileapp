@@ -32,6 +32,7 @@ import {
   type DeviceContentCacheRecord,
 } from "../../src/content/device-content-cache";
 import { normalizeTrustedContentCollection } from "../../src/content/content-trust";
+import { createDeviceContentNotificationLedgerKey, recordDeviceContentDiscovery } from "../../src/content/device-content-notification-ledger";
 
 const now = new Date("2026-09-15T12:00:00.000Z");
 const files = (FileSystem as unknown as { __files: Map<string, string> }).__files;
@@ -96,10 +97,32 @@ describe("private device content file cache", () => {
     await expect(readDeviceContentCache("owner-1", { now })).resolves.toBeNull();
   });
 
-  it("migrates the old owner cache only after a file write succeeds", async () => {
+  it("invalidates populated v3 snapshots once without clearing the separate notification ledger", async () => {
+    const record = cacheRecord();
+    await recordDeviceContentDiscovery({
+      ownerId: record.ownerId, now,
+      sources: [{ id: "source-0", definitionVersion: "definition-1", validUntil: record.sourceValidUntil["source-0"]!, fetchAllowed: true }],
+      fetchedBySource: new Map([["source-0", record.items]]),
+    });
+    const ledgerKey = createDeviceContentNotificationLedgerKey(record.ownerId);
+    const ledgerBefore = await AsyncStorage.getItem(ledgerKey);
+    expect(ledgerBefore).not.toBeNull();
+    await writeDeviceContentCache(record);
+    const filename = [...files.keys()][0]!;
+    files.set(filename, JSON.stringify({ schemaVersion: 3, ...record }));
+    await expect(readDeviceContentCache(record.ownerId, { now })).resolves.toBeNull();
+    expect(files.has(filename)).toBe(false);
+    expect(await AsyncStorage.getItem(ledgerKey)).toBe(ledgerBefore);
+    await writeDeviceContentCache(record);
+    expect(JSON.parse(files.get(filename)!).schemaVersion).toBe(4);
+    await expect(readDeviceContentCache(record.ownerId, { now })).resolves.toEqual(record);
+    expect(await AsyncStorage.getItem(ledgerKey)).toBe(ledgerBefore);
+  });
+
+  it("migrates a current-schema owner cache only after a file write succeeds", async () => {
     const record = cacheRecord();
     const key = createDeviceContentCacheKey("owner-1");
-    await AsyncStorage.setItem(key, JSON.stringify({ schemaVersion: 3, ...record }));
+    await AsyncStorage.setItem(key, JSON.stringify({ schemaVersion: 4, ...record }));
     await expect(readDeviceContentCache("owner-1", { now })).resolves.toMatchObject({ items: record.items });
     jest.mocked(FileSystem.writeAsStringAsync).mockRejectedValueOnce(new Error("disk full"));
     await expect(writeDeviceContentCache(record)).rejects.toThrow("disk full");

@@ -632,7 +632,10 @@ async function requestResolvedHop(
 }
 
 async function resolveHostnameWithSystemDns(hostname: string): Promise<ResolvedOutboundAddress[]> {
-  const addresses = await dnsLookup(hostname, { all: true, verbatim: true });
+  const addresses = await dnsLookup(hostname, { all: true, verbatim: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error?.code !== "EAI_AGAIN") throw error;
+    return dnsLookup(hostname, { all: true, verbatim: true });
+  });
   return addresses.flatMap((candidate): ResolvedOutboundAddress[] => (
     candidate.family === 4 || candidate.family === 6
       ? [{ address: candidate.address, family: candidate.family }]

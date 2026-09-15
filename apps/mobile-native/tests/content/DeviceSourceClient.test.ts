@@ -251,6 +251,39 @@ describe("device source fetch boundary", () => {
     ]);
   });
 
+  it.each([
+    "https://example.edu.tr/announcements/",
+    "https://example.edu.tr/announcements/?z=1&a=first&a=second&utm_source=official",
+  ])("preserves the exact safe redirect target %s instead of rewriting its request identity", async (destination) => {
+    const fetchImpl = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === source().sourceUrl) return response({
+        url, status: 301, location: destination, contentType: "text/html", body: "",
+      });
+      if (url !== destination) throw new Error("REDIRECT_TARGET_WAS_REWRITTEN");
+      return response({ url, contentType: "text/html",
+        body: "<main><article><a href='/announcements/one'>Registration announcement</a></article></main>",
+      });
+    });
+
+    const collection = await fetchDeviceContentSource(source(), { fetchImpl: fetchImpl as typeof fetch, now });
+
+    expect(collection.items).toHaveLength(1);
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([source().sourceUrl, destination]);
+  });
+
+  it.each([
+    "https://example.edu.tr/announcements/",
+    "https://example.edu.tr/announcements?utm_source=hidden-redirect",
+  ])("rejects an automatically followed redirect even when %s has the same canonical identity", async (url) => {
+    const fetchImpl = jest.fn(async () => response({ url, contentType: "text/html",
+      body: "<main><article><a href='/announcements/one'>Registration announcement</a></article></main>",
+    }));
+    await expect(fetchDeviceContentSource(source(), { fetchImpl: fetchImpl as typeof fetch, now }))
+      .rejects.toMatchObject({ code: "redirect_rejected" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("executes the shared ATU OData multi-hop recipe on device", async () => {
     const requested: string[] = [];
     const fetchImpl = jest.fn(async (input: RequestInfo | URL) => {
@@ -283,6 +316,9 @@ describe("device source fetch boundary", () => {
   it.each([
     "https://evil.edu.tr/stolen",
     "http://127.0.0.1/internal",
+    "http://example.edu.tr/insecure",
+    "https://user:password@example.edu.tr/credentials",
+    "https://example.edu.tr:8443/unsupported-port",
   ])("rejects an unsafe redirect before issuing a request to %s", async (location) => {
     const fetchImpl = jest.fn(async (_input: RequestInfo | URL) => response({
       url: "https://example.edu.tr/announcements",
