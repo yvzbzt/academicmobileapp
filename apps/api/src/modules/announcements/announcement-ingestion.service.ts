@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { findVerifiedAcademicUnitSource, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource, type VerifiedContentSourceParserProfiles, type VerifiedRegistrySourceEvidence } from "../../bootstrap/verified-source-registry.js";
+import { findVerifiedAcademicUnitSource, findVerifiedSourceAuthority, findVerifiedUniversitySource, listVerifiedAcademicUnitSources, listVerifiedUniversitySources, type VerifiedAcademicUnitSource, type VerifiedContentSourceParserProfiles, type VerifiedRegistrySourceEvidence } from "../../bootstrap/verified-source-registry.js";
 import { resolveSourceAuthorityContext, type ResolvedSourceAuthorityContext } from "../../bootstrap/source-authority-context.js";
 import { assertUniversityTarget, type AdminUniversityAccess } from "../../common/authorization/admin-university-access.js";
 import { evaluateSourceAuthority, SourceAuthorityError, type SourceAuthorityContext } from "../../domain/source-authority-enforcement.js";
@@ -1454,21 +1454,33 @@ export class AnnouncementIngestionService {
       if (!approvalPending && source.itemCount === undefined) {
         trustedSnapshotItemCount = (await this.announcementRepository.listItemsForSource(source.id, 1_000)).length;
       }
-      const snapshot = await fetchSourceSnapshot(
-        source.sourceUrl,
-        source.parser,
-        readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
-        { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) },
-        !approvalPending && source.processingVersion === ANNOUNCEMENT_PROCESSING_VERSION
-          ? {
-              ...(source.etag ? { etag: source.etag } : {}),
-              ...(source.lastModified ? { lastModified: source.lastModified } : {}),
-              ...(source.contentHash ? { contentHash: source.contentHash } : {})
-            }
-          : {},
-        source.contentType,
-        source.parserConfig
-      );
+      // Approval validates the same recipe as preview and devices, without legacy detail hydration.
+      const snapshot = approvalPending
+        ? await fetchDeviceRuntimeSourceSnapshot(
+            source.sourceUrl,
+            source.parser,
+            readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
+            { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) },
+            {},
+            source.contentType,
+            checkedAt,
+            source.parserConfig
+          )
+        : await fetchSourceSnapshot(
+            source.sourceUrl,
+            source.parser,
+            readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
+            { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) },
+            source.processingVersion === ANNOUNCEMENT_PROCESSING_VERSION
+              ? {
+                  ...(source.etag ? { etag: source.etag } : {}),
+                  ...(source.lastModified ? { lastModified: source.lastModified } : {}),
+                  ...(source.contentHash ? { contentHash: source.contentHash } : {})
+                }
+              : {},
+            source.contentType,
+            source.parserConfig
+          );
       const publicationDecision = evaluateSourceAuthority(authority!.context, {
         boundary: "publication",
         resource: sourceAuthorityResource(source.contentType),
@@ -1867,10 +1879,24 @@ export class AnnouncementIngestionService {
     ownerFacultyId?: string;
   }> {
     const university = await this.catalogRepository.findUniversityById(input.universityId);
-    const universityHomepage = university
-      ? university.websiteUrl ?? knownOfficialUniversityUrls(university.id)[0] ?? knownOfficialUniversityUrls(university.slug)[0]
-      : undefined;
-    if (!university || university.status !== "active" || !universityHomepage) {
+    if (!university || university.status !== "active") {
+      throw new BadRequestException("Selected university has no verified active website.");
+    }
+    let universityHomepage = university.websiteUrl ?? knownOfficialUniversityUrls(university.id)[0] ?? knownOfficialUniversityUrls(university.slug)[0];
+    if (!universityHomepage) {
+      const authority = await findVerifiedSourceAuthority(university.id);
+      if (authority?.status === "verified") {
+        const { context } = await this.resolveAuthority(university, "university", university.id);
+        for (const url of authority.authorityUrls) {
+          const decision = evaluateSourceAuthority(context, { boundary: "registration", resource: "website", url });
+          if (decision.allowed && decision.canonicalUrl) {
+            universityHomepage = decision.canonicalUrl;
+            break;
+          }
+        }
+      }
+    }
+    if (!universityHomepage) {
       throw new BadRequestException("Selected university has no verified active website.");
     }
     if (input.scopeType === "university") {

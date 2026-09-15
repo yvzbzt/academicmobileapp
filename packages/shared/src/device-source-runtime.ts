@@ -1153,7 +1153,9 @@ function isListingNavigationUrl(candidate: string, sourceUrl: string): boolean {
 }
 
 function isErrorPageUrl(value: string): boolean {
-  return /(?:^|\/)(?:hata|error|errors|404|403)(?:\/|\.|$)/iu.test(new URL(value).pathname);
+  const path = new URL(value).pathname;
+  return /(?:^|\/)(?:hata|error|errors)(?:\/|\.|$)/iu.test(path)
+    || /^\/(?:404|403)(?:\/|\.|$)/u.test(path);
 }
 
 function isNavigationTitle(value: string): boolean {

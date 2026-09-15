@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { announcementSnapshotSchema, announcementSourceSchema } from "../src/database/mongoose-schemas.js";
 import { InMemoryAnnouncementRepository } from "../src/modules/announcements/in-memory-announcement.repository.js";
@@ -2286,6 +2287,33 @@ describe("standalone Mongo announcement snapshot activation", () => {
     expect(harness.snapshotDelete).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [undefined, undefined, true],
+    [undefined, null, true],
+    [undefined, {}, true],
+    [{}, undefined, true],
+    [{}, {}, true],
+    [undefined, { itemSelector: ".new-layout" }, false],
+    [{ itemSelector: ".old-layout" }, {}, false],
+    [{ itemSelector: ".old-layout" }, { itemSelector: ".old-layout" }, true],
+    [{ itemSelector: ".old-layout" }, { itemSelector: ".new-layout" }, false]
+  ] as const)("fences source checks with expected parserConfig %j and stored %j", async (expectedConfig, storedConfig, matches) => {
+    const source = { ...snapshotMongoSource(), ...(expectedConfig ? { parserConfig: expectedConfig } : {}) };
+    const harness = snapshotHarness(source, []);
+    if (storedConfig === undefined) delete harness.sourceState.parserConfig;
+    else harness.sourceState.parserConfig = storedConfig;
+
+    const checked = await harness.repository.recordSourceCheck(source.id, {
+      healthStatus: "healthy",
+      lastCheckedAt: new Date("2026-09-15T12:00:00.000Z"),
+      consecutiveFailures: 0,
+      itemCount: 1
+    }, source);
+
+    expect(checked !== null).toBe(matches);
+    expect(harness.sourceState.healthStatus).toBe(matches ? "healthy" : undefined);
+  });
+
   it("fences snapshot activation when the source definition changes after fetch", async () => {
     const source = snapshotMongoSource();
     const harness = snapshotHarness(source, [], { editDefinitionBeforeActivation: true });
@@ -2951,13 +2979,14 @@ function matchesMongoFilter(
     if (actual instanceof Date && expected instanceof Date) return actual.getTime() === expected.getTime();
     if (expected && typeof expected === "object" && !Array.isArray(expected)) {
       const operators = expected as Record<string, unknown>;
+      if (!Object.keys(operators).some((operator) => operator.startsWith("$"))) return isDeepStrictEqual(actual, expected);
       if ("$exists" in operators && (key in record) !== Boolean(operators.$exists)) return false;
       if ("$ne" in operators && actual === operators.$ne) return false;
       if ("$gt" in operators && !compareMongoTestValues(actual, operators.$gt, (left, right) => left > right)) return false;
       if ("$lt" in operators && !compareMongoTestValues(actual, operators.$lt, (left, right) => left < right)) return false;
       if ("$lte" in operators && !compareMongoTestValues(actual, operators.$lte, (left, right) => left <= right)) return false;
       if ("$in" in operators && !(operators.$in as unknown[]).some((value) =>
-        value === actual || (value === null && actual === undefined))) return false;
+        isDeepStrictEqual(value, actual) || (value === null && actual === undefined))) return false;
       return true;
     }
     return actual === expected;

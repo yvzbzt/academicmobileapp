@@ -2234,7 +2234,10 @@ function sourceDefinitionFenceFilter(expected: AnnouncementSourceDefinitionFence
   return {
     sourceUrl: expected.sourceUrl,
     parser: expected.parser,
-    parserConfig: expected.parserConfig ?? null,
+    // Mongoose minimizes stored {} on reads; all empty representations describe the same parser.
+    parserConfig: expected.parserConfig && Object.keys(expected.parserConfig).length > 0
+      ? expected.parserConfig
+      : { $in: [null, {}] },
     ...(expectedDefinitionVersion
       ? { sourceDefinitionVersion: expectedDefinitionVersion }
       : {

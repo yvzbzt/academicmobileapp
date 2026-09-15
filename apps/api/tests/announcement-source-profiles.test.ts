@@ -274,6 +274,77 @@ describe("university content source profiles", () => {
     });
   });
 
+  it.each([
+    {
+      universityId: "ege-universitesi-izmir",
+      websiteUrl: "https://www.ege.edu.tr/",
+      sourceUrl: "https://egeduyuru.ege.edu.tr/tum_duyurular.html",
+      contentType: "announcement" as const,
+      parser: "auto" as const,
+      parserConfig: {},
+      html: `<table><tr>${["Konu", "Türü", "Başlangıç Tarihi", "Düzenlenme Yeri", "Gönderen Birim", "Görüntüle"].map((label) => `<th class="thbaslik">${label}</th>`).join("")}</tr>
+        <tr><td class="tdbaslik">2026-2027 Ders Kaydı Duyurusu</td><td class="tdbaslik">Genel</td>
+        <td class="tdbaslik">15-09-2026</td><td class="tdbaslik">Ege Üniversitesi</td><td class="tdbaslik">Rektörlük</td>
+        <td class="tdbaslik"><button onclick="icerikGetir(19963)">Görüntüle</button></td></tr></table>`,
+      title: "2026-2027 Ders Kaydı Duyurusu",
+      link: "https://egeduyuru.ege.edu.tr/icerikgoster_5.php?id=19963",
+    },
+    {
+      universityId: "necmettin-erbakan-universitesi-konya",
+      websiteUrl: "https://erbakan.edu.tr/",
+      sourceUrl: "https://erbakan.edu.tr/tr/haberler",
+      contentType: "news" as const,
+      parser: "html" as const,
+      parserConfig: {
+        itemSelector: ".col-md-4.mb-4:has(> a[href*='/tr/haber/'])",
+        titleSelector: "img[alt]",
+        linkSelector: "a[href*='/tr/haber/']",
+        dateSelector: ".tarih",
+        contentSelector: ".spot",
+      },
+      html: `<div class="col-md-4 mb-4">
+        <a href="/tr/haber/teknoloji-maratonu-13142#haber_detay"><img alt="Üniversitemizde 3 Haftalık Teknoloji Maratonu Tamamlandı"></a>
+        <div class="tarih">13 Ağustos 2026 | Akademik</div><div class="baslik">Üniversitemizde 3 Haftalık Teknoloji Maratonu Tama...</div>
+        <div class="spot">Atölye çalışmalarımız tamamlandı.</div><a href="https://facebook.com/share">Paylaş</a></div>`,
+      title: "Üniversitemizde 3 Haftalık Teknoloji Maratonu Tamamlandı",
+      link: "https://erbakan.edu.tr/tr/haber/teknoloji-maratonu-13142",
+    },
+  ])("approves $universityId with the same mobile recipe that passed preview", async (fixture) => {
+    stubOutbound({ [fixture.sourceUrl]: fixture.html });
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(catalog({
+      ...university,
+      id: fixture.universityId,
+      slug: fixture.universityId,
+      websiteUrl: fixture.websiteUrl,
+    }), repository);
+    const saved = await service.saveUniversityContentSourceProfileForAdmin(
+      { kind: "global" }, fixture.universityId, fixture.contentType, {
+        sourceUrl: fixture.sourceUrl,
+        parser: fixture.parser,
+        parserConfig: fixture.parserConfig,
+        status: "inactive",
+      }
+    );
+    const sourceId = "source" in saved ? saved.source.id : "";
+    await expect(service.previewSourceByIdForAdmin({ kind: "global" }, sourceId)).resolves.toMatchObject({
+      status: "healthy",
+      acceptedItemCount: 1,
+      samples: [expect.objectContaining({ title: fixture.title, url: fixture.link })],
+    });
+
+    await expect(service.previewUniversityContentSourceProfileForAdmin(
+      { kind: "global" }, fixture.universityId, fixture.contentType,
+      { activateWhenHealthy: true }, "admin-1"
+    )).resolves.toMatchObject({ activationStatus: "active" });
+    expect(await repository.findSourceById(sourceId)).toMatchObject({
+      status: "active", trustStatus: "trusted", approvalPending: false, healthStatus: "healthy", itemCount: 1,
+    });
+    expect(await repository.listItemsForSource(sourceId)).toEqual([
+      expect.objectContaining({ title: fixture.title, link: fixture.link, contentType: fixture.contentType }),
+    ]);
+  });
+
   it("persists and tests an editable academic-calendar slot", async () => {
     stubOutbound({ "https://www.agu.edu.tr/akademik-takvim.pdf": "%PDF-1.7" }, "application/pdf");
     const repository = new InMemoryAnnouncementRepository();
@@ -384,10 +455,10 @@ describe("university content source profiles", () => {
   });
 });
 
-function catalog(): CatalogRepository {
+function catalog(universityRecord = university): CatalogRepository {
   return {
-    findUniversityById: async (id: string) => id === university.id ? university : null,
-    listUniversities: async () => [university],
+    findUniversityById: async (id: string) => id === universityRecord.id ? universityRecord : null,
+    listUniversities: async () => [universityRecord],
     listFaculties: async () => [],
     listDepartments: async () => []
   } as unknown as CatalogRepository;

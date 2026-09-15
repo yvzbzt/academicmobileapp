@@ -139,6 +139,21 @@ describe("shared device source runtime", () => {
     }))).toThrow("SOURCE_ERROR_PAGE");
   });
 
+  it.each(["/haber/404", "/detail/403", "/haber/404.html"])("accepts numeric content IDs at %s as item links and final URLs", (path) => {
+    const configured = recipe({ parser: "html", parserConfig: { itemSelector: "article", titleSelector: "a", linkSelector: "a" } });
+    expect(parseDeviceSourceRuntimeDocument(`<article><a href="${path}">Öğrenci kayıt duyurusu</a></article>`, configured))
+      .toEqual([expect.objectContaining({ link: `https://example.edu.tr${path}` })]);
+    expect(parseDeviceSourceRuntimeDocument('<article><a href="/duyuru/kayit">Öğrenci kayıt duyurusu</a></article>', configured, `https://example.edu.tr${path}`))
+      .toHaveLength(1);
+  });
+
+  it.each(["/404", "/403/", "/404.html", "/403.aspx", "/Hata/IndexWeb", "/haberler/Hata/IndexWeb", "/Error/Index", "/news/error.aspx"])("still rejects actual error routes at %s", (path) => {
+    const configured = recipe({ parser: "html", parserConfig: { itemSelector: "article", titleSelector: "a", linkSelector: "a" } });
+    const body = `<article><a href="${path}">Hata sayfasının yanıltıcı başlığı</a></article><article><a href="/duyuru/kayit">Öğrenci kayıt duyurusu</a></article>`;
+    expect(parseDeviceSourceRuntimeDocument(body, configured).map((item) => item.title)).toEqual(["Öğrenci kayıt duyurusu"]);
+    expect(() => parseDeviceSourceRuntimeDocument(body, configured, `https://example.edu.tr${path}`)).toThrow("SOURCE_ERROR_PAGE");
+  });
+
   it("lets configured KTUN announcement and event pages use their own selectors", () => {
     for (const contentType of ["announcement", "event"] as const) {
       const items = parseDeviceSourceRuntimeDocument('<article><a href="/tr/Universite/Detay/42">2026 yeni öğrenci buluşması</a></article>', recipe({
