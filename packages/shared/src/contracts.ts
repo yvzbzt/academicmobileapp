@@ -173,6 +173,7 @@ export interface MobileAcademicContentSourceParserConfigDto {
   titleSelector?: string;
   linkSelector?: string;
   dateSelector?: string;
+  eventDateSelector?: string;
   contentSelector?: string;
 }
 

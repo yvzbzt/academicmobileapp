@@ -469,7 +469,7 @@ describe("announcement discovery and ingestion", () => {
     expect(universitySource("burdur-mehmet-akif-ersoy-universitesi")?.parserProfiles)
       .toMatchObject({
         news: { parser: "html", parserConfig: { dateSelector: "div:has(> img[src='/calendar_gray.svg']) + div" } },
-        event: { parser: "html", parserConfig: { dateSelector: "div:has(> img[src='/calendar_blue.svg']) + div" } }
+        event: { parser: "html", parserConfig: { eventDateSelector: "div:has(> img[src='/calendar_blue.svg']) + div" } }
       });
     expect(academicUnits.find((source) => source.departmentId === "abdullah-gul-universitesi-kayseri__muhendislik-fakultesi__elektrik-elektronik-muhendisligi")?.newsUrl)
       .toBe("https://eee.agu.edu.tr/haberler");

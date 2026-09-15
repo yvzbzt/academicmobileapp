@@ -22,7 +22,7 @@ const makuEventConfig = {
   itemSelector: "main a[href^='/content/'][href*='/1/']",
   titleSelector: ".text-justify.text-slate-700.font-semibold",
   linkSelector: "a[href^='/content/']",
-  dateSelector: "div:has(> img[src='/calendar_blue.svg']) + div",
+  eventDateSelector: "div:has(> img[src='/calendar_blue.svg']) + div",
   contentSelector: "div:has(> img[src='/location_blue.svg']) + div"
 };
 const ksuAnnouncementConfig = {

@@ -69,6 +69,7 @@ export interface VerifiedContentSourceParserConfig {
   titleSelector?: string;
   linkSelector?: string;
   dateSelector?: string;
+  eventDateSelector?: string;
   contentSelector?: string;
 }
 
@@ -400,7 +401,7 @@ const contentSourceUrlFields = {
   news: "newsUrl",
   event: "eventUrl"
 } as const satisfies Record<VerifiedContentSourceType, string>;
-const parserConfigFields = ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "contentSelector"] as const;
+const parserConfigFields = ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "eventDateSelector", "contentSelector"] as const;
 
 function normalizeContentSourceParserProfiles(
   input: unknown,

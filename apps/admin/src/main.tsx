@@ -77,6 +77,7 @@ interface AnnouncementSourceRecord {
     titleSelector?: string;
     linkSelector?: string;
     dateSelector?: string;
+    eventDateSelector?: string;
     contentSelector?: string;
   };
   priority: number;
@@ -135,6 +136,7 @@ interface AnnouncementSourcePreview {
     url: string;
     publishedAt?: string;
     publishedDate?: string;
+    keyDates?: Array<{ label: string; startDate: string; endDate?: string }>;
     summary?: string;
     body?: ContentReviewBodyBlock[];
   }>;
@@ -1090,7 +1092,7 @@ function App() {
   }
 
   function sourceParserConfig(values: Record<string, string>) {
-    const keys = ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "contentSelector"];
+    const keys = ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "eventDateSelector", "contentSelector"];
     if (!keys.some((key) => key in values)) return undefined;
     return Object.fromEntries(
       keys
@@ -3149,7 +3151,8 @@ function SourceProfilePreview({ preview }: { preview: AnnouncementSourcePreview 
       {preview.samples.length > 0 && <div className="sourcePreviewItems">{preview.samples.map((sample) => (
         <article key={sample.url}>
           <a href={sample.url} target="_blank" rel="noreferrer"><strong>{sample.title}</strong></a>
-          <span>{sample.publishedAt || sample.publishedDate || "Tarih bulunamadı"}</span>
+          {(sample.publishedAt || sample.publishedDate || !sample.keyDates?.length) && <span>{sample.publishedAt || sample.publishedDate || "Tarih bulunamadı"}</span>}
+          {sample.keyDates?.map((date) => <span key={`${date.label}-${date.startDate}`}>{date.label}: {date.startDate}{date.endDate ? ` – ${date.endDate}` : ""}</span>)}
           {sample.summary && <p>{sample.summary}</p>}
           {(sample.body?.length ?? 0) > 0 && <p>{sample.body!.map((block) => block.text).join(" ")}</p>}
         </article>
@@ -3167,7 +3170,8 @@ function SourceParserConfigFields(props: {
     ["itemSelector", "Liste öğesi", "article, .news-item"],
     ["titleSelector", "Başlık", "h2, .title"],
     ["linkSelector", "İçerik bağlantısı", "a"],
-    ["dateSelector", "Tarih", "time, .date"],
+    ["dateSelector", "Yayın tarihi", "time, .date"],
+    ["eventDateSelector", "Etkinlik tarihi", ".event-date"],
     ["contentSelector", "Özet / gövde", ".summary, .content"]
   ];
   return (

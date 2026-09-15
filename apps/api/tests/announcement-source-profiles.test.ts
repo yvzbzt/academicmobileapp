@@ -166,6 +166,39 @@ describe("university content source profiles", () => {
     });
   });
 
+  it("persists and approves event-date selectors without treating the event start as publication", async () => {
+    const sourceUrl = "https://www.agu.edu.tr/etkinlikler";
+    stubOutbound({ [sourceUrl]: '<article><a href="/etkinlik/kongre">Uluslararası Eğitim Kongresi</a><span class="event-date">07 May 2027</span></article>' });
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(catalog(), repository);
+    const input = {
+      sourceUrl, parser: "html" as const, status: "inactive" as const,
+      parserConfig: { itemSelector: "article", linkSelector: "a", eventDateSelector: ".event-date" },
+    };
+    const dto = plainToInstance(UpdateUniversityContentSourceProfileDto, input);
+    expect(await validate(dto, { whitelist: true, forbidNonWhitelisted: true })).toEqual([]);
+    const saved = await service.saveUniversityContentSourceProfileForAdmin({ kind: "global" }, university.id, "event", dto);
+    const sourceId = "source" in saved ? saved.source.id : "";
+    expect((await repository.findSourceById(sourceId))?.parserConfig).toEqual(input.parserConfig);
+    const preview = await service.previewSourceByIdForAdmin({ kind: "global" }, sourceId);
+    expect(preview).toMatchObject({ status: "healthy", acceptedItemCount: 1 });
+    expect(preview.samples[0]?.keyDates).toEqual([{ label: "Etkinlik tarihi", startDate: "2027-05-07" }]);
+    expect(preview.samples[0]?.publishedDate).toBeUndefined();
+    await expect(service.previewUniversityContentSourceProfileForAdmin(
+      { kind: "global" }, university.id, "event", { activateWhenHealthy: true }, "admin-1"
+    )).resolves.toMatchObject({ activationStatus: "active" });
+    const items = await repository.listItemsForSource(sourceId);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.keyDates).toEqual([{ label: "Etkinlik tarihi", startDate: "2027-05-07" }]);
+    expect(items[0]?.publishedDate).toBeUndefined();
+    expect(items[0]?.publishedAt).toBeUndefined();
+    const original = await repository.findSourceById(sourceId);
+    await service.saveUniversityContentSourceProfileForAdmin({ kind: "global" }, university.id, "event", {
+      ...input, parserConfig: { ...input.parserConfig, eventDateSelector: ".corrected-date" },
+    });
+    expect((await repository.findSourceById(sourceId))?.sourceDefinitionVersion).not.toBe(original?.sourceDefinitionVersion);
+  });
+
   it("uses configured selectors to extract the exact title, URL, date and body", () => {
     const items = parseConfiguredAnnouncementHtml(`
       <nav><a href="/menu">Menü</a></nav>

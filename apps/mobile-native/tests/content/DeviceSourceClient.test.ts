@@ -81,6 +81,23 @@ describe("device content source manifest", () => {
 });
 
 describe("device source parser", () => {
+  it("preserves an approved event-date selector through the manifest without inventing publication metadata", () => {
+    const approved = readDeviceContentSourceManifest(manifest({ sources: [source({
+      sourceUrl: "https://example.edu.tr/events", contentType: "event", parser: "html",
+      parserConfig: { itemSelector: "article", linkSelector: "a", eventDateSelector: ".event-date" },
+    })] }))!.sources[0]!;
+    expect(approved.parserConfig?.eventDateSelector).toBe(".event-date");
+    const records = parseDeviceSourceDocument('<article><a href="/event/congress">Future research congress</a><span class="event-date">07 May 2027</span></article>', approved, now);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.keyDates).toEqual([{ label: "Etkinlik tarihi", startDate: "2027-05-07" }]);
+    expect(records[0]?.publicationKind).toBeUndefined();
+    expect(records[0]?.publishedAt).toBeUndefined();
+    expect(records[0]?.publishedDate).toBeUndefined();
+    expect(readDeviceContentSourceManifest(manifest({ sources: [{ ...approved,
+      parserConfig: { ...approved.parserConfig, eventDateSelector: "x".repeat(301) },
+    }] }))).toBeNull();
+  });
+
   it("uses configured selectors, permits the approved official domain and rejects other universities", () => {
     const records = parseDeviceSourceDocument(`
       <main>

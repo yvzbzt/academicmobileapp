@@ -85,6 +85,7 @@ export interface AnnouncementSourcePreviewResult {
     url: string;
     publishedAt?: string;
     publishedDate?: string;
+    keyDates?: AnnouncementItem["keyDates"];
     summary?: string;
     body?: AnnouncementItem["body"];
   }>;
@@ -852,6 +853,7 @@ export class AnnouncementIngestionService {
           url: item.link,
           ...(item.publishedAt ? { publishedAt: item.publishedAt.toISOString() } : {}),
           ...(item.publishedDate ? { publishedDate: item.publishedDate } : {}),
+          ...(item.keyDates?.length ? { keyDates: item.keyDates } : {}),
           ...(item.summary ? { summary: item.summary } : {}),
           ...(item.body?.length ? { body: item.body } : {})
         })),

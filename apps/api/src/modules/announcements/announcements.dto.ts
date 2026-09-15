@@ -131,6 +131,12 @@ export class AnnouncementSourceParserConfigDto {
   @IsString()
   @MinLength(1)
   @MaxLength(300)
+  eventDateSelector?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
   contentSelector?: string;
 }
 

@@ -189,6 +189,30 @@ describe("shared device source runtime", () => {
     expect(items.map(item => item.publishedDate)).toEqual(["2026-09-24", "2026-12-02", undefined]);
   });
 
+  it("reads month-first Turkish dates without accepting impossible calendar dates", () => {
+    const dates = ["Eylül15 2026", "Eylül 15,2026", "Eyl. 15 2026", "September 15, 2026", "Şubat31 2026", "Eylül32 2026", "Unknown15 2026"];
+    const items = parseDeviceSourceRuntimeDocument(dates.map((date, index) =>
+      `<article><a href="/news/${index}">Research update ${index}</a><time>${date}</time></article>`
+    ).join(""), recipe({ contentType: "news", parser: "html", parserConfig: { itemSelector: "article", linkSelector: "a", dateSelector: "time" } }));
+    expect(items.map((item) => item.publishedDate)).toEqual([
+      "2026-09-15", "2026-09-15", "2026-09-15", "2026-09-15", undefined, undefined, undefined,
+    ]);
+  });
+
+  it("keeps explicit event dates separate from publication dates and ignores invalid event dates", () => {
+    const html = `<article><a href="/event/1">Future research congress</a><time class="publication">20 January 2026</time><time class="event" datetime="2027-05-07">7 May</time></article>
+      <article><a href="/event/2">Undated research congress</a><time class="event">Şubat31 2026</time></article>`;
+    const config = { itemSelector: "article", linkSelector: "a", eventDateSelector: ".event" };
+    const items = parseDeviceSourceRuntimeDocument(html, recipe({ contentType: "event", parser: "html", parserConfig: config }));
+    expect(items[0]).toEqual({ title: "Future research congress", link: "https://example.edu.tr/event/1", keyDates: [{ label: "Etkinlik tarihi", startDate: "2027-05-07" }] });
+    expect(items[1]?.keyDates).toBeUndefined();
+    expect(items.every((item) => !item.publishedDate && !item.publishedAt && !item.publicationKind)).toBe(true);
+    const both = parseDeviceSourceRuntimeDocument(html, recipe({ contentType: "event", parser: "html", parserConfig: { ...config, dateSelector: ".publication" } }));
+    expect(both[0]).toMatchObject({ publishedDate: "2026-01-20", keyDates: items[0]!.keyDates });
+    const news = parseDeviceSourceRuntimeDocument(html.replaceAll("/event/", "/news/"), recipe({ contentType: "news", parser: "html", parserConfig: config }));
+    expect(news.every((item) => !item.keyDates)).toBe(true);
+  });
+
   it("filters freshness from the server checkedAt for dates, timestamps, academic years, events and undated items", () => {
     const generic = parseDeviceSourceRuntimeDocument(JSON.stringify({ data: [
       { title: "Old date notice", href: "/old-date", publishedDate: "2024-09-13" },

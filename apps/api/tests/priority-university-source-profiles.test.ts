@@ -47,7 +47,8 @@ describe("priority university source profiles", () => {
       <ul class="feature-desc"><li><b>Yer : </b>Kahramanmaraş Fen Lisesi</li>
       <li><b>Tarih : </b>17.09.2026</li><li>Saat : 14:00</li></ul></div></div></a></main>`);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ title: "Gazze'de Öğrenci Olmak", publishedDate: "2026-09-17" });
+    expect(items[0]).toMatchObject({ title: "Gazze'de Öğrenci Olmak", keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-09-17" }] });
+    expect(items[0]?.publishedDate).toBeUndefined();
   });
 
   it.each(["announcement", "news"] as const)("extracts Yalova %s dates without the Son pagination link", (type) => {
@@ -69,7 +70,8 @@ describe("priority university source profiles", () => {
       <div class="gdlr-core-event-item-info-wrap">10:00 Kongre Online</div></div>
       <a href="/tr/Etkinlik?page=30">Son</a>`);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ title: "ICMOIS 2026 Kongresi", publishedDate: "2026-09-24" });
+    expect(items[0]).toMatchObject({ title: "ICMOIS 2026 Kongresi", keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-09-24" }] });
+    expect(items[0]?.publishedDate).toBeUndefined();
   });
 });
 

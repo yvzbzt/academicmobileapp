@@ -480,7 +480,7 @@ test("208-university source workbench exposes editable URL, parser, structure an
   await announcementCard.getByLabel("Duyuru liste öğesi seçici").fill(".notice-row");
   await announcementCard.getByLabel("Duyuru başlık seçici").fill("h3");
   await announcementCard.getByLabel("Duyuru içerik bağlantısı seçici").fill("a.details");
-  await announcementCard.getByLabel("Duyuru tarih seçici").fill(".published-at");
+  await announcementCard.getByLabel("Duyuru yayın tarihi seçici").fill(".published-at");
   await announcementCard.getByLabel("Duyuru özet / gövde seçici").fill(".description");
   await announcementCard.getByRole("button", { name: "Kaydet", exact: true }).click();
   expect(mock.writes.find((write) => write.method === "PUT" && write.path === "/admin/announcements/source-profiles/qa-university/announcement")?.body)

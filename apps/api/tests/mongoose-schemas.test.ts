@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { academicCalendarSchema, academicEventSchema, academicUnitSuggestionSchema, announcementItemSchema, announcementSnapshotSchema, announcementSourceSchema, departmentSchema, deviceTokenSchema, extractedEventSchema, facultySchema, followedAcademicScopeSchema, notificationDeliverySchema, notificationJobSchema, notificationPreferenceSchema, passwordRecoveryTokenSchema, pdfSourceSchema, recentAuthenticationProofSchema, refreshTokenFamilySchema, refreshTokenSchema, universitySchema, userSchema } from "../src/database/mongoose-schemas.js";
 
 describe("mongoose schemas", () => {
+  it("persists bounded optional event-date selectors alongside publication-date selectors", () => {
+    expect(announcementSourceSchema.path("parserConfig.eventDateSelector").options).toMatchObject({
+      type: String, required: false, trim: true, maxlength: 300,
+    });
+    expect(announcementSourceSchema.path("parserConfig.dateSelector")).toBeDefined();
+  });
+
   it("defaults credential generations to zero and rejects negative values", () => {
     for (const schema of [userSchema, refreshTokenSchema, refreshTokenFamilySchema, passwordRecoveryTokenSchema]) {
       expect(schema.path("credentialGeneration").options).toEqual(expect.objectContaining({

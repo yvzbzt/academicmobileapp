@@ -23,6 +23,7 @@ export interface AnnouncementSourceParserConfig {
   linkSelector?: string;
   /** CSS selector, relative to the item, containing the publication date. */
   dateSelector?: string;
+  eventDateSelector?: string;
   /** CSS selector, relative to the item, containing summary/body text. */
   contentSelector?: string;
 }
@@ -339,7 +340,7 @@ export function sameAnnouncementSourceParserConfig(
   left: AnnouncementSourceParserConfig | undefined,
   right: AnnouncementSourceParserConfig | undefined
 ): boolean {
-  const keys = ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "contentSelector"] as const;
+  const keys = ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "eventDateSelector", "contentSelector"] as const;
   return keys.every((key) => (left?.[key]?.trim() || undefined) === (right?.[key]?.trim() || undefined));
 }
 

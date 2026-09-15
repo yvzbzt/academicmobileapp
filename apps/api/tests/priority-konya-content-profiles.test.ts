@@ -38,7 +38,7 @@ describe("curated Konya university content profiles", () => {
     const card = (href: string, title: string) => `<a class="events-component__card" href="${href}"><span>YAKLAŞAN ETKİNLİK</span><h3 class="events-component__name">${title}</h3><div class="events-component__date-text">25.09.2026</div></a>`;
     const items = await parse("selcuk-universitesi-konya", "event", `<main>${card("https://etkinlik.selcuk.edu.tr/etkinlik/detay?id=1662", "Genomik Çalıştayı")}${card("https://etkinlik.selcuk.edu.tr/etkinlik/detay?id=1676", "Bağımlılıkla Mücadele")}${card("https://outside.example/event", "Kurum dışı")}</main>`);
     expect(items.map((item) => item.title)).toEqual(["Genomik Çalıştayı", "Bağımlılıkla Mücadele"]);
-    expect(items.every((item) => item.publishedDate === "2026-09-25")).toBe(true);
+    expect(items.every((item) => item.publishedDate === undefined && item.keyDates?.[0]?.startDate === "2026-09-25")).toBe(true);
   });
 
   it("reads KTUN announcement table dates and never exposes the duplicate Detay button", async () => {
@@ -59,7 +59,13 @@ describe("curated Konya university content profiles", () => {
     const path = contentType === "announcement" ? "duyuru" : "etkinlik";
     const items = await parse("necmettin-erbakan-universitesi-konya", contentType, `<a href="/tr/${path}lar">SEÇİMİ TEMİZLE</a><div class="${container}"><div class="tarih">24 Eylül 2026 | <span>09:00</span></div><div class="baslik"><a href="https://erbakan.edu.tr/tr/${path}/egitim-sempozyumu-2136">Eğitim Sempozyumu</a></div><div class="spot">Sempozyum programı kaynakta yayımlandı.</div><a href="https://facebook.com/share">Paylaş</a></div>`);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ title: "Eğitim Sempozyumu", publishedDate: "2026-09-24", summary: "Sempozyum programı kaynakta yayımlandı." });
+    expect(items[0]).toMatchObject({ title: "Eğitim Sempozyumu", summary: "Sempozyum programı kaynakta yayımlandı." });
+    if (contentType === "event") {
+      expect(items[0]?.keyDates).toEqual([{ label: "Etkinlik tarihi", startDate: "2026-09-24" }]);
+      expect(items[0]?.publishedDate).toBeUndefined();
+    } else {
+      expect(items[0]?.publishedDate).toBe("2026-09-24");
+    }
   });
 
   it("reads Necmettin Erbakan full image alt headlines rather than the truncated display heading", async () => {

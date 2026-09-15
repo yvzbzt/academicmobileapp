@@ -37,6 +37,7 @@ interface CuratedContentSourceTarget {
     titleSelector?: string;
     linkSelector?: string;
     dateSelector?: string;
+    eventDateSelector?: string;
     contentSelector?: string;
   };
 }

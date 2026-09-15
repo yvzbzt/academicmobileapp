@@ -13,6 +13,7 @@ export interface DeviceSourceParserConfig {
   titleSelector?: string;
   linkSelector?: string;
   dateSelector?: string;
+  eventDateSelector?: string;
   contentSelector?: string;
 }
 
@@ -186,7 +187,7 @@ function readParserConfig(value: unknown): DeviceSourceParserConfig | false | un
   if (value === undefined) return undefined;
   if (!isRecord(value)) return false;
   const result: DeviceSourceParserConfig = {};
-  for (const key of ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "contentSelector"] as const) {
+  for (const key of ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "eventDateSelector", "contentSelector"] as const) {
     if (value[key] === undefined) continue;
     const selector = asString(value[key]).trim();
     if (!selector || selector.length > MAX_SELECTOR_LENGTH) return false;

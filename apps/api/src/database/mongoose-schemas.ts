@@ -319,6 +319,7 @@ export const announcementSourceSchema = new Schema(
         titleSelector: { type: String, required: false, trim: true, maxlength: 300 },
         linkSelector: { type: String, required: false, trim: true, maxlength: 300 },
         dateSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        eventDateSelector: { type: String, required: false, trim: true, maxlength: 300 },
         contentSelector: { type: String, required: false, trim: true, maxlength: 300 }
       },
       required: false,
@@ -463,6 +464,7 @@ export const universityCalendarSourceProfileSchema = new Schema(
         titleSelector: { type: String, required: false, trim: true, maxlength: 300 },
         linkSelector: { type: String, required: false, trim: true, maxlength: 300 },
         dateSelector: { type: String, required: false, trim: true, maxlength: 300 },
+        eventDateSelector: { type: String, required: false, trim: true, maxlength: 300 },
         contentSelector: { type: String, required: false, trim: true, maxlength: 300 }
       },
       required: false,

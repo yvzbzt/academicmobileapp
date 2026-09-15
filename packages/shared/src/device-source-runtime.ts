@@ -12,6 +12,7 @@ export interface DeviceSourceRuntimeParserConfig {
   titleSelector?: string;
   linkSelector?: string;
   dateSelector?: string;
+  eventDateSelector?: string;
   contentSelector?: string;
 }
 
@@ -584,6 +585,12 @@ function parseConfiguredHtml(
       const dateNode = config.dateSelector
         ? row.is(config.dateSelector) ? row : row.find(config.dateSelector).first()
         : undefined;
+      const eventDateNode = config.eventDateSelector && recipe.contentType === "event"
+        ? row.is(config.eventDateSelector) ? row : row.find(config.eventDateSelector).first()
+        : undefined;
+      const eventDate = eventDateNode
+        ? readDateOnly(eventDateNode.attr("datetime") || eventDateNode.text())
+        : null;
       const contentNode = config.contentSelector
         ? row.is(config.contentSelector) ? row : row.find(config.contentSelector).first()
         : undefined;
@@ -593,7 +600,10 @@ function parseConfiguredHtml(
         date: dateNode?.attr("datetime") || dateNode?.text(),
         summary: contentNode?.text(),
       });
-      if (record) items.push(record);
+      if (record) {
+        if (eventDate) record.keyDates = [{ label: "Etkinlik tarihi", startDate: eventDate }];
+        items.push(record);
+      }
     });
     return dedupe(items);
   } catch (error) {
@@ -1060,7 +1070,10 @@ function readDateOnly(value: string): string | null {
   if (numeric) return validDateParts(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
   const named = fold(normalized).match(/(?:^|\D)(\d{1,2})\s*([a-z]+)\.?\s*(\d{4})(?:\D|$)/u);
   const month = named && NAMED_MONTHS[named[2]!];
-  return named && month ? validDateParts(Number(named[3]), month, Number(named[1])) : null;
+  if (named && month) return validDateParts(Number(named[3]), month, Number(named[1]));
+  const monthFirst = fold(normalized).match(/(?:^|[^a-z])([a-z]+)\.?\s*(\d{1,2})(?:\s*,\s*|\s+)(\d{4})(?:\D|$)/u);
+  const leadingMonth = monthFirst && NAMED_MONTHS[monthFirst[1]!];
+  return monthFirst && leadingMonth ? validDateParts(Number(monthFirst[3]), leadingMonth, Number(monthFirst[2])) : null;
 }
 
 function validDateParts(year: number, month: number, day: number): string | null {
