@@ -226,7 +226,7 @@ describe("reconcileCuratedContentSourceProfiles", () => {
     expect(preview).not.toHaveBeenCalled();
   });
 
-  it("requires exactly three fully configured curated profiles", async () => {
+  it("requires at least one fully configured curated profile", async () => {
     registry.listVerifiedUniversitySources.mockResolvedValue(
       buildRegistrySources().map(({ parserProfiles: _parserProfiles, ...source }) => source)
     );
@@ -234,6 +234,18 @@ describe("reconcileCuratedContentSourceProfiles", () => {
 
     await expect(reconcileCuratedContentSourceProfiles(service))
       .rejects.toThrow("CURATED_CONTENT_SOURCE_PROFILE_COUNT_MISMATCH:0");
+  });
+
+  it("reconciles a selected university and type without staging unrelated sources, including RSS recipes", async () => {
+    const sources = buildRegistrySources();
+    sources[0] = { universityId: "ankara-universitesi", universityName: "ANKARA", announcementUrl: "https://oidb.ankara.edu.tr/category/duyurular/feed/", parserProfiles: { announcement: { parser: "rss" } } };
+    registry.listVerifiedUniversitySources.mockResolvedValue(sources);
+    const { service, save } = healthyService();
+    const results = await reconcileCuratedContentSourceProfiles(service, { universityId: "ankara-universitesi", contentType: "announcement" });
+    expect(results).toHaveLength(1);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0]?.[1]).toBe("ankara-universitesi");
+    expect(save.mock.calls[0]?.[3]).toEqual({ sourceUrl: sources[0].announcementUrl, parser: "rss", parserConfig: {}, status: "inactive" });
   });
 
   it("continues fail-closed staging after one target save fails", async () => {

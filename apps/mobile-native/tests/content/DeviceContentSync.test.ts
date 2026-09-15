@@ -7,6 +7,7 @@ import {
 import { syncDeviceContent } from "../../src/content/device-content-sync";
 import type { DeviceContentSource } from "../../src/content/device-source-manifest";
 import type { TrustedMobileContentRecord } from "../../src/content/content-trust";
+import { buildContentFeed, filterContentFeed } from "../../src/announcements/feed-model";
 
 const initialNow = new Date("2026-09-14T12:00:00.000Z");
 
@@ -265,7 +266,7 @@ describe("device content sync", () => {
     expect(result.collection.items).toEqual([expect.objectContaining({ title: "Initial item", freshness: "stale" })]);
   });
 
-  it("keeps a leased cache stale while fetching is blocked, then restores it without a redundant request", async () => {
+  it("keeps a leased cache stale while fetching is blocked, then refetches only after approval recovers", async () => {
     const storage = createMemoryStorage();
     const fetchImpl = jest.fn(async () => response("Known good item"));
     await syncDeviceContent({
@@ -308,7 +309,7 @@ describe("device content sync", () => {
       fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
     });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(recoveredResult.failedSourceIds).toEqual([]);
     expect(recoveredResult.collection.items).toEqual([
       expect.objectContaining({ title: "Known good item", freshness: "fresh" }),
@@ -536,7 +537,67 @@ describe("device content sync", () => {
     expect(result.collection.items.map((item) => item.title)).toEqual(["Changed newest item", "Retained item"]);
   });
 
-  it("bounds the display cache without rediscovering an evicted record as new", async () => {
+  it.each(["blocked", "network_failure"])("retries only the unavailable source after truncated-cache migration (%s)", async (failure) => {
+    const storage = createMemoryStorage();
+    const recipes = ["a", "b", "c"].map((id) => source({ id: `source-${id}`, sourceUrl: `https://example.edu.tr/${id}` }));
+    const failedSource = recipes[2]!;
+    let failing = false;
+    const fetchImpl = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (failing && url === failedSource.sourceUrl) throw new Error("network unavailable");
+      const prefix = url.slice(-1);
+      return listedResponse(Array.from({ length: 60 }, (_, index) => [
+        `Source ${prefix} announcement ${index}`, `/${prefix}/item-${index}`,
+      ] as const), url);
+    });
+    await syncDeviceContent({
+      ownerId: "owner-1", storage, now: initialNow,
+      loadManifest: async () => manifest(recipes[0], { sources: recipes }),
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+    const original = await readDeviceContentCache("owner-1", { storage, now: initialNow });
+    storage.values.set(createDeviceContentCacheKey("owner-1"), JSON.stringify({
+      schemaVersion: 3, ...original, items: original!.items.slice(0, 100), snapshotIncomplete: true,
+    }));
+    failing = true;
+    const unavailableRecipes = recipes.map((recipe) => recipe.id === failedSource.id && failure === "blocked"
+      ? { ...recipe, fetchAllowed: false }
+      : recipe);
+    fetchImpl.mockClear();
+    const migrated = await syncDeviceContent({
+      ownerId: "owner-1", storage, now: new Date("2026-09-14T12:10:00.000Z"),
+      loadManifest: async () => manifest(recipes[0], { sources: unavailableRecipes }),
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(failure === "blocked" ? 2 : 3);
+    expect(migrated.failedSourceIds).toEqual([failedSource.id]);
+    expect(migrated.collection.state).toBe("partial");
+    expect((await readDeviceContentCache("owner-1", { storage, now: initialNow }))?.snapshotIncomplete).toBe(false);
+
+    fetchImpl.mockClear();
+    const retried = await syncDeviceContent({
+      ownerId: "owner-1", storage, now: new Date("2026-09-14T12:20:00.000Z"),
+      loadManifest: async () => manifest(recipes[0], { sources: unavailableRecipes }),
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(failure === "blocked" ? 0 : 1);
+    expect(retried.collection.items.filter((item) => item.sourceId !== failedSource.id)).toHaveLength(120);
+
+    failing = false;
+    fetchImpl.mockClear();
+    const recovered = await syncDeviceContent({
+      ownerId: "owner-1", storage, now: new Date("2026-09-14T12:40:00.000Z"),
+      loadManifest: async () => manifest(recipes[0], { sources: recipes }),
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(failedSource.sourceUrl, expect.anything());
+    expect(recovered.collection.items).toHaveLength(180);
+    expect(recovered.failedSourceIds).toEqual([]);
+    expect(recovered.newItems).toEqual([]);
+  });
+
+  it("retains every bounded source snapshot and repairs an old globally truncated cache", async () => {
     const storage = createMemoryStorage();
     const firstSource = source({ id: "source-a", sourceUrl: "https://example.edu.tr/a" });
     const secondSource = source({ id: "source-b", sourceUrl: "https://example.edu.tr/b" });
@@ -559,8 +620,8 @@ describe("device content sync", () => {
     const cached = await readDeviceContentCache("owner-1", { storage, now: initialNow });
 
     expect(result.collection.items).toHaveLength(120);
-    expect(cached?.items).toHaveLength(100);
-    expect(cached?.snapshotIncomplete).toBe(true);
+    expect(cached?.items).toHaveLength(120);
+    expect(cached?.snapshotIncomplete).toBe(false);
 
     const loadCachedManifest = jest.fn(async () => manifest(firstSource, { sources: [firstSource, secondSource] }));
     const cacheHit = await syncDeviceContent({
@@ -569,16 +630,36 @@ describe("device content sync", () => {
       storage,
       now: new Date("2026-09-14T12:10:00.000Z"),
     });
-    expect(cacheHit.collection.items).toHaveLength(100);
-    expect(cacheHit.collection.hasMore).toBe(true);
+    expect(cacheHit.collection.items).toHaveLength(120);
+    expect(cacheHit.collection.hasMore).toBe(false);
     expect(loadCachedManifest).not.toHaveBeenCalled();
+    expect(filterContentFeed(buildContentFeed({ academic: cacheHit.collection.items, yok: [], summerSchool: [] }), {
+      contentType: "all", source: "all", query: "Source B item 59",
+    })).toHaveLength(1);
 
-    const cachedIds = new Set(cached?.items.map((item) => item.id));
-    const evicted = result.collection.items.find((item) => !cachedIds.has(item.id));
-    expect(evicted).toBeDefined();
-    const changedSource = evicted?.sourceId === firstSource.id ? firstSource : secondSource;
-    const unchangedSource = changedSource.id === firstSource.id ? secondSource : firstSource;
-    const changedPrefix = changedSource.id === firstSource.id ? "a" : "b";
+    // The installed version wrote only the first 100 while acknowledging every
+    // source revision. Repair that snapshot even before its revalidation time.
+    storage.values.set(createDeviceContentCacheKey("owner-1"), JSON.stringify({
+      schemaVersion: 3,
+      ...cached,
+      items: cached!.items.slice(0, 100),
+      snapshotIncomplete: true,
+    }));
+    const repaired = await syncDeviceContent({
+      ownerId: "owner-1",
+      loadManifest: loadCachedManifest,
+      storage,
+      now: new Date("2026-09-14T12:10:00.000Z"),
+      fetchOptions: { fetchImpl: fetchImpl as typeof fetch },
+    });
+    expect(repaired.collection.items).toHaveLength(120);
+    expect(repaired.collection.hasMore).toBe(false);
+    expect(repaired.newItems).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+
+    const changedSource = secondSource;
+    const unchangedSource = firstSource;
+    const changedPrefix = "b";
     const revisedSource = { ...changedSource, contentRevision: "c".repeat(64) };
 
     const revised = await syncDeviceContent({
@@ -604,8 +685,9 @@ describe("device content sync", () => {
       },
     });
 
-    expect(revised.collection.items).toContainEqual(expect.objectContaining({ id: evicted?.id }));
-    expect(revised.collection.hasMore).toBe(true);
+    expect(revised.collection.items).toHaveLength(120);
+    expect(revised.collection.items.filter((item) => item.sourceId === firstSource.id)).toHaveLength(60);
+    expect(revised.collection.hasMore).toBe(false);
     expect(revised.newItems).toEqual([
       expect.objectContaining({ title: `Source ${changedPrefix.toUpperCase()} genuinely new` }),
     ]);

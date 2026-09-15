@@ -372,7 +372,7 @@
     "universityId": "ankara-universitesi",
     "universityName": "ANKARA ÜNİVERSİTESİ",
     "city": "ANKARA",
-    "announcementUrl": "https://oidb.ankara.edu.tr/gecmis-duyurular/",
+    "announcementUrl": "https://oidb.ankara.edu.tr/category/duyurular/feed/",
     "calendarUrl": "https://oidb.ankara.edu.tr/wp-content/uploads/sites/91/2026/06/2026-2027_Yili_Akademik_Takvimi-SON.pdf",
     "summerSchoolUrl": "https://www.ankara.edu.tr/yazokulu",
     "announcementStatus": "source_found",
@@ -381,7 +381,12 @@
     "newsStatus": "source_found",
     "newsUrl": "https://ubys.ankara.edu.tr/api/CMS/GetMainNews?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR",
     "eventStatus": "source_found",
-    "eventUrl": "https://ubys.ankara.edu.tr/api/CMS/GetMainevents?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR"
+    "eventUrl": "https://ubys.ankara.edu.tr/api/CMS/GetMainevents?Page=0&PageSize=20&websiteId=1&languageCode=tr-TR",
+    "parserProfiles": {
+      "announcement": { "parser": "rss" },
+      "news": { "parser": "auto" },
+      "event": { "parser": "auto" }
+    }
   },
   {
     "universityId": "ankara-yildirim-beyazit-universitesi",
@@ -562,9 +567,32 @@
     "calendarStatus": "source_found",
     "summerSchoolStatus": "source_found",
     "newsStatus": "source_found",
-    "newsUrl": "https://bandirma.edu.tr/haberler/",
+    "newsUrl": "https://bandirma.edu.tr/tr/www/Haber/Liste?k=-1",
     "eventStatus": "source_found",
-    "eventUrl": "https://bandirma.edu.tr/etkinlikler/"
+    "eventUrl": "https://bandirma.edu.tr/tr/www/Etkinlik/Liste?k=-1",
+    "parserProfiles": {
+      "announcement": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".blogList .well:has(.media-heading a[href*='/tr/www/d/'])",
+          "titleSelector": ".media-heading a[href]",
+          "linkSelector": ".media-heading a[href]",
+          "dateSelector": ".itemFooter li:has(i.fa-calendar)",
+          "contentSelector": ".media-body > p"
+        }
+      },
+      "news": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".blogList .well:has(.media-heading a[href*='/tr/www/h/'])",
+          "titleSelector": ".media-heading a[href]",
+          "linkSelector": ".media-heading a[href]",
+          "dateSelector": ".itemFooter li:has(i.fa-calendar)",
+          "contentSelector": ".media-body > p"
+        }
+      },
+      "event": { "parser": "auto" }
+    }
   },
   {
     "universityId": "bartin-universitesi",
@@ -576,8 +604,39 @@
     "announcementStatus": "source_found",
     "calendarStatus": "source_found",
     "summerSchoolStatus": "source_found",
-    "newsStatus": "source_not_found",
-    "eventStatus": "source_not_found"
+    "newsStatus": "source_found",
+    "newsUrl": "https://www.bartin.edu.tr/arsiv/haber-arsiv.html",
+    "eventStatus": "source_found",
+    "eventUrl": "https://www.bartin.edu.tr/arsiv/etkinlik-arsiv.html",
+    "parserProfiles": {
+      "announcement": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "main li.list-group-item:has(.col-10 a[href*='/duyurular/'])",
+          "titleSelector": ".col-10 a[href]",
+          "linkSelector": ".col-10 a[href]",
+          "dateSelector": ".col-2"
+        }
+      },
+      "news": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "main li.list-group-item:has(.col-10 a[href*='/haberler/'])",
+          "titleSelector": ".col-10 a[href]",
+          "linkSelector": ".col-10 a[href]",
+          "dateSelector": ".col-2"
+        }
+      },
+      "event": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "main li.list-group-item:has(.col-10 a[href*='/etkinlikler/'])",
+          "titleSelector": ".col-10 a[href]",
+          "linkSelector": ".col-10 a[href]",
+          "dateSelector": ".col-2"
+        }
+      }
+    }
   },
   {
     "universityId": "baskent-universitesi-ankara",
@@ -936,14 +995,21 @@
     "universityId": "ege-universitesi-izmir",
     "universityName": "EGE ÜNİVERSİTESİ (İZMİR)",
     "city": "İZMİR",
-    "announcementUrl": "https://egeduyuru.ege.edu.tr/",
+    "announcementUrl": "https://egeduyuru.ege.edu.tr/tum_duyurular.html",
     "calendarUrl": "https://ege.edu.tr/files/ege.edu.tr/icerik/cesmeturizmfak-2026-2027-akademiktakvim.pdf",
     "summerSchoolUrl": "https://oidb.ege.edu.tr/files/oidb/icerik/2025yazokulu.pdf",
     "announcementStatus": "source_found",
     "calendarStatus": "source_found",
     "summerSchoolStatus": "source_found",
-    "newsStatus": "source_not_found",
-    "eventStatus": "source_not_found"
+    "newsStatus": "source_found",
+    "newsUrl": "https://egeajans.ege.edu.tr/index.php/feed/",
+    "eventStatus": "source_found",
+    "eventUrl": "https://egeduyuru.ege.edu.tr/tum_duyurular.html",
+    "parserProfiles": {
+      "announcement": { "parser": "auto" },
+      "news": { "parser": "rss" },
+      "event": { "parser": "auto" }
+    }
   },
   {
     "universityId": "erciyes-universitesi-kayseri",
@@ -1888,8 +1954,10 @@
     "announcementStatus": "source_found",
     "calendarStatus": "source_not_found",
     "summerSchoolStatus": "failed",
-    "newsStatus": "source_not_found",
-    "eventStatus": "source_not_found",
+    "newsStatus": "source_found",
+    "newsUrl": "https://www.ksu.edu.tr/default?DId=KSU&MI=42547",
+    "eventStatus": "source_found",
+    "eventUrl": "https://www.ksu.edu.tr/default?EId=KSU&MI=42548",
     "parserProfiles": {
       "announcement": {
         "parser": "html",
@@ -1899,6 +1967,26 @@
           "linkSelector": ".card-body h3 a[href]",
           "dateSelector": ".card-body > .text-muted.small",
           "contentSelector": ".card-body > p"
+        }
+      },
+      "news": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "main article.card.blog-card",
+          "titleSelector": ".card-body h3 a[href]",
+          "linkSelector": ".card-body h3 a[href]",
+          "dateSelector": ".card-body > .text-muted.small",
+          "contentSelector": ".card-body > p"
+        }
+      },
+      "event": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "main a[href*='EId=']:has(.feature-box-02)",
+          "titleSelector": ".feature-textbox h4",
+          "linkSelector": "a[href]",
+          "dateSelector": ".feature-desc li:nth-child(2)",
+          "contentSelector": ".feature-desc"
         }
       }
     }
@@ -2112,7 +2200,20 @@
     "newsStatus": "source_found",
     "newsUrl": "https://www.ktun.edu.tr/tr/Universite/TumHaberler",
     "eventStatus": "source_found",
-    "eventUrl": "https://www.ktun.edu.tr/tr/Universite/TumEtkinlikTakvimi"
+    "eventUrl": "https://www.ktun.edu.tr/tr/Universite/findAll",
+    "parserProfiles": {
+      "announcement": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "table tbody tr:has(a[href^='/tr/Universite/DuyuruDetay/'])",
+          "titleSelector": "td:first-child a[href]",
+          "linkSelector": "td:first-child a[href]",
+          "dateSelector": "td:nth-child(2)"
+        }
+      },
+      "news": { "parser": "auto" },
+      "event": { "parser": "auto" }
+    }
   },
   {
     "universityId": "kto-karatay-universitesi-konya",
@@ -2237,8 +2338,41 @@
     "announcementStatus": "source_found",
     "calendarStatus": "source_not_found",
     "summerSchoolStatus": "source_found",
-    "newsStatus": "source_not_found",
-    "eventStatus": "source_not_found"
+    "newsStatus": "source_found",
+    "newsUrl": "https://www.marmara.edu.tr/allnews",
+    "eventStatus": "source_found",
+    "eventUrl": "https://www.marmara.edu.tr/allevents",
+    "parserProfiles": {
+      "announcement": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".blog-pull-right .row.mb-15:has(a[href*='/notice/'])",
+          "titleSelector": "h4.line-bottom",
+          "linkSelector": "a[href*='/notice/']",
+          "dateSelector": ".review_text h6",
+          "contentSelector": ".col-md-8 > p"
+        }
+      },
+      "news": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".blog-pull-right .row.mb-15:has(a[href*='/news/'])",
+          "titleSelector": "h4.line-bottom",
+          "linkSelector": "a[href*='/news/']",
+          "dateSelector": ".review_text h6",
+          "contentSelector": ".col-md-8 > p"
+        }
+      },
+      "event": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "article.media:has(h4 a[href*='/event/'])",
+          "titleSelector": "h4 a[href]",
+          "linkSelector": "h4 a[href]",
+          "dateSelector": "li:has(i.fa-calendar)"
+        }
+      }
+    }
   },
   {
     "universityId": "mef-universitesi-istanbul",
@@ -2346,9 +2480,41 @@
     "calendarStatus": "source_found",
     "summerSchoolStatus": "source_found",
     "newsStatus": "source_found",
-    "newsUrl": "https://erbakan.edu.tr/haberler/",
+    "newsUrl": "https://erbakan.edu.tr/tr/haberler",
     "eventStatus": "source_found",
-    "eventUrl": "https://erbakan.edu.tr/etkinlikler/"
+    "eventUrl": "https://erbakan.edu.tr/tr/etkinlikler",
+    "parserProfiles": {
+      "announcement": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".col-md-11:has(.baslik a[href*='/tr/duyuru/'])",
+          "titleSelector": ".baslik a[href]",
+          "linkSelector": ".baslik a[href]",
+          "dateSelector": ".tarih",
+          "contentSelector": ".spot"
+        }
+      },
+      "news": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".col-md-4.mb-4:has(> a[href*='/tr/haber/'])",
+          "titleSelector": "img[alt]",
+          "linkSelector": "a[href*='/tr/haber/']",
+          "dateSelector": ".tarih",
+          "contentSelector": ".spot"
+        }
+      },
+      "event": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".col-md-8:has(.baslik a[href*='/tr/etkinlik/'])",
+          "titleSelector": ".baslik a[href]",
+          "linkSelector": ".baslik a[href]",
+          "dateSelector": ".tarih",
+          "contentSelector": ".spot"
+        }
+      }
+    }
   },
   {
     "universityId": "nevsehir-haci-bektas-veli-universitesi",
@@ -2612,8 +2778,42 @@
     "announcementStatus": "source_found",
     "calendarStatus": "source_found",
     "summerSchoolStatus": "failed",
-    "newsStatus": "source_not_found",
-    "eventStatus": "source_not_found"
+    "newsStatus": "source_found",
+    "newsUrl": "https://selcuk.edu.tr/icerik/haberler",
+    "eventStatus": "source_found",
+    "eventUrl": "https://selcuk.edu.tr/",
+    "parserProfiles": {
+      "announcement": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "article.announcement-card",
+          "titleSelector": ".announcement-card__title",
+          "linkSelector": "a.announcement-card__link",
+          "dateSelector": "time.announcement-card__date",
+          "contentSelector": ".announcement-card__description"
+        }
+      },
+      "news": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "article.news-card",
+          "titleSelector": ".news-card__title",
+          "linkSelector": "a.news-card__link",
+          "dateSelector": "time.news-card__date",
+          "contentSelector": ".news-card__description"
+        }
+      },
+      "event": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": "a.events-component__card[href]",
+          "titleSelector": ".events-component__name",
+          "linkSelector": "a.events-component__card[href]",
+          "dateSelector": ".events-component__date-text",
+          "contentSelector": ".events-component__unit"
+        }
+      }
+    }
   },
   {
     "universityId": "siirt-universitesi",
@@ -2899,8 +3099,40 @@
     "announcementStatus": "source_found",
     "calendarStatus": "source_found",
     "summerSchoolStatus": "failed",
-    "newsStatus": "source_not_found",
-    "eventStatus": "source_not_found"
+    "newsStatus": "source_found",
+    "newsUrl": "https://yalova.edu.tr/tr/Haber",
+    "eventStatus": "source_found",
+    "eventUrl": "https://yalova.edu.tr/tr/Etkinlik",
+    "parserProfiles": {
+      "announcement": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".gdlr-core-event-item-list",
+          "titleSelector": "h3.gdlr-core-event-item-title",
+          "linkSelector": "h3.gdlr-core-event-item-title a[href]",
+          "dateSelector": ".gdlr-core-blog-info-date"
+        }
+      },
+      "news": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".gdlr-core-event-item-list",
+          "titleSelector": "h3.gdlr-core-event-item-title",
+          "linkSelector": "h3.gdlr-core-event-item-title a[href]",
+          "dateSelector": ".gdlr-core-blog-info-date"
+        }
+      },
+      "event": {
+        "parser": "html",
+        "parserConfig": {
+          "itemSelector": ".gdlr-core-event-item-list",
+          "titleSelector": "h3.gdlr-core-event-item-title",
+          "linkSelector": "h3.gdlr-core-event-item-title a[href]",
+          "dateSelector": ".gdlr-core-type-start-date-month",
+          "contentSelector": ".gdlr-core-event-item-info-wrap"
+        }
+      }
+    }
   },
   {
     "universityId": "yasar-universitesi-izmir",

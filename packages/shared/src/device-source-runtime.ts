@@ -78,6 +78,8 @@ export type DeviceSourceRuntimeProfile =
   | "nku_event"
   | "bayburt_media"
   | "ktun_news"
+  | "ktun_event"
+  | "ege_listing"
   | "bandirma_event"
   | "configured_html"
   | "generic_json"
@@ -104,6 +106,17 @@ const NAMED_MONTHS: Readonly<Record<string, number>> = {
   ekim: 10,
   kasim: 11,
   aralik: 12,
+  oca: 1,
+  sub: 2,
+  mar: 3,
+  nis: 4,
+  haz: 6,
+  tem: 7,
+  agu: 8,
+  eyl: 9,
+  eki: 10,
+  kas: 11,
+  ara: 12,
   january: 1,
   february: 2,
   march: 3,
@@ -129,9 +142,9 @@ export async function executeDeviceSourceRuntime(
 
   const response = await transport({
     url: recipe.sourceUrl,
-    accept: requestProfile === "ankara_cms" || requestProfile === "nku_event" || requestProfile === "bayburt_media"
+    accept: requestProfile === "ankara_cms" || requestProfile === "nku_event" || requestProfile === "bayburt_media" || requestProfile === "ktun_event"
       ? JSON_ACCEPT
-      : requestProfile === "alanya_event" || requestProfile === "ktun_news" || requestProfile === "bandirma_event"
+      : requestProfile === "alanya_event" || requestProfile === "ktun_news" || requestProfile === "bandirma_event" || requestProfile === "ege_listing"
         ? HTML_ACCEPT
         : GENERIC_ACCEPT,
     ...(Object.keys(validators).length > 0 ? { validators } : {}),
@@ -167,6 +180,7 @@ export function parseDeviceSourceRuntimeDocument(
   assertRecipe(recipe);
   const body = input.trim();
   if (!body) return [];
+  if (isErrorPageUrl(baseUrl)) throw runtimeError("SOURCE_ERROR_PAGE");
   const profile = detectDeviceSourceRuntimeProfile(recipe, body);
   let items: DeviceSourceRuntimeItem[];
   switch (profile) {
@@ -175,6 +189,8 @@ export function parseDeviceSourceRuntimeDocument(
     case "nku_event": items = parseNkuEvent(body, recipe); break;
     case "bayburt_media": items = parseBayburtMedia(body, recipe); break;
     case "ktun_news": items = parseKtunNews(body, recipe); break;
+    case "ktun_event": items = parseKtunEvent(body, recipe); break;
+    case "ege_listing": items = parseEgeListing(body, recipe); break;
     case "bandirma_event": items = parseBandirmaEvent(body, recipe); break;
     case "configured_html": {
       items = parseConfiguredHtml(body, recipe, baseUrl);
@@ -207,13 +223,21 @@ export function detectDeviceSourceRuntimeProfile(
     assertBayburtSource(source, recipe);
     return "bayburt_media";
   }
-  if (source.hostname.endsWith("ktun.edu.tr") && source.pathname.includes("/Universite/")) {
+  if (source.hostname.endsWith("ktun.edu.tr") && source.pathname === "/tr/Universite/TumHaberler") {
     assertKtunSource(source, recipe);
     return "ktun_news";
+  }
+  if (isExactSource(source, "www.ktun.edu.tr", "/tr/Universite/findAll", recipe.contentType, "event")) {
+    if (recipe.parser !== "auto" || source.search) throw runtimeError("SOURCE_LAYOUT_INVALID:KTUN_EVENT");
+    return "ktun_event";
   }
   if (source.hostname.endsWith("bandirma.edu.tr") && /\/Etkinlik\/Liste\/?$/iu.test(source.pathname)) {
     assertBandirmaSource(source, recipe);
     return "bandirma_event";
+  }
+  if (source.hostname === "egeduyuru.ege.edu.tr" && source.pathname === "/tum_duyurular.html") {
+    if (recipe.contentType === "news" || recipe.parser !== "auto" || source.search || source.hash) throw runtimeError("SOURCE_LAYOUT_INVALID:EGE_LISTING");
+    return "ege_listing";
   }
   if (recipe.parserConfig?.itemSelector?.trim()) return "configured_html";
   if (recipe.parser === "rss" || (recipe.parser === "auto" && /^<\?xml\b|^<(?:rss|feed)\b/iu.test(body.trim()))) {
@@ -464,6 +488,48 @@ function parseKtunNews(input: string, recipe: DeviceSourceRuntimeRecipe): Device
   return dedupe(items);
 }
 
+function parseKtunEvent(input: string, recipe: DeviceSourceRuntimeRecipe): DeviceSourceRuntimeItem[] {
+  const payload = parseJson(input, "SOURCE_LAYOUT_INVALID:KTUN_EVENT");
+  const checkedAt = strictReferenceDate(recipe.checkedAt)!;
+  if (!Array.isArray(payload) || payload.length > MAX_CANDIDATES) throw runtimeError("SOURCE_LAYOUT_INVALID:KTUN_EVENT");
+  return dedupe(payload.map((row): DeviceSourceRuntimeItem => {
+    if (!isRecord(row)) throw runtimeError("SOURCE_LAYOUT_INVALID:KTUN_EVENT");
+    const title = normalizeText(asString(row.title));
+    const link = resolveTrustedUrl(asString(row.url), recipe);
+    const start = readDotNetDate(asString(row.start), checkedAt);
+    const end = readDotNetDate(asString(row.end), checkedAt);
+    if (!title || !link || !start || !end || end < start) throw runtimeError("SOURCE_LAYOUT_INVALID:KTUN_EVENT");
+    const startDate = istanbulDate(start);
+    const endDate = istanbulDate(end);
+    return { title, link, keyDates: [{ label: "Etkinlik tarihi", startDate, ...(endDate !== startDate ? { endDate } : {}) }] };
+  }));
+}
+
+function parseEgeListing(input: string, recipe: DeviceSourceRuntimeRecipe): DeviceSourceRuntimeItem[] {
+  const $ = load(input);
+  const table = $("table").filter((_index, element) => $(element).find("th.thbaslik").length === 6);
+  const headings = table.find("th.thbaslik").map((_i, element) => fold($(element).text())).get();
+  if (table.length !== 1 || headings.join("|") !== "konu|turu|baslangic tarihi|duzenlenme yeri|gonderen birim|goruntule") throw runtimeError("SOURCE_LAYOUT_INVALID:EGE_LISTING");
+  const checkedAt = strictReferenceDate(recipe.checkedAt)!;
+  const items: DeviceSourceRuntimeItem[] = [];
+  table.find("tr").filter((_i, element) => $(element).children("td.tdbaslik").length > 0).slice(0, MAX_CANDIDATES).each((_i, element) => {
+    const cells = $(element).children("td.tdbaslik");
+    const button = cells.eq(5).find("button");
+    const id = button.attr("onclick")?.replace(/\s+/gu, "").match(/^icerikGetir\((\d{1,12})\);?$/u)?.[1];
+    const title = normalizeText(cells.eq(0).text());
+    const category = fold(cells.eq(1).text());
+    const startDate = readDateOnly(cells.eq(2).text());
+    if (cells.length !== 6 || button.length !== 1 || !id || !title || !startDate
+      || !["genel", "egitim", "acil duyurular", "toplanti/kurultay", "konferans/kongre/sempozyum"].includes(category)) throw runtimeError("SOURCE_LAYOUT_INVALID:EGE_LISTING");
+    const event = category === "toplanti/kurultay" || category === "konferans/kongre/sempozyum";
+    if ((recipe.contentType === "event") !== event || dateOnlyAtNoon(startDate)! < oneYearBefore(checkedAt)) return;
+    const summary = [cells.eq(1).text(), cells.eq(3).text(), cells.eq(4).text()].map(normalizeText).filter(Boolean).join(" · ");
+    items.push({ title, link: `https://egeduyuru.ege.edu.tr/icerikgoster_5.php?id=${id}`,
+      keyDates: [{ label: event ? "Etkinlik tarihi" : "Başlangıç tarihi", startDate }], ...(summary ? { summary } : {}) });
+  });
+  return dedupe(items);
+}
+
 function parseBandirmaEvent(input: string, recipe: DeviceSourceRuntimeRecipe): DeviceSourceRuntimeItem[] {
   const $ = load(input);
   const source = new URL(recipe.sourceUrl);
@@ -522,7 +588,7 @@ function parseConfiguredHtml(
         ? row.is(config.contentSelector) ? row : row.find(config.contentSelector).first()
         : undefined;
       const record = createItem(recipe, baseUrl, {
-        title: titleNode.text() || titleNode.attr("title") || linkNode.attr("title"),
+        title: titleNode.text() || titleNode.attr("title") || titleNode.attr("alt") || linkNode.attr("title"),
         link: linkNode.attr("href") ?? linkNode.find("a").first().attr("href"),
         date: dateNode?.attr("datetime") || dateNode?.text(),
         summary: contentNode?.text(),
@@ -552,7 +618,8 @@ function parseGenericHtml(
       const row = link.closest("article, li, tr, .item, .card, .well, .media, .duyuru, .announcement, .haber, .news, .etkinlik, .event, .cbp-item");
       const heading = row.find("h1,h2,h3,h4,h5,h6").filter((_i, node) => normalizeText($(node).text()).length > 3).last();
       const time = row.find("time, .date, .tarih").first();
-      const title = link.attr("title") || link.find("img").attr("alt") || link.text() || heading.text();
+      const linkTitle = link.attr("title") || link.find("img").attr("alt") || link.text();
+      const title = !normalizeText(linkTitle) || isNavigationTitle(linkTitle) ? heading.text() : linkTitle;
       const href = link.attr("href");
       const date = time.attr("datetime") || time.text();
       const summary = row.find("p, .description, .summary").first().text();
@@ -710,7 +777,7 @@ function isFreshItem(
   const minimumYear = currentStart - 1;
   const maximumYear = currentStart + 1;
 
-  if (contentType === "event" && item.keyDates?.length) {
+  if (item.keyDates?.length && (contentType === "event" || (!item.publishedAt && !item.publishedDate))) {
     const mostRecent = item.keyDates.reduce<string | undefined>((latest, keyDate) => {
       const candidate = keyDate.endDate ?? keyDate.startDate;
       return !latest || candidate > latest ? candidate : latest;
@@ -824,9 +891,9 @@ function assertTransportResponse(
     || media === "application/rss+xml" || media === "application/atom+xml" || media === "text/plain";
   if (
     !media
-    || ((profile === "ankara_cms" || profile === "nku_event" || profile === "bayburt_media" || profile === "atu_odata") && !json)
-    || ((profile === "alanya_event" || profile === "ktun_news" || profile === "bandirma_event") && !html)
-    || (!generic && !["ankara_cms", "nku_event", "bayburt_media", "atu_odata", "alanya_event", "ktun_news", "bandirma_event"].includes(profile))
+    || ((profile === "ankara_cms" || profile === "nku_event" || profile === "bayburt_media" || profile === "atu_odata" || profile === "ktun_event") && !json)
+    || ((profile === "alanya_event" || profile === "ktun_news" || profile === "bandirma_event" || profile === "ege_listing") && !html)
+    || (!generic && !["ankara_cms", "nku_event", "bayburt_media", "atu_odata", "alanya_event", "ktun_news", "ktun_event", "bandirma_event", "ege_listing"].includes(profile))
   ) throw runtimeError("SOURCE_RUNTIME_MEDIA_TYPE_REJECTED");
 }
 
@@ -991,8 +1058,9 @@ function readDateOnly(value: string): string | null {
   if (iso) return validDateParts(Number(iso[1]), Number(iso[2]), Number(iso[3]));
   const numeric = normalized.match(/(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\D|$)/u);
   if (numeric) return validDateParts(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
-  const named = fold(normalized).match(/(?:^|\D)(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik|january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})(?:\D|$)/u);
-  return named ? validDateParts(Number(named[3]), NAMED_MONTHS[named[2]!]!, Number(named[1])) : null;
+  const named = fold(normalized).match(/(?:^|\D)(\d{1,2})\s*([a-z]+)\.?\s*(\d{4})(?:\D|$)/u);
+  const month = named && NAMED_MONTHS[named[2]!];
+  return named && month ? validDateParts(Number(named[3]), month, Number(named[1])) : null;
 }
 
 function validDateParts(year: number, month: number, day: number): string | null {
@@ -1075,10 +1143,17 @@ function isListingNavigationUrl(candidate: string, sourceUrl: string): boolean {
   if (source && canonicalUrl(candidate) === source) return true;
   const path = candidateUrl.pathname.replace(/\/+$/u, "") || "/";
   return (path === "/" && !candidateUrl.hash.startsWith("#!/"))
+    || isErrorPageUrl(candidate)
+    || /(?:^|\/)(?:author|yazar|category|tag|etiket)(?:\/|$)/iu.test(path)
+    || candidateUrl.searchParams.has("author")
     || /\/(?:duyuru[-_]?arsiv|arsiv|archive|archives)$/iu.test(path)
     || /\/date\/20\d{2}\/(?:0?[1-9]|1[0-2])$/iu.test(path)
     || /(?:^|\/)(?:duyuru|haber|etkinlik)\/(?:liste|index(?:\.html?)?)$/iu.test(path)
     || /(?:^|\/)(?:duyurular|haberler|etkinlikler|announcements|events|news)$/iu.test(path);
+}
+
+function isErrorPageUrl(value: string): boolean {
+  return /(?:^|\/)(?:hata|error|errors|404|403)(?:\/|\.|$)/iu.test(new URL(value).pathname);
 }
 
 function isNavigationTitle(value: string): boolean {
@@ -1087,6 +1162,7 @@ function isNavigationTitle(value: string): boolean {
     || /^(?:next|previous|home|read more|click here|devami(?:ni oku)?|onceki|sonraki|menu|ana ?sayfa|t[ıi]klay[ıi]n[ıi]z|detay|ayrinti|arsiv)$/u.test(title)
     || /^(?:duyuru(?:lar)?|haber(?:ler)?|etkinlik(?:ler)?|announcement(?:s)?|news|event(?:s)?)$/u.test(title)
     || /^(?:tum (?:duyurular|haberler|etkinlikler)|all (?:announcements|news|events))$/u.test(title)
+    || /^(?:bugun|today|goruntule|yeni gorunum|yeni tasarima gec|etkinlik takvimi)$/u.test(title)
     || /^(?:sayfa\s+)?\d+(?:\s*\/\s*\d+)?$/u.test(title);
 }
 

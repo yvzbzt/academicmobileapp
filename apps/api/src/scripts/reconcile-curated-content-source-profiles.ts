@@ -17,7 +17,6 @@ const sourceUrlFields = {
 } as const;
 const systemActorId = "system:curated-content-source-reconciler";
 const expectedUniversityCount = 208;
-const expectedCuratedProfileCount = 3;
 
 type ReconciliationService = Pick<
   AnnouncementIngestionService,
@@ -33,7 +32,7 @@ interface CuratedContentSourceTarget {
   contentType: typeof contentTypes[number];
   sourceUrl: string;
   parser: "auto" | "rss" | "html";
-  parserConfig: {
+  parserConfig?: {
     itemSelector?: string;
     titleSelector?: string;
     linkSelector?: string;
@@ -51,29 +50,32 @@ export interface CuratedContentSourceReconciliationResult {
 }
 
 export async function reconcileCuratedContentSourceProfiles(
-  service: ReconciliationService
+  service: ReconciliationService,
+  filter: { universityId?: string; contentType?: typeof contentTypes[number] } = {}
 ): Promise<CuratedContentSourceReconciliationResult[]> {
   const sources = await listVerifiedUniversitySources();
   if (sources.length !== expectedUniversityCount) {
     throw new Error(`CURATED_CONTENT_SOURCE_REGISTRY_COUNT_MISMATCH:${sources.length}`);
   }
   const targets = sources.flatMap((source) => contentTypes.flatMap((contentType) => {
+    if ((filter.universityId && source.universityId !== filter.universityId)
+      || (filter.contentType && contentType !== filter.contentType)) return [];
     const profile = source.parserProfiles?.[contentType];
     if (!profile) return [];
     const sourceUrl = source[sourceUrlFields[contentType]];
     const parserConfig = profile.parserConfig;
-    if (!sourceUrl || !parserConfig) {
+    if (!sourceUrl || (profile.parser === "html" && !parserConfig?.itemSelector)) {
       throw new Error(`CURATED_CONTENT_SOURCE_PROFILE_INVALID:${source.universityId}:${contentType}`);
     }
     return [{
       universityId: source.universityId,
       contentType,
       parser: profile.parser,
-      parserConfig,
+      ...(parserConfig ? { parserConfig } : {}),
       sourceUrl
     } satisfies CuratedContentSourceTarget];
   }));
-  if (targets.length !== expectedCuratedProfileCount) {
+  if (targets.length === 0) {
     throw new Error(`CURATED_CONTENT_SOURCE_PROFILE_COUNT_MISMATCH:${targets.length}`);
   }
 
@@ -280,7 +282,7 @@ function desiredInactiveProfile(target: CuratedContentSourceTarget) {
   return {
     sourceUrl: target.sourceUrl,
     parser: target.parser,
-    parserConfig: target.parserConfig,
+    parserConfig: target.parserConfig ?? {},
     status: "inactive" as const
   };
 }
@@ -316,7 +318,15 @@ async function main(): Promise<void> {
       announcementRepository,
       new NotificationSchedulingService(notificationRepository, announcementRepository)
     );
-    const results = await reconcileCuratedContentSourceProfiles(service);
+    const universityId = process.env.CURATED_SOURCE_UNIVERSITY?.trim();
+    const contentType = process.env.CURATED_SOURCE_TYPE?.trim();
+    if (contentType && !contentTypes.includes(contentType as typeof contentTypes[number])) {
+      throw new Error("CURATED_CONTENT_SOURCE_TYPE_INVALID");
+    }
+    const results = await reconcileCuratedContentSourceProfiles(service, {
+      ...(universityId ? { universityId } : {}),
+      ...(contentType ? { contentType: contentType as typeof contentTypes[number] } : {})
+    });
     process.stdout.write(`${JSON.stringify({ status: "ok", reconciled: results.length, results })}\n`);
   } finally {
     await mongo.onApplicationShutdown();

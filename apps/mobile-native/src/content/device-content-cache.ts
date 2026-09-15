@@ -27,27 +27,39 @@ const DEVICE_CONTENT_CACHE_SCHEMA_VERSION = 3;
 const DEFAULT_HARD_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const DIGEST_PATTERN = /^[a-f\d]{64}$/u;
 const SOURCE_REVISION_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/u;
+// Match the manifest/runtime bounds without a global cut that hides sources.
+const MAX_CACHED_SOURCES = 512;
+const MAX_ITEMS_PER_SOURCE = 60;
+// ponytail: one bounded snapshot per owner; use per-source files if real follow
+// sets exceed 16 Mi characters rather than silently dropping another source.
+const MAX_CACHE_CHARACTERS = 16 * 1_024 * 1_024;
+const MAX_CACHE_FILE_BYTES = 64 * 1_024 * 1_024;
+const fileOperations = new Map<string, Promise<void>>();
 
 export async function readDeviceContentCache(
   ownerId: string,
   options: { storage?: DeviceContentCacheStorage; now?: Date; hardRetentionMs?: number } = {},
 ): Promise<DeviceContentCacheRecord | null> {
-  const storage = options.storage ?? loadAsyncStorage();
+  const storage = options.storage ?? loadFileStorage();
   const key = createDeviceContentCacheKey(ownerId);
   const raw = await storage.getItem(key);
   if (!raw) return null;
+  if (raw.length > MAX_CACHE_CHARACTERS) {
+    await storage.removeItem(key);
+    return null;
+  }
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
-    await storage.removeItem(key);
+    await deleteDeviceContentCache(ownerId, storage);
     return null;
   }
   const parsed = parseCacheRecord(value, ownerId);
   const retentionMs = options.hardRetentionMs ?? DEFAULT_HARD_RETENTION_MS;
   const now = options.now ?? new Date();
   if (!parsed || Date.parse(parsed.storedAt) + retentionMs <= now.getTime()) {
-    await storage.removeItem(key);
+    await deleteDeviceContentCache(ownerId, storage);
     return null;
   }
   const activeSourceIds = new Set(Object.entries(parsed.sourceValidUntil)
@@ -76,21 +88,25 @@ export async function readDeviceContentCache(
 
 export async function writeDeviceContentCache(
   record: DeviceContentCacheRecord,
-  storage: DeviceContentCacheStorage = loadAsyncStorage(),
+  storage: DeviceContentCacheStorage = loadFileStorage(),
 ): Promise<void> {
   const parsed = parseCacheRecord({ schemaVersion: DEVICE_CONTENT_CACHE_SCHEMA_VERSION, ...record }, record.ownerId);
   if (!parsed) throw new Error("DEVICE_CONTENT_CACHE_INVALID");
-  await storage.setItem(createDeviceContentCacheKey(record.ownerId), JSON.stringify({
+  const key = createDeviceContentCacheKey(record.ownerId);
+  const payload = JSON.stringify({
     schemaVersion: DEVICE_CONTENT_CACHE_SCHEMA_VERSION,
     ...parsed,
-  }));
+  });
+  if (payload.length > MAX_CACHE_CHARACTERS) throw new Error("DEVICE_CONTENT_CACHE_TOO_LARGE");
+  await storage.setItem(key, payload);
 }
 
-export function deleteDeviceContentCache(
+export async function deleteDeviceContentCache(
   ownerId: string,
-  storage: DeviceContentCacheStorage = loadAsyncStorage(),
+  storage: DeviceContentCacheStorage = loadFileStorage(),
 ): Promise<void> {
-  return storage.removeItem(createDeviceContentCacheKey(ownerId));
+  const key = createDeviceContentCacheKey(ownerId);
+  await storage.removeItem(key);
 }
 
 export function createDeviceContentCacheKey(ownerId: string): string {
@@ -116,6 +132,11 @@ function parseCacheRecord(value: unknown, ownerId: string): DeviceContentCacheRe
     || !Array.isArray(value.failedSourceIds)
     || !Array.isArray(value.items)
   ) return null;
+  if (
+    Object.keys(value.sourceRevisions).length > MAX_CACHED_SOURCES
+    || Object.keys(value.sourceValidUntil).length > MAX_CACHED_SOURCES
+    || value.items.length > MAX_CACHED_SOURCES * MAX_ITEMS_PER_SOURCE
+  ) return null;
   const sourceRevisions: Record<string, string> = {};
   for (const [sourceId, revision] of Object.entries(value.sourceRevisions)) {
     if (!sourceId || sourceId.length > 512 || typeof revision !== "string" || !SOURCE_REVISION_PATTERN.test(revision)) return null;
@@ -137,6 +158,12 @@ function parseCacheRecord(value: unknown, ownerId: string): DeviceContentCacheRe
   const normalized = normalizeTrustedContentCollection(value.items as MobileContentRecordInput[]);
   if (normalized.omittedCount > 0 || normalized.duplicateCount > 0 || normalized.items.length !== value.items.length) return null;
   if (normalized.items.some((item) => !(item.sourceId in sourceValidUntil))) return null;
+  const itemsPerSource = new Map<string, number>();
+  for (const item of normalized.items) {
+    const count = (itemsPerSource.get(item.sourceId) ?? 0) + 1;
+    if (count > MAX_ITEMS_PER_SOURCE) return null;
+    itemsPerSource.set(item.sourceId, count);
+  }
   return {
     ownerId,
     manifestVersion: asString(value.manifestVersion),
@@ -178,4 +205,56 @@ function loadAsyncStorage(): DeviceContentCacheStorage {
     || typeof storage.removeItem !== "function"
   ) throw new Error("AsyncStorage is unavailable.");
   return storage;
+}
+
+function loadFileStorage(): DeviceContentCacheStorage {
+  const fs = require("expo-file-system/legacy") as typeof import("expo-file-system/legacy");
+  const crypto = require("expo-crypto") as typeof import("expo-crypto");
+  const legacy = loadAsyncStorage();
+  // Private cache files avoid Android's ~2 MiB row and default 6 MiB database
+  // limits. The OS may evict this regenerable cache; authority leases still apply.
+  const fileUri = async (key: string) => {
+    if (!fs.cacheDirectory) throw new Error("DEVICE_CONTENT_CACHE_DIRECTORY_UNAVAILABLE");
+    const digest = await crypto.digestStringAsync(crypto.CryptoDigestAlgorithm.SHA256, key);
+    return `${fs.cacheDirectory}device-content-${digest}.json`;
+  };
+  return {
+    getItem: (key) => serializeFileOperation(key, async () => {
+      const uri = await fileUri(key);
+      const info = await fs.getInfoAsync(uri);
+      if (!info.exists) return legacy.getItem(key);
+      if (info.size > MAX_CACHE_FILE_BYTES) {
+        await fs.deleteAsync(uri, { idempotent: true });
+        return null;
+      }
+      return fs.readAsStringAsync(uri);
+    }),
+    setItem: (key, value) => serializeFileOperation(key, async () => {
+      const uri = await fileUri(key);
+      const temporaryUri = `${uri}.tmp`;
+      try {
+        await fs.writeAsStringAsync(temporaryUri, value);
+        await fs.moveAsync({ from: temporaryUri, to: uri });
+        await legacy.removeItem(key);
+      } finally {
+        await fs.deleteAsync(temporaryUri, { idempotent: true });
+      }
+    }),
+    removeItem: (key) => serializeFileOperation(key, async () => {
+      const uri = await fileUri(key);
+      await fs.deleteAsync(uri, { idempotent: true });
+      await fs.deleteAsync(`${uri}.tmp`, { idempotent: true });
+      await legacy.removeItem(key);
+    }),
+  };
+}
+
+function serializeFileOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = fileOperations.get(key) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(operation);
+  const tail = current.then(() => undefined, () => undefined);
+  fileOperations.set(key, tail);
+  return current.finally(() => {
+    if (fileOperations.get(key) === tail) fileOperations.delete(key);
+  });
 }

@@ -123,6 +123,57 @@ describe("shared device source runtime", () => {
     expect(items.map((item) => item.title)).toEqual(["Research award announced"]);
   });
 
+  it("rejects error redirects, calendar controls and author links even inside content rows", () => {
+    const controls = `<main><article class="duyuru">
+      <a href="/author/ramazan/">Ramazan Dinç</a>
+      <a href="/takvimli.php?view=week">Bugün</a>
+      <a href="/duyuru/42">Görüntüle</a>
+      <a href="/duyuru/Hata/index.html">Üniversite</a>
+      <a href="/duyuru/results">2026 başvuru sonuçları</a>
+    </article></main>`;
+    expect(parseDeviceSourceRuntimeDocument(controls, recipe()).map(item => item.title))
+      .toEqual(["2026 başvuru sonuçları"]);
+    expect(() => parseDeviceSourceRuntimeDocument(controls, recipe({
+      sourceUrl: "https://example.edu.tr/haberler/Hata/IndexWeb",
+      contentType: "news",
+    }))).toThrow("SOURCE_ERROR_PAGE");
+  });
+
+  it("lets configured KTUN announcement and event pages use their own selectors", () => {
+    for (const contentType of ["announcement", "event"] as const) {
+      const items = parseDeviceSourceRuntimeDocument('<article><a href="/tr/Universite/Detay/42">2026 yeni öğrenci buluşması</a></article>', recipe({
+        sourceUrl: `https://www.ktun.edu.tr/tr/Universite/${contentType === "event" ? "TumEtkinlikler" : "TumDuyurular"}`,
+        allowedOfficialDomain: "ktun.edu.tr",
+        contentType,
+        parser: "html",
+        parserConfig: { itemSelector: "article", titleSelector: "a", linkSelector: "a" },
+      }));
+      expect(items).toHaveLength(1);
+    }
+  });
+
+  it("reads a configured image's full alt title and KTUN calendar dates without exposing technical descriptions", () => {
+    const imageTitle = parseDeviceSourceRuntimeDocument('<article><a href="/news/full-title"><img alt="Full research news headline"></a></article>', recipe({
+      contentType: "news", parser: "html", parserConfig: { itemSelector: "article", titleSelector: "img", linkSelector: "a" },
+    }));
+    expect(imageTitle[0]?.title).toBe("Full research news headline");
+    const ktun = recipe({ sourceUrl: "https://www.ktun.edu.tr/tr/Universite/findAll", allowedOfficialDomain: "ktun.edu.tr", contentType: "event" });
+    const payload = [{ id: 1, title: "2026 Yaz Etkinliği", start: `/Date(${Date.parse("2026-07-22T09:00:00Z")})/`, end: `/Date(${Date.parse("2026-07-23T09:00:00Z")})/`, url: "/Resimler/EtkinlikResim/poster.jpeg", description: "technical@example.edu.tr" }];
+    expect(parseDeviceSourceRuntimeDocument(JSON.stringify(payload), ktun)).toEqual([{
+      title: "2026 Yaz Etkinliği", link: "https://www.ktun.edu.tr/Resimler/EtkinlikResim/poster.jpeg",
+      keyDates: [{ label: "Etkinlik tarihi", startDate: "2026-07-22", endDate: "2026-07-23" }],
+    }]);
+    expect(() => parseDeviceSourceRuntimeDocument(JSON.stringify([{ ...payload[0], url: "https://evil.example/poster" }]), ktun))
+      .toThrow("SOURCE_LAYOUT_INVALID:KTUN_EVENT");
+  });
+
+  it("reads adjacent Turkish date spans and abbreviated months without inventing dates", () => {
+    const items = parseDeviceSourceRuntimeDocument(`<article><a href="/event/1">Yeni öğrenci etkinliği</a><time><span>24</span><span>Eyl</span><span>2026</span></time></article>
+      <article><a href="/event/2">Aralık etkinliği</a><time>02 Ara. 2026</time></article>
+      <article><a href="/event/3">Tarihsiz etkinlik</a><time>31Şub2026</time></article>`, recipe({ contentType: "event", parser: "html", parserConfig: { itemSelector: "article", titleSelector: "a", linkSelector: "a", dateSelector: "time" } }));
+    expect(items.map(item => item.publishedDate)).toEqual(["2026-09-24", "2026-12-02", undefined]);
+  });
+
   it("filters freshness from the server checkedAt for dates, timestamps, academic years, events and undated items", () => {
     const generic = parseDeviceSourceRuntimeDocument(JSON.stringify({ data: [
       { title: "Old date notice", href: "/old-date", publishedDate: "2024-09-13" },

@@ -1,134 +1,54 @@
 import { listVerifiedUniversitySources } from "../apps/api/src/bootstrap/verified-source-registry.js";
 import { resolveSourceAuthorityContext } from "../apps/api/src/bootstrap/source-authority-context.js";
-import {
-  fetchText,
-  parseFetchedSourceItems,
-  type ParsedAnnouncementItem
-} from "../apps/api/src/modules/announcements/announcement-parser.js";
-import { officialDomainForUrl } from "../apps/api/src/modules/announcements/announcement-content-trust.js";
-import {
-  DEVICE_SOURCE_ACCEPT_LANGUAGE,
-  DEVICE_SOURCE_USER_AGENT,
-  parseDeviceSourceRuntimeDocument,
-  type DeviceSourceRuntimeItem
-} from "../packages/shared/src/device-source-runtime.js";
+import { fetchDeviceRuntimeSourceSnapshot } from "../apps/api/src/modules/announcements/announcement-parser.js";
 
-const maximumResponseBytes = 4 * 1024 * 1024;
-const expectedUniversityCount = 208;
-const expectedCuratedProfileCount = 3;
 const contentTypes = ["announcement", "news", "event"] as const;
-const sourceUrlFields = {
-  announcement: "announcementUrl",
-  news: "newsUrl",
-  event: "eventUrl"
-} as const;
-
-type ComparableItem = DeviceSourceRuntimeItem | ParsedAnnouncementItem;
-
-function normalizedItemProjection(item: ComparableItem): Record<string, string | null> {
-  return {
-    title: item.title,
-    link: item.link,
-    publicationKind: item.publicationKind ?? null,
-    publishedDate: item.publishedDate ?? null,
-    publishedAt: normalizedTimestamp(item.publishedAt),
-    sourceUpdatedAt: normalizedTimestamp(item.sourceUpdatedAt),
-    summary: item.summary ?? null
-  };
-}
-
-function normalizedTimestamp(value: Date | string | undefined): string | null {
-  if (!value) return null;
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
 
 async function main(): Promise<void> {
-  const checkedAt = new Date().toISOString();
-  const results: Array<Record<string, unknown>> = [];
+  const checkedAt = new Date();
   const sources = await listVerifiedUniversitySources();
-  if (sources.length !== expectedUniversityCount) {
-    throw new Error(`CURATED_SOURCE_REGISTRY_COUNT_INVALID:${sources.length}:${expectedUniversityCount}`);
-  }
-  const targets = [] as Array<{
-    source: (typeof sources)[number];
-    contentType: (typeof contentTypes)[number];
-    profile: NonNullable<(typeof sources)[number]["parserProfiles"]>[(typeof contentTypes)[number]];
-    sourceUrl: string;
-  }>;
-  for (const source of sources) {
-    for (const contentType of contentTypes) {
+  if (sources.length !== 208) throw new Error(`CURATED_SOURCE_REGISTRY_COUNT_INVALID:${sources.length}:208`);
+  const universityId = process.env.CURATED_SOURCE_UNIVERSITY?.trim();
+  const targets = sources.filter(source => !universityId || source.universityId === universityId)
+    .flatMap(source => contentTypes.flatMap(contentType => {
       const profile = source.parserProfiles?.[contentType];
-      if (!profile) continue;
-      const sourceUrl = source[sourceUrlFields[contentType]];
+      if (!profile) return [];
+      const sourceUrl = source[`${contentType}Url`];
       if (!sourceUrl) throw new Error(`CURATED_SOURCE_URL_MISSING:${source.universityId}:${contentType}`);
-      targets.push({ source, contentType, profile, sourceUrl });
-    }
-  }
-  if (targets.length !== expectedCuratedProfileCount) {
-    throw new Error(`CURATED_SOURCE_PROFILE_COUNT_INVALID:${targets.length}:${expectedCuratedProfileCount}`);
-  }
+      return [{ source, contentType, profile, sourceUrl }];
+    }));
+  if (targets.length === 0) throw new Error("CURATED_SOURCE_PROFILE_COUNT_INVALID:0");
 
-  for (const { source, contentType, profile, sourceUrl } of targets) {
-    const officialDomain = officialDomainForUrl(sourceUrl);
-    if (!officialDomain) throw new Error(`CURATED_SOURCE_DOMAIN_INVALID:${source.universityId}:${contentType}`);
-    const authority = await resolveSourceAuthorityContext({
-      universityId: source.universityId,
-      ownerAcademicEntityId: source.universityId,
-      scopeType: "university",
-      scopeId: source.universityId
-    });
-    if (authority.authorityStatus !== "verified") {
-      throw new Error(`CURATED_SOURCE_AUTHORITY_INVALID:${source.universityId}:${contentType}`);
+  let next = 0;
+  const results: Array<Record<string, unknown>> = [];
+  await Promise.all(Array.from({ length: Math.min(3, targets.length) }, async () => {
+    while (next < targets.length) {
+      const { source, contentType, profile, sourceUrl } = targets[next++]!;
+      const started = performance.now();
+      try {
+        const authority = await resolveSourceAuthorityContext({
+          universityId: source.universityId, ownerAcademicEntityId: source.universityId,
+          scopeType: "university", scopeId: source.universityId,
+        });
+        if (authority.authorityStatus !== "verified") throw new Error("CURATED_SOURCE_AUTHORITY_INVALID");
+        // The same transport, redirect/body limits and parser as admin previews and mobile health probes.
+        const snapshot = await fetchDeviceRuntimeSourceSnapshot(sourceUrl, profile.parser, 10000,
+          { authority: authority.context, resource: contentType }, {}, contentType, checkedAt, profile.parserConfig);
+        if (snapshot.items.length === 0) throw new Error("CURATED_SOURCE_LAYOUT_INVALID");
+        results.push({ universityId: source.universityId, contentType, sourceUrl, status: "ok",
+          finalUrl: snapshot.finalUrl, itemCount: snapshot.items.length,
+          datedItemCount: snapshot.items.filter(item => item.publishedDate || item.publishedAt || item.keyDates?.length).length,
+          firstTitle: snapshot.items[0]?.title, elapsedMs: Math.round(performance.now() - started) });
+      } catch (error) {
+        results.push({ universityId: source.universityId, contentType, sourceUrl, status: "failed",
+          error: error instanceof Error ? error.message : String(error), elapsedMs: Math.round(performance.now() - started) });
+      }
     }
-    const response = await fetchText(sourceUrl, 10_000, {
-      accept: "text/html,application/xhtml+xml",
-      acceptLanguage: DEVICE_SOURCE_ACCEPT_LANGUAGE,
-      userAgent: DEVICE_SOURCE_USER_AGENT,
-      authority: authority.context,
-      resource: contentType,
-      maximumRedirects: 5,
-      maximumResponseBytes
-    });
-    if (officialDomainForUrl(response.finalUrl) !== officialDomain) {
-      throw new Error(`CURATED_SOURCE_REDIRECT_REJECTED:${source.universityId}:${contentType}`);
-    }
-    const deviceItems = parseDeviceSourceRuntimeDocument(response.text, {
-      sourceUrl: response.finalUrl,
-      allowedOfficialDomain: officialDomain,
-      contentType,
-      parser: profile.parser,
-      parserConfig: profile.parserConfig,
-      checkedAt
-    }, response.finalUrl);
-    const backendItems = parseFetchedSourceItems(
-      response.text,
-      response.finalUrl,
-      profile.parser,
-      contentType,
-      profile.parserConfig
-    );
-    if (deviceItems.length === 0 || backendItems.length === 0) {
-      throw new Error(`CURATED_SOURCE_LAYOUT_INVALID:${source.universityId}:${contentType}`);
-    }
-    const deviceProjection = deviceItems.map(normalizedItemProjection);
-    const backendProjection = backendItems.map(normalizedItemProjection);
-    if (JSON.stringify(deviceProjection) !== JSON.stringify(backendProjection)) {
-      const mismatchIndex = deviceProjection.findIndex((item, index) => (
-        JSON.stringify(item) !== JSON.stringify(backendProjection[index])
-      ));
-      throw new Error(`CURATED_SOURCE_PARSER_DIVERGENCE:${source.universityId}:${contentType}:${mismatchIndex}`);
-    }
-    results.push({
-      universityId: source.universityId,
-      contentType,
-      sourceUrl,
-      finalUrl: response.finalUrl,
-      itemCount: deviceItems.length,
-      datedItemCount: deviceItems.filter((item) => item.publishedDate || item.publishedAt).length,
-      firstTitle: deviceItems[0]?.title
-    });
-  }
-  process.stdout.write(`${JSON.stringify({ status: "ok", checkedAt, results })}\n`);
+  }));
+  results.sort((left, right) => `${left.universityId}:${left.contentType}`.localeCompare(`${right.universityId}:${right.contentType}`));
+  const failed = results.filter(result => result.status === "failed").length;
+  process.stdout.write(`${JSON.stringify({ status: failed ? "failed" : "ok", checkedAt: checkedAt.toISOString(), checked: results.length, failed, results })}\n`);
+  if (failed) process.exitCode = 1;
 }
 
 void main().catch((error: unknown) => {

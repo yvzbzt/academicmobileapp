@@ -24,7 +24,7 @@ describe("AcademicSourceDiscoveryService", () => {
     }));
     expect(agri?.calendarUrl).toContain("2025-2026");
     expect(ankara).toEqual(expect.objectContaining({
-      announcementUrl: "https://oidb.ankara.edu.tr/gecmis-duyurular/",
+      announcementUrl: "https://oidb.ankara.edu.tr/category/duyurular/feed/",
       calendarUrl: "https://oidb.ankara.edu.tr/wp-content/uploads/sites/91/2026/06/2026-2027_Yili_Akademik_Takvimi-SON.pdf"
     }));
     expect(inferAcademicYear([agri?.calendarUrl ?? ""])).toBe("2025-2026");

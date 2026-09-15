@@ -133,6 +133,39 @@ describe("university content source profiles", () => {
     expect(await validate(dto)).toEqual([]);
   });
 
+  it.each(["rss", "auto"] as const)("clears persisted HTML selectors when a source switches to %s with an empty config", async (parser) => {
+    const feedUrl = "https://www.agu.edu.tr/duyurular/feed";
+    stubOutbound({
+      [feedUrl]: `<rss><channel><title>Üniversite duyuruları</title><item>
+        <title>2026-2027 Ders Kayıt Duyurusu</title><link>https://www.agu.edu.tr/duyuru/ders-kayit</link>
+        <pubDate>Tue, 15 Sep 2026 09:00:00 +0000</pubDate>
+      </item></channel></rss>`,
+    }, "application/rss+xml");
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(catalog(), repository);
+    const first = await service.saveUniversityContentSourceProfileForAdmin({ kind: "global" }, university.id, "announcement", {
+      sourceUrl: "https://www.agu.edu.tr/duyurular",
+      parser: "html",
+      parserConfig: { itemSelector: ".obsolete-card", titleSelector: ".obsolete-title" },
+      status: "inactive",
+    });
+    const original = "source" in first ? first.source : null;
+    expect(original?.parserConfig?.itemSelector).toBe(".obsolete-card");
+    const update = { sourceUrl: feedUrl, parser, parserConfig: {}, status: "inactive" as const };
+    expect(await validate(plainToInstance(UpdateUniversityContentSourceProfileDto, update))).toEqual([]);
+    const saved = await service.saveUniversityContentSourceProfileForAdmin({ kind: "global" }, university.id, "announcement", update);
+    const updated = "source" in saved ? saved.source : null;
+    expect(updated?.parserConfig).toEqual({});
+    expect(updated?.sourceDefinitionVersion).not.toBe(original?.sourceDefinitionVersion);
+    expect((await repository.findSourceById(updated!.id))?.parserConfig).toEqual({});
+    await expect(service.previewSourceByIdForAdmin({ kind: "global" }, updated!.id)).resolves.toMatchObject({
+      status: "healthy",
+      parsedItemCount: 1,
+      acceptedItemCount: 1,
+      samples: [expect.objectContaining({ title: "2026-2027 Ders Kayıt Duyurusu" })],
+    });
+  });
+
   it("uses configured selectors to extract the exact title, URL, date and body", () => {
     const items = parseConfiguredAnnouncementHtml(`
       <nav><a href="/menu">Menü</a></nav>
@@ -271,6 +304,15 @@ describe("university content source profiles", () => {
       healthStatus: "healthy",
       itemCount: 1
     });
+  });
+
+  it("does not mark calendar navigation controls healthy in the admin device preview", async () => {
+    stubOutbound({ "https://www.agu.edu.tr/duyurular": '<main><article class="duyuru"><a href="/takvimli.php?view=week">Bugün</a><a href="/author/editor">Editor</a></article></main>' });
+    const repository = new InMemoryAnnouncementRepository();
+    const service = new AnnouncementIngestionService(catalog(), repository);
+    const saved = await service.saveUniversityContentSourceProfileForAdmin({ kind: "global" }, university.id, "announcement", { sourceUrl: "https://www.agu.edu.tr/duyurular", parser: "auto", status: "inactive" });
+    const sourceId = "source" in saved ? saved.source.id : "";
+    await expect(service.previewSourceByIdForAdmin({ kind: "global" }, sourceId)).resolves.toMatchObject({ status: "degraded", acceptedItemCount: 0, samples: [] });
   });
 
   it("applies calendar selectors to HTML calendar listings", async () => {

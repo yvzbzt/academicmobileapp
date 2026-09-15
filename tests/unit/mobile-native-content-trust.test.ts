@@ -519,7 +519,8 @@ describe("mobile native content-state wiring", () => {
     expect(screensSource).toContain("refreshing={contentFeedLoading && contentFeedHasRetainedData}");
     expect(contentSource).toContain("const synced = await syncDeviceContent({");
     expect(contentSource).toContain("`/announcements/my/source-manifest${knownVersion ?");
-    expect(contentSource).toContain("items: result.collection.items.slice(0, boundedLimit)");
+    expect(contentSource).toContain("return result.collection;");
+    expect(contentSource).not.toContain("result.collection.items.slice(");
     expect(contentSource).toContain("`/announcements/yok/trusted?limit=${limitOverride}`");
     expect(contentSource).toContain("const nextLimit = nextContentFeedLimit(contentFeedLimit)");
     expect(contentSource).toContain("contentFeedRequestCoordinatorRef.current.beginRefresh()");

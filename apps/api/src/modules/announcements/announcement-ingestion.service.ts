@@ -805,13 +805,14 @@ export class AnnouncementIngestionService {
           })
         : missingSourceOwnerDecision(source, source.sourceUrl, "registration");
       if (!registration.allowed) throw new Error(registration.reasonCode);
-      const snapshot = await fetchSourceSnapshot(
+      const snapshot = await fetchDeviceRuntimeSourceSnapshot(
         source.sourceUrl,
         source.parser,
         readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
         { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) },
         {},
         source.contentType,
+        testedAt,
         source.parserConfig
       );
       const publication = evaluateSourceAuthority(authority!.context, {

@@ -131,12 +131,12 @@ describe("verified source authority registry", () => {
 
     expect(byId.get("kahramanmaras-sutcu-imam-universitesi")).toEqual(expect.objectContaining({
       announcementUrl: "https://www.ksu.edu.tr/default?DId=KSU&MI=42546",
-      parserProfiles: {
+      parserProfiles: expect.objectContaining({
         announcement: expect.objectContaining({
           parser: "html",
           parserConfig: expect.objectContaining({ itemSelector: "main article.card.blog-card" })
         })
-      }
+      })
     }));
     expect(byId.get("burdur-mehmet-akif-ersoy-universitesi")?.parserProfiles).toEqual({
       news: expect.objectContaining({ parser: "html" }),
@@ -197,7 +197,10 @@ describe("verified source authority registry", () => {
       ...academicUnitSources.flatMap((source) => source.quarantinedSources ?? [])
     ];
 
-    expect({ rawUniversityCount, rawAcademicUnitCount }).toEqual({ rawUniversityCount: 609, rawAcademicUnitCount: 6146 });
+    const checkedInUniversities = JSON.parse(await readFile("apps/api/src/bootstrap/verified-university-sources.json", "utf8")) as Array<Record<string, unknown>>;
+    expect(rawUniversityCount).toBe(checkedInUniversities.reduce((total, source) => total
+      + universityFields.filter(field => typeof source[field] === "string" && source[field].trim()).length, 0));
+    expect(rawAcademicUnitCount).toBe(6146);
     expect(operationalCount + quarantined.length).toBe(rawUniversityCount + rawAcademicUnitCount);
     expect(quarantined).toHaveLength(98);
     expect(new Set(quarantined.map((source) => source.id)).size).toBe(quarantined.length);

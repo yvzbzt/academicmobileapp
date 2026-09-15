@@ -39,13 +39,11 @@ export interface DeviceContentSyncOptions {
   isCurrent?: () => boolean;
 }
 
-const MAX_CACHED_DEVICE_CONTENT_ITEMS = 100;
-
 export async function syncDeviceContent(options: DeviceContentSyncOptions): Promise<DeviceContentSyncResult> {
   const now = options.now ?? new Date();
   const cached = await readDeviceContentCache(options.ownerId, { storage: options.storage, now });
   assertCurrent(options);
-  if (!options.force && cached && Date.parse(cached.revalidateAfter) > now.getTime()) {
+  if (!options.force && cached && !cached.snapshotIncomplete && Date.parse(cached.revalidateAfter) > now.getTime()) {
     const pending = await readPendingDeviceContentNotifications(options.ownerId, { storage: options.storage, now });
     assertCurrent(options);
     return {
@@ -80,8 +78,11 @@ export async function syncDeviceContent(options: DeviceContentSyncOptions): Prom
   const currentIds = new Set(manifest.sources.map((source) => source.id));
   const sourceById = new Map(manifest.sources.map((source) => [source.id, source]));
   const currentRecipes = new Map(manifest.sources.map((source) => [source.id, recipeRevision(source)]));
+  const previousFailedIds = new Set(cached?.failedSourceIds ?? []);
   const unchangedIds = new Set(manifest.sources
-    .filter((source) => cached?.sourceRevisions[source.id] === currentRecipes.get(source.id))
+    .filter((source) => !cached?.snapshotIncomplete
+      && !previousFailedIds.has(source.id)
+      && cached?.sourceRevisions[source.id] === currentRecipes.get(source.id))
     .map((source) => source.id));
   const fetchBlockedIds = new Set(manifest.sources.filter((source) => !source.fetchAllowed).map((source) => source.id));
   const retained = (cached?.items ?? [])
@@ -123,10 +124,6 @@ export async function syncDeviceContent(options: DeviceContentSyncOptions): Prom
     ...failedFallback,
   ]);
   merged.items.sort(compareDeviceContentRecency);
-  const cacheItems = merged.items.slice(0, MAX_CACHED_DEVICE_CONTENT_ITEMS);
-  const allSourcesRefetched = manifest.sources.every((source) => fetched.has(source.id));
-  const snapshotIncomplete = merged.items.length > MAX_CACHED_DEVICE_CONTENT_ITEMS
-    || Boolean(cached?.snapshotIncomplete && !allSourcesRefetched);
   const sourceRevisions: Record<string, string> = {};
   const sourceValidUntil = Object.fromEntries(manifest.sources.map((source) => [source.id, source.validUntil]));
   for (const source of manifest.sources) {
@@ -144,11 +141,13 @@ export async function syncDeviceContent(options: DeviceContentSyncOptions): Prom
     ownerId: options.ownerId,
     manifestVersion: manifest.version,
     revalidateAfter,
-    snapshotIncomplete,
+    // Only legacy snapshots were globally truncated. After one migration pass,
+    // retry failed sources individually instead of refetching every healthy one.
+    snapshotIncomplete: false,
     sourceRevisions,
     sourceValidUntil,
     failedSourceIds: [...failedSourceIds].sort(),
-    items: cacheItems,
+    items: merged.items,
     storedAt: now.toISOString(),
   };
   const pending = await recordDeviceContentDiscovery({
@@ -164,7 +163,7 @@ export async function syncDeviceContent(options: DeviceContentSyncOptions): Prom
   return {
     collection: {
       ...merged,
-      hasMore: snapshotIncomplete,
+      hasMore: false,
       state: failedSourceIds.length > 0 ? "partial" : merged.state,
     },
     manifest,

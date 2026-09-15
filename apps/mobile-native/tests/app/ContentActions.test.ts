@@ -118,6 +118,23 @@ describe("device content notification wiring", () => {
     );
     expect(incompleteCollection.hasMore).toBe(true);
 
+    const completeItems = Array.from({ length: 180 }, (_, index) => ({
+      ...item,
+      id: `device-source-${Math.floor(index / 60)}-${index}`,
+      sourceId: `source-${Math.floor(index / 60)}`,
+      title: index === 179 ? "Yalova undated announcement" : `Recent item ${index}`,
+    }));
+    jest.mocked(syncDeviceContent).mockResolvedValueOnce({
+      ...syncResult(item),
+      collection: { items: completeItems, state: "fresh", omittedCount: 0, duplicateCount: 0, rawItemCount: 180, hasMore: false },
+    });
+    const completeCollection = await actions.loadDeviceAnnouncementCollection(
+      "test-token", ownerSnapshot, 20, undefined, undefined, false,
+    );
+    expect(completeCollection.items).toHaveLength(180);
+    expect(completeCollection.items[179]?.title).toBe("Yalova undated announcement");
+    expect(completeCollection.hasMore).toBe(false);
+
     const excludedCategoryItem = {
       ...item,
       id: "device-source-1-2222222222222222",

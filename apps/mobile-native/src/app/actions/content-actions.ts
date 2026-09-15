@@ -164,7 +164,7 @@ export function createContentActions(
   async function loadDeviceAnnouncementCollection(
     token: string,
     ownerSnapshot: NonNullable<ReturnType<typeof accountGuardRef.current.capture>>,
-    limit: number,
+    _limit: number,
     signal: AbortSignal | undefined,
     requestGeneration: number | undefined,
     force: boolean,
@@ -206,13 +206,9 @@ export function createContentActions(
       }
       return synced;
     });
-    const boundedLimit = Math.max(1, Math.min(limit, CONTENT_FEED_MAX_LIMIT));
-    return {
-      ...result.collection,
-      items: result.collection.items.slice(0, boundedLimit),
-      hasMore: result.collection.hasMore === true || result.collection.items.length > boundedLimit,
-      rawItemCount: result.collection.items.length,
-    };
+    // Device recipes already bound each source snapshot. Keep every source in
+    // the searchable collection; FlatList virtualizes the rendered rows.
+    return result.collection;
   }
 
   async function loadYokAnnouncements(
