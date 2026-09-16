@@ -3,7 +3,7 @@
     "name": "Akademik Takvim",
     "slug": "academic-pulse-native",
     "scheme": "academicpulse",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -39,7 +39,7 @@
     "android": {
       "package": "com.anssoft.akademiktakvim",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 16,
+      "versionCode": 18,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#EEF5FF"

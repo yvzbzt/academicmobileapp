@@ -360,7 +360,7 @@ function ProfileSettingsPreviewExperience({
       Profile: (
         <ProfileOverviewScreen
           academicSummary={academicSummary}
-          appVersion="0.1.4"
+          appVersion="0.1.5"
           email={profileEmail}
           fullName={profileFullName}
           googleAccountEmail={incomplete ? undefined : profileEmail}

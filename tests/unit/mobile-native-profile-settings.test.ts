@@ -395,8 +395,8 @@ describe("Phase 10 Profile and Settings contracts", () => {
       };
     };
     expect(appConfig.expo.name).toBe("Akademik Takvim");
-    expect(appConfig.expo.version).toBe("0.1.4");
-    expect(appConfig.expo.android.versionCode).toBe(16);
+    expect(appConfig.expo.version).toBe("0.1.5");
+    expect(appConfig.expo.android.versionCode).toBe(18);
     expect(appConfig.expo.userInterfaceStyle).toBe("light");
     expect(appConfig.expo.splash.backgroundColor).toBe("#ffffff");
     expect(appConfig.expo.splash.dark.backgroundColor).toBe("#ffffff");
@@ -405,8 +405,8 @@ describe("Phase 10 Profile and Settings contracts", () => {
       new URL("../../apps/mobile-native/android/app/build.gradle", import.meta.url),
       "utf8",
     );
-    expect(androidBuild).toContain("versionCode 16");
-    expect(androidBuild).toContain('versionName "0.1.4"');
+    expect(androidBuild).toContain("versionCode 18");
+    expect(androidBuild).toContain('versionName "0.1.5"');
 
     const androidStrings = readFileSync(
       new URL("../../apps/mobile-native/android/app/src/main/res/values/strings.xml", import.meta.url),
