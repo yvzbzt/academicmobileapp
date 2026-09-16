@@ -2,7 +2,7 @@ import { NativeModules, Platform } from "react-native";
 import { type NotificationPreferencePayload } from "./app-types";
 
 // Sourced from app.json; kept visible here so Profile never reports a package-only placeholder.
-export const NATIVE_APP_VERSION = "0.1.5";
+export const NATIVE_APP_VERSION = "0.1.6";
 
 export const DEFAULT_REMINDER_OFFSETS = [7, 1, 0];
 
