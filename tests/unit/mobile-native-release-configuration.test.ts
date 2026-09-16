@@ -20,6 +20,15 @@ describe("mobile-native release configuration", () => {
       { configureAndroidBackup: true, faceIDPermission: false }
     ]);
     expect(appConfig.expo?.plugins).toContain("./plugins/with-notification-manifest-overrides.cjs");
+    expect(appConfig.expo?.plugins).toContainEqual([
+      "expo-build-properties",
+      {
+        android: {
+          extraProguardRules: "-dontwarn com.gemalto.jp2.JP2Decoder"
+        },
+        ios: { useFrameworks: "static" }
+      }
+    ]);
     const notificationOverride = readFileSync(
       resolve("apps/mobile-native/plugins/with-notification-manifest-overrides.cjs"),
       "utf8"

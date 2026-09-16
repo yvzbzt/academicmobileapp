@@ -65,6 +65,9 @@
       [
         "expo-build-properties",
         {
+          "android": {
+            "extraProguardRules": "-dontwarn com.gemalto.jp2.JP2Decoder"
+          },
           "ios": {
             "useFrameworks": "static"
           }
