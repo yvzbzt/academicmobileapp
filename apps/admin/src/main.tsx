@@ -47,6 +47,8 @@ import {
   sourceHealthFailureLabel,
   type AdminSourceHealthInput
 } from "./source-health-alerts";
+import { buildSourceHealthTree, type ScopedHealthAlert } from "./source-health-tree";
+import { AcademicSourceWorkbench, readAllAdminSources } from "./academic-source-workbench";
 import {
   adminRoles,
   canAccessAdminRoute,
@@ -63,11 +65,12 @@ const LOGOUT_REVOCATION_TIMEOUT_MS = 2_000;
 interface UniversityRecord { id: string; name: string; city: string; type: string; status: string; websiteUrl?: string; announcementUrl?: string; academicCalendarUrl?: string; emailDomains?: string[]; }
 interface FacultyRecord { id: string; universityId?: string; name: string; websiteUrl?: string; announcementUrl?: string; courseScheduleUrl?: string; examScheduleUrl?: string; }
 interface DepartmentRecord { id: string; universityId?: string; facultyId?: string; name: string; websiteUrl?: string; announcementUrl?: string; courseScheduleUrl?: string; examScheduleUrl?: string; }
-interface AnnouncementSourceRecord {
+export interface AnnouncementSourceRecord {
   id: string;
   scopeType: "university" | "faculty" | "department";
   scopeId: string;
   ownerUniversityId?: string;
+  ownerFacultyId?: string;
   sourceName: string;
   sourceUrl: string;
   contentType?: "announcement" | "news" | "event";
@@ -119,7 +122,7 @@ interface AnnouncementIngestionPreview {
   sampleTitles: string[];
   error?: string;
 }
-interface AnnouncementSourcePreview {
+export interface AnnouncementSourcePreview {
   sourceId: string;
   sourceName: string;
   sourceUrl: string;
@@ -143,6 +146,13 @@ interface AnnouncementSourcePreview {
   error?: string;
 }
 type UniversityContentSourceType = "announcement" | "news" | "event" | "academic_calendar";
+export interface SourceCorrectionTarget {
+  universityId: string;
+  universityName?: string;
+  sourceId: string;
+  contentType: UniversityContentSourceType;
+  problem?: string;
+}
 interface UniversitySourceProfileSlot {
   contentType: UniversityContentSourceType;
   suggestedUrl?: string;
@@ -469,23 +479,6 @@ const sourceHealthLabels: Record<NonNullable<AnnouncementSourceRecord["healthSta
   failed: "Başarısız"
 };
 
-function displayedSourceHealthStatus(source: AnnouncementSourceRecord): string {
-  return source.healthProbeStatus ?? source.healthProbe?.healthStatus ?? source.healthStatus ?? "pending";
-}
-
-function displayedSourceHealthLabel(source: AnnouncementSourceRecord): string {
-  const status = displayedSourceHealthStatus(source);
-  return sourceHealthLabels[status as keyof typeof sourceHealthLabels] ?? status;
-}
-
-function displayedSourceHealthCheckedAt(source: AnnouncementSourceRecord): string | undefined {
-  return source.lastHealthProbeAt ?? source.healthProbe?.lastCheckedAt ?? source.lastCheckedAt;
-}
-
-function displayedSourceHealthProblem(source: AnnouncementSourceRecord): string | undefined {
-  return sourceHealthFailureLabel(source.healthProbeFailureCode ?? source.healthProbe?.lastError ?? source.lastError);
-}
-
 const sourceTrustLabels: Record<string, string> = {
   trusted: "Güvenilir",
   rejected: "Reddedildi",
@@ -593,6 +586,27 @@ const auditActionLabels: Record<string, string> = {
 function routeFromHash(): AdminRoute {
   const candidate = window.location.hash.replace("#/", "").replace("#", "").split("?")[0] as AdminRoute;
   return routes.some((route) => route.id === candidate) ? candidate : "dashboard";
+}
+
+function sourceCorrectionTargetFromHash(): SourceCorrectionTarget | undefined {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (!hash.startsWith("sources?")) return undefined;
+  const params = new URLSearchParams(hash.slice("sources?".length));
+  const universityId = params.get("universityId") ?? "";
+  const sourceId = params.get("sourceId") ?? "";
+  const contentType = params.get("contentType") as UniversityContentSourceType | null;
+  if (!universityId || !sourceId || !contentType || !universityContentSourceTypes.includes(contentType)) return undefined;
+  return { universityId, sourceId, contentType };
+}
+
+function sourceCorrectionHash(target: SourceCorrectionTarget): string {
+  const params = new URLSearchParams({
+    fix: "source",
+    universityId: target.universityId,
+    sourceId: target.sourceId,
+    contentType: target.contentType
+  });
+  return `#/sources?${params.toString()}`;
 }
 
 function handoffTokenFromHash(): string {
@@ -730,10 +744,6 @@ function sourceObservedTrustStatus(source: AnnouncementSourceRecord): "trusted" 
   return "quarantined";
 }
 
-function sourceTrustStatus(source: AnnouncementSourceRecord): "trusted" | "rejected" | "quarantined" | "pending_review" {
-  return source.approvalPending === true ? "pending_review" : sourceObservedTrustStatus(source);
-}
-
 type PanelStateProps = {
   kind: "loading" | "error" | "empty";
   text: string;
@@ -840,7 +850,6 @@ function App() {
   const currentRole = session?.user.role === "student" ? undefined : session?.user.role;
   const visibleRoutes = routes.filter((route) => canAccessAdminRoute(currentRole, route.id));
   const renderedRoute = canAccessAdminRoute(currentRole, activeRoute) ? activeRoute : "dashboard";
-  const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
   const activeRouteConfig = routes.find((route) => route.id === renderedRoute) ?? routes[0]!;
 
   function transitionSession(nextSession: AuthSession | null) {
@@ -911,7 +920,6 @@ function App() {
     }
     if (renderedRoute === "sources") {
       if (!universities.data && !universities.loading) void loadUniversities();
-      if (!announcementSources.data && !announcementSources.loading) void loadAnnouncementSources();
       if (!sourceProfiles.data && !sourceProfiles.loading) void loadSourceProfiles();
       if (!sourceCoverage.data && !sourceCoverage.loading) void loadSourceCoverage();
       if (!reviewItems.data && !reviewItems.loading) void loadReviewItems();
@@ -1044,7 +1052,10 @@ function App() {
     const requestGeneration = sessionGenerationRef.current;
     let response: Response;
     try {
-      response = await fetch(`${apiBaseUrl}${path}`, { ...options, headers: { "Content-Type": "application/json", ...headers, ...(options.headers ?? {}) } });
+      const requestHeaders = new Headers(options.headers);
+      if (!requestHeaders.has("Content-Type")) requestHeaders.set("Content-Type", "application/json");
+      if (token) requestHeaders.set("Authorization", `Bearer ${token}`);
+      response = await fetch(`${apiBaseUrl}${path}`, { ...options, headers: requestHeaders });
     } catch (error) {
       if (requestGeneration !== sessionGenerationRef.current) throw new StaleAdminSessionRequestError();
       throw error;
@@ -1116,7 +1127,16 @@ function App() {
 
   async function loadUniversities() {
     if (!ensureToken()) return;
-    await runAction(setUniversities, () => request<UniversityRecord[]>("/universities?includeInactive=true&limit=500&offset=0"));
+    await runAction(setUniversities, async () => {
+      const all = new Map<string, UniversityRecord>();
+      for (let offset = 0; ; offset += 500) {
+        const page = await request<UniversityRecord[]>(`/universities?includeInactive=true&limit=500&offset=${offset}`);
+        const previousSize = all.size;
+        page.forEach((unit) => all.set(unit.id, unit));
+        if (page.length < 500) return [...all.values()];
+        if (all.size === previousSize) throw new Error("Üniversite listesi tamamlanamadı; sayfalama ilerlemiyor.");
+      }
+    });
   }
 
   async function loadSourceProfiles() {
@@ -1148,6 +1168,7 @@ function App() {
       }
     );
     await loadSourceProfiles();
+    setAnnouncementSources({ loading: false, data: await readAllAdminSources(request) });
     setMessage(`${contentType === "academic_calendar" ? "Akademik takvim" : contentTypeLabels[contentType]} kaynak profili kaydedildi`);
   }
 
@@ -1163,6 +1184,7 @@ function App() {
     );
     setSourceTestPreviews((current) => ({ ...current, [`${universityId}\u0000${contentType}`]: preview }));
     await loadSourceProfiles();
+    setAnnouncementSources({ loading: false, data: await readAllAdminSources(request) });
     setMessage(`Kaynak testi tamamlandı: ${preview.acceptedItemCount}/${preview.parsedItemCount} içerik kabul edildi`);
   }
 
@@ -1240,6 +1262,12 @@ function App() {
     setAnnouncementSources({ loading: true });
     setSourceLoadProgress("Filtrelenen kaynak sayfası yükleniyor...");
     try {
+      if (!query.search && !query.trustStatus && !query.contentType && !query.scopeType && query.offset === 0) {
+        const allSources = await readAllAdminSources(request);
+        setAnnouncementSourcesHasMore(false);
+        setAnnouncementSources({ loading: false, data: allSources });
+        return;
+      }
       const payload = await request<AnnouncementSourceRecord[] | { items?: AnnouncementSourceRecord[]; hasMore?: boolean }>(
         `/admin/announcements/sources?${params}`
       );
@@ -1968,6 +1996,9 @@ function App() {
   }
 
   const pageProps = {
+    request,
+    sessionGeneration,
+    onSourcesChanged: (sources: AnnouncementSourceRecord[]) => setAnnouncementSources({ loading: false, data: sources }),
     hasToken,
     role: currentRole,
     universities,
@@ -2925,19 +2956,57 @@ function SourceHealthInbox(props: any) {
       }];
     })
   );
-  const alerts = buildSourceHealthAlerts([...profileSources, ...listedSources], universityNames);
-  const groups = new Map<string, { universityId: string; universityName: string; alerts: typeof alerts }>();
-  for (const alert of alerts) {
-    const key = `${alert.universityName}\u0000${alert.universityId}`;
-    const group = groups.get(key) ?? { universityId: alert.universityId, universityName: alert.universityName, alerts: [] };
-    group.alerts.push(alert);
-    groups.set(key, group);
-  }
+  const healthSources: AdminSourceHealthInput[] = [...profileSources, ...listedSources];
+  const alerts = buildSourceHealthAlerts(healthSources, universityNames);
+  const coverageResponse = props.sourceCoverage.data as SourceCoverageResponse | undefined;
+  const facultyUnits = [
+    ...(props.faculties.data ?? []).map((faculty: FacultyRecord) => [faculty.id, faculty.name] as const),
+    ...(coverageResponse?.items ?? []).map((item) => [item.facultyId, item.facultyName] as const)
+  ].map(([id, name]) => ({ id, name }));
+  const departmentUnits = [
+    ...(props.departments.data ?? []).map((department: DepartmentRecord) => ({
+      id: department.id,
+      name: department.name,
+      facultyId: department.facultyId ?? ""
+    })),
+    ...(coverageResponse?.items ?? [])
+    .filter((item) => item.departmentId && item.departmentName)
+    .map((item) => ({ id: item.departmentId!, name: item.departmentName!, facultyId: item.facultyId }))
+  ].filter((department) => department.facultyId);
+  const groups = buildSourceHealthTree(alerts, healthSources, facultyUnits, departmentUnits);
   const loading = props.sourceProfiles.loading || props.announcementSources.loading;
   const hasSourceData = Boolean(profileResponse || props.announcementSources.data);
   const loadError = props.sourceProfiles.error ?? props.announcementSources.error;
   const unhealthyCount = alerts.filter((alert) => alert.severity !== "stale").length;
   const staleCount = alerts.filter((alert) => alert.stale).length;
+  const renderHealthAlert = (alert: ScopedHealthAlert) => (
+    <article className={`sourceHealthAlert severity-${alert.severity}`} role="listitem" key={alert.sourceId}>
+      <div className="sourceHealthAlertIdentity">
+        {alert.sourceUrl
+          ? <a href={alert.sourceUrl} target="_blank" rel="noreferrer"><strong>{alert.sourceName}</strong></a>
+          : <strong>{alert.sourceName}</strong>}
+        <span className="sourceHealthScope">{contentTypeLabels[alert.contentType ?? "announcement"] ?? alert.contentType ?? "İçerik kaynağı"} · {alert.scopeDescription}</span>
+      </div>
+      <p><strong>Problem</strong><span>{alert.problem}</span></p>
+      <time dateTime={alert.lastProbeAt}>{alert.lastProbeAt ? `Son kontrol: ${new Date(alert.lastProbeAt).toLocaleString("tr-TR")}` : "Son kontrol: yapılmadı"}</time>
+      <div className="sourceHealthAlertActions">
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={alert.universityId === "unknown" || !universityContentSourceTypes.includes((alert.contentType ?? "announcement") as UniversityContentSourceType)}
+          onClick={() => props.openSourceCorrection({
+            universityId: alert.universityId,
+            universityName: alert.universityName,
+            sourceId: alert.sourceId,
+            contentType: (alert.contentType ?? "announcement") as UniversityContentSourceType,
+            problem: alert.problem
+          } satisfies SourceCorrectionTarget)}
+        >
+          <Pencil size={16} /> Düzelt
+        </button>
+      </div>
+    </article>
+  );
 
   return (
     <section className="panel wide sourceHealthInbox" aria-labelledby="source-health-inbox-title" aria-live="polite">
@@ -2955,7 +3024,7 @@ function SourceHealthInbox(props: any) {
       {hasSourceData && (
         <>
           <div className="sourceHealthSummary" aria-label="Kaynak sağlık uyarısı özeti">
-            <span><strong>{groups.size.toLocaleString("tr-TR")}</strong> Üniversite</span>
+            <span><strong>{groups.length.toLocaleString("tr-TR")}</strong> Üniversite</span>
             <span><strong>{alerts.length.toLocaleString("tr-TR")}</strong> Kaynak</span>
             <span><strong>{unhealthyCount.toLocaleString("tr-TR")}</strong> Hatalı</span>
             <span><strong>{staleCount.toLocaleString("tr-TR")}</strong> Gecikmiş kontrol</span>
@@ -2968,25 +3037,69 @@ function SourceHealthInbox(props: any) {
             </div>
           )}
           <div className="sourceHealthGroups">
-            {[...groups.values()].map((group) => (
-              <details className="sourceHealthGroup" key={`${group.universityId}:${group.universityName}`} open={groups.size === 1}>
+            {groups.map((group) => (
+              <details className="sourceHealthGroup" key={group.id} open={groups.length === 1}>
                 <summary>
-                  <span><Building2 size={17} aria-hidden="true" /><strong>{group.universityName}</strong><small>{group.universityId}</small></span>
-                  <span className="statusBadge status-degraded">{group.alerts.length.toLocaleString("tr-TR")} uyarı</span>
+                  <span>
+                    <Building2 size={17} aria-hidden="true" />
+                    <span><strong>{group.name}</strong><small>{group.id}</small></span>
+                  </span>
+                  <span className="statusBadge status-degraded">{group.alertCount.toLocaleString("tr-TR")} uyarı</span>
                 </summary>
-                <div className="sourceHealthAlertList" role="list">
-                  {group.alerts.map((alert) => (
-                    <article className={`sourceHealthAlert severity-${alert.severity}`} role="listitem" key={alert.sourceId}>
-                      <div className="sourceHealthAlertIdentity">
-                        {alert.sourceUrl
-                          ? <a href={alert.sourceUrl} target="_blank" rel="noreferrer"><strong>{alert.sourceName}</strong></a>
-                          : <strong>{alert.sourceName}</strong>}
-                        <span>{contentTypeLabels[alert.contentType ?? ""] ?? alert.contentType ?? "İçerik kaynağı"} · {alert.sourceId}</span>
+                <div className="sourceHealthScopeSections">
+                  {group.universityAlerts.length > 0 && (
+                    <details className="sourceHealthScopeGroup scope-university">
+                      <summary>
+                        <span><strong>Üniversite geneli</strong><small>Merkez kaynakları</small></span>
+                        <span className="statusBadge status-degraded">{group.universityAlerts.length.toLocaleString("tr-TR")}</span>
+                      </summary>
+                      <div className="sourceHealthAlertList" role="list">{group.universityAlerts.map(renderHealthAlert)}</div>
+                    </details>
+                  )}
+                  {group.faculties.length > 0 && (
+                    <section className="sourceHealthFacultySection" aria-label={`${group.name} fakülteleri`}>
+                      <header><strong>Fakülteler</strong><span>{group.faculties.length.toLocaleString("tr-TR")} fakülte</span></header>
+                      <div className="sourceHealthFacultyFamilies">
+                        {group.faculties.map((faculty) => {
+                          const facultyAlertCount = faculty.alerts.length
+                            + faculty.departments.reduce((total, department) => total + department.alerts.length, 0);
+                          return (
+                            <details className="sourceHealthFacultyFamily" key={faculty.id}>
+                          <summary>
+                            <span>
+                              <strong>{faculty.name}</strong>
+                              <small>{faculty.departments.length.toLocaleString("tr-TR")} bölüm · {faculty.alerts.length.toLocaleString("tr-TR")} fakülte kaynağı</small>
+                            </span>
+                            <span className="statusBadge status-degraded">{facultyAlertCount.toLocaleString("tr-TR")}</span>
+                          </summary>
+                          <div className="sourceHealthFacultyBody">
+                            {faculty.alerts.length > 0 && (
+                              <section className="sourceHealthFacultySources" aria-label={`${faculty.name} kaynakları`}>
+                                <header><strong>Fakülte kaynakları</strong><span>{faculty.alerts.length.toLocaleString("tr-TR")} uyarı</span></header>
+                                <div className="sourceHealthAlertList" role="list">{faculty.alerts.map(renderHealthAlert)}</div>
+                              </section>
+                            )}
+                            {faculty.departments.length > 0 && (
+                              <section className="sourceHealthDepartmentList" aria-label={`${faculty.name} bölümleri`}>
+                                <header><strong>Bölümler</strong><span>{faculty.departments.length.toLocaleString("tr-TR")} bölüm</span></header>
+                                {faculty.departments.map((department) => (
+                                  <details className="sourceHealthDepartmentGroup" key={department.id}>
+                                    <summary>
+                                      <strong>{department.name}</strong>
+                                      <span className="statusBadge status-degraded">{department.alerts.length.toLocaleString("tr-TR")}</span>
+                                    </summary>
+                                    <div className="sourceHealthAlertList" role="list">{department.alerts.map(renderHealthAlert)}</div>
+                                  </details>
+                                ))}
+                              </section>
+                            )}
+                          </div>
+                            </details>
+                          );
+                        })}
                       </div>
-                      <p><strong>Problem</strong><span>{alert.problem}</span></p>
-                      <time dateTime={alert.lastProbeAt}>{alert.lastProbeAt ? `Son kontrol: ${new Date(alert.lastProbeAt).toLocaleString("tr-TR")}` : "Son kontrol: yapılmadı"}</time>
-                    </article>
-                  ))}
+                    </section>
+                  )}
                 </div>
               </details>
             ))}
@@ -2997,77 +3110,6 @@ function SourceHealthInbox(props: any) {
   );
 }
 
-function UniversitySourceWorkbench(props: any) {
-  const [search, setSearch] = useState("");
-  const [selectedUniversityId, setSelectedUniversityId] = useState("");
-  const response = props.sourceProfiles.data as UniversitySourceProfilesResponse | undefined;
-  const universities = response?.universities ?? [];
-  const normalizedSearch = search.trim().toLocaleLowerCase("tr-TR");
-  const filteredUniversities = universities.filter((university) => !normalizedSearch
-    || `${university.universityName}\u0000${university.city ?? ""}\u0000${university.universityId}`.toLocaleLowerCase("tr-TR").includes(normalizedSearch));
-  const selectedUniversity = universities.find((university) => university.universityId === selectedUniversityId);
-
-  return (
-    <section className="panel wide universitySourceWorkbench" aria-label="208 üniversite kaynak çalışma alanı">
-      <div className="panelHeader">
-        <div>
-          <h2><Building2 size={20} /> 208 Üniversite Kaynak Haritası</h2>
-          <p className="panelSub">Üniversiteyi seçin; çekilen URL'yi, site yapısını, parserı ve son test sonucunu tek yerde görün ve değiştirin.</p>
-        </div>
-        <div className="sourceActions">
-          {response && <span className="statusBadge">{response.summary.returnedUniversities.toLocaleString("tr-TR")} üniversite · {response.summary.returnedSourceSlots.toLocaleString("tr-TR")} kaynak alanı</span>}
-          <button className="btn btn-secondary" type="button" onClick={props.loadSourceProfiles} disabled={props.sourceProfiles.loading}><RefreshCcw size={16} /> Haritayı Yenile</button>
-        </div>
-      </div>
-      {props.sourceProfiles.loading && <PanelState kind="loading" text="208 üniversite ve 832 kaynak alanı yükleniyor..." />}
-      {props.sourceProfiles.error && <PanelState kind="error" text={props.sourceProfiles.error} />}
-      {!props.sourceProfiles.loading && !props.sourceProfiles.error && universities.length === 0 && <PanelState kind="empty" text="Üniversite kaynak envanteri bulunamadı." />}
-      {universities.length > 0 && (
-      <div className="universitySourceLayout">
-        <aside className="universityPicker" aria-label="Üniversite listesi">
-          <label className="fieldLabel">Üniversite ara
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ad, şehir veya ID" maxLength={160} aria-label="208 üniversitede ara" />
-          </label>
-          <span className="universityPickerCount">{filteredUniversities.length.toLocaleString("tr-TR")} / {universities.length.toLocaleString("tr-TR")}</span>
-          <div className="universityPickerList">
-            {filteredUniversities.map((university) => (
-              <button
-                className={`universityPickerItem ${selectedUniversity?.universityId === university.universityId ? "selected" : ""}`}
-                type="button"
-                key={university.universityId}
-                aria-pressed={selectedUniversity?.universityId === university.universityId}
-                onClick={() => setSelectedUniversityId(university.universityId)}
-              >
-                <strong>{university.universityName}</strong>
-                <span>{university.city ?? "Şehir belirtilmedi"} · {university.universityId}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
-        <div className="universitySourceDetail">
-          {!selectedUniversity && <PanelState kind="empty" text="Kaynak yapısını görmek için soldan bir üniversite seçin." />}
-          {selectedUniversity && (
-            <>
-              <header className="selectedUniversityHeader">
-                <div><strong>{selectedUniversity.universityName}</strong><span>{selectedUniversity.city ?? "Şehir belirtilmedi"} · {selectedUniversity.universityId}</span></div>
-                {selectedUniversity.authority.homepageUrl && <a href={selectedUniversity.authority.homepageUrl} target="_blank" rel="noreferrer">Resmî siteyi aç</a>}
-              </header>
-              <div className="universitySourceCards">
-                {universityContentSourceTypes.map((contentType) => {
-                  const slot = selectedUniversity.slots.find((candidate) => candidate.contentType === contentType);
-                  return slot
-                    ? <UniversitySourceProfileCard key={contentType} university={selectedUniversity} slot={slot} {...props} />
-                    : <PanelState key={contentType} kind="error" text={`${contentType} kaynak alanı envanterde eksik.`} />;
-                })}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-      )}
-    </section>
-  );
-}
 
 function UniversitySourceProfileCard(props: any) {
   const university = props.university as UniversitySourceProfile;
@@ -3127,9 +3169,9 @@ function UniversitySourceProfileCard(props: any) {
         {preview && <SourceProfilePreview preview={preview} />}
         {!configured && <p className="inlineHint">Önizleme için önce URL ve parser yapısını kaydedin.</p>}
         <div className="sourceActions">
-          <button className="btn btn-primary" disabled={!props.hasToken}><Save size={16} /> Kaydet</button>
-          <button className="btn btn-secondary" type="button" onClick={() => props.previewUniversitySourceProfile(university.universityId, slot.contentType, false)} disabled={!props.hasToken || !configured}><Play size={16} /> Test Et / Önizle</button>
-          <button className="btn btn-secondary" type="button" onClick={() => props.previewUniversitySourceProfile(university.universityId, slot.contentType, true)} disabled={!props.hasToken || !configured}><Play size={16} /> Önizle ve Devreye Al</button>
+          <button className="btn btn-primary" disabled={!props.hasToken || props.sourceBusy}><Save size={16} /> Kaydet</button>
+          <button className="btn btn-secondary" type="button" onClick={() => props.previewUniversitySourceProfile(university.universityId, slot.contentType, false)} disabled={!props.hasToken || !configured || props.sourceDraftDirty || props.sourceBusy}><Play size={16} /> Test Et / Önizle</button>
+          <button className="btn btn-secondary" type="button" onClick={() => props.previewUniversitySourceProfile(university.universityId, slot.contentType, true)} disabled={!props.hasToken || !configured || props.sourceDraftDirty || props.sourceBusy}><Play size={16} /> Önizle ve Devreye Al</button>
         </div>
         {slot.adminPath && <span className="inlineHint">İşlenen takvimlerin yayın yönetimi: {slot.adminPath}</span>}
       </form>
@@ -3193,9 +3235,38 @@ function SourceParserConfigFields(props: {
 }
 
 function AnnouncementSourcesPage(props: any) {
-  const [scopeType, setScopeType] = useState<AnnouncementSourceRecord["scopeType"]>("university");
-  const query = props.announcementSourcesQuery as AnnouncementSourcesQuery;
-  const visibleSources = (props.announcementSources.data ?? []) as AnnouncementSourceRecord[];
+  const [correctionTarget, setCorrectionTarget] = useState<SourceCorrectionTarget | undefined>(sourceCorrectionTargetFromHash);
+
+  useEffect(() => {
+    const syncCorrectionRoute = () => setCorrectionTarget(sourceCorrectionTargetFromHash());
+    window.addEventListener("hashchange", syncCorrectionRoute);
+    window.addEventListener("popstate", syncCorrectionRoute);
+    return () => {
+      window.removeEventListener("hashchange", syncCorrectionRoute);
+      window.removeEventListener("popstate", syncCorrectionRoute);
+    };
+  }, []);
+
+  const openSourceCorrection = (target: SourceCorrectionTarget) => {
+    setCorrectionTarget(target);
+    window.history.pushState(null, "", `${window.location.pathname}${sourceCorrectionHash(target)}`);
+  };
+  const closeSourceCorrection = () => {
+    setCorrectionTarget(undefined);
+    window.history.pushState(null, "", `${window.location.pathname}#/sources`);
+  };
+
+  if (correctionTarget) {
+    return (
+      <section className="pageStack sourceCorrectionPage">
+        <div className="sourceCorrectionPageHeader">
+          <button className="btn btn-secondary" type="button" onClick={closeSourceCorrection}><RotateCcw size={16} /> Uyarılara geri dön</button>
+          <span>Bağımsız düzeltme ekranı</span>
+        </div>
+        <AcademicSourcePanel {...props} correctionTarget={correctionTarget} />
+      </section>
+    );
+  }
 
   return (
     <section className="pageStack">
@@ -3206,262 +3277,62 @@ function AnnouncementSourcesPage(props: any) {
           <span>Bu çalışma alanı mobil uygulamanın akademik kaynaklarını yönetir; tenant yönetim paneli değildir.</span>
         </div>
       </section>
-      <SourceHealthInbox {...props} />
-      <UniversitySourceWorkbench {...props} />
+      <SourceHealthInbox {...props} openSourceCorrection={openSourceCorrection} />
+      <AcademicSourcePanel {...props} />
       <SourceCoveragePanel {...props} />
       <ScheduleReviewPanel {...props} />
-      <section className="panel wide">
-        <div className="panelHeader">
-          <div>
-            <h2><Rss size={20} /> Yeni Resmî Kaynak</h2>
-            <p className="panelSub">Üniversite, fakülte veya bölümün resmî duyuru, haber ve etkinlik sayfasını inceleme kuyruğuna ekleyin. İnsan onayı olmadan öğrenciye yayınlanmaz.</p>
-          </div>
-          {canManageGlobalAdminData(props.role) && (
-            <button className="btn btn-secondary" type="button" onClick={props.provisionRegistrySources} disabled={!props.hasToken || props.announcementSources.loading}>
-              <RefreshCcw size={18} /> Resmî Kayıt Kaynaklarını Kuyruğa Al
-            </button>
-          )}
-        </div>
-        {canManageGlobalAdminData(props.role) && <p className="inlineHint"><ShieldCheck size={16} /> Bu işlem kaynakları yalnızca karantinaya alır; hiçbir kaynağı otomatik olarak güvenilir yapmaz.</p>}
-        <form className="gridForm sourceManagerForm" onSubmit={props.createAnnouncementSource}>
-          <select name="scopeType" value={scopeType} onChange={(event) => setScopeType(event.target.value as AnnouncementSourceRecord["scopeType"])} aria-label="Kaynak kapsamı">
-            <option value="university">Üniversite</option>
-            <option value="faculty">Fakülte</option>
-            <option value="department">Bölüm</option>
-          </select>
-          <select
-            name="universityId"
-            value={props.universityId}
-            onChange={(event) => {
-              props.setUniversityId(event.target.value);
-              props.setFacultyId("");
-              props.setDepartmentId("");
-              if (event.target.value) void props.loadFaculties(event.target.value);
-            }}
-            required
-            aria-label="Üniversite"
-          >
-            <option value="">Üniversite seçin</option>
-            {(props.universities.data ?? []).map((university: UniversityRecord) => <option value={university.id} key={university.id}>{university.name}</option>)}
-          </select>
-          <select
-            name="facultyId"
-            value={props.facultyId}
-            onChange={(event) => {
-              props.setFacultyId(event.target.value);
-              props.setDepartmentId("");
-              if (event.target.value) void props.loadDepartments(event.target.value);
-            }}
-            disabled={scopeType === "university"}
-            required={scopeType !== "university"}
-            aria-label="Fakülte"
-          >
-            <option value="">Fakülte seçin</option>
-            {(props.faculties.data ?? []).map((faculty: FacultyRecord) => <option value={faculty.id} key={faculty.id}>{faculty.name}</option>)}
-          </select>
-          <select
-            name="departmentId"
-            value={props.departmentId}
-            onChange={(event) => props.setDepartmentId(event.target.value)}
-            disabled={scopeType !== "department"}
-            required={scopeType === "department"}
-            aria-label="Bölüm"
-          >
-            <option value="">Bölüm seçin</option>
-            {(props.departments.data ?? []).map((department: DepartmentRecord) => <option value={department.id} key={department.id}>{department.name}</option>)}
-          </select>
-          <input name="sourceName" placeholder="Kaynak adı" required aria-label="Kaynak adı" />
-          <input name="sourceUrl" type="url" placeholder="https://universite.edu.tr/duyurular" required aria-label="Kaynak adresi" />
-          <select name="contentType" defaultValue="announcement" aria-label="İçerik türü">
-            <option value="announcement">Duyuru</option>
-            <option value="news">Haber</option>
-            <option value="event">Etkinlik</option>
-          </select>
-          <select name="parser" defaultValue="auto" aria-label="Ayrıştırıcı">
-            <option value="auto">Otomatik</option>
-            <option value="rss">RSS</option>
-            <option value="html">HTML</option>
-          </select>
-          <input name="priority" type="number" min="1" max="100" defaultValue="50" required aria-label="Öncelik" />
-          <label className="fieldLabel">Yenileme (dakika)<input name="fetchIntervalMinutes" type="number" min="5" max="10080" defaultValue="180" required /></label>
-          <button className="btn btn-primary" disabled={!props.hasToken || props.announcementSources.loading}><Check size={18} /> Kaynağı Ekle</button>
-        </form>
-      </section>
-
-      <section className="panel wide">
-        <div className="panelHeader">
-          <div>
-            <h2><RefreshCcw size={20} /> Kaynak Durumu</h2>
-            <p className="panelSub">Sunucu taraflı filtreleme ve sayfalama ile kaynağı bulun; beklemeden kontrol edin, düzeltin veya pasife alın.</p>
-          </div>
-        </div>
-        <form
-          className="sourceFilterForm"
-          key={JSON.stringify([query.search, query.trustStatus, query.contentType, query.scopeType])}
-          onSubmit={(event) => {
-            const values = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>;
-            event.preventDefault();
-            props.loadAnnouncementSources({
-              search: values.search?.trim() ?? "",
-              trustStatus: values.trustStatus ?? "",
-              contentType: values.contentType ?? "",
-              scopeType: values.scopeType ?? "",
-              offset: 0
-            });
-          }}
-        >
-          <label className="fieldLabel">Ara<input name="search" defaultValue={query.search} maxLength={160} placeholder="Kaynak adı, URL veya kapsam kimliği" /></label>
-          <label className="fieldLabel">Güven durumu
-            <select name="trustStatus" defaultValue={query.trustStatus} aria-label="Kaynak güven durumuna göre filtrele">
-              <option value="">Tüm güven durumları</option>
-              <option value="quarantined">Karantinada</option>
-              <option value="pending_review">İnceleme bekliyor</option>
-              <option value="trusted">Güvenilir</option>
-              <option value="rejected">Reddedildi</option>
-            </select>
-          </label>
-          <label className="fieldLabel">İçerik türü
-            <select name="contentType" defaultValue={query.contentType}>
-              <option value="">Tüm içerik türleri</option>
-              <option value="announcement">Duyuru</option>
-              <option value="news">Haber</option>
-              <option value="event">Etkinlik</option>
-            </select>
-          </label>
-          <label className="fieldLabel">Kapsam
-            <select name="scopeType" defaultValue={query.scopeType}>
-              <option value="">Tüm kapsamlar</option>
-              <option value="university">Üniversite</option>
-              <option value="faculty">Fakülte</option>
-              <option value="department">Bölüm</option>
-            </select>
-          </label>
-          <div className="sourceFilterActions">
-            <button className="btn btn-primary" disabled={!props.hasToken || props.announcementSources.loading}><Eye size={18} /> Filtrele</button>
-            <button className="btn btn-secondary" type="button" onClick={() => props.loadAnnouncementSources({ search: "", trustStatus: "", contentType: "", scopeType: "", offset: 0 })} disabled={!props.hasToken || props.announcementSources.loading}>Temizle</button>
-            <button className="btn btn-secondary" type="button" onClick={() => props.loadAnnouncementSources({})} disabled={!props.hasToken || props.announcementSources.loading}><RefreshCcw size={18} /> Yenile</button>
-          </div>
-        </form>
-        {props.announcementSources.loading && <PanelState kind="loading" text={props.sourceLoadProgress || "Kaynaklar yükleniyor..."} />}
-        {props.announcementSources.error && <PanelState kind="error" text={props.announcementSources.error} />}
-        {!props.announcementSources.loading && !props.announcementSources.error && (props.announcementSources.data?.length ?? 0) === 0 && <PanelState kind="empty" text="Henüz duyuru kaynağı yok." />}
-        <div className="sourceList">
-          {visibleSources.map((source: AnnouncementSourceRecord) => (
-            <form
-              className="sourceEditor"
-              key={JSON.stringify([source.id, source.updatedAt, source.sourceDefinitionVersion ?? "", source.canonicalUrl ?? source.sourceUrl, sourceTrustStatus(source), source.status])}
-              onSubmit={(event) => props.updateAnnouncementSource(event, source)}
-            >
-              <div className="sourceIdentity">
-                <strong>{source.sourceName}</strong>
-                <span>{sourceScopeLabels[source.scopeType]} · {source.scopeId}</span>
-                <span className={`statusBadge status-${displayedSourceHealthStatus(source)}`}>{displayedSourceHealthLabel(source)} · {source.healthProbe?.itemCount ?? source.itemCount ?? 0} kayıt</span>
-                <span className={`statusBadge trust-${sourceTrustStatus(source)}`}>{sourceTrustLabels[sourceTrustStatus(source)] ?? sourceTrustStatus(source)}</span>
-                <span>{displayedSourceHealthCheckedAt(source) ? `Son kontrol: ${new Date(displayedSourceHealthCheckedAt(source)!).toLocaleString("tr-TR")}` : "Henüz kontrol edilmedi"}</span>
-              </div>
-              <div className="sourceFields">
-                <input name="sourceName" defaultValue={source.sourceName} required aria-label="Kaynak adı" />
-                <input name="sourceUrl" type="url" defaultValue={source.sourceUrl} required aria-label="Kaynak adresi" />
-                <select name="contentType" defaultValue={source.contentType ?? "announcement"} aria-label="İçerik türü">
-                  <option value="announcement">Duyuru</option><option value="news">Haber</option><option value="event">Etkinlik</option>
-                </select>
-                <select name="parser" defaultValue={source.parser} aria-label="Ayrıştırıcı">
-                  <option value="auto">Otomatik</option><option value="rss">RSS</option><option value="html">HTML</option>
-                </select>
-                <input name="priority" type="number" min="1" max="100" defaultValue={source.priority} aria-label="Öncelik" />
-                <input name="fetchIntervalMinutes" type="number" min="5" max="10080" defaultValue={source.fetchIntervalMinutes ?? 180} aria-label="Yenileme dakikası" />
-                <select name="status" defaultValue={source.status} aria-label="Kaynak durumu"><option value="active">Aktif</option><option value="inactive">Pasif</option></select>
-              </div>
-              {displayedSourceHealthProblem(source) && <p className="sourceError">{displayedSourceHealthProblem(source)}</p>}
-              <SourceEvidencePanel source={source} />
-              <div className="sourceActions">
-                <button className="btn btn-primary" disabled={!props.hasToken}><Save size={16} /> Kaydet</button>
-                <button className="btn btn-secondary" type="button" onClick={() => props.ingestAnnouncementSource(source.id)} disabled={!props.hasToken || source.status !== "active" || source.approvalPending === true}><Play size={16} /> Şimdi Tara</button>
-                <button className="btn btn-danger" type="button" onClick={() => props.deactivateAnnouncementSource(source)} disabled={!props.hasToken || source.status === "inactive"}><Archive size={16} /> Pasife Al</button>
-              </div>
-              <SourceTrustControls source={source} disabled={!props.hasToken} onReview={props.reviewAnnouncementSource} />
-            </form>
-          ))}
-        </div>
-        {!props.announcementSources.loading && !props.announcementSources.error && visibleSources.length > 0 && (
-          <div className="reviewPagination">
-            <button className="btn btn-secondary" type="button" disabled={query.offset === 0} onClick={() => props.loadAnnouncementSources({ offset: Math.max(0, query.offset - query.limit) })}>Önceki</button>
-            <span>{(query.offset + 1).toLocaleString("tr-TR")}–{(query.offset + visibleSources.length).toLocaleString("tr-TR")} arası kaynak</span>
-            <button className="btn btn-secondary" type="button" disabled={!props.announcementSourcesHasMore} onClick={() => props.loadAnnouncementSources({ offset: query.offset + query.limit })}>Sonraki</button>
-          </div>
-        )}
-      </section>
-
       <ContentReviewPanel {...props} />
       {canManageGlobalAdminData(props.role) && <LlmSettingsPanel {...props} />}
     </section>
   );
 }
 
-function SourceEvidencePanel({ source }: { source: AnnouncementSourceRecord }) {
-  const evidence = source.evidence ?? source.verification;
-  if (!evidence) {
-    return (
-      <details className="sourceEvidence">
-        <summary><Eye size={16} aria-hidden="true" /> Doğrulama kanıtını göster</summary>
-        <p className="evidenceNote">Bu kaynak için kalıcı crawler doğrulama kanıtı yok. Sağlık durumu doğrulama kanıtı yerine kullanılmaz.</p>
-      </details>
-    );
-  }
-  const reasons = [...(source.trustReasonCodes ?? []), ...(evidence.semanticReasons ?? [])];
-
-  return (
-    <details className="sourceEvidence">
-      <summary><Eye size={16} aria-hidden="true" /> Doğrulama kanıtını göster</summary>
-      <dl className="evidenceGrid">
-        <div><dt>Kaynak URL</dt><dd><a href={evidence.sourceUrl ?? source.sourceUrl} target="_blank" rel="noreferrer">{evidence.sourceUrl ?? source.sourceUrl}</a></dd></div>
-        <div><dt>Son URL</dt><dd><a href={evidence.finalUrl ?? source.sourceUrl} target="_blank" rel="noreferrer">{evidence.finalUrl ?? source.sourceUrl}</a></dd></div>
-        {evidence.browserFinalUrl && <div><dt>Tarayıcı son URL</dt><dd><a href={evidence.browserFinalUrl} target="_blank" rel="noreferrer">{evidence.browserFinalUrl}</a></dd></div>}
-        {evidence.rawFinalUrl && <div><dt>Ham son URL</dt><dd><a href={evidence.rawFinalUrl} target="_blank" rel="noreferrer">{evidence.rawFinalUrl}</a></dd></div>}
-        <div><dt>Sahiplik</dt><dd>{evidence.universityId && evidence.unitType && evidence.scopeId ? `${evidence.universityId} · ${evidence.unitType} · ${evidence.scopeId}` : "-"}</dd></div>
-        <div><dt>Keşif</dt><dd>{evidence.discoveryMethod ?? "Belirtilmedi"}</dd></div>
-        <div><dt>HTTP</dt><dd>{evidence.httpStatus ?? "-"} {evidence.contentType ? `· ${evidence.contentType}` : ""}</dd></div>
-        <div><dt>Resmî alan adı</dt><dd>{evidence.officialDomain === true ? "Doğrulandı" : evidence.officialDomain === false ? "Doğrulanmadı" : "Kanıt bekleniyor"}</dd></div>
-        <div><dt>İçerik eşleşmesi</dt><dd>{evidence.semanticMatch === true ? "Eşleşti" : evidence.semanticMatch === false ? "Eşleşmedi" : evidence.status ?? "Kanıt bekleniyor"}</dd></div>
-        <div><dt>Parser</dt><dd>{evidence.parserProfile ?? "-"}{evidence.parserCompatible !== undefined ? ` · ${evidence.parserCompatible ? "uyumlu" : "uyumsuz"}` : ""}{evidence.parserItemCount !== undefined ? ` · ${evidence.parserItemCount} öğe` : ""}</dd></div>
-        <div><dt>Liste öğesi</dt><dd>{evidence.listingItemCount ?? 0}</dd></div>
-        <div><dt>Son doğrulama</dt><dd>{evidence.finalRevalidatedAt || evidence.verifiedAt ? new Date(evidence.finalRevalidatedAt ?? evidence.verifiedAt!).toLocaleString("tr-TR") : "Henüz doğrulanmadı"}</dd></div>
-        <div><dt>Doğrulayıcı</dt><dd>{evidence.verifierVersion ?? "-"}{evidence.schemaVersion ? ` · şema ${evidence.schemaVersion}` : ""}</dd></div>
-        <div><dt>Çalıştırma</dt><dd>{evidence.runId ?? "-"}</dd></div>
-        <div><dt>Kanıt dosyası</dt><dd>{evidence.evidencePath ?? "-"}{evidence.sha256 ? ` · ${evidence.sha256.slice(0, 12)}…` : ""}</dd></div>
-        {evidence.parserEvidencePath && <div><dt>Parser kanıtı</dt><dd>{evidence.parserEvidencePath}{evidence.parserInputSha256 ? ` · ${evidence.parserInputSha256.slice(0, 12)}…` : ""}</dd></div>}
-      </dl>
-      {evidence?.selector && <p className="evidenceNote"><strong>Seçici:</strong> <code>{evidence.selector}</code></p>}
-      {reasons.length > 0 && <p className="evidenceNote"><strong>Gerekçeler:</strong> {reasons.join(", ")}</p>}
-      {(evidence?.sampleItemUrls?.length ?? 0) > 0 && (
-        <div className="sampleLinks">
-          <strong>Örnek içerikler</strong>
-          {evidence!.sampleItemUrls!.slice(0, 3).map((url) => <a href={url} target="_blank" rel="noreferrer" key={url}>{url}</a>)}
-        </div>
-      )}
-    </details>
-  );
+function AcademicSourcePanel(props: any) {
+  const profiles = (props.sourceProfiles.data as UniversitySourceProfilesResponse | undefined)?.universities ?? [];
+  const universities = new Map<string, { id: string; name: string; websiteUrl?: string }>();
+  profiles.forEach((unit) => universities.set(unit.universityId, { id: unit.universityId, name: unit.universityName, websiteUrl: unit.authority.homepageUrl }));
+  (props.universities.data ?? []).forEach((unit: UniversityRecord) => universities.set(unit.id, unit));
+  return <AcademicSourceWorkbench key={props.sessionGeneration} request={props.request} sources={props.announcementSources.data} onSourcesChanged={props.onSourcesChanged} universities={[...universities.values()].sort((left, right) => left.name.localeCompare(right.name, "tr-TR"))}
+    correctionTarget={props.correctionTarget}
+    renderPreview={(preview) => <SourceProfilePreview preview={preview} />}
+    renderUniversity={(universityId, onDirtyChange) => {
+      const university = profiles.find((candidate) => candidate.universityId === universityId);
+      if (!university) return props.sourceProfiles.loading || props.sourceProfiles.error
+        ? <PanelState kind={props.sourceProfiles.loading ? "loading" : "error"} text={props.sourceProfiles.error ?? "Üniversitenin kaynak profili yükleniyor."} />
+        : null;
+      // A secondary university source must not accidentally edit the primary profile slot.
+      if (props.correctionTarget && !university.slots.some((slot) => slot.sourceId === props.correctionTarget.sourceId
+        && slot.contentType === props.correctionTarget.contentType)) return null;
+      return <UniversitySourceProfileTabs key={`${universityId}:${props.correctionTarget?.sourceId ?? ""}`} {...props} university={university} onDirtyChange={onDirtyChange} />;
+    }} />;
 }
 
-function SourceTrustControls(props: {
-  source: AnnouncementSourceRecord;
-  disabled: boolean;
-  onReview: (source: AnnouncementSourceRecord, decision: "approve" | "reject", note: string) => void;
-}) {
-  const [note, setNote] = useState("");
-  const trustStatus = sourceTrustStatus(props.source);
-
-  return (
-    <div className="sourceTrustControls">
-      <label className="fieldLabel">İnceleme notu
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Kanıt veya düzeltme notu" aria-label={`${props.source.sourceName} inceleme notu`} />
-      </label>
-      <div className="sourceReviewActions">
-        <button className="btn btn-primary" type="button" onClick={() => props.onReview(props.source, "approve", note)} disabled={props.disabled || trustStatus === "trusted"}><ShieldCheck size={16} /> Güvenilir Olarak Onayla</button>
-        <button className="btn btn-danger" type="button" onClick={() => props.onReview(props.source, "reject", note)} disabled={props.disabled || trustStatus === "rejected"}><X size={16} /> Kaynağı Reddet</button>
-      </div>
-    </div>
-  );
+function UniversitySourceProfileTabs(props: any) {
+  const university = props.university as UniversitySourceProfile;
+  const [contentType, setContentType] = useState<UniversityContentSourceType>(props.correctionTarget?.contentType ?? "announcement");
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const slots = props.correctionTarget?.contentType ? university.slots.filter((slot) => slot.contentType === props.correctionTarget.contentType) : university.slots;
+  const slot = slots.find((candidate) => candidate.contentType === contentType) ?? slots[0];
+  useEffect(() => { setDirty(false); props.onDirtyChange(false); }, [university]);
+  async function run(action: (...args: any[]) => Promise<unknown>, args: any[]) {
+    setBusy(true);
+    try { await action(...args); } finally { setBusy(false); }
+  }
+  return <div>
+    {slots.length > 1 && <div className="academicContentTabs" aria-label="Üniversite kaynak içerik türü">
+      {slots.map((candidate) => <button type="button" key={candidate.contentType} aria-pressed={candidate === slot} className={candidate === slot ? "selected" : ""} disabled={busy} onClick={() => {
+        if (candidate === slot || (dirty && !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden ayrılmak istiyor musunuz?"))) return;
+        setContentType(candidate.contentType); setDirty(false); props.onDirtyChange(false);
+      }}>{candidate.contentType === "academic_calendar" ? "Akademik Takvim" : contentTypeLabels[candidate.contentType]}</button>)}
+    </div>}
+    {slot && <div className="universitySourceCards academicSingleCard" onChange={() => { setDirty(true); props.onDirtyChange(true); }}>
+      <UniversitySourceProfileCard {...props} university={university} slot={slot} sourceDraftDirty={dirty} sourceBusy={busy}
+        saveUniversitySourceProfile={(...args: any[]) => run(props.saveUniversitySourceProfile, args)}
+        previewUniversitySourceProfile={(...args: any[]) => run(props.previewUniversitySourceProfile, args)} />
+    </div>}
+    {dirty && <p className="inlineHint">Önizlemeden önce değişiklikleri kaydedin.</p>}
+  </div>;
 }
 
 function ContentReviewPanel(props: any) {

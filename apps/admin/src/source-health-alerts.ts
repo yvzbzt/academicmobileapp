@@ -8,6 +8,7 @@ export interface AdminSourceHealthInput {
   scopeType?: string;
   scopeId?: string;
   ownerUniversityId?: string;
+  ownerFacultyId?: string;
   universityId?: string;
   universityName?: string;
   status?: string;
@@ -41,6 +42,7 @@ export interface AdminSourceHealthAlert {
 const healthyStatuses = new Set(["healthy", "ok", "passing"]);
 const pendingStatuses = new Set(["pending", "not_tested", "unknown"]);
 const failureLabels: Record<string, string> = {
+  SOURCE_ACCESS_CHALLENGE: "Kaynak güvenlik doğrulaması istiyor; içerik otomatik olarak okunamıyor.",
   EMPTY_LISTING: "Kaynakta duyuru, haber veya etkinlik bulunamadı.",
   INVALID_CONTENT_TYPE: "Kaynak beklenmeyen içerik türü döndürdü.",
   NO_ITEMS: "Kaynakta duyuru, haber veya etkinlik bulunamadı.",

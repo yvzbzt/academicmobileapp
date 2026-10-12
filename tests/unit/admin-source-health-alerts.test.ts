@@ -157,4 +157,19 @@ describe("admin source health alerts", () => {
       })
     ]);
   });
+
+  it("explains security challenges without calling the event listing empty", () => {
+    const alerts = buildSourceHealthAlerts([{
+      id: "iuc-events",
+      sourceName: "Etkinlikler",
+      sourceUrl: "https://iuc.edu.tr/etkinlikler/",
+      contentType: "event",
+      ownerUniversityId: "istanbul-universitesi-cerrahpasa",
+      status: "active",
+      healthProbeStatus: "degraded",
+      healthProbeFailureCode: "SOURCE_ACCESS_CHALLENGE",
+      lastHealthProbeAt: "2026-09-14T11:00:00.000Z",
+    }], {}, now);
+    expect(alerts[0]?.problem).toBe("Kaynak güvenlik doğrulaması istiyor; içerik otomatik olarak okunamıyor.");
+  });
 });
