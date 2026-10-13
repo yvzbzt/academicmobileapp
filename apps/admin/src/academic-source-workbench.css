@@ -3,6 +3,16 @@
 .academicTreePane input { width: 100%; min-width: 0; }
 .academicTreeCount { color: var(--ink-650); font-size: 11px; margin: 9px 0; }
 .academicTreeScroll { max-height: 65vh; overflow: auto; }
+.academicProblemUnits { margin: 10px 0; padding: 10px; border: 1px solid var(--ink-200); border-radius: var(--r-sm); background: var(--surface-0); }
+.academicProblemUnits h3 { margin: 0; font-size: 12px; display: flex; justify-content: space-between; gap: 8px; }
+.academicProblemUnits h3 span { color: var(--red-700); }
+.academicProblemList { display: grid; gap: 6px; max-height: 230px; overflow-y: auto; }
+.academicProblemButton { display: grid; gap: 4px; width: 100%; padding: 9px; text-align: left; border: 1px solid var(--ink-200); border-radius: 6px; background: var(--surface-50); color: var(--ink-900); cursor: pointer; overflow-wrap: anywhere; }
+.academicProblemButton strong { font-size: 12px; }
+.academicProblemButton span, .academicProblemButton small { font-size: 10px; color: var(--ink-650); }
+.academicProblemButton:hover, .academicProblemButton[aria-pressed="true"] { background: var(--brand-50); border-color: var(--brand-500); }
+.academicProblemButton:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
+.hasProblemUnits .academicTreeScroll { max-height: 35vh; }
 .academicTreeRow { display: flex; align-items: center; gap: 3px; border-radius: 6px; min-width: 0; border-bottom: 1px solid var(--ink-100); }
 .academicTreeRow:hover { background: var(--brand-50); }
 .academicTreeRow.selected { background: var(--brand-50); box-shadow: inset 3px 0 var(--brand-500); }

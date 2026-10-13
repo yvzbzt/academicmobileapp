@@ -50,6 +50,8 @@ export function AcademicSourceWorkbench(props: Props) {
   const [loadingUnits, setLoadingUnits] = useState<Set<string>>(new Set());
   const [unitErrors, setUnitErrors] = useState<Record<string, string>>({});
   const [selection, setSelection] = useState<Selection>();
+  const [inlineCorrection, setInlineCorrection] = useState<SourceCorrectionTarget>();
+  const correctionTarget = inlineCorrection ?? props.correctionTarget;
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -82,9 +84,11 @@ export function AcademicSourceWorkbench(props: Props) {
   }, []);
 
   async function openUnit(unit: Selection, select = true) {
-    if (select && (selection?.id !== unit.id || selection.scope !== unit.scope)) {
+    if (select && (selection?.id !== unit.id || selection.scope !== unit.scope || inlineCorrection)) {
       if (dirtyRef.current && !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden ayrılmak istiyor musunuz?")) return;
       dirtyRef.current = false;
+      setInlineCorrection(undefined);
+      setCorrectionError("");
       setSelection(unit);
       props.onUnitSelected?.(unit.universityId);
     }
@@ -110,7 +114,7 @@ export function AcademicSourceWorkbench(props: Props) {
   }
 
   useEffect(() => {
-    const target = props.correctionTarget;
+    const target = correctionTarget;
     if (!target) { appliedCorrection.current = ""; return; }
     if (loading) return;
     const targetKey = `${target.universityId}:${target.sourceId}:${target.scopeId ?? ""}:${target.contentType}`;
@@ -160,10 +164,10 @@ export function AcademicSourceWorkbench(props: Props) {
       setSelection(selected);
     })().catch((cause) => { if (!controller.signal.aborted) setCorrectionError(errorText(cause)); });
     return () => controller.abort();
-  }, [props.correctionTarget?.universityId, props.correctionTarget?.sourceId, props.correctionTarget?.scopeId, props.correctionTarget?.contentType, props.universities.length, loading]);
+  }, [correctionTarget?.universityId, correctionTarget?.sourceId, correctionTarget?.scopeId, correctionTarget?.contentType, props.universities.length, loading]);
 
   useEffect(() => {
-    if (!props.correctionTarget) return;
+    if (!correctionTarget) return;
     const pane = treeScrollRef.current;
     const row = pane?.querySelector<HTMLElement>(".academicTreeRow.selected");
     if (!pane || !row) return;
@@ -171,7 +175,7 @@ export function AcademicSourceWorkbench(props: Props) {
     const selected = row.getBoundingClientRect();
     if (selected.top < bounds.top) pane.scrollTop += selected.top - bounds.top;
     else if (selected.bottom > bounds.bottom) pane.scrollTop += selected.bottom - bounds.bottom;
-  }, [selection?.id, selection?.scope, props.correctionTarget?.sourceId]);
+  }, [selection?.id, selection?.scope, correctionTarget?.sourceId]);
 
   const health = buildSourceHealthAlerts(sources);
   const unhealthyIds = new Set(health.map((alert) => alert.sourceId));
@@ -211,6 +215,8 @@ export function AcademicSourceWorkbench(props: Props) {
     </div>;
   }
   const visibleUniversities = props.universities.filter((unit) => unit.name.toLocaleLowerCase("tr-TR").includes(search.trim().toLocaleLowerCase("tr-TR")));
+  const problemUniversity = inlineCorrection?.universityId ?? selection?.universityId;
+  const unitProblems = health.filter((alert) => alert.universityId === problemUniversity && sources.some((source) => source.id === alert.sourceId && source.scopeType !== "university"));
   return <section className="panel wide academicSourceWorkbench" aria-label="Akademik kaynak çalışma alanı">
     <div className="panelHeader"><div><h2><Building2 size={20} /> Akademik Kaynaklar</h2><p className="panelSub">Üniversite, fakülte veya bölüm seçin; kaynaklarını aynı alanda düzenleyin.</p></div>
       <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => {
@@ -219,9 +225,29 @@ export function AcademicSourceWorkbench(props: Props) {
     {error && <p role="alert">{error}</p>}
     {correctionError && <p role="alert" className="academicSourceProblem">{correctionError}</p>}
     <div className="academicWorkbenchLayout">
-      <aside className="academicTreePane" aria-label="Üniversite fakülte bölüm ağacı">
+      <aside className={`academicTreePane ${!props.correctionTarget && problemUniversity ? "hasProblemUnits" : ""}`} aria-label="Üniversite fakülte bölüm ağacı">
         <label className="fieldLabel">Üniversite ara<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Üniversite adı" /></label>
         <p className="academicTreeCount">{props.universities.length} üniversite · {loading ? "Kaynaklar yükleniyor…" : `${sources.length} kaynak`}</p>
+        {!props.correctionTarget && problemUniversity && <section className="academicProblemUnits" aria-label="Sorunlu fakülte ve bölümler">
+          <h3>Sorunlu fakülte ve bölümler <span>{unitProblems.length}</span></h3>
+          <p className="inlineHint">Bir kaynağa tıkla; düzeltme formu sağda açılır.</p>
+          {loading ? <p className="inlineHint">Kaynaklar yükleniyor…</p> : !unitProblems.length ? <p className="inlineHint">Bu üniversitede alt birim uyarısı yok.</p>
+            : <div className="academicProblemList">{unitProblems.map((alert) => {
+              const source = sources.find((candidate) => candidate.id === alert.sourceId)!;
+              const faculty = faculties[problemUniversity]?.find((unit) => unit.id === (source.scopeType === "faculty" ? source.scopeId : source.ownerFacultyId));
+              const universityName = props.universities.find((unit) => unit.id === problemUniversity)?.name ?? "";
+              const title = source.scopeType === "faculty" && faculty ? faculty.name : source.sourceName.replace(universityName, "").trim();
+              return <button type="button" key={source.id} className="academicProblemButton" aria-pressed={inlineCorrection?.sourceId === source.id} onClick={() => {
+                if (inlineCorrection?.sourceId === source.id || (dirtyRef.current && !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden ayrılmak istiyor musunuz?"))) return;
+                dirtyRef.current = false;
+                setInlineCorrection({ universityId: problemUniversity, sourceId: source.id, contentType: (source.contentType ?? "announcement") as Content });
+              }}>
+                {source.scopeType === "department" && faculty && <small>{faculty.name}</small>}
+                <strong>{title}</strong><span>{labels[(source.contentType ?? "announcement") as Content]} · {source.scopeType === "faculty" ? "Fakülte" : "Bölüm"}</span>
+                <small>{alert.problem}</small>
+              </button>;
+            })}</div>}
+        </section>}
         <div className="academicTreeScroll" ref={treeScrollRef}>{visibleUniversities.map((unit) => renderUnit({ ...unit, scope: "university", universityId: unit.id }, 0))}</div>
         {!visibleUniversities.length && <p className="inlineHint">Eşleşen üniversite bulunamadı.</p>}
       </aside>
@@ -229,8 +255,8 @@ export function AcademicSourceWorkbench(props: Props) {
         {!selection ? <div className="academicEditorEmpty"><Building2 size={32} /><strong>Bir akademik birim seçin</strong><p>Soldaki oklarla fakülteleri ve bölümleri açabilirsiniz.</p></div>
           : <><header className="academicSelectionHeader"><small>{props.universities.find((unit) => unit.id === selection.universityId)?.name} / {selection.scope === "department" ? `${faculties[selection.universityId]?.find((unit) => unit.id === selection.facultyId)?.name ?? "Fakülte"} / Bölüm` : selection.scope === "faculty" ? "Fakülte" : "Üniversite geneli"}</small><h3>{selection.name}</h3></header>
             {(selection.scope === "university" ? props.renderUniversity(selection.id, (dirty) => { dirtyRef.current = dirty; }) : null)
-              ?? <ScopedSourceEditor key={`${selection.scope}:${selection.id}:${props.correctionTarget?.sourceId ?? ""}`} unit={selection} sources={unitSources(selection)} request={apiRef.current}
-                  loading={loading} targetSourceId={props.correctionTarget?.sourceId || undefined} initialContent={props.correctionTarget?.contentType} renderPreview={props.renderPreview}
+              ?? <ScopedSourceEditor key={`${selection.scope}:${selection.id}:${correctionTarget?.sourceId ?? ""}`} unit={selection} sources={unitSources(selection)} request={apiRef.current}
+                  loading={loading} targetSourceId={correctionTarget?.sourceId || undefined} initialContent={correctionTarget?.contentType} renderPreview={props.renderPreview}
                   onDirtyChange={(dirty) => { dirtyRef.current = dirty; }} refresh={() => reload(undefined, true)} />}
           </>}
       </div>

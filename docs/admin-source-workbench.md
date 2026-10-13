@@ -34,6 +34,10 @@ Bu yalnızca yerel arayüzdür; yayın veya GitHub push yapmaz. API canlı siste
 
 `parser-selector-fields.tsx` iki düzenleyicinin ortak seçici alanlarını oluşturur. Liste öğesi alanına altı seçicili JSON ya da alan–değer tablosu yapıştırılınca önce blok doğrulanır, sonra değerler kendi alanlarına yazılır. Hatalı JSON, bilinmeyen anahtar veya uzun değer hiçbir alanı değiştirmez. Tek CSS seçicisi normal şekilde yapıştırılır. Bu işlem otomatik Kaydet/Onayla yapmaz; taslak değiştiği için önizlemeden önce Kaydet gerekir.
 
+## Sorunlu birimlere hızlı erişim
+
+Üniversite seçilince ağacın üzerinde yalnız o üniversitenin **Sorunlu fakülte ve bölümler** bloğu görünür. Bir kaynağa tıklamak mevcut katalog çözümleyicisini kullanarak doğru birimi, içerik türünü ve kaynak ID'sini sağdaki formda açar; yeni bir düzeltme motoru eklenmez. Kaydedilmemiş form varsa onay istenir. Uyarılar sağlık kontrolünden gelir; bu blok eksik envanter kaydı veya her uyarının gerçek parser hatası olduğunu iddia etmez.
+
 ## Onaylı arayüz yayını
 
 Üretim paketi `/admin/` tabanıyla ve `VITE_API_BASE_URL=https://academic-api.anssoft.com.tr` ile hazırlanır; demo paketi yayınlanmaz. `deploy/hetzner/admin/activate-static-admin.sh <commit>-<YYYYMMDD>` yalnız admin dosyalarını değiştirir, önceki sürümü yedekler ve kontrol hatasında geri döner. Mevcut sunucu ayarları, API ve veritabanı korunur. Yayından sonra `verify-admin.sh` ile sağlık/güvenlik ve tarayıcı yükleme kontrolü yapılır. Gerçek Kaydet/Onayla işlemleri canlı veriyi değiştirdiğinden ayrıca kontrollü test gerekir.
