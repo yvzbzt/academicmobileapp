@@ -1,5 +1,6 @@
 import React, { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { ParserSelectorFields } from "./parser-selector-fields";
 import {
   AlertTriangle,
   Archive,
@@ -152,6 +153,9 @@ export interface SourceCorrectionTarget {
   sourceId: string;
   contentType: UniversityContentSourceType;
   problem?: string;
+  scopeType?: "faculty" | "department";
+  scopeId?: string;
+  facultyId?: string;
 }
 interface UniversitySourceProfileSlot {
   contentType: UniversityContentSourceType;
@@ -814,6 +818,8 @@ function App() {
   const [sourceTestPreviews, setSourceTestPreviews] = useState<Record<string, AnnouncementSourcePreview>>({});
   const [sourceProfiles, setSourceProfiles] = useState<ApiState<UniversitySourceProfilesResponse>>({ loading: false });
   const [sourceCoverage, setSourceCoverage] = useState<ApiState<SourceCoverageResponse>>({ loading: false });
+  const coverageRequestRef = useRef(0);
+  const coverageQueryRef = useRef<SourceCoverageQuery | undefined>(undefined);
   const [sourceCoverageQuery, setSourceCoverageQuery] = useState<SourceCoverageQuery>({
     search: "",
     universityId: "",
@@ -853,6 +859,8 @@ function App() {
   const activeRouteConfig = routes.find((route) => route.id === renderedRoute) ?? routes[0]!;
 
   function transitionSession(nextSession: AuthSession | null) {
+    coverageRequestRef.current += 1;
+    coverageQueryRef.current = undefined;
     sessionGenerationRef.current += 1;
     setSessionGeneration(sessionGenerationRef.current);
     setUniversities({ loading: false });
@@ -1295,7 +1303,10 @@ function App() {
 
   async function loadSourceCoverage(nextQuery: Partial<SourceCoverageQuery> = {}) {
     if (!ensureToken()) return;
-    const query = { ...sourceCoverageQuery, ...nextQuery };
+    const generation = ++coverageRequestRef.current;
+    const sessionGeneration = sessionGenerationRef.current;
+    const query = { ...(coverageQueryRef.current ?? sourceCoverageQuery), ...nextQuery };
+    coverageQueryRef.current = query;
     setSourceCoverageQuery(query);
     const params = new URLSearchParams({ limit: String(query.limit), offset: String(query.offset) });
     if (query.search.trim()) params.set("search", query.search.trim());
@@ -1303,7 +1314,14 @@ function App() {
     if (query.scopeType) params.set("scopeType", query.scopeType);
     if (query.sourceType) params.set("sourceType", query.sourceType);
     if (query.resolution) params.set("resolution", query.resolution);
-    await runAction(setSourceCoverage, () => request<SourceCoverageResponse>(`/admin/source-coverage?${params}`));
+    setSourceCoverage({ loading: true });
+    try {
+      const data = await request<SourceCoverageResponse>(`/admin/source-coverage?${params}`);
+      if (generation === coverageRequestRef.current && sessionGeneration === sessionGenerationRef.current) setSourceCoverage({ loading: false, data });
+    } catch (error) {
+      if (generation === coverageRequestRef.current && sessionGeneration === sessionGenerationRef.current && !(error instanceof StaleAdminSessionRequestError))
+        setSourceCoverage({ loading: false, error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   async function createAnnouncementSource(event: FormEvent<HTMLFormElement>) {
@@ -2692,19 +2710,12 @@ function SourceCoveragePanel(props: any) {
     verified: "Final doğrulandı",
     legacy_unverified: "Kanıtsız eski kayıt"
   };
-  const setSelection = (item: SourceCoverageItem) => {
-    props.setUniversityId(item.universityId);
-    props.setFacultyId(item.facultyId);
-    props.setDepartmentId(item.departmentId ?? "");
-    void props.loadFaculties(item.universityId);
-    if (item.facultyId) void props.loadDepartments(item.facultyId);
-  };
   return (
     <section className="panel wide sourceCoveragePanel">
       <div className="panelHeader">
         <div>
           <h2><AlertTriangle size={20} /> Eksik / Çözülemeyen Kaynaklar</h2>
-          <p className="panelSub">17.360 akademik birimin web, içerik, üniversite akademik takvimi ve program kaynaklarını ayrı gösterir. Eski URL, final crawler kanıtı yoksa doğrulanmış sayılmaz.</p>
+          <p className="panelSub">Son yayımlanan doğrulama envanteri. Üniversite seçerek filtreleyebilirsin; adres kaydetmek bu envanteri anında değiştirmez ve doğrulama yerine geçmez.</p>
         </div>
         <button className="btn btn-secondary" type="button" onClick={() => props.loadSourceCoverage()} disabled={!props.hasToken || props.sourceCoverage.loading}>
           <RefreshCcw size={18} /> Yenile
@@ -2762,7 +2773,7 @@ function SourceCoveragePanel(props: any) {
                 </small>
               )}
             </div>
-            <button className="btn btn-secondary" type="button" onClick={() => setSelection(item)}><Pencil size={16} /> Düzeltme kapsamını seç</button>
+            <button className="btn btn-secondary" type="button" onClick={() => props.openCoverageCorrection(item)}><Pencil size={16} /> Düzelt</button>
           </article>
         ))}
       </div>
@@ -3208,37 +3219,88 @@ function SourceParserConfigFields(props: {
   label: string;
   config?: AnnouncementSourceRecord["parserConfig"];
 }) {
-  const fields: Array<[keyof NonNullable<AnnouncementSourceRecord["parserConfig"]>, string, string]> = [
-    ["itemSelector", "Liste öğesi", "article, .news-item"],
-    ["titleSelector", "Başlık", "h2, .title"],
-    ["linkSelector", "İçerik bağlantısı", "a"],
-    ["dateSelector", "Yayın tarihi", "time, .date"],
-    ["eventDateSelector", "Etkinlik tarihi", ".event-date"],
-    ["contentSelector", "Özet / gövde", ".summary, .content"]
-  ];
   return (
     <fieldset className="parserConfigFields">
       <legend>CSS seçicileri <span>(boşsa otomatik)</span></legend>
-      {fields.map(([name, label, placeholder]) => (
-        <label className="fieldLabel" key={name}>{label}
-          <input
-            name={name}
-            defaultValue={props.config?.[name] ?? ""}
-            placeholder={placeholder}
-            maxLength={300}
-            aria-label={`${props.label} ${label.toLocaleLowerCase("tr-TR")} seçici`}
-          />
-        </label>
-      ))}
+      <ParserSelectorFields key={props.label} label={props.label} config={props.config} />
     </fieldset>
   );
 }
 
+type CoverageCorrectionTarget = Pick<SourceCoverageItem, "universityId" | "facultyId" | "scopeId" | "scopeType" | "sourceType">;
+
+function coverageCorrectionFromHash(): CoverageCorrectionTarget | undefined {
+  const hash = window.location.hash;
+  if (!hash.startsWith("#/sources?")) return;
+  const params = new URLSearchParams(hash.slice("#/sources?".length));
+  if (params.get("fix") !== "coverage") return;
+  const universityId = params.get("universityId") ?? "";
+  const facultyId = params.get("facultyId") ?? "";
+  const scopeId = params.get("scopeId") ?? "";
+  const scopeType = params.get("scopeType");
+  const sourceType = params.get("sourceType") as SourceCoverageType;
+  if (!universityId || !facultyId || !scopeId || (scopeType !== "faculty" && scopeType !== "department")
+    || !["homepage", "announcement", "news", "event", "academic_calendar", "course_schedule", "exam_schedule"].includes(sourceType)) return;
+  return { universityId, facultyId, scopeId, scopeType, sourceType };
+}
+
+// Only edit the chosen URL: empty unrelated fields must never erase other catalog links.
+function CoverageUrlCorrection(props: { target: CoverageCorrectionTarget; request: any }) {
+  const { target } = props;
+  const field = target.sourceType === "homepage" ? "websiteUrl" : target.sourceType === "course_schedule" ? "courseScheduleUrl"
+    : target.sourceType === "exam_schedule" ? "examScheduleUrl" : "academicCalendarUrl";
+  const label = target.sourceType === "homepage" ? "Web sitesi" : target.sourceType === "course_schedule" ? "Ders programı"
+    : target.sourceType === "exam_schedule" ? "Sınav programı" : "Üniversite akademik takvimi";
+  const [record, setRecord] = useState<JsonRecord>();
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const requestRef = useRef(props.request);
+  requestRef.current = props.request;
+  const isCalendar = target.sourceType === "academic_calendar";
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      const faculties = await requestRef.current(`/universities/${encodeURIComponent(target.universityId)}/faculties`, { signal: controller.signal }) as FacultyRecord[];
+      if (!faculties.some((faculty) => faculty.id === target.facultyId)) throw new Error("Fakülte seçilen üniversiteye ait değil.");
+      const units = isCalendar ? await requestRef.current("/universities", { signal: controller.signal })
+        : target.scopeType === "faculty" ? faculties
+          : await requestRef.current(`/faculties/${encodeURIComponent(target.facultyId)}/departments`, { signal: controller.signal });
+      const unit = units.find((candidate: JsonRecord) => candidate.id === (isCalendar ? target.universityId : target.scopeId));
+      if (!unit) throw new Error("Düzeltilecek birim katalogda bulunamadı.");
+      if (!controller.signal.aborted) { setRecord(unit); setUrl(String(unit[field] ?? "")); }
+    })().catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause)); });
+    return () => controller.abort();
+  }, [target, field, isCalendar]);
+  return <section className="panel wide coverageUrlCorrection">
+    <h2>{record ? String(record.name) : "Birim yükleniyor…"}</h2>
+    <p className="panelSub">{label} adresini düzenle. Bu işlem kaydı otomatik doğrulanmış saymaz.</p>
+    {isCalendar && <p className="inlineHint">Akademik takvim üniversite genelinden paylaşılır; üniversitenin takvim adresi düzenlenir.</p>}
+    <form className="academicSourceForm" onSubmit={async (event) => {
+      event.preventDefault(); setBusy(true); setError(""); setMessage("");
+      try {
+        await props.request(`/admin/${isCalendar ? "universities" : target.scopeType === "faculty" ? "faculties" : "departments"}/${encodeURIComponent(isCalendar ? target.universityId : target.scopeId)}`,
+          { method: "PATCH", body: JSON.stringify({ [field]: url.trim() || null }) });
+        setMessage("Adres kaydedildi. Doğrulama envanteri ayrı güncellenir; eksik uyarısı hemen kalkmaz.");
+      } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+      finally { setBusy(false); }
+    }}>
+      <fieldset disabled={!record || busy}><label className="fieldLabel">{label} adresi<input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label>
+        <span className="inlineHint">Boş kaydetmek yalnız bu adresi kaldırır.</span>
+        <button className="btn btn-primary"><Save size={16} /> Adresi Kaydet</button></fieldset>
+    </form>
+    {error && <p role="alert" className="academicSourceProblem">{error}</p>}
+    {message && <p role="status">{message}</p>}
+  </section>;
+}
+
 function AnnouncementSourcesPage(props: any) {
   const [correctionTarget, setCorrectionTarget] = useState<SourceCorrectionTarget | undefined>(sourceCorrectionTargetFromHash);
+  const [coverageTarget, setCoverageTarget] = useState(coverageCorrectionFromHash);
 
   useEffect(() => {
-    const syncCorrectionRoute = () => setCorrectionTarget(sourceCorrectionTargetFromHash());
+    const syncCorrectionRoute = () => { setCorrectionTarget(sourceCorrectionTargetFromHash()); setCoverageTarget(coverageCorrectionFromHash()); };
     window.addEventListener("hashchange", syncCorrectionRoute);
     window.addEventListener("popstate", syncCorrectionRoute);
     return () => {
@@ -3253,17 +3315,22 @@ function AnnouncementSourcesPage(props: any) {
   };
   const closeSourceCorrection = () => {
     setCorrectionTarget(undefined);
+    setCoverageTarget(undefined);
     window.history.pushState(null, "", `${window.location.pathname}#/sources`);
+    void props.loadSourceCoverage();
   };
 
-  if (correctionTarget) {
+  if (correctionTarget || coverageTarget) {
+    const contentTarget = coverageTarget && ["announcement", "news", "event"].includes(coverageTarget.sourceType)
+      ? { ...coverageTarget, sourceId: "", contentType: coverageTarget.sourceType as UniversityContentSourceType } : undefined;
     return (
       <section className="pageStack sourceCorrectionPage">
         <div className="sourceCorrectionPageHeader">
           <button className="btn btn-secondary" type="button" onClick={closeSourceCorrection}><RotateCcw size={16} /> Uyarılara geri dön</button>
           <span>Bağımsız düzeltme ekranı</span>
         </div>
-        <AcademicSourcePanel {...props} correctionTarget={correctionTarget} />
+        {coverageTarget && !contentTarget ? <CoverageUrlCorrection key={JSON.stringify(coverageTarget)} target={coverageTarget} request={props.request} />
+          : <AcademicSourcePanel {...props} correctionTarget={correctionTarget ?? contentTarget} />}
       </section>
     );
   }
@@ -3279,7 +3346,12 @@ function AnnouncementSourcesPage(props: any) {
       </section>
       <SourceHealthInbox {...props} openSourceCorrection={openSourceCorrection} />
       <AcademicSourcePanel {...props} />
-      <SourceCoveragePanel {...props} />
+      <SourceCoveragePanel {...props} openCoverageCorrection={(item: SourceCoverageItem) => {
+        const target = { universityId: item.universityId, facultyId: item.facultyId, scopeId: item.scopeId, scopeType: item.scopeType, sourceType: item.sourceType };
+        setCoverageTarget(target);
+        window.history.pushState(null, "", `${window.location.pathname}#/sources?${new URLSearchParams({ fix: "coverage", ...target })}`);
+        window.scrollTo({ top: 0 });
+      }} />
       <ScheduleReviewPanel {...props} />
       <ContentReviewPanel {...props} />
       {canManageGlobalAdminData(props.role) && <LlmSettingsPanel {...props} />}
@@ -3294,6 +3366,7 @@ function AcademicSourcePanel(props: any) {
   (props.universities.data ?? []).forEach((unit: UniversityRecord) => universities.set(unit.id, unit));
   return <AcademicSourceWorkbench key={props.sessionGeneration} request={props.request} sources={props.announcementSources.data} onSourcesChanged={props.onSourcesChanged} universities={[...universities.values()].sort((left, right) => left.name.localeCompare(right.name, "tr-TR"))}
     correctionTarget={props.correctionTarget}
+    onUnitSelected={(universityId) => { if (!props.correctionTarget) void props.loadSourceCoverage({ universityId, offset: 0 }); }}
     renderPreview={(preview) => <SourceProfilePreview preview={preview} />}
     renderUniversity={(universityId, onDirtyChange) => {
       const university = profiles.find((candidate) => candidate.universityId === universityId);

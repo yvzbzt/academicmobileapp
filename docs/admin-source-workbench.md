@@ -22,6 +22,22 @@ Adres: http://127.0.0.1:3314/preview/#/sources
 
 Bu yalnızca yerel arayüzdür; yayın veya GitHub push yapmaz. API canlı sisteme yönlendirilir. Giriş gerekir; Kaydet/Onayla gerçek veriyi değiştirebilir.
 
+## Eksik kaynak bağlantısı düzeltmesi
+
+- Ağaçtan üniversite/fakülte/bölüm seçilince eksik kaynak listesi aynı üniversiteye filtrelenir. İstek sayacı eski yanıtın yeni seçimi ezmesini engeller.
+- Eksik kaynaktaki **Düzelt** ayrı bir ekran açar; URL birimin kimliğini ve kaynak türünü taşır, sayfa yenilenince aynı birim açılır.
+- Web sitesi ve ders/sınav programı için yalnız seçilen katalog URL alanı PATCH ile kaydedilir. Diğer adresler silinmez. Duyuru/haber/etkinlik için ilgili birimin içerik düzenleyicisi açılır.
+- Eksik kaynak listesi API'nin yayımlanmış doğrulama envanteridir, canlı kayıt listesi değildir. Kaydetmek tek başına bu uyarıyı kaldırmaz.
+- Geçici güvenli demo: http://127.0.0.1:3316/preview/#/sources. `/tmp/admin-source-fix-demo.mjs` örnek verileri bellekte tutar; canlı API bağlantısı yoktur. Normal 3314 önizlemesiyle karıştırmayın. Bu demo bilgisayar/süreç kapanınca yeniden başlatılmalıdır.
+
+## Parser ayarlarını toplu yapıştırma
+
+`parser-selector-fields.tsx` iki düzenleyicinin ortak seçici alanlarını oluşturur. Liste öğesi alanına altı seçicili JSON ya da alan–değer tablosu yapıştırılınca önce blok doğrulanır, sonra değerler kendi alanlarına yazılır. Hatalı JSON, bilinmeyen anahtar veya uzun değer hiçbir alanı değiştirmez. Tek CSS seçicisi normal şekilde yapıştırılır. Bu işlem otomatik Kaydet/Onayla yapmaz; taslak değiştiği için önizlemeden önce Kaydet gerekir.
+
+## Onaylı arayüz yayını
+
+Üretim paketi `/admin/` tabanıyla ve `VITE_API_BASE_URL=https://academic-api.anssoft.com.tr` ile hazırlanır; demo paketi yayınlanmaz. `deploy/hetzner/admin/activate-static-admin.sh <commit>-<YYYYMMDD>` yalnız admin dosyalarını değiştirir, önceki sürümü yedekler ve kontrol hatasında geri döner. Mevcut sunucu ayarları, API ve veritabanı korunur. Yayından sonra `verify-admin.sh` ile sağlık/güvenlik ve tarayıcı yükleme kontrolü yapılır. Gerçek Kaydet/Onayla işlemleri canlı veriyi değiştirdiğinden ayrıca kontrollü test gerekir.
+
 ## Doğrulama
 
 ```bash

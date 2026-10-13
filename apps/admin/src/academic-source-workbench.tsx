@@ -3,6 +3,7 @@ import { Building2, ChevronRight, RefreshCcw, Save, Play } from "lucide-react";
 import type { AnnouncementSourceRecord, AnnouncementSourcePreview, SourceCorrectionTarget } from "./main";
 import { buildSourceHealthAlerts } from "./source-health-alerts";
 import "./academic-source-workbench.css";
+import { ParserSelectorFields, parserSelectorFields as selectors } from "./parser-selector-fields";
 
 type Scope = "university" | "faculty" | "department";
 type Content = "announcement" | "news" | "event";
@@ -14,19 +15,12 @@ interface Props {
   universities: Unit[];
   sources?: AnnouncementSourceRecord[];
   correctionTarget?: SourceCorrectionTarget;
+  onUnitSelected?: (universityId: string) => void;
   onSourcesChanged: (sources: AnnouncementSourceRecord[]) => void;
   renderUniversity: (universityId: string, onDirtyChange: (dirty: boolean) => void) => ReactNode;
   renderPreview: (preview: AnnouncementSourcePreview) => ReactNode;
 }
 const labels: Record<Content, string> = { announcement: "Duyuru", news: "Haber", event: "Etkinlik" };
-const selectors = [
-  ["itemSelector", "Liste öğesi", "article, .news-item"],
-  ["titleSelector", "Başlık", "h2, .title"],
-  ["linkSelector", "İçerik bağlantısı", "a"],
-  ["dateSelector", "Yayın tarihi", "time, .date"],
-  ["eventDateSelector", "Etkinlik tarihi", ".event-date"],
-  ["contentSelector", "Özet / gövde", ".summary, .content"]
-] as const;
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 // Read every page; catalog visibility must never depend on the first source page.
@@ -92,6 +86,7 @@ export function AcademicSourceWorkbench(props: Props) {
       if (dirtyRef.current && !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden ayrılmak istiyor musunuz?")) return;
       dirtyRef.current = false;
       setSelection(unit);
+      props.onUnitSelected?.(unit.universityId);
     }
     if (unit.scope === "department") return;
     const key = `${unit.scope}:${unit.id}`;
@@ -118,7 +113,7 @@ export function AcademicSourceWorkbench(props: Props) {
     const target = props.correctionTarget;
     if (!target) { appliedCorrection.current = ""; return; }
     if (loading) return;
-    const targetKey = `${target.universityId}:${target.sourceId}`;
+    const targetKey = `${target.universityId}:${target.sourceId}:${target.scopeId ?? ""}:${target.contentType}`;
     if (appliedCorrection.current === targetKey) return;
     const source = sources.find((candidate) => candidate.id === target.sourceId);
     const university = props.universities.find((candidate) => candidate.id === target.universityId);
@@ -129,26 +124,27 @@ export function AcademicSourceWorkbench(props: Props) {
     dirtyRef.current = false;
     setCorrectionError("");
     void (async () => {
-      if (!source) throw new Error("Düzeltilecek kaynak bulunamadı. Uyarı listesini yenileyin.");
-      if (source.ownerUniversityId && source.ownerUniversityId !== university.id) throw new Error("Kaynak seçilen üniversiteye ait değil.");
-      if (source.scopeType === "university" && source.scopeId !== university.id) throw new Error("Kaynak seçilen üniversiteye ait değil.");
+      if (!source && !target.scopeId) throw new Error("Düzeltilecek kaynak bulunamadı. Uyarı listesini yenileyin.");
+      const owner = source ?? { scopeType: target.scopeType, scopeId: target.scopeId, ownerFacultyId: target.facultyId };
+      if (source?.ownerUniversityId && source.ownerUniversityId !== university.id) throw new Error("Kaynak seçilen üniversiteye ait değil.");
+      if (owner.scopeType === "university" && owner.scopeId !== university.id) throw new Error("Kaynak seçilen üniversiteye ait değil.");
       const catalogFaculties = await apiRef.current<Unit[]>(`/universities/${encodeURIComponent(university.id)}/faculties`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       setFaculties((current) => ({ ...current, [university.id]: catalogFaculties }));
       const nextExpanded = new Set([`university:${university.id}`]);
       let selected: Selection = { ...university, scope: "university", universityId: university.id };
-      if (source.scopeType === "faculty") {
-        const faculty = catalogFaculties.find((unit) => unit.id === source.scopeId);
+      if (owner.scopeType === "faculty") {
+        const faculty = catalogFaculties.find((unit) => unit.id === owner.scopeId);
         if (!faculty) throw new Error("Kaynağın fakültesi katalogda bulunamadı.");
         selected = { ...faculty, scope: "faculty", universityId: university.id };
-      } else if (source.scopeType === "department") {
+      } else if (owner.scopeType === "department") {
         // Legacy sources may omit ownerFacultyId; resolve the real parent from catalog data.
         let found = false;
-        for (const faculty of catalogFaculties.filter((unit) => !source.ownerFacultyId || unit.id === source.ownerFacultyId)) {
+        for (const faculty of catalogFaculties.filter((unit) => !owner.ownerFacultyId || unit.id === owner.ownerFacultyId)) {
           const children = await apiRef.current<Unit[]>(`/faculties/${encodeURIComponent(faculty.id)}/departments`, { signal: controller.signal });
           if (controller.signal.aborted) return;
           setDepartments((current) => ({ ...current, [faculty.id]: children }));
-          const department = children.find((unit) => unit.id === source.scopeId);
+          const department = children.find((unit) => unit.id === owner.scopeId);
           if (!department) continue;
           selected = { ...department, scope: "department", universityId: university.id, facultyId: faculty.id };
           nextExpanded.add(`faculty:${faculty.id}`);
@@ -164,7 +160,7 @@ export function AcademicSourceWorkbench(props: Props) {
       setSelection(selected);
     })().catch((cause) => { if (!controller.signal.aborted) setCorrectionError(errorText(cause)); });
     return () => controller.abort();
-  }, [props.correctionTarget?.universityId, props.correctionTarget?.sourceId, props.universities.length, loading]);
+  }, [props.correctionTarget?.universityId, props.correctionTarget?.sourceId, props.correctionTarget?.scopeId, props.correctionTarget?.contentType, props.universities.length, loading]);
 
   useEffect(() => {
     if (!props.correctionTarget) return;
@@ -234,7 +230,7 @@ export function AcademicSourceWorkbench(props: Props) {
           : <><header className="academicSelectionHeader"><small>{props.universities.find((unit) => unit.id === selection.universityId)?.name} / {selection.scope === "department" ? `${faculties[selection.universityId]?.find((unit) => unit.id === selection.facultyId)?.name ?? "Fakülte"} / Bölüm` : selection.scope === "faculty" ? "Fakülte" : "Üniversite geneli"}</small><h3>{selection.name}</h3></header>
             {(selection.scope === "university" ? props.renderUniversity(selection.id, (dirty) => { dirtyRef.current = dirty; }) : null)
               ?? <ScopedSourceEditor key={`${selection.scope}:${selection.id}:${props.correctionTarget?.sourceId ?? ""}`} unit={selection} sources={unitSources(selection)} request={apiRef.current}
-                  loading={loading} targetSourceId={props.correctionTarget?.sourceId} renderPreview={props.renderPreview}
+                  loading={loading} targetSourceId={props.correctionTarget?.sourceId || undefined} initialContent={props.correctionTarget?.contentType} renderPreview={props.renderPreview}
                   onDirtyChange={(dirty) => { dirtyRef.current = dirty; }} refresh={() => reload(undefined, true)} />}
           </>}
       </div>
@@ -243,8 +239,9 @@ export function AcademicSourceWorkbench(props: Props) {
 }
 
 function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourceRecord[]; request: Api; loading: boolean;
-  refresh: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; renderPreview: Props["renderPreview"]; targetSourceId?: string }) {
-  const [content, setContent] = useState<Content>(() => props.sources.find((source) => source.id === props.targetSourceId)?.contentType ?? "announcement");
+  refresh: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; renderPreview: Props["renderPreview"]; targetSourceId?: string; initialContent?: string }) {
+  const [content, setContent] = useState<Content>(() => props.sources.find((source) => source.id === props.targetSourceId)?.contentType
+    ?? (props.initialContent === "news" || props.initialContent === "event" ? props.initialContent : "announcement"));
   const [sourceId, setSourceId] = useState(props.targetSourceId ?? "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -308,7 +305,7 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
           <label className="fieldLabel">Çalışma durumu<select name="status" aria-label="Çalışma durumu" disabled={!source} defaultValue={source?.status ?? "inactive"}><option value="inactive">Pasif</option><option value="active">Aktif</option></select></label></div>
         <details className="academicAdvancedSettings"><summary>Gelişmiş parser ayarları</summary>
           <p className="inlineHint">Otomatik çekim yeterli değilse CSS seçicilerini düzenleyin.</p>
-          <div className="academicFieldGrid">{selectors.map(([name, title, placeholder]) => <label className="fieldLabel" key={name}>{title} seçici<input name={name} maxLength={300} placeholder={placeholder} defaultValue={source?.parserConfig?.[name] ?? ""} /></label>)}</div>
+          <div className="academicFieldGrid"><ParserSelectorFields key={`${props.unit.id}:${content}:${source?.id ?? "new"}`} config={source?.parserConfig} /></div>
         </details>
         <div className="academicFieldGrid"><label className="fieldLabel">Öncelik<input name="priority" type="number" min={1} max={100} required defaultValue={source?.priority ?? 50} /></label>
           <label className="fieldLabel">Kontrol aralığı (dakika)<input name="fetchIntervalMinutes" type="number" min={5} max={10080} required defaultValue={source?.fetchIntervalMinutes ?? 180} /></label></div>

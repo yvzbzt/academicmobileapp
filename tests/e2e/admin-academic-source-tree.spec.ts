@@ -79,6 +79,81 @@ test("every branch in the audited live catalog is reachable without a source rec
 });
 test.afterAll(() => server?.kill());
 
+test("coverage follows university selection and corrections open the exact unit", async ({ page }) => {
+  const user = { id: "admin", email: "admin@qa.local", fullName: "Test", role: "super_admin" };
+  const universities = [{ id: "u1", name: "Abdullah Gül Üniversitesi" }, { id: "u2", name: "İkinci Üniversitesi" }];
+  const writes: any[] = [];
+  const coverageRequests: string[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route(`${api}/**`, async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    const json = (value: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(value) });
+    if (path === "/me") return json(user);
+    if (path === "/universities") return json(universities);
+    if (/^\/universities\/u[12]\/faculties$/.test(path)) {
+      const universityId = path.split("/")[2];
+      return json([{ id: `${universityId}-f`, universityId, name: "Mühendislik Fakültesi", websiteUrl: "https://qa.edu.tr/faculty" }]);
+    }
+    if (/^\/faculties\/u[12]-f\/departments$/.test(path)) {
+      const facultyId = path.split("/")[2];
+      return json([{ id: `${facultyId}-d`, facultyId, name: "Bilgisayar Mühendisliği", websiteUrl: "https://qa.edu.tr/department", examScheduleUrl: "https://qa.edu.tr/exams" }]);
+    }
+    if (path === "/admin/announcements/source-profiles") return json({ universities: [] });
+    if (path === "/admin/source-coverage") {
+      const universityId = url.searchParams.get("universityId") || "u1";
+      coverageRequests.push(universityId);
+      // A slow old response must not replace the subsequently selected university.
+      if (universityId === "u1") await new Promise((resolve) => setTimeout(resolve, 150));
+      const items = ["course_schedule", "exam_schedule", "homepage", "announcement", "news", "event", "academic_calendar"].map((sourceType) => ({
+        id: `${universityId}:${sourceType}`, universityId, universityName: universities.find((unit) => unit.id === universityId)!.name,
+        facultyId: `${universityId}-f`, facultyName: "Mühendislik Fakültesi", scopeId: `${universityId}-f-d`, scopeType: "department",
+        departmentId: `${universityId}-f-d`, departmentName: "Bilgisayar Mühendisliği", scopeName: "Bilgisayar Mühendisliği", sourceType, resolution: "missing"
+      }));
+      return json({ total: items.length, items, summary: { catalog: { universities: 2, academicUnits: 4 }, byResolution: { missing: 14, quarantined: 0, verified: 0, legacy_unverified: 0 } } });
+    }
+    if (path === "/admin/announcements/review-items") return json({ items: [], total: 0 });
+    if (route.request().method() === "PATCH") { writes.push({ path, body: route.request().postDataJSON() }); return json({ status: "ok" }); }
+    return json([]);
+  });
+  await page.addInitScript(({ user }) => sessionStorage.setItem("academic-calendar-admin-session", JSON.stringify({ accessToken: "coverage-token", user })), { user });
+  await page.goto(`${base}#/sources`);
+  const tree = page.locator(".academicTreePane");
+  const coverage = page.locator(".sourceCoveragePanel");
+  await tree.locator('[data-unit-key="university:u1"] > .academicTreeRow .academicTreeSelect').click();
+  await tree.locator('[data-unit-key="university:u2"] > .academicTreeRow .academicTreeSelect').click();
+  await expect(coverage.getByLabel("Kapsam üniversitesi")).toHaveValue("u2");
+  await expect(coverage.locator(".coverageItem").first()).toContainText("İkinci Üniversitesi");
+  await page.waitForTimeout(250);
+  await expect(coverage.locator(".coverageItem").first()).not.toContainText("Abdullah Gül");
+  await coverage.locator(".coverageItem").first().getByRole("button", { name: "Düzelt", exact: true }).click();
+  await expect(page).toHaveURL(/fix=coverage/);
+  await expect(page.locator(".coverageUrlCorrection h2")).toHaveText("Bilgisayar Mühendisliği");
+  await page.getByLabel("Ders programı adresi", { exact: true }).fill("https://qa.edu.tr/courses");
+  await page.getByRole("button", { name: "Adresi Kaydet" }).click();
+  await expect(page.getByRole("status")).toContainText("Adres kaydedildi");
+  expect(writes).toEqual([{ path: "/admin/departments/u2-f-d", body: { courseScheduleUrl: "https://qa.edu.tr/courses" } }]);
+  // The link survives a reload; Back returns to the same university filter.
+  await page.reload();
+  await expect(page.locator(".coverageUrlCorrection h2")).toHaveText("Bilgisayar Mühendisliği");
+  await page.getByRole("button", { name: "Uyarılara geri dön" }).click();
+  await coverage.getByLabel("Kapsam üniversitesi").selectOption("u2");
+  await expect(coverage.locator(".coverageItem").first()).toContainText("İkinci Üniversitesi");
+  for (const sourceType of ["announcement", "news", "event"]) {
+    await coverage.locator(".coverageItem").filter({ hasText: sourceType === "announcement" ? "Duyuru" : sourceType === "news" ? "Haber" : "Etkinlik" }).getByRole("button", { name: "Düzelt", exact: true }).click();
+    await expect(page.locator(".academicSelectionHeader h3")).toHaveText("Bilgisayar Mühendisliği");
+    await expect(page.locator(".academicContentTabs button.selected")).toHaveText(sourceType === "announcement" ? "Duyuru" : sourceType === "news" ? "Haber" : "Etkinlik");
+    await page.getByRole("button", { name: "Uyarılara geri dön" }).click();
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await coverage.locator(".coverageItem").filter({ hasText: "Web sitesi" }).getByRole("button", { name: "Düzelt", exact: true }).click();
+  await expect(page.getByLabel("Web sitesi adresi", { exact: true })).toHaveValue("https://qa.edu.tr/department");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(coverageRequests).toContain("u2");
+  expect(errors).toEqual([]);
+});
+
 test("all academic units, paginated sources and every parser field can be edited", async ({ page }) => {
   const now = new Date().toISOString();
   const user = { id: "admin", email: "admin@qa.local", fullName: "Test", role: "super_admin" };
@@ -176,7 +251,20 @@ test("all academic units, paginated sources and every parser field can be edited
     await editor.getByLabel("Çekilen URL", { exact: true }).fill(`https://qa.edu.tr/${scope}/${type}`);
     await editor.getByLabel("Parser", { exact: true }).selectOption("html");
     await editor.getByText("Gelişmiş parser ayarları", { exact: true }).click();
-    for (const [name, value] of Object.entries(fields)) await editor.locator(`input[name="${name}"]`).fill(value);
+    const writesBeforePaste = writes.length;
+    await editor.locator('input[name="itemSelector"]').evaluate((input, text) => {
+      const clipboardData = new DataTransfer(); clipboardData.setData("text/plain", text);
+      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+    }, JSON.stringify(fields));
+    for (const [name, value] of Object.entries(fields)) await expect(editor.locator(`input[name="${name}"]`)).toHaveValue(value);
+    await expect(editor.getByRole("status")).toContainText("6 seçici");
+    expect(writes.length).toBe(writesBeforePaste);
+    await editor.locator('input[name="itemSelector"]').evaluate((input) => {
+      const clipboardData = new DataTransfer(); clipboardData.setData("text/plain", '{"itemSelector":');
+      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+    });
+    await expect(editor.getByRole("alert")).toContainText("JSON biçimi geçersiz");
+    for (const [name, value] of Object.entries(fields)) await expect(editor.locator(`input[name="${name}"]`)).toHaveValue(value);
     await editor.getByLabel("Öncelik", { exact: true }).fill("75");
     await editor.getByLabel("Kontrol aralığı (dakika)", { exact: true }).fill("60");
     await editor.getByRole("button", { name: "Kaydet", exact: true }).click();
@@ -188,6 +276,16 @@ test("all academic units, paginated sources and every parser field can be edited
     await expect(editor).toContainText("Kaynak ayarları kaydedildi");
     const update = writes.filter((write) => write.method === "PUT").at(-1)!;
     expect(update.body).toMatchObject({ expectedSourceDefinitionVersion: "v1", expectedUpdatedAt: now, expectedTrustStatus: "quarantined", status: "active", parser: "rss" });
+    if (scope === "department" && type === "announcement") {
+      await editor.locator('input[name="itemSelector"]').evaluate((input, text) => {
+        const clipboardData = new DataTransfer(); clipboardData.setData("text/plain", text);
+        input.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+      }, JSON.stringify({ ...fields, titleSelector: ".changed-title" }));
+      await expect(editor.getByRole("button", { name: "Test Et / Önizle", exact: true })).toBeDisabled();
+      await editor.getByRole("button", { name: "Kaydet", exact: true }).click();
+      await expect(editor.getByRole("button", { name: "Test Et / Önizle", exact: true })).toBeEnabled();
+      expect(writes.filter((write) => write.method === "PUT").at(-1)?.body.parserConfig.titleSelector).toBe(".changed-title");
+    }
     await editor.getByRole("button", { name: "Test Et / Önizle", exact: true }).click();
     await expect(editor.getByText("Test içeriği", { exact: true })).toBeVisible();
     await editor.getByRole("button", { name: "Onayla ve Devreye Al", exact: true }).click();
@@ -218,7 +316,11 @@ test("all academic units, paginated sources and every parser field can be edited
   const universityCard = workbench.locator(`[data-source-type="${type}"]`);
   await universityCard.getByLabel(`${label} çekilen URL`).fill(`https://qa.edu.tr/university/${type}`);
   await universityCard.getByLabel(`${label} parser`, { exact: true }).selectOption("html");
-  for (const [name, value] of Object.entries(fields)) await universityCard.locator(`input[name="${name}"]`).fill(value);
+  await universityCard.locator('input[name="itemSelector"]').evaluate((input, text) => {
+    const clipboardData = new DataTransfer(); clipboardData.setData("text/plain", text);
+    input.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+  }, JSON.stringify(fields));
+  for (const [name, value] of Object.entries(fields)) await expect(universityCard.locator(`input[name="${name}"]`)).toHaveValue(value);
   await universityCard.getByLabel(`${label} çalışma durumu`).selectOption("active");
   await universityCard.getByRole("button", { name: "Kaydet", exact: true }).click();
   await expect.poll(() => writes.some((write) => write.path === `/admin/announcements/source-profiles/u1/${type}`)).toBe(true);
