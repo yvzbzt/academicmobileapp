@@ -3191,12 +3191,14 @@ function UniversitySourceProfileCard(props: any) {
 }
 
 function SourceProfilePreview({ preview }: { preview: AnnouncementSourcePreview }) {
+  const resultLabel = preview.error === "SOURCE_LISTING_EMPTY" ? "Güncel içerik yok"
+    : preview.error === "SOURCE_LISTING_STALE" ? "İçerikler güncellik filtresine takıldı" : preview.status;
   const activationLabel = preview.activationStatus === "active"
     ? "Aktif"
     : preview.activationStatus === "inactive" ? "Devreye alınmadı" : preview.activationStatus === "not_requested" ? "İstenmedi" : preview.activationStatus;
   return (
     <div className={`sourcePreview preview-${preview.status}`} role="status">
-      <strong>Test önizlemesi: {preview.status} · {preview.acceptedItemCount}/{preview.parsedItemCount} içerik kabul edildi</strong>
+      <strong>Test önizlemesi: {resultLabel} · {preview.acceptedItemCount}/{preview.parsedItemCount} içerik kabul edildi</strong>
       {activationLabel && <span>Devreye alma: {activationLabel}</span>}
       {preview.detectedContentType && <span>Algılanan içerik: {preview.detectedContentType}</span>}
       {preview.activationError && <span>{preview.activationError}</span>}
@@ -3210,7 +3212,7 @@ function SourceProfilePreview({ preview }: { preview: AnnouncementSourcePreview 
           {(sample.body?.length ?? 0) > 0 && <p>{sample.body!.map((block) => block.text).join(" ")}</p>}
         </article>
       ))}</div>}
-      {preview.error && <span>{preview.error}</span>}
+      {preview.error && <span>{sourceHealthFailureLabel(preview.error) ?? preview.error}</span>}
     </div>
   );
 }

@@ -42,6 +42,9 @@ export interface AdminSourceHealthAlert {
 const healthyStatuses = new Set(["healthy", "ok", "passing"]);
 const pendingStatuses = new Set(["pending", "not_tested", "unknown"]);
 const failureLabels: Record<string, string> = {
+  OUTBOUND_REQUEST_TIMEOUT: "Kaynak sayfası süre sınırı içinde yanıt vermedi. Bu, parser ayarlarının yanlış olduğu anlamına gelmez.",
+  SOURCE_LISTING_EMPTY: "Sayfa açılıyor; şu anda listelenecek içerik yok. URL veya seçici hatası tespit edilmedi.",
+  SOURCE_LISTING_STALE: "Sayfa okunabiliyor; içerikler güncellik filtresine takıldı.",
   SOURCE_ACCESS_CHALLENGE: "Kaynak güvenlik doğrulaması istiyor; içerik otomatik olarak okunamıyor.",
   EMPTY_LISTING: "Kaynakta duyuru, haber veya etkinlik bulunamadı.",
   INVALID_CONTENT_TYPE: "Kaynak beklenmeyen içerik türü döndürdü.",

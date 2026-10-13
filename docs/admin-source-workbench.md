@@ -38,6 +38,22 @@ Bu yalnızca yerel arayüzdür; yayın veya GitHub push yapmaz. API canlı siste
 
 Üniversite seçilince ağacın üzerinde yalnız o üniversitenin **Sorunlu fakülte ve bölümler** bloğu görünür. Bir kaynağa tıklamak mevcut katalog çözümleyicisini kullanarak doğru birimi, içerik türünü ve kaynak ID'sini sağdaki formda açar; yeni bir düzeltme motoru eklenmez. Kaydedilmemiş form varsa onay istenir. Uyarılar sağlık kontrolünden gelir; bu blok eksik envanter kaydı veya her uyarının gerçek parser hatası olduğunu iddia etmez.
 
+## Boş liste / eski içerik ayrımı
+
+Önceki mantık `0 içerik → seçici bozuk` idi. Ortak runtime artık Selçuk'un doğrulanmış boş-liste işaretini ve güncellik filtresine takılan kayıtları ayrı kodlarla bildirir. Önizleme ve günlük sağlık kontrolü bunları `degraded` bilgi/uyarı durumu olarak kaydeder; başarısızlık sayısını artırmaz, kaynağı onaylamaz, kayıtlı içerikleri silmez. Gerçek seçici/erişim/güvenlik hataları korunur. Yönetici ekranı teknik kod yerine Türkçe açıklama gösterir. Bu değişiklik yalnız arayüz yayınıyla etkinleşmez; API/runtime yayını da gerekir.
+
+Bu düzeltme Selçuk birim liste sayfalarıyla sınırlıdır. Çalışma alanındaki ayrı parser/mobil değişiklikleri yayın paketine alınmaz; tüm kirli çalışma alanının testlerinin geçtiği iddia edilmez. Yalnız commit'e alınan kaynakların ayrı kopyası test edilir.
+
+Timeout incelemesinde canlı API'nin güvenli HTTP istemcisiyle Selçuk sayfası iki kez yaklaşık iki saniyede açıldı; sayfa yine boştu. Önizleme için Selçuk birim liste URL'lerinde yalnız `OUTBOUND_REQUEST_TIMEOUT` hatasına bir kez, 10 saniyelik sınırla tekrar izin verilir. Diğer hatalar yeniden denenmez; güvenlik/otorite kontrolleri korunur. Admin form değişince ve yeni işlem başlayınca eski önizlemeyi temizler, test sırasında bekleme mesajı gösterir. Üstteki zaman damgalı **Son sağlık kontrolü**, aşağıdaki manuel testten ayrı kayıttır.
+
+### API yayını: mevcut v4 üzerine dar yama
+
+Canlı API, yerel kaynak ağacından daha yeni `device-source-runtime-v4` kullanır. Bu nedenle eski yerel API'nin tamamı yeniden derlenip yayınlanmaz. `deploy/hetzner/apply-admin-source-hotfix.mjs`, incelenmiş canlı modüllerin SHA-256 değerlerini doğrular; yalnız runtime, ingestion service ve iki yeni yardımcı modülü içeren dört dosyalık paket üretir. Genel parser, v4 sürümü, sayfalama/ayrıntı okuma ve diğer özellikler korunur. Farklı canlı temel sürümde işlem durur; yama otomatik genellenmez.
+
+Paket mevcut değişmez Docker imajının üzerine kurulur; çevrimdışı canary testi sonrası yalnız API ve içerik worker'ı yenilenir. Release klasöründeki compose override bu iki servis için yeni imajı belirtir; sonraki operasyonlarda bu override da kullanılmalıdır. Geri dönüş eski değişmez imajla yapılır. Admin paketi ayrıca aşağıdaki yöntemle yayınlanır. Kaynak kayıtları için migration veya toplu güncelleme yapılmaz.
+
+`admin-source-hotfix.Dockerfile` yalnız doğrulanmış paketi alır. `verify-admin-source-hotfix.mjs` imaj içinde `--network none` ile parser hash'ini, v4/sayfalama davranışını, hata ayrımını ve tekrar sınırını kontrol eder. `activate-admin-source-hotfix.sh <tam-commit>` mevcut temel imajı ve servisleri doğrular, eski ayarlara dokunmadan release override oluşturur; sağlık kontrolü geçmezse yalnız iki servisi önceki imaja döndürür.
+
 ## Onaylı arayüz yayını
 
 Üretim paketi `/admin/` tabanıyla ve `VITE_API_BASE_URL=https://academic-api.anssoft.com.tr` ile hazırlanır; demo paketi yayınlanmaz. `deploy/hetzner/admin/activate-static-admin.sh <commit>-<YYYYMMDD>` yalnız admin dosyalarını değiştirir, önceki sürümü yedekler ve kontrol hatasında geri döner. Mevcut sunucu ayarları, API ve veritabanı korunur. Yayından sonra `verify-admin.sh` ile sağlık/güvenlik ve tarayıcı yükleme kontrolü yapılır. Gerçek Kaydet/Onayla işlemleri canlı veriyi değiştirdiğinden ayrıca kontrollü test gerekir.

@@ -29,6 +29,26 @@ afterEach(() => {
 });
 
 describe("daily announcement source health probe", () => {
+  it.each([
+    ["SOURCE_LISTING_EMPTY", '<main><div class="news-wrapper birim-tum-icerikler-news"><p class="birim-tum-icerikler__empty">Gösterilecek içerik bulunmuyor.</p></div></main>'],
+    ["SOURCE_LISTING_STALE", '<main><article class="item"><h2 class="title"><a href="/birim/icerik/5346/old-123">Öğrenci kayıt duyurusu</a></h2><time>2020-01-01</time></article></main>']
+  ])("reports %s without escalating failure counts or replacing existing content", async (code, body) => {
+    vi.useFakeTimers();
+    const owner = { ...university, id: "selcuk-universitesi-konya", slug: "selcuk-universitesi-konya", websiteUrl: "https://selcuk.edu.tr/" };
+    const catalog = { ...catalogRepository(), async findUniversityById(id: string) { return id === owner.id ? owner : null; } };
+    const repository = new InMemoryAnnouncementRepository();
+    const source = await createSource(repository, { scopeId: owner.id, ownerUniversityId: owner.id, homepageUrl: owner.websiteUrl,
+      sourceUrl: "https://selcuk.edu.tr/birim/tumicerikler/5346/2", parserConfig: { itemSelector: ".item", titleSelector: ".title", linkSelector: "a", dateSelector: "time" }, itemCount: 4 });
+    stubRequest(async () => ({ status: 200, headers: { "content-type": "text/html" }, body }));
+    const service = new AnnouncementIngestionService(catalog, repository);
+    for (let day = 13; day <= 16; day++) {
+      vi.setSystemTime(new Date(Date.UTC(2026, 9, day, 12)));
+      expect((await service.runDailyHealthCycle()).results[0]).toMatchObject({ status: "degraded", error: code, contentChanged: false });
+    }
+    expect(await service.previewSource((await repository.findSourceById(source.id))!)).toMatchObject({ status: "degraded", error: code, acceptedItemCount: 0 });
+    expect(await repository.findSourceById(source.id)).toMatchObject({ status: "active", trustStatus: "trusted", itemCount: 4,
+      healthProbe: { healthStatus: "degraded", lastError: code, consecutiveFailures: 0 } });
+  });
   it("changes the device revision for body-only and event-date changes", () => {
     const baseline = [{
       title: "Student event",

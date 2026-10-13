@@ -8,6 +8,8 @@ import { evaluateSourceAuthority, SourceAuthorityError, type SourceAuthorityCont
 import type { SourceAuthorityDecision, SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchDeviceRuntimeSourceSnapshot, fetchSourceItems, fetchSourceSnapshot, fetchText, parseConfiguredAnnouncementHtml, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
+import { isInformationalListingCode } from "../../../../../packages/shared/src/source-listing-state.js";
+import { withSourcePreviewRetry } from "./source-preview-retry.js";
 import { DEVICE_SOURCE_RUNTIME_VERSION } from "../../../../../packages/shared/src/device-source-runtime.js";
 import { ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION, canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
 import { emptyAnnouncementPersistenceDelta, toPersistenceReference } from "./announcement-persistence.js";
@@ -806,16 +808,17 @@ export class AnnouncementIngestionService {
           })
         : missingSourceOwnerDecision(source, source.sourceUrl, "registration");
       if (!registration.allowed) throw new Error(registration.reasonCode);
-      const snapshot = await fetchDeviceRuntimeSourceSnapshot(
+      const snapshot = await withSourcePreviewRetry(source.sourceUrl,
+        readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000), (timeoutMs) => fetchDeviceRuntimeSourceSnapshot(
         source.sourceUrl,
         source.parser,
-        readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000),
+        timeoutMs,
         { authority: authority!.context, resource: sourceAuthorityResource(source.contentType) },
         {},
         source.contentType,
         testedAt,
         source.parserConfig
-      );
+      ));
       const publication = evaluateSourceAuthority(authority!.context, {
         boundary: "publication",
         resource: sourceAuthorityResource(source.contentType),
@@ -861,17 +864,18 @@ export class AnnouncementIngestionService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const informational = isInformationalListingCode(message);
       await this.announcementRepository.recordSourceCheck(source.id, {
-        healthStatus: "failed",
+        healthStatus: informational ? "degraded" : "failed",
         lastCheckedAt: testedAt,
         lastError: message,
-        consecutiveFailures: (source.consecutiveFailures ?? 0) + 1
+        consecutiveFailures: informational ? 0 : (source.consecutiveFailures ?? 0) + 1
       }, source);
       return {
         sourceId: source.id,
         sourceName: source.sourceName,
         sourceUrl: source.sourceUrl,
-        status: "failed",
+        status: informational ? "degraded" : "failed",
         parsedItemCount: 0,
         acceptedItemCount: 0,
         testedAt: testedAt.toISOString(),
@@ -1376,6 +1380,16 @@ export class AnnouncementIngestionService {
         return { sourceId: source.id, status: "failed", itemCount: 0, contentChanged: false, error: message };
       }
       const errorCode = healthProbeErrorCode(message);
+      if (isInformationalListingCode(errorCode)) {
+        await this.persistHealthProbe(source, {
+          engineVersion: DEVICE_SOURCE_RUNTIME_VERSION, healthStatus: "degraded", lastCheckedAt: checkedAt,
+          ...fullHealthCheckTimestamp(source.healthProbe, mode, checkedAt),
+          ...(source.healthProbe?.lastSuccessAt ? { lastSuccessAt: source.healthProbe.lastSuccessAt } : {}),
+          lastError: errorCode, consecutiveFailures: 0, itemCount: 0,
+          ...(source.healthProbe?.contentHash ? { contentHash: source.healthProbe.contentHash } : {})
+        });
+        return { sourceId: source.id, status: "degraded", itemCount: 0, contentChanged: false, error: errorCode };
+      }
       if (mode === "revision") {
         return {
           sourceId: source.id,

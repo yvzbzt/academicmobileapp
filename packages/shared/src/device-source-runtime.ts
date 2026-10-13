@@ -1,4 +1,5 @@
 import { load } from "cheerio/slim";
+import { isExplicitSelcukEmptyListing, isSelcukUnitListingUrl } from "./source-listing-state.js";
 
 export const DEVICE_SOURCE_RUNTIME_VERSION = "device-source-runtime-v2" as const;
 export const DEVICE_SOURCE_ACCEPT_LANGUAGE = "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6" as const;
@@ -195,6 +196,7 @@ export function parseDeviceSourceRuntimeDocument(
     case "bandirma_event": items = parseBandirmaEvent(body, recipe); break;
     case "configured_html": {
       items = parseConfiguredHtml(body, recipe, baseUrl);
+      if (items.length === 0 && isExplicitSelcukEmptyListing(body, baseUrl)) throw runtimeError("SOURCE_LISTING_EMPTY");
       if (items.length === 0) throw runtimeError("SOURCE_HTML_SELECTOR_LAYOUT_INVALID");
       break;
     }
@@ -203,7 +205,10 @@ export function parseDeviceSourceRuntimeDocument(
     case "generic_html": items = parseGenericHtml(body, recipe, baseUrl); break;
     case "atu_odata": throw runtimeError("SOURCE_RUNTIME_ATU_REQUIRES_TRANSPORT");
   }
-  return filterFreshItems(items, recipe);
+  const freshItems = filterFreshItems(items, recipe);
+  const paginated = recipe.parserConfig && "maximumPages" in recipe.parserConfig && recipe.parserConfig.maximumPages === 2;
+  if (profile === "configured_html" && !paginated && isSelcukUnitListingUrl(baseUrl) && items.length > 0 && freshItems.length === 0) throw runtimeError("SOURCE_LISTING_STALE");
+  return freshItems;
 }
 
 export function detectDeviceSourceRuntimeProfile(
@@ -573,6 +578,11 @@ function parseConfiguredHtml(
     const $ = load(input);
     const config = recipe.parserConfig;
     if (!config?.itemSelector) return [];
+    // Validate all selector syntax even when the listing currently has no rows.
+    for (const key of ["itemSelector", "titleSelector", "linkSelector", "dateSelector", "eventDateSelector", "contentSelector"] as const) {
+      const selector = config[key];
+      if (selector?.trim()) $(selector);
+    }
     const items: DeviceSourceRuntimeItem[] = [];
     $(config.itemSelector).slice(0, MAX_CANDIDATES).each((_index, element) => {
       const row = $(element);

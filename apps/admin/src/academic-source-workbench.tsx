@@ -270,6 +270,7 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
     ?? (props.initialContent === "news" || props.initialContent === "event" ? props.initialContent : "announcement"));
   const [sourceId, setSourceId] = useState(props.targetSourceId ?? "");
   const [busy, setBusy] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<AnnouncementSourcePreview>();
@@ -278,7 +279,10 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
   const label = labels[content];
   const formRef = useRef<HTMLFormElement>(null);
   const [dirty, setDirty] = useState(false);
-  function markDirty(value: boolean) { setDirty(value); props.onDirtyChange(value); }
+  function markDirty(value: boolean) {
+    setDirty(value); props.onDirtyChange(value);
+    if (value) { setPreview(undefined); setMessage(""); }
+  }
   function canLeave() {
     return !dirty || window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden ayrılmak istiyor musunuz?");
   }
@@ -291,9 +295,9 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
       expectedApprovalPending: source.approvalPending === true
     } : {};
   }
-  async function action(task: () => Promise<void>) {
-    setBusy(true); setError(""); setMessage("");
-    try { await task(); } catch (cause) { setError(errorText(cause)); } finally { setBusy(false); }
+  async function action(task: () => Promise<void>, testing = false) {
+    setBusy(true); setPreviewing(testing); setError(""); setMessage(""); setPreview(undefined);
+    try { await task(); } catch (cause) { setError(errorText(cause)); } finally { setBusy(false); setPreviewing(false); }
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -321,7 +325,8 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
     {props.loading && <p className="inlineHint">Tüm kaynak kayıtları yükleniyor…</p>}
     <label className="fieldLabel">{label} kaynağı<select value={source?.id ?? "new"} disabled={busy || props.loading} onChange={(event) => { if (!canLeave()) return; setSourceId(event.target.value); setPreview(undefined); markDirty(false); }}>
       {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.sourceName}</option>)}<option value="new">Yeni {label.toLocaleLowerCase("tr-TR")} kaynağı</option></select></label>
-    {problems.map((problem) => <p className="academicSourceProblem" role="status" key={problem.sourceId}>{problem.problem}</p>)}
+    {problems.map((problem) => <p className="academicSourceProblem" role="status" key={problem.sourceId}>Son sağlık kontrolü: {problem.problem}
+      {problem.lastProbeAt && <> · {new Date(problem.lastProbeAt).toLocaleString("tr-TR")}</>}</p>)}
     {source && <p className="inlineHint">{source.approvalPending ? "Onay kontrolü bekliyor" : source.trustStatus === "trusted" ? "Onaylı kaynak" : "İnsan onayı gerekiyor"} · {source.status === "active" ? "Aktif" : "Pasif"}</p>}
     <form ref={formRef} key={`${content}:${source?.id ?? "new"}:${source?.updatedAt ?? ""}`} onSubmit={save} onChange={() => markDirty(true)} className="academicSourceForm">
       <fieldset disabled={busy || props.loading}>
@@ -341,7 +346,7 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
     <div className="sourceActions">
       <button className="btn btn-secondary" type="button" disabled={busy || !source || dirty || props.loading} onClick={() => void action(async () => {
         const result = await props.request<AnnouncementSourcePreview>(`/admin/announcements/sources/${encodeURIComponent(source!.id)}/preview`, { method: "POST" }); setPreview(result);
-      })}><Play size={16} /> Test Et / Önizle</button>
+      }, true)} aria-busy={previewing}><Play size={16} /> {previewing ? "Test ediliyor…" : "Test Et / Önizle"}</button>
       <button className="btn btn-secondary" type="button" disabled={busy || !source || dirty || props.loading} onClick={() => void action(async () => {
         await props.request(`/admin/announcements/sources/${encodeURIComponent(source!.id)}/approve`, { method: "POST", body: JSON.stringify(fence()) });
         await props.refresh(); setMessage("Kaynak onay kontrolü tamamlandı.");
@@ -352,6 +357,7 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
           await props.refresh(); if (result.error) throw new Error(result.error); setMessage(`${result.itemCount} içerik · ${result.status}`);
         })}>İçerikleri Çek</button>
     </div>
+    {previewing && <p role="status" className="inlineHint">Kaynak test ediliyor… Üniversitenin sayfasından yanıt bekleniyor.</p>}
     {dirty && <p className="inlineHint">Önizlemeden önce değişiklikleri kaydedin.</p>}
     {error && <p role="alert" className="academicSourceProblem">{error}</p>}
     {message && <p role="status">{message}</p>}

@@ -171,6 +171,10 @@ test("all academic units, paginated sources and every parser field can be edited
   });
   sources.push({ ...sources[0], id: "legacy-source", scopeId: "f0", sourceName: "Legacy duyuru kaynağı", contentType: undefined, healthStatus: "failed" });
   let failNextSourcesRead = false;
+  let rejectNextSave = false;
+  let previewGate: Promise<void> | undefined;
+  let releasePreview: (() => void) | undefined;
+  let nextPreviewError = "";
   const writes: { path: string; method: string; body: Record<string, any> }[] = [];
   const requests: string[] = [];
   const pageErrors: string[] = [];
@@ -212,10 +216,19 @@ test("all academic units, paginated sources and every parser field can be edited
         sources.push(source); return json({ source });
       }
       const id = path.split("/")[4];
-      if (path.endsWith("/preview")) return json({ sourceId: id, status: "healthy", acceptedItemCount: 1, parsedItemCount: 1, samples: [{ title: "Test içeriği", url: "https://qa.edu.tr/item" }] });
+      if (path.endsWith("/preview")) {
+        const error = nextPreviewError;
+        nextPreviewError = "";
+        if (previewGate) await previewGate;
+        return json(error ? { sourceId: id, status: "failed", acceptedItemCount: 0, parsedItemCount: 0, samples: [], error }
+          : { sourceId: id, status: "healthy", acceptedItemCount: 1, parsedItemCount: 1, samples: [{ title: "Test içeriği", url: "https://qa.edu.tr/item" }] });
+      }
       if (path.endsWith("/approve")) { sources = sources.map((source) => source.id === id ? { ...source, status: "active", trustStatus: "trusted" } : source); return json({ status: "approved" }); }
       if (path.endsWith("/ingest")) return json({ status: "healthy", itemCount: 3 });
-      if (method === "PUT" && path.startsWith("/admin/announcements/sources/")) { sources = sources.map((source) => source.id === id ? { ...source, ...body } : source); return json(sources.find((source) => source.id === id)); }
+      if (method === "PUT" && path.startsWith("/admin/announcements/sources/")) {
+        if (rejectNextSave) { rejectNextSave = false; return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "Invalid bearer token." }) }); }
+        sources = sources.map((source) => source.id === id ? { ...source, ...body } : source); return json(sources.find((source) => source.id === id));
+      }
       return json({ status: "ok" });
     }
     return json([]);
@@ -247,6 +260,7 @@ test("all academic units, paginated sources and every parser field can be edited
   await workbench.getByRole("button", { name: "Haber", exact: true }).click();
   await workbench.locator(".scopedSourceEditor select").first().selectOption("problem-faculty");
   await expect(workbench.locator(".academicSourceProblem")).toContainText("ayrıştıramadı");
+  await expect(workbench.locator(".academicSourceProblem")).toContainText("Son sağlık kontrolü:");
   await tree.getByRole("button", { name: /Mühendislik Fakültesi.*Kaynak ekle/ }).click();
   await expect(tree.locator(".academicTreeSelect")).toHaveCount(122);
   await tree.locator(".academicTreeSelect").filter({ hasText: /^Bölüm 0/ }).click();
@@ -302,6 +316,32 @@ test("all academic units, paginated sources and every parser field can be edited
     }
     await editor.getByRole("button", { name: "Test Et / Önizle", exact: true }).click();
     await expect(editor.getByText("Test içeriği", { exact: true })).toBeVisible();
+    if (scope === "department" && type === "announcement") {
+      // Re-testing hides the previous result while the real request is pending.
+      previewGate = new Promise<void>((resolve) => { releasePreview = resolve; });
+      nextPreviewError = "OUTBOUND_REQUEST_TIMEOUT";
+      await editor.getByRole("button", { name: "Test Et / Önizle", exact: true }).click();
+      await expect(editor.getByRole("button", { name: "Test ediliyor…", exact: true })).toBeDisabled();
+      await expect(editor.getByRole("status").filter({ hasText: "Kaynak test ediliyor…" })).toContainText("Üniversitenin sayfasından yanıt bekleniyor");
+      await expect(editor.locator(".sourcePreview")).toHaveCount(0);
+      releasePreview!(); previewGate = undefined;
+      await expect(editor.locator(".sourcePreview")).toContainText("0/0 içerik kabul edildi");
+      await expect(editor.getByRole("button", { name: "Test Et / Önizle", exact: true })).toBeEnabled();
+      await expect(editor.getByText("Test içeriği", { exact: true })).toHaveCount(0);
+      // A new draft invalidates that result; a rejected save must not bypass the save gate.
+      await editor.getByLabel("Kaynak adı", { exact: true }).fill("Önizlemeden sonra düzenlenen kaynak");
+      await expect(editor.locator(".sourcePreview")).toHaveCount(0);
+      rejectNextSave = true;
+      await editor.getByRole("button", { name: "Kaydet", exact: true }).click();
+      await expect(editor.getByRole("alert")).toContainText("401 Invalid bearer token.");
+      await expect(editor.getByRole("button", { name: "Test Et / Önizle", exact: true })).toBeDisabled();
+      await expect(editor).toContainText("Önizlemeden önce değişiklikleri kaydedin.");
+      await editor.getByRole("button", { name: "Kaydet", exact: true }).click();
+      await expect(editor.getByRole("button", { name: "Test Et / Önizle", exact: true })).toBeEnabled();
+      await expect(editor.locator(".sourcePreview")).toHaveCount(0);
+      await editor.getByRole("button", { name: "Test Et / Önizle", exact: true }).click();
+      await expect(editor.getByText("Test içeriği", { exact: true })).toBeVisible();
+    }
     await editor.getByRole("button", { name: "Onayla ve Devreye Al", exact: true }).click();
     await expect(editor).toContainText("Kaynak onay kontrolü tamamlandı");
     await editor.getByRole("button", { name: "İçerikleri Çek", exact: true }).click();

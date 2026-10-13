@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildSourceHealthAlerts } from "../../apps/admin/src/source-health-alerts.js";
+import { buildSourceHealthAlerts, sourceHealthFailureLabel } from "../../apps/admin/src/source-health-alerts.js";
 
 describe("admin source health alerts", () => {
+  it("explains transport timeouts separately from parser failures", () => {
+    expect(sourceHealthFailureLabel("OUTBOUND_REQUEST_TIMEOUT")).toContain("süre sınırı içinde yanıt vermedi");
+    expect(sourceHealthFailureLabel("SOURCE_LISTING_EMPTY")).toContain("listelenecek içerik yok");
+    expect(sourceHealthFailureLabel("SOURCE_HTML_SELECTOR_LAYOUT_INVALID")).toContain("ayrıştıramadı");
+  });
   const now = new Date("2026-09-14T12:00:00.000Z");
 
   it("prefers daily probe fields and groups the sorted result by university and source", () => {
