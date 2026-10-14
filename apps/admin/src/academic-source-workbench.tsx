@@ -180,7 +180,7 @@ export function AcademicSourceWorkbench(props: Props) {
   }, [selection?.id, selection?.scope, correctionTarget?.sourceId]);
 
   const health = buildSourceHealthAlerts(sources);
-  const unhealthyIds = new Set(health.map((alert) => alert.sourceId));
+  const unhealthyIds = new Set(health.filter((alert) => alert.severity !== "warning").map((alert) => alert.sourceId));
   function unitSources(unit: Selection) {
     return sources.filter((source) => source.scopeType === unit.scope && source.scopeId === unit.id);
   }
@@ -230,9 +230,9 @@ export function AcademicSourceWorkbench(props: Props) {
       <aside className={`academicTreePane ${!props.correctionTarget && problemUniversity ? "hasProblemUnits" : ""}`} aria-label="Üniversite fakülte bölüm ağacı">
         <label className="fieldLabel">Üniversite ara<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Üniversite adı" /></label>
         <p className="academicTreeCount">{props.universities.length} üniversite · {loading ? "Kaynaklar yükleniyor…" : `${sources.length} kaynak`}</p>
-        {!props.correctionTarget && problemUniversity && <section className="academicProblemUnits" aria-label="Sorunlu fakülte ve bölümler">
-          <h3>Sorunlu fakülte ve bölümler <span>{unitProblems.length}</span></h3>
-          <p className="inlineHint">Bir kaynağa tıkla; düzeltme formu sağda açılır.</p>
+        {!props.correctionTarget && problemUniversity && <section className="academicProblemUnits" aria-label="Fakülte ve bölüm hata / uyarıları">
+          <h3>Fakülte ve bölüm hata / uyarıları <span>{unitProblems.length}</span></h3>
+          <p className="inlineHint">Bir kaynağa tıkla; kaynak formu sağda açılır. Eski içerik uyarıları teknik hata değildir.</p>
           {loading ? <p className="inlineHint">Kaynaklar yükleniyor…</p> : !unitProblems.length ? <p className="inlineHint">Bu üniversitede alt birim uyarısı yok.</p>
             : <div className="academicProblemList">{unitProblems.map((alert) => {
               const source = sources.find((candidate) => candidate.id === alert.sourceId)!;
@@ -246,7 +246,7 @@ export function AcademicSourceWorkbench(props: Props) {
               }}>
                 {source.scopeType === "department" && faculty && <small>{faculty.name}</small>}
                 <strong>{title}</strong><span>{labels[(source.contentType ?? "announcement") as Content]} · {source.scopeType === "faculty" ? "Fakülte" : "Bölüm"}</span>
-                <small>{alert.problem}</small>
+                <small className={alert.severity === "warning" ? "sourceContentWarning" : undefined}>{alert.severity === "warning" ? "Uyarı: " : ""}{alert.problem}</small>
               </button>;
             })}</div>}
         </section>}
@@ -331,7 +331,7 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
     {props.loading && <p className="inlineHint">Tüm kaynak kayıtları yükleniyor…</p>}
     <label className="fieldLabel">{label} kaynağı<select value={source?.id ?? "new"} disabled={busy || props.loading} onChange={(event) => { if (!canLeave()) return; setSourceId(event.target.value); setPreview(undefined); markDirty(false); }}>
       {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.sourceName}</option>)}<option value="new">Yeni {label.toLocaleLowerCase("tr-TR")} kaynağı</option></select></label>
-    {problems.map((problem) => <p className="academicSourceProblem" role="status" key={problem.sourceId}>Son sağlık kontrolü: {problem.problem}
+    {problems.map((problem) => <p className={problem.severity === "warning" ? "academicSourceProblem sourceContentWarning" : "academicSourceProblem"} role="status" key={problem.sourceId}>{problem.severity === "warning" ? "Uyarı: " : "Son sağlık kontrolü: "}{problem.problem}
       {problem.lastProbeAt && <> · {new Date(problem.lastProbeAt).toLocaleString("tr-TR")}</>}</p>)}
     {source && <p className="inlineHint">{source.approvalPending ? "Onay kontrolü bekliyor" : source.trustStatus === "trusted" ? "Onaylı kaynak" : "İnsan onayı gerekiyor"} · {source.status === "active" ? "Aktif" : "Pasif"}</p>}
     <form ref={formRef} key={`${content}:${source?.id ?? "new"}:${source?.updatedAt ?? ""}`} onSubmit={save} onChange={() => markDirty(true)} className="academicSourceForm">

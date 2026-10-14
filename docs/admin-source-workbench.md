@@ -80,6 +80,8 @@ Paket mevcut değişmez Docker imajının üzerine kurulur; çevrimdışı canar
 
 ## Doğrulama
 
+`SOURCE_LISTING_STALE` (okunabilen içeriklerin bir yıldan eski olması) aynı kaynak bloğunda sarı **Uyarı** olarak gösterilir; teknik hata sayısına eklenmez. Kaynak aktifliği, parser ve tarih filtresi değiştirilmez. Yeni duyuru kontrolleri devam eder; eski duyurular güncelmiş gibi yayımlanmaz. Sağlık kontrolünün gecikmesi ayrı bir durumdur. Bu ayrım `source-health-alerts.ts` içinde yapılır; görünüm `academic-source-workbench.tsx` ve `main.tsx` içinde uygulanır.
+
 ```bash
 npm run typecheck:admin
 npx playwright test tests/e2e/admin-academic-source-tree.spec.ts -g 'all academic units'

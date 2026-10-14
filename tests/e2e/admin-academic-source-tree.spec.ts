@@ -79,6 +79,51 @@ test("every branch in the audited live catalog is reachable without a source rec
 });
 test.afterAll(() => server?.kill());
 
+test("year-old content remains a non-blocking warning in the same unit block", async ({ page }) => {
+  const user = { id: "admin", email: "admin@qa.local", fullName: "Test", role: "super_admin" };
+  const checkedAt = new Date().toISOString();
+  const sources = [
+    { id: "old", sourceName: "Gastronomi duyuruları", scopeType: "department", scopeId: "d1", ownerFacultyId: "f1", healthProbeFailureCode: "SOURCE_LISTING_STALE" },
+    { id: "broken", sourceName: "Bozuk kaynak", scopeType: "faculty", scopeId: "f1", healthProbeFailureCode: "SOURCE_HTML_SELECTOR_LAYOUT_INVALID" },
+  ].map((source) => ({ ...source, ownerUniversityId: "u1", contentType: "announcement", status: "active", trustStatus: "trusted",
+    sourceUrl: "https://selcuk.edu.tr/birim/tumicerikler/6457/2", parser: "html", priority: 45, refreshIntervalMinutes: 180,
+    healthProbeStatus: "degraded", lastHealthProbeAt: checkedAt }));
+  let writes = 0;
+  await page.route(`${api}/**`, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() !== "GET") writes++;
+    const json = (value: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(value) });
+    if (path === "/me") return json(user);
+    if (path === "/universities") return json([{ id: "u1", name: "Selçuk Üniversitesi" }]);
+    if (path === "/universities/u1/faculties") return json([{ id: "f1", name: "Turizm Fakültesi", universityId: "u1" }]);
+    if (path === "/faculties/f1/departments") return json([{ id: "d1", name: "Gastronomi", facultyId: "f1" }]);
+    if (path === "/admin/announcements/sources") return json(sources);
+    if (path === "/admin/announcements/source-profiles") return json({ universities: [] });
+    if (path === "/admin/source-coverage") return json({ items: [], total: 0, summary: {
+      catalog: { universities: 1, academicUnits: 2, faculties: 1, departments: 1 },
+      byResolution: { missing: 0, quarantined: 0, verified: 0, legacy_unverified: 0 }
+    } });
+    if (path === "/admin/announcements/review-items") return json({ items: [], total: 0 });
+    return json([]);
+  });
+  await page.addInitScript(({ user }) => sessionStorage.setItem("academic-calendar-admin-session", JSON.stringify({ accessToken: "test-token", user })), { user });
+  await page.goto(`${base}#/sources`);
+  const workbench = page.locator(".academicSourceWorkbench");
+  await workbench.locator(".academicTreeSelect").filter({ hasText: "Selçuk Üniversitesi" }).click();
+  const block = workbench.getByRole("region", { name: "Fakülte ve bölüm hata / uyarıları" });
+  await expect(block.locator(".academicProblemButton")).toHaveCount(2);
+  await expect(block.locator(".sourceContentWarning")).toContainText("Uyarı:");
+  await block.locator(".academicProblemButton").filter({ hasText: "Gastronomi" }).click();
+  const editor = workbench.locator(".scopedSourceEditor");
+  await expect(editor.locator(".academicSourceProblem.sourceContentWarning")).toContainText("1 yıldan eski");
+  await expect(editor).toContainText("Onaylı kaynak · Aktif");
+  await expect(editor.getByRole("button", { name: "Test Et / Önizle" })).toBeEnabled();
+  const summary = page.locator(".sourceHealthSummary");
+  await expect(summary).toContainText("1 Hatalı");
+  await expect(summary).toContainText("1 Eski içerik uyarısı");
+  expect(writes).toBe(0);
+});
+
 async function expandCoverage(coverage: Locator) {
   // Each level is mounted only after its parent opens, just as in the UI.
   for (const level of ["coverageUniversity", "coverageFaculty", "coverageDepartment"]) {
@@ -388,7 +433,7 @@ test("all academic units, paginated sources and every parser field can be edited
   const tree = workbench.locator(".academicTreePane");
   await tree.getByRole("button", { name: /Örnek Üniversitesi.*1 sorun/ }).click();
   await expect(tree.locator(".academicTreeSelect")).toHaveCount(47);
-  const problemBlock = tree.getByRole("region", { name: "Sorunlu fakülte ve bölümler" });
+  const problemBlock = tree.getByRole("region", { name: "Fakülte ve bölüm hata / uyarıları" });
   await expect(problemBlock.locator(".academicProblemButton")).toHaveCount(3);
   await problemBlock.locator(".academicProblemButton").filter({ hasText: "Haber · Bölüm" }).click();
   await expect(workbench.locator(".academicSelectionHeader h3")).toHaveText("Bölüm 0");

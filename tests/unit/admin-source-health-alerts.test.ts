@@ -2,6 +2,27 @@ import { describe, expect, it } from "vitest";
 import { buildSourceHealthAlerts, sourceHealthFailureLabel } from "../../apps/admin/src/source-health-alerts.js";
 
 describe("admin source health alerts", () => {
+  it("keeps year-old content in the same alert list as a warning without changing source activation", () => {
+    const source = { id: "gastronomy", sourceName: "Gastronomi duyuruları", status: "active",
+      healthProbeStatus: "degraded", healthProbeFailureCode: "SOURCE_LISTING_STALE",
+      lastHealthProbeAt: "2026-10-14T10:00:00Z" };
+    const alerts = buildSourceHealthAlerts([source], {}, new Date("2026-10-14T11:00:00Z"));
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ severity: "warning", stale: false });
+    expect(alerts[0].problem).toContain("1 yıldan eski");
+    expect(source.status).toBe("active");
+  });
+
+  it("separates old content from an overdue probe and genuine selector errors", () => {
+    const base = { id: "source", sourceName: "Duyurular", status: "active",
+      healthProbeStatus: "failed", lastHealthProbeAt: "2026-10-10T10:00:00Z" };
+    const now = new Date("2026-10-14T11:00:00Z");
+    const warning = buildSourceHealthAlerts([{ ...base, healthProbeFailureCode: "SOURCE_LISTING_STALE" }], {}, now)[0];
+    expect(warning).toMatchObject({ severity: "warning", stale: true });
+    expect(warning.problem).toContain("sağlık kontrolü");
+    expect(buildSourceHealthAlerts([{ ...base, healthProbeFailureCode: "SOURCE_HTML_SELECTOR_LAYOUT_INVALID" }], {}, now)[0].severity).toBe("failed");
+    expect(buildSourceHealthAlerts([{ ...base, healthProbeStatus: "healthy", healthProbeFailureCode: "SOURCE_LISTING_STALE" }], {}, now)[0].severity).toBe("stale");
+  });
   it("explains transport timeouts separately from parser failures", () => {
     expect(sourceHealthFailureLabel("OUTBOUND_REQUEST_TIMEOUT")).toContain("süre sınırı içinde yanıt vermedi");
     expect(sourceHealthFailureLabel("SOURCE_LISTING_EMPTY")).toContain("listelenecek içerik yok");

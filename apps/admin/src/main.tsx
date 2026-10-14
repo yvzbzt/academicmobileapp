@@ -2997,7 +2997,8 @@ function SourceHealthInbox(props: any) {
   const loading = props.sourceProfiles.loading || props.announcementSources.loading;
   const hasSourceData = Boolean(profileResponse || props.announcementSources.data);
   const loadError = props.sourceProfiles.error ?? props.announcementSources.error;
-  const unhealthyCount = alerts.filter((alert) => alert.severity !== "stale").length;
+  const unhealthyCount = alerts.filter((alert) => alert.severity === "failed" || alert.severity === "degraded").length;
+  const warningCount = alerts.filter((alert) => alert.severity === "warning").length;
   const staleCount = alerts.filter((alert) => alert.stale).length;
   const renderHealthAlert = (alert: ScopedHealthAlert) => (
     <article className={`sourceHealthAlert severity-${alert.severity}`} role="listitem" key={alert.sourceId}>
@@ -3007,7 +3008,7 @@ function SourceHealthInbox(props: any) {
           : <strong>{alert.sourceName}</strong>}
         <span className="sourceHealthScope">{contentTypeLabels[alert.contentType ?? "announcement"] ?? alert.contentType ?? "İçerik kaynağı"} · {alert.scopeDescription}</span>
       </div>
-      <p><strong>Problem</strong><span>{alert.problem}</span></p>
+      <p><strong>{alert.severity === "warning" ? "Uyarı" : "Problem"}</strong><span>{alert.problem}</span></p>
       <time dateTime={alert.lastProbeAt}>{alert.lastProbeAt ? `Son kontrol: ${new Date(alert.lastProbeAt).toLocaleString("tr-TR")}` : "Son kontrol: yapılmadı"}</time>
       <div className="sourceHealthAlertActions">
         <button
@@ -3022,7 +3023,7 @@ function SourceHealthInbox(props: any) {
             problem: alert.problem
           } satisfies SourceCorrectionTarget)}
         >
-          <Pencil size={16} /> Düzelt
+          <Pencil size={16} /> {alert.severity === "warning" ? "İncele" : "Düzelt"}
         </button>
       </div>
     </article>
@@ -3036,7 +3037,7 @@ function SourceHealthInbox(props: any) {
           <p className="panelSub">Günlük kontrolü geciken veya veri çekemeyen duyuru, haber ve etkinlik kaynakları.</p>
         </div>
         <span className={`statusBadge ${alerts.length > 0 ? "status-degraded" : "status-healthy"}`}>
-          {alerts.length.toLocaleString("tr-TR")} işlem bekliyor
+          {(alerts.length - warningCount).toLocaleString("tr-TR")} işlem bekliyor{warningCount > 0 && ` · ${warningCount.toLocaleString("tr-TR")} uyarı`}
         </span>
       </div>
       {!hasSourceData && loading && <PanelState kind="loading" text="Kaynak sağlık sonuçları yükleniyor..." />}
@@ -3047,6 +3048,7 @@ function SourceHealthInbox(props: any) {
             <span><strong>{groups.length.toLocaleString("tr-TR")}</strong> Üniversite</span>
             <span><strong>{alerts.length.toLocaleString("tr-TR")}</strong> Kaynak</span>
             <span><strong>{unhealthyCount.toLocaleString("tr-TR")}</strong> Hatalı</span>
+            <span><strong>{warningCount.toLocaleString("tr-TR")}</strong> Eski içerik uyarısı</span>
             <span><strong>{staleCount.toLocaleString("tr-TR")}</strong> Gecikmiş kontrol</span>
           </div>
           {loading && <p className="inlineHint"><RefreshCcw size={16} className="spin" /> Sağlık özeti güncelleniyor.</p>}
@@ -3201,12 +3203,12 @@ function UniversitySourceProfileCard(props: any) {
 
 function SourceProfilePreview({ preview }: { preview: AnnouncementSourcePreview }) {
   const resultLabel = preview.error === "SOURCE_LISTING_EMPTY" ? "Güncel içerik yok"
-    : preview.error === "SOURCE_LISTING_STALE" ? "İçerikler güncellik filtresine takıldı" : preview.status;
+    : preview.error === "SOURCE_LISTING_STALE" ? "Uyarı: içerikler 1 yıldan eski" : preview.status;
   const activationLabel = preview.activationStatus === "active"
     ? "Aktif"
     : preview.activationStatus === "inactive" ? "Devreye alınmadı" : preview.activationStatus === "not_requested" ? "İstenmedi" : preview.activationStatus;
   return (
-    <div className={`sourcePreview preview-${preview.status}`} role="status">
+    <div className={`sourcePreview preview-${preview.error === "SOURCE_LISTING_STALE" ? "degraded" : preview.status}`} role="status">
       <strong>Test önizlemesi: {resultLabel} · {preview.acceptedItemCount}/{preview.parsedItemCount} içerik kabul edildi</strong>
       {activationLabel && <span>Devreye alma: {activationLabel}</span>}
       {preview.detectedContentType && <span>Algılanan içerik: {preview.detectedContentType}</span>}

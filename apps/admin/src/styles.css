@@ -1018,6 +1018,7 @@ textarea:focus-visible {
 }
 
 .sourceHealthAlert.severity-failed { border-left-color: var(--red-700); }
+.sourceHealthAlert.severity-warning { border-left-color: #d97706; background: #fffbeb; }
 .sourceHealthAlertIdentity { display: grid; gap: 3px; min-width: 0; }
 .sourceHealthAlertIdentity a,
 .sourceHealthAlertIdentity span { overflow-wrap: anywhere; }

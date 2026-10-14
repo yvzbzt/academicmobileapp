@@ -40,6 +40,8 @@
 .academicAdvancedSettings summary { cursor: pointer; color: var(--ink-650); font-size: 12px; font-weight: 650; }
 .academicAdvancedSettings[open] summary { margin-bottom: 10px; }
 .academicSourceProblem { border-left: 3px solid var(--red-700); background: var(--red-50); padding: 10px; color: var(--red-700); font-size: 12px; overflow-wrap: anywhere; }
+.academicSourceProblem.sourceContentWarning { border-left-color: #d97706; background: #fffbeb; color: #92400e; }
+.academicProblemButton .sourceContentWarning { color: #92400e; }
 @media (max-width: 900px) {
   .academicWorkbenchLayout { grid-template-columns: minmax(0, 1fr); }
   .academicTreePane { position: static; }
