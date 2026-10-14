@@ -9,8 +9,10 @@ release_id="${1:-}"
 project_root="/opt/anssoft-academicmobilapp-backend"
 release_root="${project_root}/releases/${release_id}/source-hotfix"
 new_image="anssoft-backend:source-hotfix-${release_id}"
-old_image="anssoft-backend:calendar-muse-b5173e224e79"
-expected_old_id="sha256:919ddf7eed2a49588d228b98691a6c085bf4e7e2161df3278148bda9696c143f"
+base_image="anssoft-backend:calendar-muse-b5173e224e79"
+expected_base_id="sha256:919ddf7eed2a49588d228b98691a6c085bf4e7e2161df3278148bda9696c143f"
+old_image="anssoft-backend:source-hotfix-067620fac1149f33f1e26fc5dbca11f71057988b"
+expected_old_id="sha256:a3e2be1bc13ef5d8bd49331e4c55079d5c28477b3ba0d9e34a42840fa5595d11"
 api="anssoft-backend"
 worker="anssoft-content-worker"
 compose=(docker compose --project-name anssoft-backend --project-directory "${project_root}" --env-file "${project_root}/.env" -f "${project_root}/compose.yaml" -f "${project_root}/compose.muse.yaml")
@@ -22,11 +24,12 @@ for configuration in compose.yaml compose.muse.yaml .env; do
   [[ -f "${project_root}/${configuration}" && ! -L "${project_root}/${configuration}" ]]
 done
 [[ "$(docker image inspect --format '{{.Id}}' "${old_image}")" == "${expected_old_id}" ]]
+[[ "$(docker image inspect --format '{{.Id}}' "${base_image}")" == "${expected_base_id}" ]]
 new_id="$(docker image inspect --format '{{.Id}}' "${new_image}")"
 [[ "${new_id}" != "${expected_old_id}" ]]
 [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${new_image}")" == "${release_id}" ]]
 # An overlay must retain every existing filesystem layer and runtime command.
-old_layers="$(docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "${old_image}")"
+old_layers="$(docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "${base_image}")"
 new_layers="$(docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "${new_image}")"
 [[ "${new_layers}" == "${old_layers}"$'\n'* ]]
 image_runtime='{{.Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}'

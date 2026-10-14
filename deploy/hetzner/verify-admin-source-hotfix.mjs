@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-// Offline image canary: no DB imports, timers, network calls, or writes.
+// Offline image canary: no DB connections, real network calls, or persistent writes.
 // docker run --rm --network none --entrypoint node <overlay-image> \
 //   /app/deploy/hetzner/verify-admin-source-hotfix.mjs /app
 export async function verifyAdminSourceHotfix(applicationRoot = "/app") {
@@ -15,7 +15,7 @@ export async function verifyAdminSourceHotfix(applicationRoot = "/app") {
     "4b9daf66d2426e9bbaec0e1447da972e0ee3dadb3182993d5db2b766111e1bda", "Unrelated production parser must remain byte-identical");
 
   const { DEVICE_SOURCE_RUNTIME_VERSION, parseDeviceSourceRuntimeDocument, executeDeviceSourceRuntime } = await moduleAt("packages/shared/src/device-source-runtime.js");
-  const { isSelcukUnitListingUrl, isExplicitSelcukEmptyListing, isInformationalListingCode } = await moduleAt("packages/shared/src/source-listing-state.js");
+  const { isSelcukUnitListingUrl, isSupportedStaleListingUrl, isExplicitSelcukEmptyListing, isInformationalListingCode } = await moduleAt("packages/shared/src/source-listing-state.js");
   const { withSourcePreviewRetry } = await moduleAt("apps/api/src/modules/announcements/source-preview-retry.js");
   assert.equal(DEVICE_SOURCE_RUNTIME_VERSION, "device-source-runtime-v4", "Production runtime must not downgrade");
 
@@ -36,6 +36,14 @@ export async function verifyAdminSourceHotfix(applicationRoot = "/app") {
   assert.equal(isExplicitSelcukEmptyListing(empty, "https://untrusted.example/birim/tumicerikler/5346/2"), false);
   assert.equal(isInformationalListingCode("SOURCE_LISTING_EMPTY"), true);
   assert.equal(isInformationalListingCode("SOURCE_LISTING_STALE"), true);
+  const ktunUrl = "https://www.ktun.edu.tr/tr/Birim/DuyuruDetay/bOlUmUmUzden_haberler_6877";
+  assert.equal(isSupportedStaleListingUrl(ktunUrl), true);
+  assert.equal(isSupportedStaleListingUrl(ktunUrl.replace("6877", "7508")), false);
+  const ktunRecipe = { ...recipe, sourceUrl: ktunUrl, allowedOfficialDomain: "ktun.edu.tr", contentType: "news",
+    checkedAt: "2026-10-14T11:00:00.000Z" };
+  const ktunListing = listing("2025-10-09").replace("/birim/icerik/5346/test-123", "/tr/Birim/DuyuruDetay/teknIk_gezI_6883");
+  assert.throws(() => parseDeviceSourceRuntimeDocument(ktunListing, ktunRecipe), /SOURCE_LISTING_STALE/);
+  assert.throws(() => parseDeviceSourceRuntimeDocument(ktunListing, { ...ktunRecipe, parserConfig: { itemSelector: ".wrong" } }), /SOURCE_HTML_SELECTOR_LAYOUT_INVALID/);
   assert.equal(isInformationalListingCode("SOURCE_HTML_SELECTOR_LAYOUT_INVALID"), false);
   assert.throws(() => parseDeviceSourceRuntimeDocument(empty, recipe), /SOURCE_LISTING_EMPTY/);
   assert.throws(() => parseDeviceSourceRuntimeDocument(listing("2020-01-01"), recipe), /SOURCE_LISTING_STALE/);
@@ -84,8 +92,53 @@ export async function verifyAdminSourceHotfix(applicationRoot = "/app") {
     assert.equal(attempts, 1, `${code} must not trigger an ineligible retry`);
   }
 
+  // Exercise the actual production service and repository with memory-only
+  // state and a transport stub; --network none is a second safety boundary.
+  const { InMemoryAnnouncementRepository } = await moduleAt("apps/api/src/modules/announcements/in-memory-announcement.repository.js");
+  const { AnnouncementIngestionService } = await moduleAt("apps/api/src/modules/announcements/announcement-ingestion.service.js");
+  const { setSafeOutboundRequestDependenciesForTesting } = await moduleAt("apps/api/src/common/network/safe-outbound-request.js");
+  const university = { id: "konya-teknik-universitesi", slug: "konya-teknik-universitesi", name: "Konya Teknik Üniversitesi",
+    websiteUrl: "https://www.ktun.edu.tr/", status: "active", type: "state", city: "Konya", createdAt: new Date(), updatedAt: new Date() };
+  const catalog = { findUniversityById: async (id) => id === university.id ? university : null,
+    listUniversities: async () => [university], listFaculties: async () => [], listDepartments: async () => [] };
+  const repository = new InMemoryAnnouncementRepository();
+  let notificationSyncs = 0;
+  const service = new AnnouncementIngestionService(catalog, repository, {
+    retireTrustedAnnouncementSource: async () => undefined,
+    syncTrustedAnnouncementSource: async () => { notificationSyncs++; }
+  });
+  let responseBody = listing("2000-01-01").replace("/birim/icerik/5346/test-123", "/tr/Birim/DuyuruDetay/teknIk_gezI_6883");
+  setSafeOutboundRequestDependenciesForTesting({
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    requestHop: async (_url, pinned) => ({ status: 200, headers: { "content-type": "text/html" }, body: Buffer.from(responseBody), remoteAddress: pinned.address })
+  });
+  try {
+    const source = await repository.upsertSource({ scopeType: "university", scopeId: university.id, ownerUniversityId: university.id,
+      sourceName: "Canary news", sourceUrl: ktunUrl, homepageUrl: university.websiteUrl, contentType: "news", parser: "html",
+      parserConfig: recipe.parserConfig, priority: 40, status: "inactive", trustStatus: "quarantined" });
+    const reviewFence = (record) => ({ expectedSourceDefinitionVersion: record.sourceDefinitionVersion ?? "",
+      expectedCanonicalUrl: record.canonicalUrl ?? record.sourceUrl, expectedTrustStatus: record.trustStatus,
+      expectedSourceStatus: record.status, expectedApprovalPending: record.approvalPending === true });
+    const approval = await service.approveSourceForAdmin({ kind: "global" }, source.id, "offline-canary", reviewFence(source));
+    assert.equal(approval.source.status, "active");
+    assert.equal(approval.source.approvalPending, false);
+    assert.equal(approval.ingestion.error, "SOURCE_LISTING_STALE");
+    assert.equal(notificationSyncs, 0);
+    assert.deepEqual(await repository.listItemsForSource(source.id, 100), []);
+    for (let cycle = 0; cycle < 4; cycle++) {
+      assert.equal((await service.ingestSource(await repository.findSourceById(source.id))).error, "SOURCE_LISTING_STALE");
+    }
+    assert.equal((await repository.findSourceById(source.id)).consecutiveFailures, 0);
+    responseBody = responseBody.replace("2000-01-01", new Date().toISOString().slice(0, 10));
+    assert.equal((await service.ingestSource(await repository.findSourceById(source.id))).status, "healthy");
+    responseBody = "<main>Unreadable listing</main>";
+    const broken = await repository.upsertSource({ ...source, id: undefined, scopeId: university.id, sourceName: "Broken canary", status: "inactive", trustStatus: "quarantined" });
+    await assert.rejects(service.approveSourceForAdmin({ kind: "global" }, broken.id, "offline-canary", reviewFence(broken)));
+    assert.equal((await repository.findSourceById(broken.id)).status, "inactive");
+  } finally { setSafeOutboundRequestDependenciesForTesting(undefined); }
+
   return { status: "passed", runtimeVersion: DEVICE_SOURCE_RUNTIME_VERSION, parserUntouched: true,
-    checks: ["empty", "stale", "fresh", "malformed-selector", "wrong-selector", "numeric-and-boolean-options", "maximum-items", "stale-second-page", "bounded-retry", "non-retry-errors"],
+    checks: ["empty", "stale", "fresh", "malformed-selector", "wrong-selector", "numeric-and-boolean-options", "maximum-items", "stale-second-page", "bounded-retry", "non-retry-errors", "warning-approval", "no-stale-notifications", "fresh-recovery", "broken-approval-blocked"],
     externalRequests: 0, databaseWrites: 0 };
 }
 

@@ -8,7 +8,7 @@ import { evaluateSourceAuthority, SourceAuthorityError, type SourceAuthorityCont
 import type { SourceAuthorityDecision, SourceAuthorityResource } from "../../domain/source-authority-policy.js";
 import type { CatalogRepository, DepartmentRecord, FacultyRecord, UniversityRecord } from "../catalog/catalog.types.js";
 import { fetchDeviceRuntimeSourceSnapshot, fetchSourceItems, fetchSourceSnapshot, fetchText, parseConfiguredAnnouncementHtml, parseHtmlAnchors, toAnnouncementItems, cleanText, containsAnnouncementHint } from "./announcement-parser.js";
-import { isInformationalListingCode } from "../../../../../packages/shared/src/source-listing-state.js";
+import { isInformationalListingCode, isSupportedStaleListingUrl } from "../../../../../packages/shared/src/source-listing-state.js";
 import { withSourcePreviewRetry } from "./source-preview-retry.js";
 import { DEVICE_SOURCE_RUNTIME_VERSION } from "../../../../../packages/shared/src/device-source-runtime.js";
 import { ANNOUNCEMENT_CONTENT_FINGERPRINT_VERSION, canonicalAnnouncementSourceIdentityKey, canonicalizeContentUrl, isOfficialContentUrl } from "./announcement-content-trust.js";
@@ -512,7 +512,9 @@ export class AnnouncementIngestionService {
       await this.quarantineFailedSourceApproval(source);
       throw new BadRequestException("Announcement source approval failed its ingestion health check.");
     }
-    if (ingestion.status !== "healthy") {
+    const staleContentWarning = ingestion.status === "degraded" && ingestion.error === "SOURCE_LISTING_STALE"
+      && ingestion.itemCount === 0 && isSupportedStaleListingUrl(source.sourceUrl);
+    if (ingestion.status !== "healthy" && !staleContentWarning) {
       await this.quarantineFailedSourceApproval(source);
       throw new BadRequestException("Announcement source approval failed its ingestion health check.");
     }
@@ -522,18 +524,22 @@ export class AnnouncementIngestionService {
       || currentSource.status !== "active"
       || currentSource.trustStatus !== "trusted"
       || currentSource.approvalPending !== true
-      || currentSource.healthStatus !== "healthy"
-      || (currentSource.itemCount ?? 0) <= 0
+      || (staleContentWarning
+        ? currentSource.healthStatus !== "degraded" || currentSource.lastError !== "SOURCE_LISTING_STALE"
+          || currentSource.itemCount !== 0 || Boolean(currentSource.activeSnapshotId) || !currentSource.lastCheckedAt
+        : currentSource.healthStatus !== "healthy" || (currentSource.itemCount ?? 0) <= 0)
       || !sameAnnouncementSourceDefinition(currentSource, source)
       || canonicalizeContentUrl(currentSource.canonicalUrl ?? currentSource.sourceUrl) !== reviewFence.expectedCanonicalUrl
     ) throw sourceReviewConflict();
     const publishedSource = await this.announcementRepository.completeSourceApproval(
       currentSource.id,
       source,
-      currentSource.activeSnapshotId ?? null
+      currentSource.activeSnapshotId ?? null,
+      staleContentWarning ? currentSource.lastCheckedAt : undefined
     );
     if (!publishedSource) throw sourceReviewConflict();
-    await this.schedulePublishedSourceNotifications(publishedSource);
+    // A warning approves only the source recipe, never old items or notifications.
+    if (!staleContentWarning) await this.schedulePublishedSourceNotifications(publishedSource);
     return {
       source: presentSourceForAdmin(publishedSource),
       ingestion
@@ -1471,7 +1477,7 @@ export class AnnouncementIngestionService {
         trustedSnapshotItemCount = (await this.announcementRepository.listItemsForSource(source.id, 1_000)).length;
       }
       // Approval validates the same recipe as preview and devices, without legacy detail hydration.
-      const snapshot = approvalPending
+      const snapshot = approvalPending || isSupportedStaleListingUrl(source.sourceUrl)
         ? await fetchDeviceRuntimeSourceSnapshot(
             source.sourceUrl,
             source.parser,
@@ -1598,6 +1604,14 @@ export class AnnouncementIngestionService {
         return this.quarantineIngestionSource(source, error.decision, checkedAt);
       }
       const message = error instanceof Error ? error.message : String(error);
+      if (message === "SOURCE_LISTING_STALE" && isSupportedStaleListingUrl(source.sourceUrl)) {
+        await this.announcementRepository.recordSourceCheck(source.id, {
+          healthStatus: "degraded", lastCheckedAt: checkedAt, lastError: message,
+          consecutiveFailures: 0, itemCount: approvalPending ? 0 : trustedSnapshotItemCount
+        }, source, healthFenceSnapshotId ?? null);
+        return { sourceId: source.id, sourceName: source.sourceName, sourceUrl: source.sourceUrl,
+          status: "degraded", itemCount: 0, sampleTitles: [], error: message };
+      }
       const failures = (source.consecutiveFailures ?? 0) + 1;
       await this.announcementRepository.recordSourceCheck(source.id, {
         healthStatus: failures >= 3 ? "failed" : "degraded",

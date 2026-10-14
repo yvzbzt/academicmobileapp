@@ -268,16 +268,21 @@ export class InMemoryAnnouncementRepository implements AnnouncementRepository {
   async completeSourceApproval(
     id: string,
     expectedDefinition: AnnouncementSourceDefinitionFence,
-    expectedActiveSnapshotId: string | null
+    expectedActiveSnapshotId: string | null,
+    staleContentCheckedAt?: Date
   ): Promise<AnnouncementSourceRecord | null> {
     const existing = this.sources.get(id);
+    const healthAccepted = staleContentCheckedAt
+      ? existing?.healthStatus === "degraded" && existing.lastError === "SOURCE_LISTING_STALE"
+        && existing.itemCount === 0 && !existing.activeSnapshotId && expectedActiveSnapshotId === null
+        && existing.lastCheckedAt?.getTime() === staleContentCheckedAt.getTime()
+      : existing?.healthStatus === "healthy" && (existing.itemCount ?? 0) > 0;
     if (
       !existing
       || existing.status !== "active"
       || existing.trustStatus !== "trusted"
       || existing.approvalPending !== true
-      || existing.healthStatus !== "healthy"
-      || (existing.itemCount ?? 0) <= 0
+      || !healthAccepted
       || !sameSourceDefinition(existing, expectedDefinition)
       || normalizedSnapshotId(existing.activeSnapshotId) !== normalizedSnapshotId(expectedActiveSnapshotId ?? undefined)
     ) return null;

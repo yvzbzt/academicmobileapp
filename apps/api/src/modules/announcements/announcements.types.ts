@@ -461,7 +461,8 @@ export interface AnnouncementRepository {
   completeSourceApproval(
     id: string,
     expectedDefinition: AnnouncementSourceDefinitionFence,
-    expectedActiveSnapshotId: string | null
+    expectedActiveSnapshotId: string | null,
+    staleContentCheckedAt?: Date
   ): Promise<AnnouncementSourceRecord | null>;
   insertQuarantinedSourceCandidate(input: AnnouncementSourceCandidateInput): Promise<AnnouncementSourceRecord>;
   quarantineSource(

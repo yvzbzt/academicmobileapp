@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 const baselineHashes = {
   "announcement-ingestion.service.js": "a38e34be359584aac4ea3c9f28725e3b9890d7b0ec5500b6cf3483acca3fda41",
   "device-source-runtime.js": "2aaeb3624fb9c0e46883ea38efd9520e2394e9e89b961c5336b049b0efad6108",
-  "announcement-parser.js": "4b9daf66d2426e9bbaec0e1447da972e0ee3dadb3182993d5db2b766111e1bda"
+  "announcement-parser.js": "4b9daf66d2426e9bbaec0e1447da972e0ee3dadb3182993d5db2b766111e1bda",
+  "in-memory-announcement.repository.js": "efb54870811c9b4a6affbcb9ddf4c63b5f360d0c168f37ee42485c1c3f33a52a",
+  "mongo-announcement.repository.js": "6be0cdcd789e7b296496c5c82bceda41bac73d7b44fef5bfcd2cf8ec7bb78c02"
 };
 const servicePath = "apps/api/src/modules/announcements/announcement-ingestion.service.js";
 const runtimePath = "packages/shared/src/device-source-runtime.js";
@@ -44,7 +46,7 @@ export async function buildAdminSourceHotfix(baselineDirectory, compiledDistDire
 
   let runtime = originals["device-source-runtime.js"];
   runtime = replaceOnce(runtime, 'import { load } from "cheerio/slim";\n',
-    'import { load } from "cheerio/slim";\nimport { isExplicitSelcukEmptyListing, isSelcukUnitListingUrl } from "./source-listing-state.js";\n', "runtime import");
+    'import { load } from "cheerio/slim";\nimport { isExplicitSelcukEmptyListing, isSupportedStaleListingUrl, hasOnlyOldDatedItems } from "./source-listing-state.js";\n', "runtime import");
   runtime = replaceOnce(runtime, `        case "configured_html": {
             items = parseConfiguredHtml(body, recipe, baseUrl);
             if (items.length === 0)
@@ -59,11 +61,11 @@ export async function buildAdminSourceHotfix(baselineDirectory, compiledDistDire
 }
 export function isSourceChallengeDocument`,
     `    const freshItems = filterFreshItems(items, recipe).slice(0, MAX_ITEMS);
-    // Scope the hotfix to the observed Selcuk listings. Preserve v4 archive
+    // Scope the hotfix to verified dated listings. Preserve v4 archive
     // pagination, which intentionally permits an old second page.
-    if (profile === "configured_html" && items.length > 0 && freshItems.length === 0
+    if (profile === "configured_html" && freshItems.length === 0 && hasOnlyOldDatedItems(items, recipe.checkedAt)
         && recipe.parserConfig?.maximumPages !== 2
-        && isSelcukUnitListingUrl(baseUrl))
+        && isSupportedStaleListingUrl(baseUrl))
         throw runtimeError("SOURCE_LISTING_STALE");
     return freshItems;
 }
@@ -84,7 +86,7 @@ export function isSourceChallengeDocument`, "runtime stale listing");
   let service = originals["announcement-ingestion.service.js"];
   service = replaceOnce(service,
     'import { DEVICE_SOURCE_RUNTIME_VERSION } from "../../../../../packages/shared/src/device-source-runtime.js";\n',
-    'import { isInformationalListingCode } from "../../../../../packages/shared/src/source-listing-state.js";\nimport { withSourcePreviewRetry } from "./source-preview-retry.js";\nimport { DEVICE_SOURCE_RUNTIME_VERSION } from "../../../../../packages/shared/src/device-source-runtime.js";\n', "service imports");
+    'import { isInformationalListingCode, isSupportedStaleListingUrl } from "../../../../../packages/shared/src/source-listing-state.js";\nimport { withSourcePreviewRetry } from "./source-preview-retry.js";\nimport { DEVICE_SOURCE_RUNTIME_VERSION } from "../../../../../packages/shared/src/device-source-runtime.js";\n', "service imports");
   service = replaceOnce(service,
     '            const snapshot = await fetchDeviceRuntimeSourceSnapshot(source.sourceUrl, source.parser, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000), { authority: authority.context, resource: sourceAuthorityResource(source.contentType) }, {}, source.contentType, testedAt, source.parserConfig);',
     '            const snapshot = await withSourcePreviewRetry(source.sourceUrl, readPositiveInteger(process.env.ANNOUNCEMENT_SOURCE_TIMEOUT_MS, 7000), (timeoutMs) => fetchDeviceRuntimeSourceSnapshot(source.sourceUrl, source.parser, timeoutMs, { authority: authority.context, resource: sourceAuthorityResource(source.contentType) }, {}, source.contentType, testedAt, source.parserConfig));', "service preview retry");
@@ -132,14 +134,63 @@ export function isSourceChallengeDocument`, "runtime stale listing");
             }
             if (mode === "revision") {`, "service informational health probe");
 
+  service = replaceOnce(service, '        if (ingestion.status !== "healthy") {',
+    `        const staleContentWarning = ingestion.status === "degraded" && ingestion.error === "SOURCE_LISTING_STALE"
+            && ingestion.itemCount === 0 && isSupportedStaleListingUrl(source.sourceUrl);
+        if (ingestion.status !== "healthy" && !staleContentWarning) {`, "approval stale warning");
+  service = replaceOnce(service, `            || currentSource.healthStatus !== "healthy"
+            || (currentSource.itemCount ?? 0) <= 0`,
+    `            || (staleContentWarning
+                ? currentSource.healthStatus !== "degraded" || currentSource.lastError !== "SOURCE_LISTING_STALE"
+                    || currentSource.itemCount !== 0 || Boolean(currentSource.activeSnapshotId) || !currentSource.lastCheckedAt
+                : currentSource.healthStatus !== "healthy" || (currentSource.itemCount ?? 0) <= 0)`, "approval health fence");
+  service = replaceOnce(service,
+    'this.announcementRepository.completeSourceApproval(currentSource.id, source, currentSource.activeSnapshotId ?? null)',
+    'this.announcementRepository.completeSourceApproval(currentSource.id, source, currentSource.activeSnapshotId ?? null, staleContentWarning ? currentSource.lastCheckedAt : undefined)', "approval checked-time fence");
+  service = replaceOnce(service, '        await this.schedulePublishedSourceNotifications(publishedSource);',
+    '        if (!staleContentWarning) await this.schedulePublishedSourceNotifications(publishedSource);', "warning does not schedule notifications");
+  service = replaceOnce(service, '            const snapshot = approvalPending\n',
+    '            const snapshot = approvalPending || isSupportedStaleListingUrl(source.sourceUrl)\n', "verified listings retain runtime freshness");
+  service = replaceOnce(service, `            const message = error instanceof Error ? error.message : String(error);
+            const failures = (source.consecutiveFailures ?? 0) + 1;
+            await this.announcementRepository.recordSourceCheck(source.id, {
+                healthStatus: failures >= 3 ? "failed" : "degraded",`,
+    `            const message = error instanceof Error ? error.message : String(error);
+            if (message === "SOURCE_LISTING_STALE" && isSupportedStaleListingUrl(source.sourceUrl)) {
+                await this.announcementRepository.recordSourceCheck(source.id, {
+                    healthStatus: "degraded", lastCheckedAt: checkedAt, lastError: message,
+                    consecutiveFailures: 0, itemCount: approvalPending ? 0 : trustedSnapshotItemCount
+                }, source, healthFenceSnapshotId ?? null);
+                return { sourceId: source.id, sourceName: source.sourceName, sourceUrl: source.sourceUrl,
+                    status: "degraded", itemCount: 0, sampleTitles: [], error: message };
+            }
+            const failures = (source.consecutiveFailures ?? 0) + 1;
+            await this.announcementRepository.recordSourceCheck(source.id, {
+                healthStatus: failures >= 3 ? "failed" : "degraded",`, "ingestion stale warning");
+
   const outputs = new Map([
     [runtimePath, withoutSourceMap(runtime)],
     [servicePath, withoutSourceMap(service)]
   ]);
+  for (const name of ["in-memory-announcement.repository.js", "mongo-announcement.repository.js"]) {
+    const path = `apps/api/src/modules/announcements/${name}`;
+    const reviewed = await readFile(resolve(compiled, path), "utf8");
+    const method = (text) => {
+      const start = text.indexOf("    async completeSourceApproval(");
+      const end = text.indexOf("    async insertQuarantinedSourceCandidate(", start);
+      if (start < 0 || end < start) throw new Error(`${name}: approval method boundaries missing`);
+      return text.slice(start, end);
+    };
+    const replacement = method(reviewed);
+    if (!replacement.includes("staleContentCheckedAt") || !replacement.includes('"SOURCE_LISTING_STALE"')) {
+      throw new Error(`${name}: stale health fence missing`);
+    }
+    outputs.set(path, withoutSourceMap(replaceOnce(originals[name], method(originals[name]), replacement, `${name} approval fence`)));
+  }
   for (const path of helperPaths) {
     const contents = withoutSourceMap(await readFile(resolve(compiled, path), "utf8"));
     const expectedExports = path.endsWith("source-listing-state.js")
-      ? ["export function isExplicitSelcukEmptyListing(", "export function isSelcukUnitListingUrl(", "export function isInformationalListingCode("]
+      ? ["export function isExplicitSelcukEmptyListing(", "export function isSelcukUnitListingUrl(", "export function isSupportedStaleListingUrl(", "export function hasOnlyOldDatedItems(", "export function isInformationalListingCode("]
       : ["export async function withSourcePreviewRetry("];
     for (const declaration of expectedExports) {
       if (contents.split(declaration).length - 1 !== 1) throw new Error(`${path}: missing or duplicated helper export ${declaration}`);
@@ -150,7 +201,7 @@ export function isSourceChallengeDocument`, "runtime stale listing");
   await mkdir(output, { recursive: true });
   if ((await readdir(output)).length !== 0) throw new Error("Output directory must be empty; existing artifacts are never overwritten");
   const manifest = {
-    release: "selcuk-empty-stale-preview-hotfix",
+    release: "verified-stale-source-approval-hotfix",
     runtimeVersion: "device-source-runtime-v4",
     baseline: baselineHashes,
     parserUntouched: true,

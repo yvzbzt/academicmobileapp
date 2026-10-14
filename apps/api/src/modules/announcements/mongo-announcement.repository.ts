@@ -463,16 +463,19 @@ export class MongoAnnouncementRepository implements AnnouncementRepository {
   async completeSourceApproval(
     id: string,
     expectedDefinition: AnnouncementSourceDefinitionFence,
-    expectedActiveSnapshotId: string | null
+    expectedActiveSnapshotId: string | null,
+    staleContentCheckedAt?: Date
   ): Promise<AnnouncementSourceRecord | null> {
     if (!isValidObjectId(id)) return null;
+    if (staleContentCheckedAt && (!Number.isFinite(staleContentCheckedAt.getTime()) || expectedActiveSnapshotId !== null)) return null;
     const document = await (await this.model("AnnouncementSource", announcementSourceSchema)).findOneAndUpdate({
       _id: id,
       status: "active",
       trustStatus: "trusted",
       approvalPending: true,
-      healthStatus: "healthy",
-      itemCount: { $gt: 0 },
+      ...(staleContentCheckedAt ? {
+        healthStatus: "degraded", lastError: "SOURCE_LISTING_STALE", itemCount: 0, lastCheckedAt: staleContentCheckedAt
+      } : { healthStatus: "healthy", itemCount: { $gt: 0 } }),
       ...sourceDefinitionFenceFilter(expectedDefinition),
       ...snapshotPointerFenceFilter(expectedActiveSnapshotId)
     }, {

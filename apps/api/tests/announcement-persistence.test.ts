@@ -7,6 +7,33 @@ import { fingerprintFor } from "../src/modules/announcements/announcement-persis
 import type { AnnouncementItem, AnnouncementSourceRecord, AnnouncementSourceVerificationEvidence } from "../src/modules/announcements/announcements.types.js";
 
 describe("announcement source trust persistence", () => {
+  it("fences stale-content approval identically in Mongo and memory without publishing snapshots", async () => {
+    const store = new FakeAnnouncementSourceModel();
+    const mongo = new MongoAnnouncementRepository({} as never);
+    Object.defineProperty(mongo, "model", { value: async () => store });
+    for (const repository of [new InMemoryAnnouncementRepository(), mongo]) {
+      const candidate = await repository.insertQuarantinedSourceCandidate(sourceCandidateInput());
+      const staged = await repository.reviewSource(candidate.id, { decision: "approve", reviewedBy: "admin" }, sourceReviewFenceFor(candidate));
+      if (!staged) throw new Error("Missing staged record");
+      const checkedAt = new Date("2026-10-14T11:00:00.000Z");
+      const checked = await repository.recordSourceCheck(staged.id, { healthStatus: "degraded", lastError: "SOURCE_LISTING_STALE", itemCount: 0,
+        lastCheckedAt: checkedAt, consecutiveFailures: 0 }, staged, null);
+      if (!checked) throw new Error("Missing health record");
+      await expect(repository.completeSourceApproval(checked.id, checked, null)).resolves.toBeNull();
+      await expect(repository.completeSourceApproval(checked.id, checked, null, new Date("2026-10-14T10:59:00.000Z"))).resolves.toBeNull();
+      await expect(repository.completeSourceApproval(checked.id, checked, "unexpected-snapshot", checkedAt)).resolves.toBeNull();
+      await expect(repository.completeSourceApproval(checked.id, { ...checked, parserConfig: { itemSelector: ".changed" } }, null, checkedAt)).resolves.toBeNull();
+      await repository.recordSourceCheck(checked.id, { healthStatus: "degraded", lastError: "SOURCE_EMPTY_SNAPSHOT_REJECTED", itemCount: 0,
+        lastCheckedAt: checkedAt, consecutiveFailures: 1 }, staged, null);
+      await expect(repository.completeSourceApproval(checked.id, checked, null, checkedAt)).resolves.toBeNull();
+      await repository.recordSourceCheck(checked.id, { healthStatus: "degraded", lastError: "SOURCE_LISTING_STALE", itemCount: 0,
+        lastCheckedAt: checkedAt, consecutiveFailures: 0 }, staged, null);
+      await expect(repository.completeSourceApproval(checked.id, checked, null, checkedAt)).resolves.toMatchObject({
+        status: "active", trustStatus: "trusted", approvalPending: false, healthStatus: "degraded", itemCount: 0
+      });
+      await expect(repository.completeSourceApproval(checked.id, checked, null, checkedAt)).resolves.toBeNull();
+    }
+  });
   it("quarantines new in-memory sources unless trust is explicit and preserves existing decisions on omitted updates", async () => {
     const repository = new InMemoryAnnouncementRepository();
     const created = await repository.upsertSource(sourceInputWithoutTrust());

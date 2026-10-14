@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Building2, ChevronRight, RefreshCcw, Save, Play } from "lucide-react";
 import type { AnnouncementSourceRecord, AnnouncementSourcePreview, SourceCorrectionTarget } from "./main";
-import { buildSourceHealthAlerts } from "./source-health-alerts";
+import { buildSourceHealthAlerts, sourceHealthFailureLabel } from "./source-health-alerts";
 import "./academic-source-workbench.css";
 import { ParserSelectorFields, parserSelectorFields as selectors } from "./parser-selector-fields";
 
@@ -360,13 +360,15 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
       <button className="btn btn-secondary" type="button" disabled={busy || !source || dirty || source.trustStatus !== "trusted" || source.status !== "active" || source.approvalPending || props.loading}
         onClick={() => void action(async () => {
           const result = await props.request<{ status: string; itemCount: number; error?: string }>(`/admin/announcements/sources/${encodeURIComponent(source!.id)}/ingest`, { method: "POST" });
-          await props.refresh(); if (result.error) throw new Error(result.error); setMessage(`${result.itemCount} içerik · ${result.status}`);
+          await props.refresh();
+          if (result.error === "SOURCE_LISTING_STALE") { setMessage(`Uyarı: ${sourceHealthFailureLabel(result.error)}`); return; }
+          if (result.error) throw new Error(result.error); setMessage(`${result.itemCount} içerik · ${result.status}`);
         })}>İçerikleri Çek</button>
     </div>
     {previewing && <p role="status" className="inlineHint">Kaynak test ediliyor… Üniversitenin sayfasından yanıt bekleniyor.</p>}
     {dirty && <p className="inlineHint">Önizlemeden önce değişiklikleri kaydedin.</p>}
     {error && <p role="alert" className="academicSourceProblem">{error}</p>}
-    {message && <p role="status">{message}</p>}
+    {message && <p role="status" className={message.startsWith("Uyarı:") ? "inlineHint" : undefined}>{message}</p>}
     {preview && props.renderPreview(preview)}
   </div>;
 }

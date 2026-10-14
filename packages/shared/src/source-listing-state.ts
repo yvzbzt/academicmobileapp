@@ -21,3 +21,32 @@ export function isExplicitSelcukEmptyListing(html: string, sourceUrl: string): b
 export function isInformationalListingCode(code: string): boolean {
   return code === "SOURCE_LISTING_EMPTY" || code === "SOURCE_LISTING_STALE";
 }
+
+// This KTUN detail endpoint contains a verified, dated department news table.
+// Do not classify arbitrary detail pages (or a missing selector) as old listings.
+export function isSupportedStaleListingUrl(sourceUrl: string): boolean {
+  if (isSelcukUnitListingUrl(sourceUrl)) return true;
+  try {
+    const url = new URL(sourceUrl);
+    return url.protocol === "https:" && !url.port && !url.username && !url.password && !url.search && !url.hash
+      && ["ktun.edu.tr", "www.ktun.edu.tr"].includes(url.hostname)
+      && url.pathname.toLowerCase() === "/tr/birim/duyurudetay/bolumumuzden_haberler_6877";
+  } catch { return false; }
+}
+
+export function hasOnlyOldDatedItems(items: readonly {
+  publishedAt?: string; publishedDate?: string;
+  keyDates?: readonly { startDate: string; endDate?: string }[];
+}[], checkedAt: string): boolean {
+  const cutoff = new Date(checkedAt);
+  if (!Number.isFinite(cutoff.getTime()) || items.length === 0) return false;
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
+  return items.every((item) => {
+    const values = [item.publishedAt, item.publishedDate,
+      ...(item.keyDates ?? []).map((date) => date.endDate ?? date.startDate)].filter((value): value is string => Boolean(value));
+    return values.length > 0 && values.every((value) => {
+      const date = new Date(/^\d{4}-\d{2}-\d{2}$/u.test(value) ? `${value}T12:00:00.000Z` : value);
+      return Number.isFinite(date.getTime()) && date.getTime() < cutoff.getTime();
+    });
+  });
+}

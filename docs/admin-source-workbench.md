@@ -68,7 +68,7 @@ Timeout incelemesinde canlı API'nin güvenli HTTP istemcisiyle Selçuk sayfası
 
 ### API yayını: mevcut v4 üzerine dar yama
 
-Canlı API, yerel kaynak ağacından daha yeni `device-source-runtime-v4` kullanır. Bu nedenle eski yerel API'nin tamamı yeniden derlenip yayınlanmaz. `deploy/hetzner/apply-admin-source-hotfix.mjs`, incelenmiş canlı modüllerin SHA-256 değerlerini doğrular; yalnız runtime, ingestion service ve iki yeni yardımcı modülü içeren dört dosyalık paket üretir. Genel parser, v4 sürümü, sayfalama/ayrıntı okuma ve diğer özellikler korunur. Farklı canlı temel sürümde işlem durur; yama otomatik genellenmez.
+Canlı API, yerel kaynak ağacından daha yeni `device-source-runtime-v4` kullanır. Bu nedenle eski yerel API'nin tamamı yeniden derlenip yayınlanmaz. `deploy/hetzner/apply-admin-source-hotfix.mjs`, incelenmiş canlı modüllerin SHA-256 değerlerini doğrular; runtime, ingestion service, iki yardımcı modül ve iki repository modülünden oluşan altı dosyalık paket üretir. Repository dosyalarında yalnız `completeSourceApproval` metodu değiştirilir. Genel parser, v4 sürümü, sayfalama/ayrıntı okuma ve diğer özellikler korunur. Farklı canlı temel sürümde işlem durur; yama otomatik genellenmez.
 
 Paket mevcut değişmez Docker imajının üzerine kurulur; çevrimdışı canary testi sonrası yalnız API ve içerik worker'ı yenilenir. Release klasöründeki compose override bu iki servis için yeni imajı belirtir; sonraki operasyonlarda bu override da kullanılmalıdır. Geri dönüş eski değişmez imajla yapılır. Admin paketi ayrıca aşağıdaki yöntemle yayınlanır. Kaynak kayıtları için migration veya toplu güncelleme yapılmaz.
 
@@ -80,7 +80,17 @@ Paket mevcut değişmez Docker imajının üzerine kurulur; çevrimdışı canar
 
 ## Doğrulama
 
+### 14 Ekim 2026 — eski içerikle kaynak onayı
+
+Son temiz kopyada 91 API test dosyası / 1.254 test geçti; ayrıca 147 odaklı kontrol ve dört tarayıcı akışı geçti. TypeScript kontrolleri ve admin üretim derlemesi başarılı. Üç bağımsız bildirim/kullanıcı/şifre-kurtarma Mongo entegrasyon grubu ayrı yerel test veritabanı kurulumu gerektirdiği için geniş taramanın son çalışmasında kapsam dışıdır; yeni kaynak onayı akışı ayrıca gerçek, geçici ve ağsız MongoDB üzerinde doğrulandı.
+
+Canlı v4 imajına uygulanan altı modüllük yama, servisler değiştirilmeden salt okunur/ağsız konteynerde test edildi. Uyarıyla onay, eski içerik ve bildirim yayımlamama, yeni içerikte normale dönüş, yanlış seçiciyi engelleme ve eski onay isteğine 409 verme doğrulandı. Test veritabanı kaldırıldı; üretim veritabanına yazılmadı. Bu test sırasında çalışan API/worker/Mongo/Caddy değişmedi. Kullanıcı 14 Ekim'de son kontrol, kişisel GitHub'a push ve canlı yayın için onay verdi; yayın sonrası ayrıca canlı sağlık ve tarayıcı kontrolü gerekir.
+
 `SOURCE_LISTING_STALE` (okunabilen içeriklerin bir yıldan eski olması) aynı kaynak bloğunda sarı **Uyarı** olarak gösterilir; teknik hata sayısına eklenmez. Kaynak aktifliği, parser ve tarih filtresi değiştirilmez. Yeni duyuru kontrolleri devam eder; eski duyurular güncelmiş gibi yayımlanmaz. Sağlık kontrolünün gecikmesi ayrı bir durumdur. Bu ayrım `source-health-alerts.ts` içinde yapılır; görünüm `academic-source-workbench.tsx` ve `main.tsx` içinde uygulanır.
+
+KTÜN Kimya Mühendisliği'nin `Birim/DuyuruDetay/bOlUmUmUzden_haberler_6877` adresi, adına rağmen tarihli bir haber tablosu içerir. Doğrulanmış bu adres de `isSupportedStaleListingUrl` ile eski içerik uyarısına dahildir. Tablo satırı `main#mainContent .kingster-single-article-content table.MsoTableGrid > tbody > tr`; başlık ikinci hücredeki tarihsiz paragraf, bağlantı üçüncü hücredeki `a[href]`, tarih ikinci hücredeki `strong` öğesidir. Yanlış seçiciler uyarıya dönüştürülmez; yayın filtresi ve v4 sayfalama korunur.
+
+Eski içerikle onay yalnız doğrulanmış liste URL'sinde, tüm kayıtların tarihleri bir yıldan eski olduğu kanıtlandığında ve kontrol sonucu tam olarak `SOURCE_LISTING_STALE` olduğunda kabul edilir. Belirsiz tarih, gelecekteki etkinlik, boş sayfa, yanlış seçici ve güvenlik hatası bu istisnadan yararlanmaz. Onay eski haberleri veya bildirimleri yayımlamaz. Mongo ve bellek repository'leri aynı kaynak tanımı, onay nesli, boş snapshot ve son kontrol zamanı için atomik kontrol yapar. Yeni içerik geldiğinde normal içerik yayınına dönülür. `verify-stale-source-approval-mongo.mjs` yalnız özel olarak adlandırılmış, loopback adresindeki ayrı test veritabanını kabul eder; üretim bağlantısına geri dönmez. Bu test ayrı portsuz/ağsız Mongo konteyneriyle çalıştırılır.
 
 ```bash
 npm run typecheck:admin

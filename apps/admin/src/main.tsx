@@ -1416,7 +1416,8 @@ function App() {
     if (!ensureToken()) return;
     const result = await request<AnnouncementIngestionPreview>(`/admin/announcements/sources/${id}/ingest`, { method: "POST" });
     await loadAnnouncementSources();
-    setMessage(`Kaynak şimdi yenilendi: ${result.itemCount} içerik ayrıştırıldı`);
+    setMessage(result.error === "SOURCE_LISTING_STALE" ? `Uyarı: ${sourceHealthFailureLabel(result.error)}`
+      : `Kaynak şimdi yenilendi: ${result.itemCount} içerik ayrıştırıldı`);
   }
 
   async function reviewAnnouncementSource(source: AnnouncementSourceRecord, decision: "approve" | "reject", note: string) {

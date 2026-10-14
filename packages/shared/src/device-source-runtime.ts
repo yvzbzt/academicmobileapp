@@ -1,5 +1,5 @@
 import { load } from "cheerio/slim";
-import { isExplicitSelcukEmptyListing, isSelcukUnitListingUrl } from "./source-listing-state.js";
+import { isExplicitSelcukEmptyListing, isSupportedStaleListingUrl, hasOnlyOldDatedItems } from "./source-listing-state.js";
 
 export const DEVICE_SOURCE_RUNTIME_VERSION = "device-source-runtime-v2" as const;
 export const DEVICE_SOURCE_ACCEPT_LANGUAGE = "tr-TR,tr;q=0.9,en-US;q=0.7,en;q=0.6" as const;
@@ -207,7 +207,7 @@ export function parseDeviceSourceRuntimeDocument(
   }
   const freshItems = filterFreshItems(items, recipe);
   const paginated = recipe.parserConfig && "maximumPages" in recipe.parserConfig && recipe.parserConfig.maximumPages === 2;
-  if (profile === "configured_html" && !paginated && isSelcukUnitListingUrl(baseUrl) && items.length > 0 && freshItems.length === 0) throw runtimeError("SOURCE_LISTING_STALE");
+  if (profile === "configured_html" && !paginated && isSupportedStaleListingUrl(baseUrl) && freshItems.length === 0 && hasOnlyOldDatedItems(items, recipe.checkedAt)) throw runtimeError("SOURCE_LISTING_STALE");
   return freshItems;
 }
 

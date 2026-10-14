@@ -1,4 +1,4 @@
-# Build context is the verified four-module overlay, not the repository.
+# Build context is the verified six-module overlay, not the repository.
 # BASE_IMAGE must be a local tag of the inspected immutable production image.
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}

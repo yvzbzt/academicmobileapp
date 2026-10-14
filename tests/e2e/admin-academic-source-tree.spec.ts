@@ -98,6 +98,15 @@ test("year-old content remains a non-blocking warning in the same unit block", a
     if (path === "/universities/u1/faculties") return json([{ id: "f1", name: "Turizm Fakültesi", universityId: "u1" }]);
     if (path === "/faculties/f1/departments") return json([{ id: "d1", name: "Gastronomi", facultyId: "f1" }]);
     if (path === "/admin/announcements/sources") return json(sources);
+    if (path === "/admin/announcements/sources/old" && route.request().method() === "PUT") {
+      Object.assign(sources[0]!, route.request().postDataJSON(), { status: "inactive", trustStatus: "quarantined", updatedAt: new Date(Date.now() + 1000).toISOString() });
+      return json(sources[0]);
+    }
+    if (path === "/admin/announcements/sources/old/approve") {
+      Object.assign(sources[0]!, { status: "active", trustStatus: "trusted", approvalPending: false });
+      return json({ source: sources[0], ingestion: { status: "degraded", itemCount: 0, error: "SOURCE_LISTING_STALE" } });
+    }
+    if (path === "/admin/announcements/sources/old/ingest") return json({ status: "degraded", itemCount: 0, error: "SOURCE_LISTING_STALE" });
     if (path === "/admin/announcements/source-profiles") return json({ universities: [] });
     if (path === "/admin/source-coverage") return json({ items: [], total: 0, summary: {
       catalog: { universities: 1, academicUnits: 2, faculties: 1, departments: 1 },
@@ -122,6 +131,14 @@ test("year-old content remains a non-blocking warning in the same unit block", a
   await expect(summary).toContainText("1 Hatalı");
   await expect(summary).toContainText("1 Eski içerik uyarısı");
   expect(writes).toBe(0);
+  await editor.getByLabel("Kaynak adı", { exact: true }).fill("Gastronomi test kaynağı");
+  await editor.getByRole("button", { name: "Kaydet", exact: true }).click();
+  await expect(editor).toContainText("İnsan onayı gerekiyor · Pasif");
+  await editor.getByRole("button", { name: "Onayla ve Devreye Al", exact: true }).click();
+  await expect(editor).toContainText("Onaylı kaynak · Aktif");
+  await editor.getByRole("button", { name: "İçerikleri Çek", exact: true }).click();
+  await expect(editor.locator('p.inlineHint[role="status"]')).toContainText("Uyarı:");
+  await expect(editor.getByRole("alert")).toHaveCount(0);
 });
 
 async function expandCoverage(coverage: Locator) {

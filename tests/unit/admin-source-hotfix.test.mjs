@@ -36,7 +36,7 @@ describe("admin source production overlay", () => {
     const beforeParser = await readFile(join(baseline, "announcement-parser.js"));
     const manifest = await buildAdminSourceHotfix(baseline, compiled, first);
     expect(await buildAdminSourceHotfix(baseline, compiled, second)).toEqual(manifest);
-    expect(Object.keys(manifest.files)).toHaveLength(4);
+    expect(Object.keys(manifest.files)).toHaveLength(6);
     const runtime = await readFile(join(first, "dist/packages/shared/src/device-source-runtime.js"), "utf8");
     const service = await readFile(join(first, "dist/apps/api/src/modules/announcements/announcement-ingestion.service.js"), "utf8");
     expect(runtime).toContain('DEVICE_SOURCE_RUNTIME_VERSION = "device-source-runtime-v4"');
@@ -45,10 +45,20 @@ describe("admin source production overlay", () => {
     expect(runtime).toContain('"bogazici_event"');
     expect(runtime).toContain('hydrateDeviceSourceDetailItems');
     expect(runtime).toContain('isSourceChallengeDocument');
-    expect(runtime).toContain('isSelcukUnitListingUrl(baseUrl)');
+    expect(runtime).toContain('isSupportedStaleListingUrl(baseUrl)');
     expect(service).toContain('backfillAcademicUnitSourceOwnershipForAdmin');
     expect(service).toContain('withSourcePreviewRetry');
     expect(service).toContain('consecutiveFailures: informational ? 0');
+    expect(service).toContain('staleContentWarning ? currentSource.lastCheckedAt : undefined');
+    expect(service).toContain('if (!staleContentWarning) await this.schedulePublishedSourceNotifications(publishedSource)');
+    for (const name of ["mongo-announcement.repository.js", "in-memory-announcement.repository.js"]) {
+      const path = `apps/api/src/modules/announcements/${name}`;
+      const original = await readFile(join(baseline, name), "utf8");
+      const patched = await readFile(join(first, "dist", path), "utf8");
+      const omitMethod = (value) => value.replace(/    async completeSourceApproval\([\s\S]*?(?=    async insertQuarantinedSourceCandidate\()/u, "").replace(/^\/\/#.*sourceMappingURL=.*$/gmu, "");
+      expect(omitMethod(patched)).toBe(omitMethod(original));
+      expect(patched).toContain("staleContentCheckedAt");
+    }
     for (const [path, hash] of Object.entries(manifest.files)) {
       const file = await readFile(join(first, path));
       expect(createHash("sha256").update(file).digest("hex")).toBe(hash);
@@ -72,5 +82,9 @@ describe("admin source production overlay", () => {
     expect(() => parseDeviceSourceRuntimeDocument(listing("2020-01-01"), recipe)).toThrow("SOURCE_LISTING_STALE");
     expect(parseDeviceSourceRuntimeDocument(listing("2026-10-12"), { ...recipe, parserConfig: { ...recipe.parserConfig, maximumPages: 2, nextPageSelector: ".next-page", fetchDetail: true } })).toHaveLength(1);
     expect(parseDeviceSourceRuntimeDocument(listing("2020-01-01"), { ...recipe, parserConfig: { ...recipe.parserConfig, maximumPages: 2, nextPageSelector: ".next-page" } })).toEqual([]);
+    const ktunRecipe = { ...recipe, sourceUrl: "https://www.ktun.edu.tr/tr/Birim/DuyuruDetay/bOlUmUmUzden_haberler_6877", allowedOfficialDomain: "ktun.edu.tr", contentType: "news" };
+    const ktunListing = listing("2025-10-09").replace("/birim/icerik/5346/test-123", "/tr/Birim/DuyuruDetay/teknIk_gezI_6883");
+    expect(() => parseDeviceSourceRuntimeDocument(ktunListing, ktunRecipe)).toThrow("SOURCE_LISTING_STALE");
+    expect(() => parseDeviceSourceRuntimeDocument(ktunListing, { ...ktunRecipe, parserConfig: { itemSelector: ".wrong" } })).toThrow("SOURCE_HTML_SELECTOR_LAYOUT_INVALID");
   });
 });
