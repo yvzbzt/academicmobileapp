@@ -50,6 +50,7 @@ import {
 } from "./source-health-alerts";
 import { buildSourceHealthTree, type ScopedHealthAlert } from "./source-health-tree";
 import { AcademicSourceWorkbench, readAllAdminSources } from "./academic-source-workbench";
+import { SourceCoverageGroups } from "./source-coverage-groups";
 import {
   adminRoles,
   canAccessAdminRoute,
@@ -2695,6 +2696,17 @@ function SourceCoveragePanel(props: any) {
   const [searchDraft, setSearchDraft] = useState(props.sourceCoverageQuery.search);
   const query = props.sourceCoverageQuery as SourceCoverageQuery;
   const response = props.sourceCoverage.data as SourceCoverageResponse | undefined;
+  const loadCoverageRef = useRef(props.loadSourceCoverage);
+  loadCoverageRef.current = props.loadSourceCoverage;
+  const searchPending = searchDraft.trim() !== query.search.trim();
+  useEffect(() => { setSearchDraft(query.search); }, [query.search]);
+  useEffect(() => {
+    if (!props.hasToken || !searchPending) return;
+    const timer = window.setTimeout(() => void loadCoverageRef.current({ search: searchDraft.trim(), offset: 0 }), 400);
+    return () => window.clearTimeout(timer);
+  }, [searchDraft, query.search, props.hasToken]);
+  const applyFilters = (next: Partial<SourceCoverageQuery> = {}) =>
+    props.loadSourceCoverage({ search: searchDraft.trim(), offset: 0, ...next });
   const sourceLabels: Record<SourceCoverageType, string> = {
     homepage: "Web sitesi",
     announcement: "Duyuru",
@@ -2717,24 +2729,24 @@ function SourceCoveragePanel(props: any) {
           <h2><AlertTriangle size={20} /> Eksik / Çözülemeyen Kaynaklar</h2>
           <p className="panelSub">Son yayımlanan doğrulama envanteri. Üniversite seçerek filtreleyebilirsin; adres kaydetmek bu envanteri anında değiştirmez ve doğrulama yerine geçmez.</p>
         </div>
-        <button className="btn btn-secondary" type="button" onClick={() => props.loadSourceCoverage()} disabled={!props.hasToken || props.sourceCoverage.loading}>
+        <button className="btn btn-secondary" type="button" onClick={() => applyFilters()} disabled={!props.hasToken || props.sourceCoverage.loading}>
           <RefreshCcw size={18} /> Yenile
         </button>
       </div>
-      <form className="coverageFilters" onSubmit={(event) => { event.preventDefault(); void props.loadSourceCoverage({ search: searchDraft, offset: 0 }); }}>
+      <form className="coverageFilters" onSubmit={(event) => { event.preventDefault(); void applyFilters(); }}>
         <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} maxLength={200} placeholder="Üniversite, fakülte, bölüm veya ID ara" aria-label="Kaynak kapsamında ara" />
-        <select value={query.universityId} onChange={(event) => void props.loadSourceCoverage({ universityId: event.target.value, offset: 0 })} aria-label="Kapsam üniversitesi">
+        <select value={query.universityId} onChange={(event) => void applyFilters({ universityId: event.target.value })} aria-label="Kapsam üniversitesi">
           <option value="">Tüm üniversiteler</option>
           {(props.universities.data ?? []).map((university: UniversityRecord) => <option key={university.id} value={university.id}>{university.name}</option>)}
         </select>
-        <select value={query.scopeType} onChange={(event) => void props.loadSourceCoverage({ scopeType: event.target.value, offset: 0 })} aria-label="Akademik birim türü">
+        <select value={query.scopeType} onChange={(event) => void applyFilters({ scopeType: event.target.value as SourceCoverageQuery["scopeType"] })} aria-label="Akademik birim türü">
           <option value="">Fakülte + bölüm</option><option value="faculty">Fakülte</option><option value="department">Bölüm</option>
         </select>
-        <select value={query.sourceType} onChange={(event) => void props.loadSourceCoverage({ sourceType: event.target.value, offset: 0 })} aria-label="Kaynak türü">
+        <select value={query.sourceType} onChange={(event) => void applyFilters({ sourceType: event.target.value as SourceCoverageQuery["sourceType"] })} aria-label="Kaynak türü">
           <option value="">Tüm kaynak türleri</option>
           {(Object.entries(sourceLabels) as Array<[SourceCoverageType, string]>).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
-        <select value={query.resolution} onChange={(event) => void props.loadSourceCoverage({ resolution: event.target.value, offset: 0 })} aria-label="Kaynak çözüm durumu">
+        <select value={query.resolution} onChange={(event) => void applyFilters({ resolution: event.target.value as SourceCoverageQuery["resolution"] })} aria-label="Kaynak çözüm durumu">
           <option value="">Tüm durumlar</option>
           {(Object.entries(resolutionLabels) as Array<[SourceCoverageResolution, string]>).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
@@ -2750,20 +2762,16 @@ function SourceCoveragePanel(props: any) {
           <span><strong>{response.summary.byResolution.verified.toLocaleString("tr-TR")}</strong> doğrulandı</span>
         </div>
       )}
-      {props.sourceCoverage.loading && <PanelState kind="loading" text="115.656 kaynak yuvasından filtrelenen sayfa hazırlanıyor..." />}
-      {props.sourceCoverage.error && <PanelState kind="error" text={props.sourceCoverage.error} />}
-      {!props.sourceCoverage.loading && !props.sourceCoverage.error && response?.items.length === 0 && <PanelState kind="empty" text="Bu filtrede kaynak kaydı yok." />}
-      <div className="coverageList">
-        {(response?.items ?? []).map((item) => (
+      {searchPending && <PanelState kind="loading" text="Arama uygulanıyor…" />}
+      {props.sourceCoverage.loading && <PanelState kind="loading" text="Filtrelenen kaynak kayıtları yükleniyor…" />}
+      {!searchPending && props.sourceCoverage.error && <PanelState kind="error" text={props.sourceCoverage.error} />}
+      {!searchPending && !props.sourceCoverage.loading && !props.sourceCoverage.error && response?.items.length === 0 && <PanelState kind="empty" text="Bu filtrede kaynak kaydı yok." />}
+      {!searchPending && <SourceCoverageGroups key={JSON.stringify(query)} items={response?.items ?? []} renderItem={(item) => (
           <article className="coverageItem" key={item.id}>
-            <div>
-              <strong>{item.universityName}</strong>
-              <span>{item.facultyName}{item.departmentName ? ` · ${item.departmentName}` : ""}</span>
-              <code>{item.scopeId}</code>
-            </div>
             <div><span>{sourceLabels[item.sourceType]}</span><span className={`statusBadge coverage-${item.resolution}`}>{resolutionLabels[item.resolution]}</span></div>
             <div className="coverageReason">
-              {item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.url}</a> : <span>{item.quarantineReason ?? item.missingReason ?? item.legacyReason ?? "Kaynak yok"}</span>}
+              {item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.url}</a> : <span>{item.resolution === "missing" && item.missingReason === `no_registered_${item.scopeType}_${item.sourceType}_source`
+                ? `${sourceLabels[item.sourceType]} kaynağı kayıtlı değil.` : item.quarantineReason ?? item.missingReason ?? item.legacyReason ?? "Kaynak yok"}</span>}
               {item.finalRevalidatedAt && <small>Final kontrol: {new Date(item.finalRevalidatedAt).toLocaleString("tr-TR")}</small>}
               {item.inheritedFromScopeType && (
                 <small>
@@ -2772,16 +2780,17 @@ function SourceCoveragePanel(props: any) {
                     : `${item.inheritedFromScopeType} kapsamından paylaşıldı`}
                 </small>
               )}
+              <details className="coverageTechnical"><summary>Teknik ayrıntı</summary><code>{item.scopeId}</code>
+                <code>{item.quarantineReason ?? item.missingReason ?? item.legacyReason}</code></details>
             </div>
             <button className="btn btn-secondary" type="button" onClick={() => props.openCoverageCorrection(item)}><Pencil size={16} /> Düzelt</button>
           </article>
-        ))}
-      </div>
+        )} />}
       {response && response.total > 0 && (
         <div className="reviewPagination">
-          <button className="btn btn-secondary" type="button" disabled={query.offset === 0 || props.sourceCoverage.loading} onClick={() => props.loadSourceCoverage({ offset: Math.max(0, query.offset - query.limit) })}>Önceki</button>
+          <button className="btn btn-secondary" type="button" disabled={query.offset === 0 || props.sourceCoverage.loading || searchPending} onClick={() => applyFilters({ offset: Math.max(0, query.offset - query.limit) })}>Önceki</button>
           <span>{(query.offset + 1).toLocaleString("tr-TR")}–{Math.min(query.offset + query.limit, response.total).toLocaleString("tr-TR")} / {response.total.toLocaleString("tr-TR")}</span>
-          <button className="btn btn-secondary" type="button" disabled={query.offset + query.limit >= response.total || props.sourceCoverage.loading} onClick={() => props.loadSourceCoverage({ offset: query.offset + query.limit })}>Sonraki</button>
+          <button className="btn btn-secondary" type="button" disabled={query.offset + query.limit >= response.total || props.sourceCoverage.loading || searchPending} onClick={() => applyFilters({ offset: query.offset + query.limit })}>Sonraki</button>
         </div>
       )}
     </section>
@@ -3247,7 +3256,7 @@ function coverageCorrectionFromHash(): CoverageCorrectionTarget | undefined {
 }
 
 // Only edit the chosen URL: empty unrelated fields must never erase other catalog links.
-function CoverageUrlCorrection(props: { target: CoverageCorrectionTarget; request: any }) {
+function CoverageUrlCorrection(props: { target: CoverageCorrectionTarget; request: any; onDirtyChange: (dirty: boolean) => void }) {
   const { target } = props;
   const field = target.sourceType === "homepage" ? "websiteUrl" : target.sourceType === "course_schedule" ? "courseScheduleUrl"
     : target.sourceType === "exam_schedule" ? "examScheduleUrl" : "academicCalendarUrl";
@@ -3284,11 +3293,12 @@ function CoverageUrlCorrection(props: { target: CoverageCorrectionTarget; reques
       try {
         await props.request(`/admin/${isCalendar ? "universities" : target.scopeType === "faculty" ? "faculties" : "departments"}/${encodeURIComponent(isCalendar ? target.universityId : target.scopeId)}`,
           { method: "PATCH", body: JSON.stringify({ [field]: url.trim() || null }) });
+        props.onDirtyChange(false);
         setMessage("Adres kaydedildi. Doğrulama envanteri ayrı güncellenir; eksik uyarısı hemen kalkmaz.");
       } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
       finally { setBusy(false); }
     }}>
-      <fieldset disabled={!record || busy}><label className="fieldLabel">{label} adresi<input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label>
+      <fieldset disabled={!record || busy}><label className="fieldLabel">{label} adresi<input type="url" value={url} onChange={(event) => { setUrl(event.target.value); props.onDirtyChange(true); }} placeholder="https://..." /></label>
         <span className="inlineHint">Boş kaydetmek yalnız bu adresi kaldırır.</span>
         <button className="btn btn-primary"><Save size={16} /> Adresi Kaydet</button></fieldset>
     </form>
@@ -3300,6 +3310,16 @@ function CoverageUrlCorrection(props: { target: CoverageCorrectionTarget; reques
 function AnnouncementSourcesPage(props: any) {
   const [correctionTarget, setCorrectionTarget] = useState<SourceCorrectionTarget | undefined>(sourceCorrectionTargetFromHash);
   const [coverageTarget, setCoverageTarget] = useState(coverageCorrectionFromHash);
+  const correctionDirtyRef = useRef(false);
+  const reportCorrectionDirty = (dirty: boolean) => { correctionDirtyRef.current = dirty; };
+  const canLeaveDraft = () => !correctionDirtyRef.current || window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden ayrılmak istiyor musunuz?");
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (correctionDirtyRef.current) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, []);
 
   useEffect(() => {
     const syncCorrectionRoute = () => { setCorrectionTarget(sourceCorrectionTargetFromHash()); setCoverageTarget(coverageCorrectionFromHash()); };
@@ -3312,10 +3332,14 @@ function AnnouncementSourcesPage(props: any) {
   }, []);
 
   const openSourceCorrection = (target: SourceCorrectionTarget) => {
+    if (!canLeaveDraft()) return;
+    correctionDirtyRef.current = false;
     setCorrectionTarget(target);
     window.history.pushState(null, "", `${window.location.pathname}${sourceCorrectionHash(target)}`);
   };
   const closeSourceCorrection = () => {
+    if (!canLeaveDraft()) return;
+    correctionDirtyRef.current = false;
     setCorrectionTarget(undefined);
     setCoverageTarget(undefined);
     window.history.pushState(null, "", `${window.location.pathname}#/sources`);
@@ -3331,8 +3355,8 @@ function AnnouncementSourcesPage(props: any) {
           <button className="btn btn-secondary" type="button" onClick={closeSourceCorrection}><RotateCcw size={16} /> Uyarılara geri dön</button>
           <span>Bağımsız düzeltme ekranı</span>
         </div>
-        {coverageTarget && !contentTarget ? <CoverageUrlCorrection key={JSON.stringify(coverageTarget)} target={coverageTarget} request={props.request} />
-          : <AcademicSourcePanel {...props} correctionTarget={correctionTarget ?? contentTarget} />}
+        {coverageTarget && !contentTarget ? <CoverageUrlCorrection key={JSON.stringify(coverageTarget)} target={coverageTarget} request={props.request} onDirtyChange={reportCorrectionDirty} />
+          : <AcademicSourcePanel {...props} correctionTarget={correctionTarget ?? contentTarget} onDirtyChange={reportCorrectionDirty} />}
       </section>
     );
   }
@@ -3347,8 +3371,10 @@ function AnnouncementSourcesPage(props: any) {
         </div>
       </section>
       <SourceHealthInbox {...props} openSourceCorrection={openSourceCorrection} />
-      <AcademicSourcePanel {...props} />
+      <AcademicSourcePanel {...props} onDirtyChange={reportCorrectionDirty} />
       <SourceCoveragePanel {...props} openCoverageCorrection={(item: SourceCoverageItem) => {
+        if (!canLeaveDraft()) return;
+        correctionDirtyRef.current = false;
         const target = { universityId: item.universityId, facultyId: item.facultyId, scopeId: item.scopeId, scopeType: item.scopeType, sourceType: item.sourceType };
         setCoverageTarget(target);
         window.history.pushState(null, "", `${window.location.pathname}#/sources?${new URLSearchParams({ fix: "coverage", ...target })}`);
@@ -3368,7 +3394,8 @@ function AcademicSourcePanel(props: any) {
   (props.universities.data ?? []).forEach((unit: UniversityRecord) => universities.set(unit.id, unit));
   return <AcademicSourceWorkbench key={props.sessionGeneration} request={props.request} sources={props.announcementSources.data} onSourcesChanged={props.onSourcesChanged} universities={[...universities.values()].sort((left, right) => left.name.localeCompare(right.name, "tr-TR"))}
     correctionTarget={props.correctionTarget}
-    onUnitSelected={(universityId) => { if (!props.correctionTarget) void props.loadSourceCoverage({ universityId, offset: 0 }); }}
+    onDirtyChange={props.onDirtyChange}
+    onUnitSelected={(universityId) => { if (!props.correctionTarget) void props.loadSourceCoverage({ universityId, search: "", offset: 0 }); }}
     renderPreview={(preview) => <SourceProfilePreview preview={preview} />}
     renderUniversity={(universityId, onDirtyChange) => {
       const university = profiles.find((candidate) => candidate.universityId === universityId);

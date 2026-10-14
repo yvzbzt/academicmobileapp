@@ -1,5 +1,5 @@
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -79,11 +79,23 @@ test("every branch in the audited live catalog is reachable without a source rec
 });
 test.afterAll(() => server?.kill());
 
+async function expandCoverage(coverage: Locator) {
+  // Each level is mounted only after its parent opens, just as in the UI.
+  for (const level of ["coverageUniversity", "coverageFaculty", "coverageDepartment"]) {
+    const blocks = coverage.locator(`details.${level}`);
+    for (const block of await blocks.all()) {
+      if (await block.getAttribute("open") === null) await block.locator(":scope > summary").click();
+      await expect(block.locator(":scope > .coverageGroupBody")).toBeVisible();
+    }
+  }
+}
+
 test("coverage follows university selection and corrections open the exact unit", async ({ page }) => {
   const user = { id: "admin", email: "admin@qa.local", fullName: "Test", role: "super_admin" };
   const universities = [{ id: "u1", name: "Abdullah Gül Üniversitesi" }, { id: "u2", name: "İkinci Üniversitesi" }];
   const writes: any[] = [];
   const coverageRequests: string[] = [];
+  let rejectNextCatalogSave = false;
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route(`${api}/**`, async (route) => {
@@ -114,7 +126,10 @@ test("coverage follows university selection and corrections open the exact unit"
       return json({ total: items.length, items, summary: { catalog: { universities: 2, academicUnits: 4 }, byResolution: { missing: 14, quarantined: 0, verified: 0, legacy_unverified: 0 } } });
     }
     if (path === "/admin/announcements/review-items") return json({ items: [], total: 0 });
-    if (route.request().method() === "PATCH") { writes.push({ path, body: route.request().postDataJSON() }); return json({ status: "ok" }); }
+    if (route.request().method() === "PATCH") {
+      if (rejectNextCatalogSave) { rejectNextCatalogSave = false; return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ message: "Invalid bearer token." }) }); }
+      writes.push({ path, body: route.request().postDataJSON() }); return json({ status: "ok" });
+    }
     return json([]);
   });
   await page.addInitScript(({ user }) => sessionStorage.setItem("academic-calendar-admin-session", JSON.stringify({ accessToken: "coverage-token", user })), { user });
@@ -124,33 +139,165 @@ test("coverage follows university selection and corrections open the exact unit"
   await tree.locator('[data-unit-key="university:u1"] > .academicTreeRow .academicTreeSelect').click();
   await tree.locator('[data-unit-key="university:u2"] > .academicTreeRow .academicTreeSelect').click();
   await expect(coverage.getByLabel("Kapsam üniversitesi")).toHaveValue("u2");
-  await expect(coverage.locator(".coverageItem").first()).toContainText("İkinci Üniversitesi");
+  await expect(coverage.locator(".coverageUniversity > summary")).toContainText("İkinci Üniversitesi");
   await page.waitForTimeout(250);
-  await expect(coverage.locator(".coverageItem").first()).not.toContainText("Abdullah Gül");
+  await expect(coverage.locator(".coverageUniversity > summary")).not.toContainText("Abdullah Gül");
+  await expandCoverage(coverage);
   await coverage.locator(".coverageItem").first().getByRole("button", { name: "Düzelt", exact: true }).click();
   await expect(page).toHaveURL(/fix=coverage/);
   await expect(page.locator(".coverageUrlCorrection h2")).toHaveText("Bilgisayar Mühendisliği");
   await page.getByLabel("Ders programı adresi", { exact: true }).fill("https://qa.edu.tr/courses");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Uyarılara geri dön" }).click();
+  await expect(page).toHaveURL(/fix=coverage/);
+  await expect(page.getByLabel("Ders programı adresi", { exact: true })).toHaveValue("https://qa.edu.tr/courses");
+  expect(writes).toEqual([]);
+  const unloadBlocked = () => page.evaluate(() => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; });
+  expect(await unloadBlocked()).toBe(true);
+  rejectNextCatalogSave = true;
+  await page.getByRole("button", { name: "Adresi Kaydet" }).click();
+  await expect(page.locator(".coverageUrlCorrection [role=alert]")).toContainText("401");
+  await expect(page.getByLabel("Ders programı adresi", { exact: true })).toHaveValue("https://qa.edu.tr/courses");
+  expect(writes).toEqual([]);
+  expect(await unloadBlocked()).toBe(true);
   await page.getByRole("button", { name: "Adresi Kaydet" }).click();
   await expect(page.getByRole("status")).toContainText("Adres kaydedildi");
+  expect(await unloadBlocked()).toBe(false);
   expect(writes).toEqual([{ path: "/admin/departments/u2-f-d", body: { courseScheduleUrl: "https://qa.edu.tr/courses" } }]);
   // The link survives a reload; Back returns to the same university filter.
   await page.reload();
   await expect(page.locator(".coverageUrlCorrection h2")).toHaveText("Bilgisayar Mühendisliği");
   await page.getByRole("button", { name: "Uyarılara geri dön" }).click();
   await coverage.getByLabel("Kapsam üniversitesi").selectOption("u2");
-  await expect(coverage.locator(".coverageItem").first()).toContainText("İkinci Üniversitesi");
+  await expect(coverage.locator(".coverageUniversity > summary")).toContainText("İkinci Üniversitesi");
+  await expandCoverage(coverage);
   for (const sourceType of ["announcement", "news", "event"]) {
     await coverage.locator(".coverageItem").filter({ hasText: sourceType === "announcement" ? "Duyuru" : sourceType === "news" ? "Haber" : "Etkinlik" }).getByRole("button", { name: "Düzelt", exact: true }).click();
     await expect(page.locator(".academicSelectionHeader h3")).toHaveText("Bilgisayar Mühendisliği");
     await expect(page.locator(".academicContentTabs button.selected")).toHaveText(sourceType === "announcement" ? "Duyuru" : sourceType === "news" ? "Haber" : "Etkinlik");
+    if (sourceType === "news") {
+      await page.getByLabel("Kaynak adı", { exact: true }).fill("Korunacak haber taslağı");
+      page.once("dialog", (dialog) => dialog.dismiss());
+      await page.getByRole("button", { name: "Uyarılara geri dön" }).click();
+      await expect(page.getByLabel("Kaynak adı", { exact: true })).toHaveValue("Korunacak haber taslağı");
+      page.once("dialog", (dialog) => dialog.accept());
+    }
     await page.getByRole("button", { name: "Uyarılara geri dön" }).click();
+    await expect(coverage.locator(".coverageUniversity > summary")).toContainText("İkinci Üniversitesi");
+    await expandCoverage(coverage);
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await coverage.locator(".coverageItem").filter({ hasText: "Web sitesi" }).getByRole("button", { name: "Düzelt", exact: true }).click();
   await expect(page.getByLabel("Web sitesi adresi", { exact: true })).toHaveValue("https://qa.edu.tr/department");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(coverageRequests).toContain("u2");
+  expect(errors).toEqual([]);
+});
+
+test("coverage groups repeated sources, searches automatically and preserves paging and correction", async ({ page }) => {
+  const user = { id: "admin", email: "admin@qa.local", fullName: "Test", role: "super_admin" };
+  const universities = [{ id: "agu", name: "Abdullah Gül Üniversitesi" }, { id: "selcuk", name: "Selçuk Üniversitesi" }];
+  const faculties = universities.flatMap((university) => ["Mühendislik Fakültesi", "Mimarlık Fakültesi"].map((name, index) => ({
+    id: `${university.id}-f${index}`, universityId: university.id, name
+  })));
+  const departments = faculties.flatMap((faculty) => Array.from({ length: 4 }, (_, index) => ({
+    id: `${faculty.id}-d${index}`, facultyId: faculty.id, universityId: faculty.universityId, name: `Bölüm ${index}`
+  })));
+  const records = universities.flatMap((university) => faculties.filter((faculty) => faculty.universityId === university.id).flatMap((faculty) =>
+    [faculty, ...departments.filter((department) => department.facultyId === faculty.id)].flatMap((unit) =>
+      ("facultyId" in unit ? ["homepage", "announcement", "news", "event", "academic_calendar", "course_schedule", "exam_schedule"] : ["announcement"]).map((sourceType) => ({
+        id: `${unit.id}:${sourceType}`, universityId: university.id, universityName: university.name,
+        facultyId: faculty.id, facultyName: faculty.name, scopeId: unit.id, scopeName: unit.name,
+        scopeType: "facultyId" in unit ? "department" : "faculty", departmentName: "facultyId" in unit ? unit.name : undefined,
+        sourceType, resolution: "missing", missingReason: `no_registered_${"facultyId" in unit ? "department" : "faculty"}_${sourceType}_source`
+      }))
+    )));
+  const coverageRequests: URL[] = [];
+  const errors: string[] = [];
+  let delayOldSearch = false;
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route(`${api}/**`, async (route) => {
+    const url = new URL(route.request().url());
+    const json = (value: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(value) });
+    if (url.pathname === "/me") return json(user);
+    if (url.pathname === "/universities") return json(universities);
+    if (url.pathname === "/admin/announcements/source-profiles") return json({ universities: [] });
+    if (url.pathname === "/admin/source-coverage") {
+      coverageRequests.push(url);
+      const search = url.searchParams.get("search")?.toLocaleLowerCase("tr-TR");
+      if (delayOldSearch && search === "abdullah") await new Promise((resolve) => setTimeout(resolve, 900));
+      const filtered = records.filter((record) => (!search || record.universityName.toLocaleLowerCase("tr-TR").includes(search))
+        && (!url.searchParams.get("universityId") || record.universityId === url.searchParams.get("universityId"))
+        && (!url.searchParams.get("sourceType") || record.sourceType === url.searchParams.get("sourceType")));
+      const offset = Number(url.searchParams.get("offset") || 0), limit = Number(url.searchParams.get("limit") || 50);
+      return json({ total: filtered.length, items: filtered.slice(offset, offset + limit), summary: {
+        catalog: { universities: 2, academicUnits: faculties.length + departments.length },
+        byResolution: { missing: filtered.length, quarantined: 0, verified: 0, legacy_unverified: 0 }
+      } });
+    }
+    const uid = /^\/universities\/([^/]+)\/faculties$/.exec(url.pathname)?.[1];
+    if (uid) return json(faculties.filter((faculty) => faculty.universityId === uid));
+    const fid = /^\/faculties\/([^/]+)\/departments$/.exec(url.pathname)?.[1];
+    if (fid) return json(departments.filter((department) => department.facultyId === fid));
+    return json([]);
+  });
+  await page.addInitScript(({ user }) => sessionStorage.setItem("academic-calendar-admin-session", JSON.stringify({ accessToken: "coverage-token", user })), { user });
+  await page.goto(`${base}#/sources`);
+  const coverage = page.locator(".sourceCoveragePanel");
+  await expect(coverage.locator(".coverageUniversity > summary")).toContainText("Abdullah Gül");
+  await expect(coverage.locator(".coverageItem")).toHaveCount(0); // Collapsed blocks do not mount rows.
+  await coverage.getByRole("button", { name: "Sonraki", exact: true }).click();
+  await expect(coverage.locator(".coverageUniversity")).toHaveCount(2);
+  const search = coverage.getByLabel("Kaynak kapsamında ara");
+  await search.fill("Selçuk"); // No Enter / Filtrele needed.
+  await expect(coverage.locator(".coverageUniversity > summary")).toHaveText(/Selçuk Üniversitesi.*50 kayıt/);
+  await expect(coverage.locator(".reviewPagination")).toContainText("1–50 / 58");
+  await coverage.locator(".coverageUniversity > summary").press("Enter");
+  await expect(coverage.locator(".coverageFaculty")).toHaveCount(2);
+  await coverage.locator(".coverageFaculty > summary").first().click();
+  await expect(coverage.locator(".coverageFacultyGeneral .coverageItem")).toHaveCount(1);
+  await expect(coverage.locator(".coverageDepartment")).toHaveCount(4);
+  const department = coverage.locator(".coverageDepartment").first();
+  await department.locator(":scope > summary").click();
+  await expect(department.locator(".coverageItem")).toHaveCount(7);
+  await expect(department.locator(".coverageItem").filter({ hasText: "Ders programı" })).toContainText("Ders programı kaynağı kayıtlı değil.");
+  await expect(department.locator(".coverageTechnical code").first()).not.toBeVisible();
+  await department.locator(".coverageTechnical > summary").first().click();
+  await expect(department.locator(".coverageTechnical code").first()).toHaveText("selcuk-f0-d0");
+  await coverage.getByRole("button", { name: "Sonraki", exact: true }).click();
+  await expect(coverage.locator(".coverageUniversity > summary")).toHaveText(/Selçuk Üniversitesi.*8 kayıt/);
+  await expect(coverage.locator(".reviewPagination")).toContainText("51–58 / 58");
+  await coverage.getByRole("button", { name: "Önceki", exact: true }).click();
+  await expect(coverage.locator(".reviewPagination")).toContainText("1–50 / 58");
+  // A delayed old search must never restore Abdullah Gül after a newer search.
+  delayOldSearch = true;
+  await search.fill("Abdullah");
+  await expect.poll(() => coverageRequests.at(-1)?.searchParams.get("search")).toBe("Abdullah");
+  await search.fill("Selçuk");
+  await expect(coverage.locator(".coverageUniversity > summary")).toContainText("Selçuk");
+  await page.waitForTimeout(950);
+  await expect(coverage.locator(".coverageUniversity > summary")).not.toContainText("Abdullah");
+  await search.fill("");
+  await coverage.getByLabel("Kapsam üniversitesi").selectOption("selcuk");
+  await coverage.getByLabel("Kaynak türü").selectOption("news");
+  await expect(coverage.locator(".coverageUniversity > summary")).toHaveText(/Selçuk Üniversitesi.*8 kayıt/);
+  await search.fill("Selçuk");
+  await expect.poll(() => coverageRequests.at(-1)?.searchParams.get("search")).toBe("Selçuk");
+  await page.locator('.academicTreeSelect').filter({ hasText: "Abdullah Gül Üniversitesi" }).click();
+  await expect(search).toHaveValue("");
+  await expect(coverage.locator(".coverageUniversity > summary")).toContainText("Abdullah Gül");
+  await coverage.getByLabel("Kapsam üniversitesi").selectOption("selcuk");
+  await expect(coverage.locator(".coverageUniversity > summary")).toHaveText(/Selçuk Üniversitesi.*8 kayıt/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expandCoverage(coverage);
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await coverage.locator(".coverageItem").first().getByRole("button", { name: "Düzelt", exact: true }).click();
+  await expect(page).toHaveURL(/scopeId=selcuk-f0-d0.*sourceType=news/);
+  await expect(page.locator(".academicSelectionHeader h3")).toHaveText("Bölüm 0");
+  await expect(page.locator(".academicContentTabs button.selected")).toHaveText("Haber");
   expect(errors).toEqual([]);
 });
 
@@ -295,8 +442,15 @@ test("all academic units, paginated sources and every parser field can be edited
     for (const [name, value] of Object.entries(fields)) await expect(editor.locator(`input[name="${name}"]`)).toHaveValue(value);
     await editor.getByLabel("Öncelik", { exact: true }).fill("75");
     await editor.getByLabel("Kontrol aralığı (dakika)", { exact: true }).fill("60");
+    const refreshFails = scope === "department" && type === "announcement";
+    if (refreshFails) failNextSourcesRead = true;
     await editor.getByRole("button", { name: "Kaydet", exact: true }).click();
-    await expect(editor).toContainText("Kaynak oluşturuldu");
+    if (refreshFails) {
+      await expect(editor.getByRole("alert").filter({ hasText: "kaynak listesi yenilenemedi" })).toContainText("İşlem tamamlandı ancak kaynak listesi yenilenemedi");
+      await expect(editor.locator("select").first()).toHaveValue(/^new-/);
+      await expect(editor.getByLabel("Kaynak adı", { exact: true })).toHaveValue(`${scope} ${label}`);
+      await expect(editor.getByRole("button", { name: "Test Et / Önizle", exact: true })).toBeEnabled();
+    } else await expect(editor).toContainText("Kaynak oluşturuldu");
     expect(writes.filter((write) => write.path === "/admin/announcements/sources").at(-1)?.body).toMatchObject({ scopeType: scope, universityId: scope === "university" ? "u2" : "u1", ...(scope !== "university" ? { facultyId: "f44" } : {}), ...(scope === "department" ? { departmentId: "d74" } : {}), contentType: type, parserConfig: fields, priority: 75, fetchIntervalMinutes: 60 });
     await editor.getByLabel("Çalışma durumu").selectOption("active");
     await editor.getByLabel("Parser", { exact: true }).selectOption("rss");

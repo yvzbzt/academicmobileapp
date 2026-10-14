@@ -16,6 +16,7 @@ interface Props {
   sources?: AnnouncementSourceRecord[];
   correctionTarget?: SourceCorrectionTarget;
   onUnitSelected?: (universityId: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onSourcesChanged: (sources: AnnouncementSourceRecord[]) => void;
   renderUniversity: (universityId: string, onDirtyChange: (dirty: boolean) => void) => ReactNode;
   renderPreview: (preview: AnnouncementSourcePreview) => ReactNode;
@@ -59,6 +60,7 @@ export function AcademicSourceWorkbench(props: Props) {
   const loadRef = useRef(0);
   const appliedCorrection = useRef("");
   const dirtyRef = useRef(false);
+  function reportDirty(dirty: boolean) { dirtyRef.current = dirty; props.onDirtyChange?.(dirty); }
   const treeScrollRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef(props.request);
   apiRef.current = props.request;
@@ -86,7 +88,7 @@ export function AcademicSourceWorkbench(props: Props) {
   async function openUnit(unit: Selection, select = true) {
     if (select && (selection?.id !== unit.id || selection.scope !== unit.scope || inlineCorrection)) {
       if (dirtyRef.current && !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden ayrılmak istiyor musunuz?")) return;
-      dirtyRef.current = false;
+      reportDirty(false);
       setInlineCorrection(undefined);
       setCorrectionError("");
       setSelection(unit);
@@ -125,7 +127,7 @@ export function AcademicSourceWorkbench(props: Props) {
     const controller = new AbortController();
     appliedCorrection.current = "";
     setSelection(undefined);
-    dirtyRef.current = false;
+    reportDirty(false);
     setCorrectionError("");
     void (async () => {
       if (!source && !target.scopeId) throw new Error("Düzeltilecek kaynak bulunamadı. Uyarı listesini yenileyin.");
@@ -159,7 +161,7 @@ export function AcademicSourceWorkbench(props: Props) {
       }
       if (controller.signal.aborted) return;
       appliedCorrection.current = targetKey;
-      dirtyRef.current = false;
+      reportDirty(false);
       setExpanded(nextExpanded);
       setSelection(selected);
     })().catch((cause) => { if (!controller.signal.aborted) setCorrectionError(errorText(cause)); });
@@ -239,7 +241,7 @@ export function AcademicSourceWorkbench(props: Props) {
               const title = source.scopeType === "faculty" && faculty ? faculty.name : source.sourceName.replace(universityName, "").trim();
               return <button type="button" key={source.id} className="academicProblemButton" aria-pressed={inlineCorrection?.sourceId === source.id} onClick={() => {
                 if (inlineCorrection?.sourceId === source.id || (dirtyRef.current && !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden ayrılmak istiyor musunuz?"))) return;
-                dirtyRef.current = false;
+                reportDirty(false);
                 setInlineCorrection({ universityId: problemUniversity, sourceId: source.id, contentType: (source.contentType ?? "announcement") as Content });
               }}>
                 {source.scopeType === "department" && faculty && <small>{faculty.name}</small>}
@@ -254,10 +256,11 @@ export function AcademicSourceWorkbench(props: Props) {
       <div className="academicEditorPane">
         {!selection ? <div className="academicEditorEmpty"><Building2 size={32} /><strong>Bir akademik birim seçin</strong><p>Soldaki oklarla fakülteleri ve bölümleri açabilirsiniz.</p></div>
           : <><header className="academicSelectionHeader"><small>{props.universities.find((unit) => unit.id === selection.universityId)?.name} / {selection.scope === "department" ? `${faculties[selection.universityId]?.find((unit) => unit.id === selection.facultyId)?.name ?? "Fakülte"} / Bölüm` : selection.scope === "faculty" ? "Fakülte" : "Üniversite geneli"}</small><h3>{selection.name}</h3></header>
-            {(selection.scope === "university" ? props.renderUniversity(selection.id, (dirty) => { dirtyRef.current = dirty; }) : null)
+            {(selection.scope === "university" ? props.renderUniversity(selection.id, reportDirty) : null)
               ?? <ScopedSourceEditor key={`${selection.scope}:${selection.id}:${correctionTarget?.sourceId ?? ""}`} unit={selection} sources={unitSources(selection)} request={apiRef.current}
                   loading={loading} targetSourceId={correctionTarget?.sourceId || undefined} initialContent={correctionTarget?.contentType} renderPreview={props.renderPreview}
-                  onDirtyChange={(dirty) => { dirtyRef.current = dirty; }} refresh={() => reload(undefined, true)} />}
+                  onSaved={(saved) => props.onSourcesChanged([...sources.filter((source) => source.id !== saved.id), saved])}
+                  onDirtyChange={reportDirty} refresh={() => reload(undefined, true)} />}
           </>}
       </div>
     </div>
@@ -265,7 +268,7 @@ export function AcademicSourceWorkbench(props: Props) {
 }
 
 function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourceRecord[]; request: Api; loading: boolean;
-  refresh: () => Promise<void>; onDirtyChange: (dirty: boolean) => void; renderPreview: Props["renderPreview"]; targetSourceId?: string; initialContent?: string }) {
+  refresh: () => Promise<void>; onSaved: (source: AnnouncementSourceRecord) => void; onDirtyChange: (dirty: boolean) => void; renderPreview: Props["renderPreview"]; targetSourceId?: string; initialContent?: string }) {
   const [content, setContent] = useState<Content>(() => props.sources.find((source) => source.id === props.targetSourceId)?.contentType
     ?? (props.initialContent === "news" || props.initialContent === "event" ? props.initialContent : "announcement"));
   const [sourceId, setSourceId] = useState(props.targetSourceId ?? "");
@@ -314,6 +317,9 @@ function ScopedSourceEditor(props: { unit: Selection; sources: AnnouncementSourc
             ...(props.unit.scope === "department" ? { departmentId: props.unit.id } : {}) })
       });
       const saved = "source" in result ? result.source : result;
+      // The server confirmed this record; retain its ID/CAS fields even if the
+      // subsequent full-list GET fails. Never cache a rejected save.
+      props.onSaved(saved);
       setSourceId(saved.id); markDirty(false); await props.refresh();
       setMessage(source ? "Kaynak ayarları kaydedildi." : "Kaynak oluşturuldu. Önizleyip onayladıktan sonra içerik çekebilirsiniz.");
     });

@@ -672,9 +672,20 @@ textarea:focus-visible {
 .coverageSummary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .coverageSummary span { padding: 7px 10px; border: 1px solid var(--ink-200); border-radius: 999px; background: var(--surface-50); font-size: 12px; }
 .coverageList { display: grid; gap: 9px; }
+.coveragePageHint { margin: 0; color: var(--ink-500); font-size: 12px; }
+.coverageGroup { min-width: 0; border: 1px solid var(--ink-200); border-radius: var(--r-sm); background: var(--surface-50); }
+.coverageGroup > summary { cursor: pointer; padding: 12px; overflow-wrap: anywhere; }
+.coverageGroup > summary span { float: right; margin-left: 8px; color: var(--ink-500); font-size: 12px; }
+.coverageGroup > summary:focus-visible { outline: 2px solid var(--brand-500); outline-offset: -2px; }
+.coverageGroupBody, .coverageFacultyGeneral { display: grid; gap: 8px; min-width: 0; }
+.coverageGroupBody { padding: 0 10px 10px; }
+.coverageFacultyGeneral h3 { margin: 4px 0; font-size: 13px; color: var(--ink-500); }
+.coverageTechnical { font-size: 11px; color: var(--ink-500); }
+.coverageTechnical summary { cursor: pointer; }
+.coverageTechnical code { display: block; margin-top: 4px; }
 .coverageItem {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(140px, .5fr) minmax(260px, 1.5fr) auto;
+  grid-template-columns: minmax(110px, .5fr) minmax(0, 1.5fr) auto;
   gap: 12px;
   align-items: center;
   padding: 11px 12px;

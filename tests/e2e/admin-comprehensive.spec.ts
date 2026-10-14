@@ -6,9 +6,9 @@ import { expect, test, type Locator, type Page, type Route } from "@playwright/t
 type JsonRecord = Record<string, any>;
 
 const cwd = process.cwd();
-const adminPort = 3314;
+const adminPort = Number(process.env.ADMIN_COMPREHENSIVE_TEST_PORT ?? 3314);
 const adminUrl = `http://127.0.0.1:${adminPort}/admin/`;
-const apiBaseUrl = "http://admin-api.qa";
+const apiBaseUrl = process.env.ADMIN_COMPREHENSIVE_API_BASE_URL ?? "http://admin-api.qa";
 const evidenceDir = resolve(cwd, "artifacts", "admin-audit");
 
 let adminProcess: ChildProcessWithoutNullStreams | undefined;
@@ -19,8 +19,10 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   mkdirSync(evidenceDir, { recursive: true });
   const viteBin = resolve(cwd, "node_modules", "vite", "bin", "vite.js");
+  const previewMode = process.env.ADMIN_COMPREHENSIVE_DIST ? ["preview", "--outDir", process.env.ADMIN_COMPREHENSIVE_DIST] : [];
   adminProcess = spawn(process.execPath, [
     viteBin,
+    ...previewMode,
     "--config",
     "apps/admin/vite.config.ts",
     "--host",
@@ -163,7 +165,7 @@ test("all nine super-admin routes and their primary controls render", async ({ p
     { link: "Panel", heading: "Panel", controls: ["Duyuru Kaynakları", "Katalog", "Girişler", "PDF İşlemleri", "Yayınlama", "Kullanıcılar"] },
     { link: "Girişler", heading: "Girişler", controls: ["Üniversite Ekle", "Alan Adını İlişkilendir", "Fakülte Ekle", "Bölüm Ekle", "Dersi Yayınla", "Satır Ekle", "Manuel Taslak Oluştur"] },
     { link: "Katalog", heading: "Katalog", controls: ["Yenile", "Oluştur", "Fakülte Ekle", "Bölüm Ekle"] },
-    { link: "Duyuru Kaynakları", heading: "Duyuru Kaynakları", controls: ["Kaynağı Ekle", "Yenile"] },
+    { link: "Duyuru Kaynakları", heading: "Duyuru Kaynakları", controls: ["Kaynakları yenile", "Program Kuyruğunu Yenile"] },
     { link: "PDF İşlemleri", heading: "PDF İşlemleri", controls: ["Kaynak Oluştur", "İşle", "Kuyruğu Yükle"] },
     { link: "Yayınla", heading: "Yayınla", controls: ["Taslak Oluştur", "Yayınla", "Geri Al"] },
     { link: "Bildirimler", heading: "Bildirimler", controls: ["Zamanı Gelenleri İşle", "Başarısız İşler", "Teslimatlar"] },

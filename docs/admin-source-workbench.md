@@ -38,6 +38,26 @@ Bu yalnızca yerel arayüzdür; yayın veya GitHub push yapmaz. API canlı siste
 
 Üniversite seçilince ağacın üzerinde yalnız o üniversitenin **Sorunlu fakülte ve bölümler** bloğu görünür. Bir kaynağa tıklamak mevcut katalog çözümleyicisini kullanarak doğru birimi, içerik türünü ve kaynak ID'sini sağdaki formda açar; yeni bir düzeltme motoru eklenmez. Kaydedilmemiş form varsa onay istenir. Uyarılar sağlık kontrolünden gelir; bu blok eksik envanter kaydı veya her uyarının gerçek parser hatası olduğunu iddia etmez.
 
+## Eksik envanterin açılır blokları (14 Ekim arayüz sürümü)
+
+`source-coverage-groups.tsx`, mevcut API sayfasını üniversite → fakülte → bölüm kimlikleriyle gruplar. Bölümün farklı kaynak türleri tek blokta kalır; fakülte geneli ayrı gösterilir. Kapalı blokların satırları ancak açılınca oluşturulur. Sayaçlar yalnız dönen sayfayı sayar; diğer kayıtlar Sonraki ile gelir. Envanter kayıtları, düzeltme hedefleri ve onay akışı değişmez.
+
+Eskiden metin araması yalnız Enter/Filtrele ile uygulanıyordu; artık 400 ms beklemeyle uygulanır ve sayfa başa döner. Beklerken önceki sonuçlar gizlenir; mevcut istek sayacı geç gelen eski yanıtları engellemeye devam eder. Kimlikler ve hata kodları Teknik ayrıntı altında tutulur.
+
+Güvenli örnek verili önizleme: http://127.0.0.1:3320/preview/#/sources (`/tmp/admin-coverage-groups-demo.mjs`). Canlı API bağlantısı yoktur; işlemler yalnız bellektedir. Bu geçici süreç/dosyalar kapanma veya yeniden başlatma sonrası yeniden hazırlanmalıdır. 14 Ekim onayıyla bu değişiklikler yalnız admin arayüzünün yayın paketine alınır; demo paketi yayınlanmaz.
+
+### Çalışmaya başlamadan önceki son kontrol
+
+14 Ekim kontrolünde kaynak paneli ve ilgili sözleşmeler için 68 birim testi, giriş/rol kontrolü, dokuz sayfanın açılması, kaynak oluşturma/kaydetme/önizleme/onay, hatalı kayıtta taslağın korunması, gruplama/sayfalama ve 320–1440 px görünümü için 8 tarayıcı testi geçti. Admin TypeScript kontrolü ve üretim derlemesi geçti. Canlı admin HTML'i ve API `/health/ready` yalnız GET ile kontrol edildi; üniversite kayıtlarına test yazımı yapılmadı.
+
+Ek tam katalog tarayıcı testi de geçti: 12 Ekim salt-okuma anlık görüntüsündeki 209 üniversite, 2.985 fakülte ve 14.966 bölüm ağaca eksiksiz işlendi ve açıldı. Bu test yerel sahte API ile anlık görüntüyü yeniden oynatır; bütün üniversite sitelerinin HTML/parser doğrulaması veya bugünkü canlı katalog taraması değildir.
+
+Adres/kaynak düzeltme ekranında kaydedilmemiş taslakla Uyarılara geri dön seçilince artık onay istenir; iptal taslağı korur. Kaynak sayfasında kaydedilmemiş taslak varsa sayfa yenileme/kapatma için tarayıcı uyarısı da etkinleşir. Başarısız Kaydet taslağı temizlemez. Ağaçtan başka üniversite seçilince önceki metin araması temizlenir; kaynak türü gibi diğer filtreler korunur. Bu korumalar ve açılır envanter blokları 14 Ekim admin arayüz sürümünün kapsamındadır; mevcut API ve içerik worker'ı korunur.
+
+Kaydet yanıtı başarılıysa dönen kaynak kaydı, liste yenilemesinden önce mevcut yerel kaynak listesine kimliğiyle birleştirilir. Sonraki GET 503/zaman aşımı verirse yeni kaynak kimliği ve CAS alanları kaybolmaz; kullanıcı yanlışlıkla ikinci POST oluşturmaz. Reddedilen Kaydet yanıtı yerel kayıtlara eklenmez. Ayrı liste yenileme hatası yine görünür kalır.
+
+Gerçek iş için `https://academic-api.anssoft.com.tr/admin/#/sources` kullanılır. 3320 önizlemesindeki Kaydet işlemleri örnek verilere gider, gerçek üniversite ayarlarını güncellemez. Sağlık uyarısı ile yayımlanmış eksik envanter aynı veri değildir; bir adresi kaydetmek envanter uyarısını anında kaldırmaz. Dış üniversite sitelerinin değişmesi/zaman aşımı her kaynak için ayrıca Test Et/Önizle ile değerlendirilir.
+
 ## Boş liste / eski içerik ayrımı
 
 Önceki mantık `0 içerik → seçici bozuk` idi. Ortak runtime artık Selçuk'un doğrulanmış boş-liste işaretini ve güncellik filtresine takılan kayıtları ayrı kodlarla bildirir. Önizleme ve günlük sağlık kontrolü bunları `degraded` bilgi/uyarı durumu olarak kaydeder; başarısızlık sayısını artırmaz, kaynağı onaylamaz, kayıtlı içerikleri silmez. Gerçek seçici/erişim/güvenlik hataları korunur. Yönetici ekranı teknik kod yerine Türkçe açıklama gösterir. Bu değişiklik yalnız arayüz yayınıyla etkinleşmez; API/runtime yayını da gerekir.
